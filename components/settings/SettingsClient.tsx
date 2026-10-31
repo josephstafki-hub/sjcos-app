@@ -16,7 +16,7 @@ import {
   updateBillingRates,
 } from "@/lib/actions/settings";
 import { setUserActive } from "@/lib/actions/users";
-import { AddUserButton, StaffAccessButton } from "./TeamAccess";
+import { AddUserButton, ResetPasswordButton, StaffAccessButton } from "./TeamAccess";
 import { runAction } from "@/lib/run-action";
 import { ClipTokenCard } from "./ClipTokenCard";
 import { IntakeTokenCard } from "./IntakeTokenCard";
@@ -382,15 +382,17 @@ export function SettingsClient({ data, initialSection = "profile" }: { data: Set
               {data.team.map((m, i) => (
                 <div
                   key={m.id ?? m.name}
-                  className={`flex items-center gap-3 px-4 py-3 ${i ? "border-t border-rule-soft" : ""} ${
+                  className={`flex flex-wrap items-start gap-3 px-4 py-3 ${i ? "border-t border-rule-soft" : ""} ${
                     m.active === false ? "opacity-55" : ""
                   }`}
                 >
                   <Avatar initials={m.initials} size="sm" kind={m.chip === "accent" ? "accent" : m.chip === "ai" ? "ai" : "gray"} />
-                  <div className="min-w-0 flex-1">
+                  <div className="min-w-0 flex-1 basis-48">
                     <div className="text-subheading font-semibold text-ink">{m.id ? <Link href={`/settings/team/${m.id}`} className="hover:underline">{m.name}</Link> : m.name}</div>
                     <div className="text-meta text-ink-3">{m.role}</div>
                   </div>
+                  <div className="flex basis-full flex-wrap items-center gap-2 @3xl/page:basis-auto">
+                  {m.id && !m.isOwner && <ResetPasswordButton id={m.id} name={m.name} />}
                   {/* Team members get an Access editor; every real non-owner row gets enable/disable. */}
                   {m.id && m.roleKey === "staff" && (
                     <StaffAccessButton id={m.id} name={m.name} email={m.email ?? ""} permissions={m.permissions ?? []} />
@@ -400,6 +402,7 @@ export function SettingsClient({ data, initialSection = "profile" }: { data: Set
                   ) : (
                     <Chip kind={m.chip}>{m.chip === "accent" ? "owner" : m.chip === "ai" ? "system" : "guest"}</Chip>
                   )}
+                  </div>
                 </div>
               ))}
             </Card>

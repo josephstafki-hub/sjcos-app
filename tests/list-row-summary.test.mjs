@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { structuredRowSummary } from '../lib/list-row-summary.ts';
+import { structuredRowSummary, withoutRepeatedClientPrefix } from '../lib/list-row-summary.ts';
 test('open task title and known due day take precedence over last contact', () => {
   assert.equal(structuredRowSummary({ title: 'Confirm tile delivery', due: 'Nov 2' }, 'Oct 28'), 'Confirm tile delivery · Due Nov 2');
 });
@@ -25,4 +25,15 @@ test('row disclosure keeps structured facts and full source narrative separately
   assert.equal(tree.props.children[1].props.children, text);
   assert.ok(JSON.stringify(tree.props.children[0]).includes(summary));
   assert.equal(exports.NextStep({ summary, text: '' }).type, 'p');
+  const longTask = 'Confirm the final delivery appointment with the supplier and coordinate access with the client before the installation crew arrives on site';
+  assert.equal(exports.NextStep({ summary: longTask, text: longTask }).type, 'details', 'long single-record summaries must remain expandable');
+});
+
+test('only a leading repeated client prefix is removed', () => {
+  assert.equal(withoutRepeatedClientPrefix('Alcantara: confirm the closet layout', 'Alcantara · Closet'), 'confirm the closet layout');
+  assert.equal(withoutRepeatedClientPrefix('Egan: cut joist after approval', 'Molly Egan'), 'cut joist after approval');
+  assert.equal(withoutRepeatedClientPrefix('Rob Whitcomb: call about scope', 'Rob Whitcomb'), 'call about scope');
+  assert.equal(withoutRepeatedClientPrefix('Supplier: confirm delivery', 'Molly Egan'), 'Supplier: confirm delivery');
+  assert.equal(withoutRepeatedClientPrefix('Call Egan: discuss scope', 'Molly Egan'), 'Call Egan: discuss scope');
+  assert.equal(withoutRepeatedClientPrefix('Next: call Egan', 'Molly Egan'), 'Next: call Egan');
 });

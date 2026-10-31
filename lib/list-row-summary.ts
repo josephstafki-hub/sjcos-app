@@ -14,3 +14,14 @@ export function nextRowTodoSql(entity: "projects" | "leads"): string {
       AND w.archived_at IS NULL AND w.status NOT IN ('done', 'cancelled')
     ORDER BY w.due_at ASC NULLS LAST, w.created_at ASC, w.id LIMIT 1)`;
 }
+
+/** Remove only a leading name already visible on the row; preserve other source text. */
+export function withoutRepeatedClientPrefix(text: string, name: string): string {
+  const match = text.match(/^([^:\n]+):\s*/);
+  if (!match) return text;
+  const words = (value: string) => value.toLocaleLowerCase("en-US").match(/[\p{L}\p{N}]+/gu) ?? [];
+  const prefix = words(match[1]);
+  const client = words(name);
+  return prefix.length && prefix.every(word => word.length >= 3 && client.includes(word))
+    ? text.slice(match[0].length) : text;
+}

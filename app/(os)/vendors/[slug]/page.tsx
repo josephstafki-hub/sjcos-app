@@ -33,6 +33,7 @@ export default async function VendorDetailPage({
   return (
     <Shell breadcrumb={`VENDORS › ${vendor.name}`}>
       <div className="mx-auto max-w-6xl px-4 pb-16 pt-6 @2xl/page:px-7">
+        <Button href="/vendors" variant="ghost" className="mb-3">Back to vendors</Button>
         <PageHeader
           variant="record"
           title={vendor.name}
@@ -133,7 +134,7 @@ export default async function VendorDetailPage({
                   ["Phone", formatUsPhone(vendor.phone) || "Not recorded"],
                   ["Favorite", vendor.fav ? "Yes" : "No"],
                 ].map(([k, v]) => (
-                  <div key={k} className="grid grid-cols-[80px_1fr] gap-3">
+                  <div key={k} className="flex flex-col gap-1">
                     <dt className="text-meta text-ink-3">{k}</dt>
                     <dd className="min-w-0 break-words [overflow-wrap:anywhere]">
                       {v}

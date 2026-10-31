@@ -17,7 +17,7 @@ const primaryBtn =
   "rounded-md border border-ink bg-ink px-3 py-1.5 text-meta font-semibold text-paper hover:bg-ink-hover";
 const ghostBtn = "rounded-md border border-rule px-3 py-1.5 text-meta font-semibold text-ink-3 hover:bg-paper-2";
 const rowBtn =
-  "inline-flex items-center gap-1 rounded-md border border-rule px-2 py-0.5 text-meta font-semibold text-ink-3 transition-colors hover:bg-paper-2";
+  "inline-flex min-h-11 items-center gap-1 rounded-md border border-rule px-2 py-1 @xl/page:min-h-8 text-meta font-semibold text-ink-3 transition-colors hover:bg-paper-2";
 
 function TextInput({
   name,
@@ -284,7 +284,7 @@ export function StaffAccessButton({
         className={rowBtn}
       >
         <ShieldCheck className="size-3" strokeWidth={1.5} />
-        Access
+        Areas
       </button>
 
       {open && (

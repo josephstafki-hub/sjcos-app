@@ -15,6 +15,7 @@ import {
   TableWrapper,
 } from "@/components/ui";
 import { NewLeadButton } from "./NewLeadButton";
+import { withoutRepeatedClientPrefix } from "@/lib/list-row-summary";
 import { NextStep } from "@/components/projects/NextStep";
 import type { LeadsData } from "@/lib/leads";
 
@@ -44,23 +45,15 @@ export function LeadsClient({ data }: { data: LeadsData }) {
         actions={<NewLeadButton />}
       />
       <input type="search" aria-label="Search leads" placeholder="Search leads, scope or stage…" value={query} onChange={(e) => setQuery(e.target.value)} className="h-11 w-full rounded-md border border-rule bg-card px-3 text-body @xl/page:h-9" />
-      <label className="flex min-w-0 items-center gap-2 text-label">
-        Lead filters
-        <select aria-label="Lead filters" value={filter} onChange={e => { setFilter(e.target.value); setStage("all"); }} className="h-11 min-w-0 flex-1 rounded-md border border-rule bg-card px-2 text-body">
+      <div className="flex min-w-0 items-center gap-2">
+        <select aria-label="Lead filters" value={filter} onChange={e => { setFilter(e.target.value); setStage("all"); }} className="h-11 min-w-0 max-w-[45%] rounded-md border border-rule bg-card px-2 text-body @xl/page:h-9">
           {FILTERS.map(f => <option key={f.value} value={f.value}>{f.label} ({f.value === "All" ? active.length : data.leads.filter(l => f.value === "lost" ? l.stage === "lost" : l.stage !== "lost" && l.temperature === f.value).length})</option>)}
         </select>
-      </label>
-      {filter !== "lost" && (
-        <div>
-          <label className="flex min-w-0 items-center gap-2 text-label">
-            Pipeline stage
-            <select aria-label="Pipeline stage" value={stage} onChange={e => setStage(e.target.value)} className="h-11 min-w-0 flex-1 rounded-md border border-rule bg-card px-2 text-body">
-              <option value="all">All stages ({filtered.length})</option>
-              {data.stages.map(s => <option key={s.key} value={s.key}>{s.label} ({filtered.filter(l => l.stage === s.key).length})</option>)}
-            </select>
-          </label>
-        </div>
-      )}
+        {filter !== "lost" && <select aria-label="Pipeline stage" value={stage} onChange={e => setStage(e.target.value)} className="h-11 min-w-0 max-w-[55%] rounded-md border border-rule bg-card px-2 text-body @xl/page:h-9">
+          <option value="all">All stages ({filtered.length})</option>
+          {data.stages.map(s => <option key={s.key} value={s.key}>{s.label} ({filtered.filter(l => l.stage === s.key).length})</option>)}
+        </select>}
+      </div>
       {!visible.length ? (
         <EmptyState
           title="No leads in this view"
@@ -96,15 +89,15 @@ export function LeadsClient({ data }: { data: LeadsData }) {
                     >
                       {l.name}
                     </Link>
-                    <div className="min-w-0 @4xl/page:hidden"><NextStep text={l.flag?.label ? `${l.flag.label}\n${l.scope}` : l.scope} summary={l.nextSummary} /></div>
-                    <div className="hidden min-w-0 @4xl/page:block @5xl/page:hidden"><NextStep text={l.flag?.label || ""} summary={l.nextSummary} /></div>
+                    <div className="min-w-0 @4xl/page:hidden"><NextStep text={withoutRepeatedClientPrefix(l.flag?.label ? `${l.flag.label}\n${l.scope}` : l.scope, l.name)} summary={withoutRepeatedClientPrefix(l.nextSummary, l.name)} /></div>
+                    <div className="hidden min-w-0 @4xl/page:block @5xl/page:hidden"><NextStep text={withoutRepeatedClientPrefix(l.flag?.label || "", l.name)} summary={withoutRepeatedClientPrefix(l.nextSummary, l.name)} /></div>
                     <div className="mt-1 text-meta text-ink-3 @xl/page:hidden">
                       {l.stageLabelText}
                       {l.value && l.value !== "?" ? ` · ${l.value}` : ""}
                     </div>
                   </TableCell>
                   <TableCell className="hidden max-w-60 @4xl/page:table-cell">
-                    <NextStep text={l.scope || "—"} />
+                    <NextStep text={withoutRepeatedClientPrefix(l.scope || "—", l.name)} context="scope" />
                   </TableCell>
                   <TableCell className="hidden @xl/page:table-cell">
                     <Chip kind={l.stageAdvanced ? "accent" : "ghost"}>
@@ -118,7 +111,7 @@ export function LeadsClient({ data }: { data: LeadsData }) {
                     {l.value === "?" ? "—" : l.value || "—"}
                   </TableCell>
                   <TableCell className="hidden max-w-52 @5xl/page:table-cell">
-                    <NextStep text={l.flag?.label || ""} summary={l.nextSummary} />
+                    <NextStep text={withoutRepeatedClientPrefix(l.flag?.label || "", l.name)} summary={withoutRepeatedClientPrefix(l.nextSummary, l.name)} />
                   </TableCell>
                 </TableRow>
               ))}

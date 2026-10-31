@@ -1,3 +1,4 @@
+import { ChevronRight } from "lucide-react";
 import Link from "next/link";
 import { Shell } from "@/components/shell/Shell";
 import { Button, Card, Chip, Eyebrow, PageHeader } from "@/components/ui";
@@ -21,8 +22,7 @@ export default async function HouzzExitPage() {
     5: { label: "Review reminder policies", href: "/engine/decisions" },
   };
   const titles: Record<number, string> = { 1: "Payments and reconciliation", 2: "Designer workflow verification", 3: "Preserve Houzz records", 4: "Finish existing payment links", 5: "Confirm one sender per action" };
-  const priority = [4, 1, 5, 3, 2];
-  const checklist = [...inv.criteria].sort((a, b) => Number(a.status === "met") - Number(b.status === "met") || priority.indexOf(a.n) - priority.indexOf(b.n));
+  const checklist = [...inv.criteria].sort((a, b) => a.n - b.n);
   const money = (c: number) => `$${(c / 100).toLocaleString("en-US", { minimumFractionDigits: 2 })}`;
   const chip = (s: string) => (s === "met" ? <Chip kind="money">met</Chip> : s === "not_met" ? <Chip kind="flag">not met</Chip> : <Chip kind="ghost">Needs evidence</Chip>);
   return (
@@ -45,7 +45,7 @@ export default async function HouzzExitPage() {
                 <div className="min-w-0 flex-1">
                   <div className="font-medium text-ink">{titles[c.n]}</div>
                   {c.status !== "met" && <Button variant="secondary" size="sm" className="mt-2 h-auto! min-h-11 max-w-full whitespace-normal! py-2 text-left" href={nextActions[c.n].href}>{nextActions[c.n].label}</Button>}
-                  <details className="mt-2"><summary className="cursor-pointer text-meta text-ink-3">Evidence and remaining gaps</summary><p className="mt-2 text-body text-ink-2">{c.title}</p>
+                  <details className="group mt-2"><summary className="flex cursor-pointer list-none items-center gap-1 text-meta text-ink-3 [&::-webkit-details-marker]:hidden"><ChevronRight aria-hidden="true" className="size-4 group-open:rotate-90" />Evidence and remaining gaps</summary><p className="mt-2 text-body text-ink-2">{c.title}</p>
                   {c.evidence.length > 0 && <ul className="mt-1 list-disc pl-5 text-meta text-ink-3">{c.evidence.map((e, i) => <li key={i}>{e}</li>)}</ul>}
                   {c.gaps.length > 0 && <ul className="mt-1 list-disc pl-5 text-meta text-flag">{c.gaps.map((g, i) => <li key={i}>{g}</li>)}</ul>}
                   </details>
@@ -56,7 +56,7 @@ export default async function HouzzExitPage() {
           ))}
         </section>
 
-        <details><summary className="cursor-pointer py-2 text-body text-ink-2">Technical inventory and history</summary>
+        <details className="group"><summary className="flex cursor-pointer list-none items-center gap-1 py-2 text-body text-ink-2 [&::-webkit-details-marker]:hidden"><ChevronRight aria-hidden="true" className="size-4 group-open:rotate-90" />Technical inventory and history</summary>
         <section className="mb-8">
           <Eyebrow muted>Invoices sent and unpaid ({inv.invoices.outstanding.length}) · all invoices {Object.entries(inv.invoices.by_status).map(([k, v]) => `${k} ${v}`).join(" · ") || "none"}</Eyebrow>
           {inv.invoices.outstanding.length === 0 ? (

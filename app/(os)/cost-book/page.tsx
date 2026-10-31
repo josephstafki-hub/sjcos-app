@@ -4,6 +4,7 @@ import { CostBookClient } from "@/components/cost-book/CostBookClient";
 import { AddCostItemButton } from "@/components/cost-book/AddCostItemButton";
 import { getCostBook } from "@/lib/cost-book";
 import { PlanRulesPanel } from "@/components/cost-book/PlanRulesPanel";
+import { MEASURE_DEFS } from "@/lib/plan-measures";
 import { getPlanCostRules } from "@/lib/plan-designs";
 
 export default async function CostBookPage() {
@@ -12,13 +13,14 @@ export default async function CostBookPage() {
     getPlanCostRules(),
   ]);
   const active = data.items.filter((i) => !i.archived).length;
+  const mapped = MEASURE_DEFS.filter(m => planRules.some(r => r.measure === m.key && r.enabled && r.costItemId != null)).length;
 
   return (
     <Shell breadcrumb="COST BOOK · UNIT COSTS">
       <div className="mx-auto max-w-[1100px] px-4 pb-16 pt-6 @2xl/page:px-7">
         <PageHeader
           title="Cost book"
-          meta={`${active} reusable unit costs · labor and material assemblies`}
+          meta={`Plan rules · ${mapped} of ${MEASURE_DEFS.length} mapped · ${active} reusable unit costs below`}
           actions={<AddCostItemButton />}
           className="mb-5"
         />

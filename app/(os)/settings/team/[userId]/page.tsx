@@ -2,15 +2,15 @@ import { SettingsSection } from "@/components/settings/SettingsSection";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Shell } from "@/components/shell/Shell";
-import { Button, Card, Chip, Eyebrow, PageHeader } from "@/components/ui";
+import { Button, Card, Chip, PageHeader } from "@/components/ui";
 import { requireRole } from "@/lib/dal";
 import { query, queryOne } from "@/lib/db";
-import { normalizePermissions } from "@/lib/permissions";
+import { PERMISSIONS, normalizePermissions } from "@/lib/permissions";
 import { authoritySummary } from "@/lib/authority/grants";
 import { runDirect } from "@/lib/commands/db";
 import { AreasSummary, AuthorityEditor } from "@/components/settings/Authority";
 import { UserActiveButton } from "@/components/settings/SettingsClient";
-import { ResetPasswordButton, StaffAccessButton } from "@/components/settings/TeamAccess";
+import { AddUserButton, ResetPasswordButton, StaffAccessButton } from "@/components/settings/TeamAccess";
 
 export const dynamic = "force-dynamic";
 
@@ -35,12 +35,15 @@ export default async function TeamMemberPage({ params }: { params: Promise<{ use
   );
   if (!user) notFound();
   const perms = user.role === "staff" ? normalizePermissions(user.permissions) : [];
-  const [{ live, revoked }, projects, audit] = await Promise.all([
+  const [{ live, revoked }, projects, audit, members] = await Promise.all([
     user.role === "staff" ? authoritySummary(runDirect, user.id) : Promise.resolve({ live: [], revoked: [] }),
     query<{ id: string; name: string }>(`SELECT id, name FROM projects WHERE status <> 'archived' ORDER BY name`).then((r) => r.rows),
     query<{ change: string; actor_label: string; detail: Record<string, unknown>; created_at: string }>(
       `SELECT change, actor_label, detail, created_at::text AS created_at FROM permission_audit WHERE subject_user_id = $1 ORDER BY created_at DESC LIMIT 20`,
       [user.id],
+    ).then((r) => r.rows),
+    query<{ id: string; name: string; email: string; role: string; active: boolean; permissions: string[] | null }>(
+      `SELECT id, name, email, role, active, permissions FROM users ORDER BY (role = 'owner') DESC, (role = 'staff') DESC, name`,
     ).then((r) => r.rows),
   ]);
 
@@ -62,10 +65,10 @@ export default async function TeamMemberPage({ params }: { params: Promise<{ use
 
         {user.role !== "staff" ? (
           <Card className="space-y-3 p-4 text-body text-ink-2">
-            {user.role === "owner" && viewer.id === user.id && <Button href="/settings?section=profile" variant="secondary">Edit your profile</Button>}
-            {user.role === "owner"
+            {user.role === "owner" && viewer.id === user.id && <div><Button href="/settings?section=profile" variant="secondary" className="shrink-0">Edit your profile</Button></div>}
+            <p>{user.role === "owner"
               ? "An owner account sees and may approve everything. Authority is not assigned per type."
-              : "Portal logins (sub / client) hold no areas and no approval authority."}
+              : "Portal logins (sub / client) hold no areas and no approval authority."}</p>
           </Card>
         ) : (
           <div className="flex flex-col gap-4">
@@ -109,6 +112,25 @@ export default async function TeamMemberPage({ params }: { params: Promise<{ use
             </Card>
           </div>
         )}
+        <section aria-label="Team members" className="mt-6">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <h2 className="font-serif text-heading">Team &amp; roles</h2><AddUserButton />
+          </div>
+          <div className="divide-y divide-rule-soft">
+            {members.map(member => {
+              const areas = member.role === "staff" ? normalizePermissions(member.permissions) : [];
+              return <div key={member.id} className="space-y-2 py-3">
+                <Link href={`/settings/team/${member.id}`} aria-current={member.id === user.id ? "page" : undefined} className="text-subheading font-semibold hover:underline">{member.name}</Link>
+                <p className="text-meta text-ink-3">{member.role === "owner" ? "Owner · all areas" : member.role === "staff" ? `Team · ${areas.map(key => PERMISSIONS.find(p => p.key === key)?.label ?? key).join(", ") || "no areas"}` : `${member.role} · portal access`}{!member.active ? " · disabled" : ""}</p>
+                {member.role !== "owner" && <div className="flex flex-wrap items-center gap-2">
+                  <ResetPasswordButton id={member.id} name={member.name} />
+                  {member.role === "staff" && <StaffAccessButton id={member.id} name={member.name} email={member.email} permissions={areas} />}
+                  <UserActiveButton id={member.id} active={member.active} />
+                </div>}
+              </div>;
+            })}
+          </div>
+        </section>
       </SettingsSection>
     </Shell>
   );

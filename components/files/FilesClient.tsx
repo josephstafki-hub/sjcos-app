@@ -316,10 +316,10 @@ export function FilesClient({ data }: { data: FilesData }) {
                     <TableHeader className="w-36 @max-5xl/page:hidden">
                       Job
                     </TableHeader>
-                    <TableHeader className="w-24 @max-xl/page:hidden">
+                    <TableHeader className="w-36 @max-xl/page:hidden">
                       Type
                     </TableHeader>
-                    <TableHeader className="w-24 @max-2xl/page:hidden">
+                    <TableHeader className="w-28 @max-2xl/page:hidden">
                       Modified
                     </TableHeader>
                     <TableHeader numeric className="w-20 @max-5xl/page:hidden">
@@ -364,10 +364,10 @@ export function FilesClient({ data }: { data: FilesData }) {
                         </span>
                       </TableCell>
                       <TableCell className="@max-xl/page:hidden">
-                        <span className="block truncate text-meta text-ink-3" title={f.tag}>{f.tag}</span>
+                        <span className="block break-words text-meta text-ink-3" title={f.tag}>{f.tag}</span>
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-meta text-ink-3 @max-2xl/page:hidden">
-                        <span className="block truncate" title={f.modified}>{f.modified}</span>
+                        <span className="block whitespace-normal" title={f.modified}>{f.modified}</span>
                       </TableCell>
                       <TableCell
                         numeric
@@ -558,7 +558,7 @@ function FileMenu({
       <summary
         aria-label={`Actions for ${file.name}`}
         title="File actions"
-        className="flex size-8 cursor-pointer list-none items-center justify-center rounded-md hover:bg-hover max-sm:size-11"
+        className="flex size-8 cursor-pointer list-none items-center justify-center rounded-md hover:bg-hover max-sm:size-11 [&::-webkit-details-marker]:hidden"
       >
         <MoreHorizontal className="size-4" />
       </summary>

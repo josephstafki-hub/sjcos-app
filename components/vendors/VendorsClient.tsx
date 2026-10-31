@@ -79,10 +79,9 @@ export function VendorsClient({ data }: { data: VendorsData }) {
                     {v.email && <a href={`mailto:${v.email}`} className="inline-flex min-h-11 items-center rounded-md px-3 text-accent-2 hover:bg-hover focus-visible:outline-2 focus-visible:outline-focus">Email</a>}
                   </div>
                   {v.fav && (
-                    <Star
-                      aria-label="Favorite"
-                      className="ml-2 inline size-3 fill-accent text-accent"
-                    />
+                    <span role="img" aria-label={`${v.name} is a favorite vendor`} title="Favorite vendor">
+                      <Star aria-hidden="true" className="inline size-3 fill-accent text-accent" />
+                    </span>
                   )}
                 </TablePrimaryCell>
                 <TableCell className="@max-2xl/page:hidden">

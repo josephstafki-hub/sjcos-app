@@ -17,14 +17,14 @@ export function NewPlanButton({choices}: {choices: {slug:string;name:string;kind
     setError("");start(async()=>{const r=await runAction(()=>createPlanDesign({...(choice.kind==="project"?{projectSlug:choice.slug}:{leadSlug:choice.slug}),name}),{onError:setError});if(r.ok)router.push(`/floor/${r.id}`);});
   }}>
     <h2 className="text-subheading font-semibold">Create a floor plan</h2>
-    <div className="flex flex-wrap items-end gap-3">
-      <label className="flex min-w-0 flex-1 flex-col gap-1 text-label">Project or lead
+    <div className="grid grid-cols-1 items-end gap-3 @3xl/page:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
+      <label className="flex min-w-0 flex-col gap-1 text-label">Project or lead
         <select required disabled={pending} value={target} onChange={e=>setTarget(e.target.value)} className="w-full rounded-md border border-rule bg-paper px-3 py-2 text-body"><option value="">Choose a project or lead…</option>{["project","lead"].map(kind=><optgroup key={kind} label={kind==="project"?"Projects":"Leads"}>{choices.filter(c=>c.kind===kind).map(c=><option key={c.slug} value={`${c.kind}:${c.slug}`}>{c.name}</option>)}</optgroup>)}</select>
       </label>
-      <label className="flex min-w-0 flex-1 flex-col gap-1 text-label">Design name
+      <label className="flex min-w-0 flex-col gap-1 text-label">Design name
         <input required disabled={pending} value={name} onChange={e=>setName(e.target.value)} placeholder="Kitchen, main floor…" className="w-full rounded-md border border-rule bg-paper px-3 py-2 text-body"/>
       </label>
-      <Button type="submit" disabled={pending||!target||!name.trim()}>{pending?"Creating…":"Create plan"}</Button>
+      <Button className="min-h-11" type="submit" disabled={pending||!target||!name.trim()}>{pending?"Creating…":"Create plan"}</Button>
     </div>
     {error&&<p role="alert" className="text-body text-flag">{error}</p>}
   </form>;

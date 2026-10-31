@@ -16,6 +16,9 @@ export function VendorHeaderEdit({
     <Button
       variant="secondary"
       icon={Star}
+      aria-pressed={fav}
+      aria-label={fav ? "Remove vendor from favorites" : "Add vendor to favorites"}
+      title={fav ? "Remove vendor from favorites" : "Add vendor to favorites"}
       disabled={pending}
       onClick={() =>
         start(async () => {

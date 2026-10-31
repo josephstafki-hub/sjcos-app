@@ -123,24 +123,14 @@ export function SubsClient({ data }: { data: SubsData }) {
                   {s.openJobs}
                 </TableCell>
                 <TableCell>
-                  <Chip
-                    kind={
-                      s.coiStatus === "current"
-                        ? "ok"
-                        : s.coiStatus === "expiring"
-                          ? "warn"
-                          : "flag"
-                    }
-                  >
-                    {s.coiStatus === "current"
-                      ? "COI current"
-                      : s.coiStatus === "expiring"
-                        ? "COI expiring"
-                        : s.coiStatus === "expired"
-                          ? "COI expired"
-                          : "COI missing"}
-                  </Chip>
-                  <Link href={`/subs/${s.slug}?tab=Paperwork`} className="mt-2 block text-label text-accent-2 hover:underline">{s.coiStatus === "current" ? "View COI" : "Review / add COI"} →</Link>
+                  <Link href={`/subs/${s.slug}?tab=Paperwork`}
+                    aria-label={`${s.name}: COI ${s.coiStatus === "current" ? "current, view paperwork" : `${s.coiStatus}, review or add paperwork`}`}
+                    title={s.coiStatus === "current" ? "View COI" : "Review or add COI"}
+                    className="inline-flex min-h-11 items-center gap-1 rounded-md px-1 hover:bg-hover focus-visible:outline-2 focus-visible:outline-focus">
+                    <Chip kind={s.coiStatus === "current" ? "ok" : s.coiStatus === "expiring" ? "warn" : "flag"}>
+                      {`COI ${s.coiStatus}`}
+                    </Chip><span aria-hidden="true" className="text-accent-2">→</span>
+                  </Link>
                 </TableCell>
                 <TableCell className="@max-3xl/page:hidden">
                   {s.rate || "—"}

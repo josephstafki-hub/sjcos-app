@@ -7,12 +7,12 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableGroupRow,
   TableHead,
   TableHeader,
   TableRow,
   TableWrapper,
 } from "@/components/ui";
+import { withoutRepeatedClientPrefix } from "@/lib/list-row-summary";
 import { NextStep } from "./NextStep";
 import type { ProjectGroup } from "@/lib/projects";
 
@@ -32,14 +32,14 @@ export function ProjectsClient({ groups, initialFilter }: { groups: ProjectGroup
       .map((g) => ({ ...g, items: g.items.filter((p) => `${p.name} ${p.sub} ${p.stage} ${p.nextSummary}`.toLowerCase().includes(query.trim().toLowerCase())) }))
       .filter((g) => g.items.length > 0);
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <input type="search" aria-label="Search projects" placeholder="Search projects or next steps…" value={query} onChange={(e) => setQuery(e.target.value)} className="h-11 w-full rounded-md border border-rule bg-card px-3 text-body @xl/page:h-9" />
-      <label className="flex min-w-0 items-center gap-2 text-label">
-        Project stage
-        <select aria-label="Project stage" value={filter} onChange={e => setFilter(e.target.value)} className="h-11 min-w-0 flex-1 rounded-md border border-rule bg-card px-2 text-body">
+      <div className="flex items-center gap-2">
+        <label className="sr-only" htmlFor="project-stage">Project stage</label>
+        <select id="project-stage" aria-label="Project stage" value={filter} onChange={e => setFilter(e.target.value)} className="h-11 w-auto min-w-0 max-w-full rounded-md border border-rule bg-card px-2 text-body">
           {FILTERS.map(f => <option key={f.value} value={f.value}>{f.label} ({groups.filter(g => f.value === "all" || g.key === f.value).reduce((n, g) => n + g.items.length, 0)})</option>)}
         </select>
-      </label>
+      </div>
       {!shown.length ? (
         <EmptyState
           title="No projects in this view"
@@ -47,19 +47,19 @@ export function ProjectsClient({ groups, initialFilter }: { groups: ProjectGroup
         />
       ) : (
         <TableWrapper>
-          <Table className="@xl/page:table-fixed">
+          <Table className="@5xl/page:table-fixed">
             <TableHead>
               <tr>
-                <TableHeader className="@xl/page:min-w-[220px]">
+                <TableHeader className="@4xl/page:w-1/3">
                   Project
                 </TableHeader>
                 <TableHeader className="hidden @4xl/page:table-cell">
                   Next step
                 </TableHeader>
-                <TableHeader className="hidden @2xl/page:table-cell">
+                <TableHeader className="hidden w-28 @5xl/page:table-cell">
                   Paid
                 </TableHeader>
-                <TableHeader numeric className="hidden @xl/page:table-cell">
+                <TableHeader numeric className="hidden w-44 @4xl/page:table-cell">
                   Paid / Total
                 </TableHeader>
               </tr>
@@ -67,9 +67,9 @@ export function ProjectsClient({ groups, initialFilter }: { groups: ProjectGroup
             <TableBody>
               {shown.map((g) => (
                 <Fragment key={g.key}>
-                  <TableGroupRow colSpan={4} count={g.items.length}>
-                    {g.title}
-                  </TableGroupRow>
+                  {[{ span: 1, layout: "@4xl/page:hidden" }, { span: 3, layout: "hidden @4xl/page:table-row @5xl/page:hidden" }, { span: 4, layout: "hidden @5xl/page:table-row" }].map(({ span, layout }) => (
+                    <tr key={span} className={layout}><td colSpan={span} className="h-9 bg-paper-2/60 px-3 text-label font-semibold text-ink-2">{g.title}<span className="ml-1.5 font-normal text-ink-3">{g.items.length}</span></td></tr>
+                  ))}
                   {g.items.map((p) => (
                     <TableRow key={p.slug} className="relative">
                       <TableCell twoLine className="@xl/page:min-w-[220px]">
@@ -83,9 +83,9 @@ export function ProjectsClient({ groups, initialFilter }: { groups: ProjectGroup
                           <div className="line-clamp-1 text-meta text-ink-3">{p.sub}</div>
                         )}
                         <div className="min-w-0 @4xl/page:hidden">
-                          <NextStep text={p.stage} summary={p.nextSummary} />
+                          <NextStep text={withoutRepeatedClientPrefix(p.stage, p.name)} summary={withoutRepeatedClientPrefix(p.nextSummary, p.name)} />
                         </div>
-                        <div className="mt-1 tabular-nums text-meta text-ink-3 @xl/page:hidden">
+                        <div className="mt-1 tabular-nums text-meta text-ink-3 @4xl/page:hidden">
                           {p.hasTotal
                             ? `${p.paid} / ${p.value} · ${p.billed}% paid`
                             : p.value
@@ -94,9 +94,9 @@ export function ProjectsClient({ groups, initialFilter }: { groups: ProjectGroup
                         </div>
                       </TableCell>
                       <TableCell className="hidden max-w-64 @4xl/page:table-cell">
-                        <NextStep text={p.stage} summary={p.nextSummary} />
+                        <NextStep text={withoutRepeatedClientPrefix(p.stage, p.name)} summary={withoutRepeatedClientPrefix(p.nextSummary, p.name)} />
                       </TableCell>
-                      <TableCell className="hidden w-28 @2xl/page:table-cell">
+                      <TableCell className="hidden w-28 @5xl/page:table-cell">
                         {p.hasTotal ? (
                           <>
                             <div className="h-1.5 w-20 overflow-hidden rounded-full bg-paper-3">
@@ -115,7 +115,7 @@ export function ProjectsClient({ groups, initialFilter }: { groups: ProjectGroup
                           <span className="text-meta text-ink-3">—</span>
                         )}
                       </TableCell>
-                      <TableCell numeric className="hidden @xl/page:table-cell">
+                      <TableCell numeric className="hidden @4xl/page:table-cell">
                         {p.hasTotal ? (
                           <span className="whitespace-nowrap">
                             {p.paid}{" "}

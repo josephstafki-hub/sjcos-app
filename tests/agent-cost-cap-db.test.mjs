@@ -13,6 +13,7 @@ test("daily agent cost cap: under it runs, at it stops with one alert a day; 0 t
     await cleanFoundation(client);
     await client.query(`TRUNCATE agent_executions RESTART IDENTITY CASCADE`);
     await client.query(`DELETE FROM reminder_log WHERE dedup_key LIKE 'agent-cost-cap:%'`);
+    await client.query(`DELETE FROM push_outbox WHERE kind = 'agent_failure' AND title LIKE 'Agents hit%'`);
     await client.query(`DELETE FROM app_settings WHERE key = $1`, [DAILY_COST_CAP_KEY]);
     await run(`INSERT INTO agent_executions (entry_point, cost_usd) VALUES ('worker', 4.5), ('worker', 3.0)`);
     let c = await dailyCostCap(run);

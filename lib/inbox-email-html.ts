@@ -1,5 +1,5 @@
 import { parseDocument, DomUtils } from 'htmlparser2';
-import { Text } from 'domhandler';
+import { Text, isTag } from 'domhandler';
 
 /** Normalize before sanitizing: Gmail's class/id markers otherwise disappear.
  * Keep attribution and history in one fold, including Outlook's following siblings. */
@@ -48,3 +48,33 @@ export function foldEmailQuotes(html: string): string {
   return DomUtils.getOuterHTML(doc);
 }
 
+
+
+/** Content-first view from sanitized HTML. Re-escape text; allow only safe links.
+ * Flatten layout tables, but retain each leaf row's labels next to its values. */
+export function readableEmailHtml(html:string):string {
+  const doc=parseDocument(html);
+  const escape=(s:string)=>s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
+  function render(node:(typeof doc.children)[number]):string {
+    if(node.type==='text')return escape(node.data);
+    if(!isTag(node))return '';
+    const tag=node.name;
+    if(/^(?:script|style|img|svg|video|audio|iframe|blockquote|head)$/.test(tag))return '';
+    const contents=()=>node.children.map(render).join('');
+    if(tag==='a'){
+      const href=node.attribs.href??'';
+      return /^(?:https?:|mailto:|tel:)/i.test(href)?`<a href="${escape(href)}" target="_blank" rel="noopener noreferrer">${contents()}</a>`:contents();
+    }
+    if(tag==='br')return '<br>';
+    if(tag==='tr'){
+      const cells=node.children.filter(n=>isTag(n)&&/^(?:td|th)$/.test(n.name));
+      const nested=cells.some(c=>DomUtils.findAll(e=>e.name==='table', [c]).length>0);
+      if(nested)return contents();
+      const values=cells.map(render).map(s=>s.trim()).filter(Boolean);
+      return values.length?`<p>${values.join(': ')}</p>`:'';
+    }
+    const value=contents();
+    return /^(?:p|div|h[1-6]|li|section)$/.test(tag)?`<p>${value}</p>`:value;
+  }
+  return doc.children.map(render).join('').replace(/<p>\s*<\/p>/g,'');
+}

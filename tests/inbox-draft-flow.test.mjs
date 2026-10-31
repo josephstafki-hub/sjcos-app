@@ -321,7 +321,7 @@ test('phone composer bounds itself to visual viewport height and moves above key
 });
 
 
-test('plain Done advances after confirmation, clears search and reports remaining; context retains cache and times out with retry',async()=>{
+test('plain Done retains the current split/search and offers Needs me when the pass ends; context retains cache and times out with retry',async()=>{
  const timers=new Map();let timerId=0;const realSet=globalThis.setTimeout,realClear=globalThis.clearTimeout,realFetch=globalThis.fetch;
  globalThis.fetch=async()=>{const data=globalThis.__contextRequest();return {ok:true,json:()=>data};};
  globalThis.setTimeout=fn=>{timers.set(++timerId,fn);return timerId;};globalThis.clearTimeout=id=>timers.delete(id);
@@ -338,13 +338,13 @@ test('plain Done advances after confirmation, clears search and reports remainin
   let panel=find(n=>n.props?.initialData);assert.deepEqual(panel.props.initialData,cached);assert.equal(panel.props.docked,false,'phone strip opens the context sheet');assert.equal(find(n=>n.props?.['aria-label']==='Open person and job context').props['aria-expanded'],true);
   panel.props.onRetry();render();flush();panel=find(n=>n.props?.initialData);assert.deepEqual(panel.props.initialData,cached);
   for(const fn of timers.values())fn();render();flush();panel=find(n=>n.props?.initialData);assert.match(panel.props.loadError,/taking too long/);assert.ok(panel.props.onRetry);
-  find(n=>n.props?.['aria-label']==='Inbox splits'&&n.props?.onChange).props.onChange('clients');render();flush();
-  find(n=>n.props?.['aria-label']==='Search inbox').props.onChange({target:{value:'a'}});render();flush();
+  find(n=>n.props?.['aria-label']==='Inbox splits · loaded conversations'&&n.props?.onChange).props.onChange('clients');render();flush();
+  find(n=>n.props?.['aria-label']==='Search inbox').props.onChange({target:{value:'a@example.test'}});render();flush();
   click('Done');await settle();
-  const selected=find(n=>n.type===ReaderBody);assert.equal(selected.props.threadId,'b');
-  assert.equal(find(n=>n.props?.['aria-label']==='Search inbox').props.value,'');
-  assert.ok(nodes(tree).some(n=>typeof n.props?.children==='string'&&n.props.children.includes('2 left in Needs me')));
-  click('Undo Done');await settle();assert.equal(find(n=>n.props?.['aria-label']==='Inbox splits'&&n.props?.onChange).props.value,'clients');assert.equal(find(n=>n.props?.['aria-label']==='Search inbox').props.value,'a');assert.equal(find(n=>n.type===ReaderBody).props.threadId,'a');
+  assert.equal(find(n=>n.type===ReaderBody),undefined);
+  assert.equal(find(n=>n.props?.['aria-label']==='Search inbox').props.value,'a@example.test');
+  assert.ok(nodes(tree).some(n=>typeof n.props?.children==='string'&&n.props.children.includes('0 left in this pass')));
+  click('Undo Done');await settle();assert.equal(find(n=>n.props?.['aria-label']==='Inbox splits · loaded conversations'&&n.props?.onChange).props.value,'clients');assert.equal(find(n=>n.props?.['aria-label']==='Search inbox').props.value,'a@example.test');assert.equal(find(n=>n.type===ReaderBody).props.threadId,'a');
  }finally{
   cleanups.forEach(fn=>fn?.());cleanups=[];clientData=null;globalThis.setTimeout=realSet;globalThis.clearTimeout=realClear;globalThis.fetch=realFetch;delete globalThis.window;delete globalThis.document;
  }
@@ -363,7 +363,7 @@ test('a draft written before AI generation stays mine until I explicitly use the
 test('remote image consent is explicit and remembered per sender and mailbox without changing screening keys',async()=>{
  globalThis.__imageHtml='<p>Delivery</p><img src="https://tracker.example.test/pixel">';
  const base={threadId:'images',expanded:true,onToggle(){},blockImages:true,mailbox:'joe@example.test'};
- const open=async(email,mailbox='joe@example.test')=>{cardData={...base,mailbox,message:{id:email,fromEmail:email,fromName:email,body:[],initials:'P'}};mount('images');await settle();};
+ const open=async(email,mailbox='joe@example.test')=>{cardData={...base,mailbox,message:{id:email,fromEmail:email,fromName:email,body:[],initials:'P'}};mount('images');await settle();click('Original');};
  const formatted=()=>find(n=>typeof n.type==='function'&&n.type.name==='EmailHtml').props.html;
  try {
   await open('unknown@example.test');assert.doesNotMatch(formatted(),/src="https:/);assert.ok(find(n=>n.props?.children==='Show images'));

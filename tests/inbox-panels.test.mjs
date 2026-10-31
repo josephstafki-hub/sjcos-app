@@ -24,7 +24,7 @@ const stubs={
  '@/lib/actions/inbox-experience':`export const inboxPeopleAction=async()=>[],inboxContextAction=async()=>({todos:[]}),summarizeInboxAction=globalThis.__panels.summarize;`,
  '@/lib/run-action':`export const runAction=async f=>f();`,
 };
-registerHooks({resolve(s,c,n){if(s in stubs&&(s!=='react'||c.parentURL===url))return {url:'stub:'+s,shortCircuit:true};if(s==='@/lib/inbox-experience')return n(new URL('../lib/inbox-experience.ts',import.meta.url).href,c);return n(s,c)},load(u,c,n){if(u===url)return {format:'module',source:ts.transpileModule(readFileSync(new URL(url),'utf8')+'\nexport {DuplicateNotice};',{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText,shortCircuit:true};return u.startsWith('stub:')?{format:'module',source:stubs[u.slice(5)],shortCircuit:true}:n(u,c)}});
+registerHooks({resolve(s,c,n){if(s in stubs&&(s!=='react'||c.parentURL===url))return {url:'stub:'+s,shortCircuit:true};if(s==='@/lib/inbox-rules')return n(new URL('../lib/inbox-rules.ts',import.meta.url).href,c);if(s==='@/lib/inbox-experience')return n(new URL('../lib/inbox-experience.ts',import.meta.url).href,c);return n(s,c)},load(u,c,n){if(u===url)return {format:'module',source:ts.transpileModule(readFileSync(new URL(url),'utf8')+'\nexport {DuplicateNotice};',{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText,shortCircuit:true};return u.startsWith('stub:')?{format:'module',source:stubs[u.slice(5)],shortCircuit:true}:n(u,c)}});
 const {MessageTaskDialog,ThreadSummary,ContactCreateDialog,DuplicateNotice,SenderScreening}=await import(url);
 const thread={id:'thread-1',channel:'email',subject:'Review tile',fromName:'Tom',fromEmail:'tom@example.test',preview:'Please review the tile'};
 const reader={messages:[{id:'message-1',fromName:'Tom',fromEmail:'tom@example.test',body:['Please review the tile'],date:1000}]};
@@ -36,7 +36,7 @@ async function settle(){await Promise.all(pending);pending=[];}
 test('reminder presets select without saving, then one confirmation captures source, chosen day and job',async()=>{
  creates=[];const render=mount(MessageTaskDialog,{thread,reader,remind:true,onClose(){},onCreated(){},options:{projects:[{slug:'kitchen',name:'Kitchen'}],leads:[]}});
  find(n=>n.props?.children==='Monday · 8am').props.onClick();render();assert.equal(creates.length,0);
- find(n=>n.type==='select').props.onChange({target:{value:'project:kitchen'}});render();
+ find(n=>n.props?.role==='combobox').props.onFocus();render();find(n=>n.props?.role==='option'&&n.props.id==='inbox-job-0').props.onClick();render();
  find(n=>n.props?.children==='Set reminder').props.onClick();await settle();assert.equal(creates.length,1);
  assert.equal(creates[0].get('job'),'project:kitchen');assert.deepEqual(JSON.parse(creates[0].get('email')).message_id,'message-1');assert.ok(creates[0].get('due_at'));
  assert.ok(find(n=>n.type==='blockquote').props.children.includes('Please review'));
@@ -45,7 +45,7 @@ test('summary is above history at caller and stays on demand for two messages or
  summaries=0;mount(ThreadSummary,{reader});assert.equal(tree,null);
  const render=mount(ThreadSummary,{reader:{...reader,messages:[...reader.messages,...reader.messages]}});assert.notEqual(tree,null);assert.equal(summaries,0);
  find(n=>n.props?.children==='Summarize').props.onClick();await settle();render();assert.equal(summaries,1);
- mount(ThreadSummary,{reader:{messages:[{...reader.messages[0],body:['x'.repeat(601)]}]}});assert.notEqual(tree,null);assert.equal(summaries,1);
+ mount(ThreadSummary,{reader:{messages:[{...reader.messages[0],body:['word '.repeat(121)]}]}});assert.notEqual(tree,null);assert.equal(summaries,1);
 });
 test('screening contact dialog reuses the appropriate existing create action once',async()=>{
  for(const kind of ['lead','sub','vendor']){
@@ -77,4 +77,16 @@ test('screener gives evidence and one recommended remembered filing action for a
  assert.match(text,/No saved contact.*unsubscribe link.*Looks like a pitch/);
  const action=find(n=>n.props?.variant==='primary');assert.match(action.props.children.join(''),/Always file to Other.*Recommended/);action.props.onClick();assert.equal(filed,1);
  assert.equal(nodes(tree).filter(n=>n.props?.variant==='primary').length,1);
+});
+
+
+test('task controls use presets, an inline calendar and chips instead of browser date/select fields',()=>{
+ const render=mount(MessageTaskDialog,{thread,reader,remind:false,onClose(){},onCreated(){},options:{projects:[],leads:[]}});
+ assert.equal(find(n=>n.type==='select'||n.props?.type==='date'),undefined);
+ assert.ok(find(n=>n.props?.children==='Later today · 3pm'));
+ find(n=>n.props?.children==='Pick a date…').props.onClick();render();
+ assert.ok(find(n=>typeof n.type==='function'&&n.type.name==='MiniCalendar'));
+ assert.equal(find(n=>n.props?.children==='Create to-do').props.disabled,true);
+ assert.ok(find(n=>n.props?.role==='combobox'));
+ assert.ok(find(n=>n.props?.children==='Joe'));
 });

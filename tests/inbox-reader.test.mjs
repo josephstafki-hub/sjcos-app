@@ -129,5 +129,5 @@ test('screening rows expose one Screen control, job-wide tasks have their own cu
  const thread={id:'new',fromName:'Person',initials:'P',channel:'email',when:'2h',preview:'Can you quote this?',newSender:true,jobTodos:[{id:'1'},{id:'2'}]};
  const html=render(ThreadRow,{thread,onSelect(){},onScreen(){}});
  assert.match(html,/Screen…/);assert.doesNotMatch(html,/Add as|Link to existing/);assert.match(html,/2 job to-dos/);
- assert.match(html,/top-1 right-2/);assert.match(html,/group-hover:invisible/);
+ assert.match(html,/top-2 right-2/);assert.match(html,/group-hover:invisible/);
 });

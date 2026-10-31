@@ -8,7 +8,7 @@ import type { InboxLinkKind } from "./inbox-directory";
 // opens a real reader pane. The AI draft-reply card routes through lib/ai.ts —
 // never a provider directly.
 
-import { stageLabel, substantiveSnippet, splitQuotedText, conversationDraftContext, automationDetails, screeningEligible, emailAddress, inquiryReplySubject, isAutomatedSender, isNoReplyAddress, needsMeReason, resolveReplyTarget, type ReplyTarget, type ReplyMessage } from "./inbox-rules";
+import { threadNeedsMe, rememberNeedsCount, stageLabel, substantiveSnippet, splitQuotedText, conversationDraftContext, automationDetails, screeningEligible, emailAddress, inquiryReplySubject, isAutomatedSender, isNoReplyAddress, needsMeReason, resolveReplyTarget, type ReplyTarget, type ReplyMessage } from "./inbox-rules";
 import type { SystemViewKey, ThreadChannel, ThreadStatus } from "./types";
 import { ai } from "./ai";
 import { query } from "./db";
@@ -363,7 +363,7 @@ function countViews(threads: InboxThread[]): Record<ThreadStatus, number> {
     done: 0,
   };
   for (const t of threads) {
-    if (t.view === "needs_reply" && (t.filedOther || t.newSender || (t.automated && !(t.attentionOverride ?? t.attentionRequired)))) continue;
+    if (t.view === "needs_reply" && !threadNeedsMe(t)) continue;
     counts[t.view]++;
   }
   return counts;
@@ -1662,6 +1662,7 @@ async function buildFromGmail(
   attachInquiryContinuity(threads,Object.fromEntries(readerEntries));
   await attachThreadTodos(threads);
   const viewCounts = countViews(threads);
+  rememberNeedsCount(mailbox.email ?? "",viewCounts.needs_reply);
   const channelCounts = countChannels(threads);
 
   // Label rail: ALL user labels with true Gmail totals (threadsTotal), so the

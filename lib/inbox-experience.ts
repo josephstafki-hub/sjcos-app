@@ -1,3 +1,4 @@
+import {threadNeedsMe} from "./inbox-rules.ts";
 import type { InboxThread, InboxTodo, ThreadReader } from "./inbox";
 
 export type InboxTab = "needs" | "clients" | "leads" | "subs" | "new" | "other";
@@ -40,8 +41,7 @@ export function matchesInboxTab(
   draftReady = false,
 ): boolean {
   return tab === "needs"
-    ? !t.filedOther && (!t.automated || Boolean(t.attentionOverride ?? t.attentionRequired)) && (t.automated || inboxBucket(t) !== "new") &&
-        (draftReady || t.view === "needs_reply")
+    ? threadNeedsMe(t, draftReady)
     : inboxBucket(t) === tab && !(tab === "other" && t.automated && matchesInboxTab(t, "needs", draftReady));
 }
 export function tabCounts(
@@ -96,7 +96,7 @@ export function shortcutFor(e: {
     ] ?? null
   );
 }
-function centralDay(now: Date) {
+export function centralDay(now: Date) {
   const p = new Intl.DateTimeFormat("en-US", {
     timeZone: "America/Chicago",
     year: "numeric",
@@ -106,14 +106,16 @@ function centralDay(now: Date) {
   return `${p.find((x) => x.type === "year")!.value}-${p.find((x) => x.type === "month")!.value}-${p.find((x) => x.type === "day")!.value}`;
 }
 /** Calendar arithmetic first, then resolve 08:00 Central; never add 24h over DST. */
+export type ReminderPreset = "today" | "tomorrow" | "monday" | "week" | "pick";
 export function reminderDueAt(
-  preset: "tomorrow" | "monday" | "pick",
+  preset: ReminderPreset,
   now = new Date(),
   pick?: string,
 ) {
   const today = centralDay(now);
   const day = new Date(today + "T12:00:00Z");
   if (preset === "tomorrow") day.setUTCDate(day.getUTCDate() + 1);
+  else if (preset === "week") day.setUTCDate(day.getUTCDate() + 7);
   else if (preset === "monday")
     day.setUTCDate(day.getUTCDate() + ((8 - day.getUTCDay()) % 7 || 7));
   const iso = preset === "pick" ? (pick ?? "") : day.toISOString().slice(0, 10);
@@ -132,9 +134,9 @@ export function reminderDueAt(
       hourCycle: "h23",
     }).format(utc),
   );
-  utc.setUTCHours(utc.getUTCHours() + (8 - hour));
+  utc.setUTCHours(utc.getUTCHours() + ((preset==='today'?15:8) - hour));
   if (utc.getTime() <= now.getTime())
-    throw Error("Choose a future reminder day.");
+    throw Error("Choose a future reminder time.");
   return utc.toISOString();
 }
 export function messageWorkItem(
@@ -337,8 +339,14 @@ export function contextStripText(thread: Pick<InboxThread,'projectLabel'|'fromNa
   return ['Context', identity, stage === 'intake' ? 'New inquiry' : /^pre construction$/i.test(stage) ? 'Pre-construction' : stage ? stage[0].toUpperCase()+stage.slice(1) : '', cue, threadTodoCue(tasks)].filter(Boolean).join(' · ');
 }
 /** Width of the inbox itself (the left app dock is outside this box). */
-export function contextLayout(width:number): {docked:boolean;compact:boolean} {
-  return {docked:width>=960,compact:width>=960&&width<1180};
+export function contextLayout(width:number) {
+  // Measured column budgets include their border-box widths. At 954 this
+  // leaves exactly 440px for reading, with 240px list and 274px context.
+  const docked=width>=940;
+  const compact=docked&&width<1180;
+  const listWidth=compact?240:width>=1280?340:260;
+  const panelWidth=compact?Math.min(280,Math.max(260,width-listWidth-440)):300;
+  return {docked,compact,listWidth,panelWidth};
 }
 
 type CompletionResult = {ok: boolean; error?: string};
@@ -407,4 +415,11 @@ export function completionQueue(threads:InboxThread[],currentId:string,drafts:Re
 }
 export function attentionTaskTitle(thread:Pick<InboxThread,'subject'|'fromName'>):string {
   return `${thread.fromName}: ${thread.subject.replace(/^(?:re:\s*)+/i,'')}`.slice(0,160);
+}
+
+/** The caller supplies its already filtered/ordered pass; never jump splits. */
+export function completionPass(pass:InboxThread[],currentId:string) {
+  const index=pass.findIndex(t=>t.id===currentId);
+  const remaining=pass.filter(t=>t.id!==currentId);
+  return {next:pass.slice(index+1).find(t=>t.id!==currentId)??remaining[0],left:remaining.length};
 }

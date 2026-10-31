@@ -151,7 +151,7 @@ test('realistic Gmail multipart payload folds attribution with history after san
  const c=await gmail.fetchConversation('realistic-multipart');
  assert.equal(rules.substantiveSnippet(c.messages[0].body,c.subject),'Could you estimate the basement finish?');
  assert.equal(rules.substantiveSnippet(c.messages[1].body,c.subject),'Could you estimate the basement finish?');
- assert.equal(rules.substantiveSnippet(c.messages[3].body,c.subject),'Would you be able to add that in to the remainder of the work?');
+ assert.equal(rules.substantiveSnippet(c.messages[3].body,c.subject),'We would like popcorn removal and hallway painting. Would you be able to add that in to the remainder of the work?');
  for(const id of ['30','31','32']){
   const html=await gmail.fetchMessageHtml('realistic-multipart',id);
   const doc=parseDocument(html);const quotes=DomUtils.findAll(e=>e.name==='blockquote',doc.children);

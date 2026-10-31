@@ -6,7 +6,7 @@ import {
   useTransition,
   type ReactNode,
 } from "react";
-import { X, Search, Copy, Check, Clock, Link as LinkIcon } from "lucide-react";
+import { X, Search, Copy, Check, Clock, ChevronLeft, ChevronRight, Link as LinkIcon } from "lucide-react";
 import { Button, Chip, Segmented, Avatar } from "@/components/ui";
 import { createWorkItem } from "@/lib/actions/engine";
 import { createLeadFromInbox } from "@/lib/actions/leads";
@@ -20,13 +20,14 @@ import {
 import {
   attentionTaskTitle,
   messageWorkItem,
-  reminderDueAt,
+  reminderDueAt, centralDay, type ReminderPreset,
   relatedConversations,
   SHORTCUTS,
   formatContactPhone, todoDateLabel,
 } from "@/lib/inbox-experience";
 import { searchInboxDirectoryAction } from "@/lib/actions/inbox-screening";
 import type { InboxDirectoryEntry } from "@/lib/inbox-directory";
+import {summaryEligible} from "@/lib/inbox-rules";
 import { runAction } from "@/lib/run-action";
 import type {
   InboxThread,
@@ -220,6 +221,22 @@ export function LinkPicker({
     </InboxDialog>
   );
 }
+/** Calendar dates stay in Central; month navigation uses UTC calendar arithmetic. */
+export function MiniCalendar({value,onChange}:{value:string;onChange:(day:string)=>void}) {
+  const today=centralDay(new Date());
+  const [month,setMonth]=useState(()=>(value||today).slice(0,7));
+  const date=new Date(month+'-01T12:00:00Z');
+  const days=new Date(Date.UTC(date.getUTCFullYear(),date.getUTCMonth()+1,0)).getUTCDate();
+  function move(delta:number){const next=new Date(date);next.setUTCMonth(next.getUTCMonth()+delta);setMonth(next.toISOString().slice(0,7));}
+  return <div className="mt-2 max-w-xs rounded-md border border-rule p-2" aria-label="Choose work day">
+    <div className="flex items-center justify-between"><Button variant="ghost" icon={ChevronLeft} iconOnly title="Previous month" aria-label="Previous month" onClick={()=>move(-1)}/><span className="text-label font-semibold" aria-live="polite">{date.toLocaleDateString('en-US',{month:'long',year:'numeric',timeZone:'UTC'})}</span><Button variant="ghost" icon={ChevronRight} iconOnly title="Next month" aria-label="Next month" onClick={()=>move(1)}/></div>
+    <div className="grid grid-cols-7 text-center">{['Su','Mo','Tu','We','Th','Fr','Sa'].map(day=><span key={day} className="py-1 text-meta text-ink-3">{day}</span>)}
+      {Array.from({length:date.getUTCDay()},(_,i)=><span key={`empty${i}`}/>)}
+      {Array.from({length:days},(_,i)=>{const day=`${month}-${String(i+1).padStart(2,'0')}`;return <button key={day} aria-label={day} aria-pressed={value===day} disabled={day<today} onClick={()=>onChange(day)} className="min-h-11 rounded text-body hover:bg-hover aria-pressed:bg-accent aria-pressed:text-paper disabled:opacity-30">{i+1}</button>;})}
+    </div>
+  </div>;
+}
+
 export function MessageTaskDialog({
   thread,
   reader,
@@ -239,7 +256,7 @@ export function MessageTaskDialog({
     () => thread.automated && !remind ? attentionTaskTitle(thread) : remind ? messageWorkItem(thread, reader, {}).get("title") as string : `Follow up with ${thread.fromName}: ${messageWorkItem(thread, reader, {}).get("title")}`.slice(0,160),
   );
   const [due, setDue] = useState("");
-  const [preset,setPreset]=useState<"tomorrow"|"monday"|"pick">("tomorrow");
+  const [preset,setPreset]=useState<ReminderPreset | null>(remind?"tomorrow":null);
   const [job, setJob] = useState(
     thread.projectSlug
       ? `project:${thread.projectSlug}`
@@ -247,6 +264,9 @@ export function MessageTaskDialog({
         ? `${thread.linkedType}:${thread.linkedSlug}`
         : "",
   );
+  const [jobSearch,setJobSearch]=useState("");
+  const [jobOpen,setJobOpen]=useState(false);
+  const [jobCursor,setJobCursor]=useState(0);
   const [people, setPeople] = useState<{ id: string; name: string }[]>([]);
   const [assigned, setAssigned] = useState<string[]>([]);
   const [error, setError] = useState("");
@@ -262,11 +282,11 @@ export function MessageTaskDialog({
       active = false;
     };
   }, []);
-  function create(preset?: "tomorrow" | "monday" | "pick") {
+  function create(selectedPreset: ReminderPreset | null = preset) {
     setError("");
     let dueAt = due;
     try {
-      if (remind) dueAt = reminderDueAt(preset ?? "pick", new Date(), due);
+      if (selectedPreset) dueAt = reminderDueAt(selectedPreset, new Date(), due);
     } catch (e) {
       setError((e as Error).message);
       return;
@@ -324,122 +344,51 @@ export function MessageTaskDialog({
       } else setError(r.error ?? "Could not create the to-do.");
     });
   }
+  const matchJob=thread.projectSlug?`project:${thread.projectSlug}`:thread.linkedType?`${thread.linkedType}:${thread.linkedSlug}`:'';
+  const jobs=[...(options?.projects.map(p=>({value:`project:${p.slug}`,name:p.name}))??[]),...(options?.leads.map(p=>({value:`lead:${p.slug}`,name:`${p.name} · Lead`}))??[])].sort((a,b)=>Number(b.value===matchJob)-Number(a.value===matchJob));
+  const filteredJobs=[...jobs,{value:'',name:'No job or lead'}].filter(p=>p.name.toLowerCase().includes(jobSearch.toLowerCase()));
   return (
     <InboxDialog
       title={remind ? "Remind me" : "Make to-do"}
       onClose={onClose}
       bottom
     >
-      {remind ? (
-        <>
-          <p className="text-body text-ink-2">
-            Creates a to-do for {preset==='pick'?(due||'your chosen day'):preset==='tomorrow'?'tomorrow':'Monday'} 8am Central — this conversation stays in your inbox.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="secondary"
-              icon={Clock}
-              onClick={() => setPreset("tomorrow")}
-              aria-pressed={preset==="tomorrow"}
-              disabled={pending}
-            >
-              Tomorrow · 8am
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => setPreset("monday")}
-              aria-pressed={preset==="monday"}
-              disabled={pending}
-            >
-              Monday · 8am
-            </Button>
-          </div>
-        </>
-      ) : (
-        <label className="block text-meta text-ink-3">
-          Title
-          <input
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="mt-1 min-h-11 w-full rounded-md border border-rule bg-paper px-3 text-body text-ink"
-          />
+      <p className="text-body text-ink-2">Creates a to-do; the email stays in your inbox. Future work appears in Today from midnight Central on the chosen day.</p>
+      <label className="block text-meta text-ink-3">Title
+        <input value={title} onChange={e=>setTitle(e.target.value)} className="mt-1 min-h-11 w-full rounded-md border border-rule bg-paper px-3 text-body text-ink"/>
+      </label>
+      <fieldset><legend className="mb-1 text-meta text-ink-3">Work on · Central time</legend>
+        <div className="flex flex-wrap gap-1">{([['today','Later today · 3pm'],['tomorrow','Tomorrow · 8am'],['monday','Monday · 8am'],['week','Next week'],['pick','Pick a date…']] as const).map(([value,label])=><Button key={value} variant={preset===value?'primary':'secondary'} size="sm" className="min-h-11" aria-pressed={preset===value} disabled={pending} onClick={()=>setPreset(value)}>{label}</Button>)}
+          {!remind&&<Button size="sm" variant={preset===null?'primary':'ghost'} className="min-h-11" onClick={()=>{setPreset(null);setDue('');}}>No due day</Button>}
+        </div>
+        {preset==='pick'&&<MiniCalendar value={due} onChange={setDue}/>}
+        {preset==='pick'&&due&&<p className="mt-1 text-meta text-ink-2">{due} · 8am Central</p>}
+      </fieldset>
+      <div className="relative">
+        <label className="block text-meta text-ink-3">Job or lead
+          <input role="combobox" aria-label="Job or lead" aria-expanded={jobOpen} aria-controls="inbox-job-options" aria-autocomplete="list" aria-activedescendant={jobOpen?`inbox-job-${jobCursor}`:undefined}
+            value={jobOpen?jobSearch:jobs.find(p=>p.value===job)?.name??'No job or lead'}
+            onFocus={()=>{setJobOpen(true);setJobSearch('');setJobCursor(0);}}
+            onChange={e=>{setJobSearch(e.target.value);setJobOpen(true);setJobCursor(0);}}
+            onBlur={()=>setJobOpen(false)}
+            onKeyDown={e=>{if(e.key==='Escape'){setJobOpen(false);e.stopPropagation();}else if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();setJobOpen(true);setJobCursor(i=>Math.max(0,Math.min(filteredJobs.length-1,i+(e.key==='ArrowDown'?1:-1))));}else if(e.key==='Enter'&&jobOpen){e.preventDefault();const choice=filteredJobs[jobCursor];if(choice){setJob(choice.value);setJobOpen(false);}}}}
+            className="mt-1 min-h-11 w-full rounded-md border border-rule bg-paper px-3 text-body text-ink"/>
         </label>
-      )}
-      <blockquote className="max-h-28 overflow-y-auto rounded border-l-2 border-rule bg-paper-2 p-3 text-meta text-ink-2">{[...reader.messages].reverse().find(m=>!m.outbound)?.body.join('\n').slice(0,600)??thread.preview}</blockquote>
-      <label className="block text-meta text-ink-3">
-        {remind ? "Or pick a day" : "Due day"}
-        <input
-          type="date"
-          value={due}
-          onChange={(e) => {setDue(e.target.value);setPreset("pick");}}
-          className="mt-1 min-h-11 w-full rounded-md border border-rule bg-paper px-3 text-body text-ink"
-        />
-      </label>
-      <label className="block text-meta text-ink-3">
-        Job or lead
-        <select
-          value={job}
-          onChange={(e) => setJob(e.target.value)}
-          className="mt-1 min-h-11 w-full rounded-md border border-rule bg-paper px-3 text-body text-ink"
-        >
-          <option value="">No job or lead</option>
-          {options?.projects.map((p) => (
-            <option key={p.slug} value={`project:${p.slug}`}>
-              {p.name}
-            </option>
-          ))}
-          {options?.leads.map((p) => (
-            <option key={p.slug} value={`lead:${p.slug}`}>
-              {p.name} · Lead
-            </option>
-          ))}
-        </select>
-      </label>
-      {people.length > 0 && (
-        <details>
-          <summary className="min-h-11 cursor-pointer py-3 text-meta text-ink-3">
-            Assignee ·{" "}
-            {assigned.length
-              ? people
-                  .filter((p) => assigned.includes(p.id))
-                  .map((p) => p.name)
-                  .join(", ")
-              : "Joe"}
-          </summary>
-          <fieldset>
-            <legend className="mb-1 text-meta text-ink-3">
-              Assignee · leave empty for Joe
-            </legend>
-            {people.map((p) => (
-              <label
-                key={p.id}
-                className="flex min-h-11 items-center gap-2 text-body"
-              >
-                <input
-                  type="checkbox"
-                  checked={assigned.includes(p.id)}
-                  onChange={(e) =>
-                    setAssigned((a) =>
-                      e.target.checked
-                        ? [...a, p.id]
-                        : a.filter((id) => id !== p.id),
-                    )
-                  }
-                />
-                {p.name}
-              </label>
-            ))}
-          </fieldset>
-        </details>
-      )}
+        {jobOpen&&<div id="inbox-job-options" role="listbox" aria-label="Jobs and leads" className="absolute inset-x-0 top-full z-10 max-h-48 overflow-y-auto rounded-md border border-rule bg-card p-1 shadow-pop">{filteredJobs.map((p,i)=><button key={p.value} id={`inbox-job-${i}`} role="option" aria-selected={job===p.value} onMouseDown={e=>e.preventDefault()} onClick={()=>{setJob(p.value);setJobOpen(false);}} className={`block min-h-11 w-full rounded px-2 text-left text-body hover:bg-hover ${i===jobCursor?'bg-selected':''}`}>{p.name}{p.value===matchJob?' · Thread match':''}</button>)}{!filteredJobs.length&&<p className="p-2 text-meta text-ink-3">No matching jobs or leads.</p>}</div>}
+      </div>
+      <fieldset><legend className="mb-1 text-meta text-ink-3">Assignee</legend><div className="flex flex-wrap gap-1">
+        <Button size="sm" className="min-h-11" variant={assigned.length===0?'primary':'secondary'} aria-pressed={assigned.length===0} onClick={()=>setAssigned([])}>Joe</Button>
+        {people.filter(p=>!/^Joe(?:\s|$)/i.test(p.name)).map(p=><Button key={p.id} size="sm" className="min-h-11" variant={assigned.includes(p.id)?'primary':'secondary'} aria-pressed={assigned.includes(p.id)} onClick={()=>setAssigned(ids=>ids.includes(p.id)?ids.filter(id=>id!==p.id):[...ids,p.id])}>{p.name}</Button>)}
+      </div></fieldset>
+      <details><summary className="cursor-pointer text-meta text-ink-3">Email evidence</summary><blockquote className="mt-2 max-h-28 overflow-y-auto border-l-2 border-rule pl-3 text-meta text-ink-2">{[...reader.messages].reverse().find(m=>!m.outbound)?.body.join('\n').slice(0,1200)??thread.preview}</blockquote></details>
       {error && (
         <p role="alert" className="text-meta text-flag">
           {error}
         </p>
       )}
       <Button
-        onClick={() => create(remind ? preset : undefined)}
-        disabled={pending || (!remind && !title.trim()) || (remind && preset==="pick" && !due)}
+        onClick={() => create()}
+        disabled={pending || !title.trim() || (preset==="pick" && !due)}
       >
         {pending ? "Saving…" : remind ? "Set reminder" : "Create to-do"}
       </Button>
@@ -456,7 +405,7 @@ export function ThreadSummary({ reader }: { reader: ThreadReader }) {
   const [expanded, setExpanded] = useState(true);
   const [error, setError] = useState("");
   const [pending, start] = useTransition();
-  if (reader.messages.length < 2 && !reader.messages.some(m=>m.body.join("\n").length>600)) return null;
+  if (!summaryEligible(reader.messages)) return null;
   return (
     <div className="mb-1 border-b border-rule-soft px-1 text-meta">
       <div className="flex items-center gap-2">
@@ -528,6 +477,7 @@ export function ContextPanel({
   onRetry,
   docked=false,
   compact=false,
+  panelWidth=300,
   refreshing=false,
 }: {
   thread: InboxThread;
@@ -541,6 +491,7 @@ export function ContextPanel({
   onRetry?:()=>void;
   docked?:boolean;
   compact?:boolean;
+  panelWidth?:number;
   refreshing?:boolean;
 }) {
   const data = initialData;
@@ -569,7 +520,8 @@ export function ContextPanel({
       <aside
         role="complementary"
         aria-label="Person and job context"
-        className={`${docked?(compact?"static w-[280px] shadow-none":"static w-[300px] shadow-none"):"absolute inset-x-0 bottom-0 max-h-[85%] w-full rounded-t-xl shadow-pop @4xl/page:inset-y-0 @4xl/page:left-auto @4xl/page:right-0 @4xl/page:max-h-none @4xl/page:w-[300px] @4xl/page:rounded-none"} z-[70] flex shrink-0 max-w-full flex-col border-l border-rule bg-paper-2`}
+        style={docked?{width:panelWidth}:undefined}
+        className={`${docked?(compact?"static shadow-none":"static shadow-none"):"absolute inset-x-0 bottom-0 max-h-[85%] w-full rounded-t-xl shadow-pop @4xl/page:inset-y-0 @4xl/page:left-auto @4xl/page:right-0 @4xl/page:max-h-none @4xl/page:w-[300px] @4xl/page:rounded-none"} z-[70] flex shrink-0 max-w-full flex-col border-l border-rule bg-paper-2`}
       >
         <div className="flex min-h-13 items-center gap-2 border-b border-rule px-3">
           <h2 className="text-subheading font-semibold">Person & job</h2>

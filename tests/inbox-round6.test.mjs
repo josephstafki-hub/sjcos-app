@@ -61,7 +61,7 @@ test('mixed embedded and remote srcsets retain embedded fallbacks and count remo
 
 test('default dock layout keeps a 440px reader and falls back to a sheet below the budget',async()=>{
  const {contextLayout}=await import('../lib/inbox-experience.ts');
- assert.equal(contextLayout(964).docked,true);assert.equal(contextLayout(964).compact,true);assert.ok(964-240-280>=440);assert.equal(contextLayout(959).docked,false);
+ assert.equal(contextLayout(964).docked,true);assert.equal(contextLayout(964).compact,true);assert.ok(964-240-280>=440);assert.equal(contextLayout(939).docked,false);
 });
 
 test('CSS escaped URL spelling is blocked without discarding padding',()=>{

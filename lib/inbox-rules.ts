@@ -127,7 +127,11 @@ export function automationDetails(email: string, subject: string, snippet: strin
   const text = `${subject} ${snippet} ${body}`;
   const domain = emailAddress(email).split('@')[1] ?? '';
   const money = /squareup|square\.com|stripe|intuit|quickbooks|paypal|bank|creditunion/i.test(domain);
-  const kind: AutomationKind = /\breceipt\b|order confirmation/i.test(text) ? 'Receipt'
+  const financing = /\b(?:MCA|pre[ -]approv(?:ed|al)|funding offer|financing offer|capital offer)\b/i.test(subject);
+  const kind: AutomationKind = financing ? 'Marketing'
+    : /payment (?:confirmation|received|successful|processed)|you (?:paid|sent)|paid (?:invoice|to)|received (?:a |your )?payment/i.test(subject) ? 'Payment'
+    : /e-?statement|\bstatement\b/i.test(subject) ? 'Statement'
+    : /\breceipt\b|order confirmation/i.test(text) ? 'Receipt'
     : /e-?statement|\bstatement\b/i.test(text + ' ' + email) ? 'Statement'
     : /payment|\bdebit\b|transfer|\bbilling\b/i.test(text) || money && /capital|hold|past due/i.test(text) ? 'Payment'
     : /alert|security|COI|insurance|suspended/i.test(text) ? 'Alert'
@@ -136,7 +140,7 @@ export function automationDetails(email: string, subject: string, snippet: strin
   const evidence = text.replace(/\b(?:not|no longer)\s+(?:past due|on hold|suspended)\b/gi, '')
     .match(/\b(?:payment (?:has )?failed|failed payment|on hold|past due|action required|approval (?:is )?(?:needed|required)|(?:bid|estimate) (?:is )?(?:awaiting|needs?|pending) (?:your )?(?:review|approval)|(?:COI|insurance)(?: coverage| policy)? (?:is )?(?:expiring|expires|expired)|account (?:is |has been )?suspended|verify (?:your )?(?:identity|account|payment(?: method)?|email(?: address)?))\b/i)?.[0];
   const request = text.match(/\b(?:(?:your\s+)?(?:[a-z]+\s+)?(?:will|would)\s+be\s+(?:automatically\s+)?(?:marked\s+(?:as\s+)?)?complete[d]?(?:\s+automatically)?\s+(?:in|after|within)\s+\d+\s+(?:business\s+)?days?|review\s+and\s+(?:accept|approve)|(?:approve|respond)\s+by\s+[^.!?\n]{1,80}|expires\s+on\s+[^.!?\n]{1,80}|final\s+notice)\b/i)?.[0];
-  return {kind, attention: evidence ?? request};
+  return {kind, attention: financing ? undefined : evidence ?? request};
 }
 export function screeningEligible(input: {email: string; inbound: boolean; done: boolean; known: boolean; staff: boolean; automated?: boolean; ownAddresses: string[]; decision?: string}): boolean {
   return input.inbound && !input.done && !input.staff && !input.automated &&
@@ -172,12 +176,25 @@ export function substantiveSnippet(paras: string[], subject = ''): string {
       continue;
     }
     if (/^[\w .'-]{1,35}$/.test(sentence) && !/[?.!]/.test(sentence) && meaningful.length) continue;
-    if (/^(?:\[image|image unavailable|unsubscribe)\b/i.test(sentence)) continue;
+    if (/^(?:\[image|image unavailable|unsubscribe|please visit|X[_ ]{3,})\b/i.test(sentence) || /^[_\W]+$/.test(sentence)) continue;
     if (/\b(?:don[’']t|do not|doesn[’']t|does not|no)\s+need\b|\b(?:don[’']t|do not)\s+reply\b|(?:something|anything) (?:went )?wrong with (?:the|this|your) email|\b(?:any )?questions (?:about|regarding)|\bif you have (?:any )?questions\b/i.test(sentence)) continue;
     meaningful.push(sentence);
   }
-  const ask = meaningful.find(s=>/\?|\b(?:can you|could you|please|would you|need|when|how much|estimate|quote)\b/i.test(s));
-  return (ask || subject || meaningful[0] || '').slice(0,280);
+  // A question alone is weak evidence (quotes/marketing slogans often contain one).
+  const strong = /\b(?:can you|could you|would you|please (?!visit|verify the accuracy)|we (?:need|want|hope|would like)|we[’']d (?:like|hope)|I (?:need|want)|estimate|quote|\d[\d,]* (?:square feet|sq\.? ft)|bedroom|egress|review and (?:accept|approve)|payment .{0,30}received)\b/i;
+  const requestIndex=meaningful.findIndex(s=>/\b(?:can you|could you|would you|please (?!visit|verify the accuracy)|we (?:need|want|hope|would like)|we[’']d (?:like|hope)|I (?:need|want))\b/i.test(s));
+  const index = requestIndex>=0?requestIndex:meaningful.findIndex(s=>strong.test(s));
+  if (index < 0) return (subject || '').slice(0,280);
+  let ask = meaningful[index];
+  // Keep the antecedent for "add that/this/it", even when the prior clause
+  // itself names an estimate. Scope facts are useful next to the request.
+  const refers = /\b(?:that|this|it)\b/i;
+  if (index > 0 && refers.test(ask) && strong.test(meaningful[index-1])) ask = meaningful[index-1] + ' ' + ask;
+  else if (meaningful[index+1] && strong.test(meaningful[index+1]) && (refers.test(ask) || refers.test(meaningful[index+1]))) ask = meaningful[index+1] + ' ' + ask;
+  // Lead with measured scope rather than a long setup sentence on phone rows.
+  const area=ask.match(/\b[\d,]+(?:\.\d+)? (?:square feet|sq\.? ft\.?)/i);
+  if(area){const scope=['bedroom','egress window','laundry'].filter(word=>new RegExp(`\\b${word}\\b`,'i').test(ask));if(scope.length)return `${area[0]} · ${scope.join(' + ')}`;}
+  return ask.slice(0,280);
 }
 
 export function conversationDraftContext(messages: {fromName?:string; outbound?:boolean; body:string[]}[], focalIndex=messages.length): {text:string; count:number} {
@@ -188,3 +205,29 @@ export function conversationDraftContext(messages: {fromName?:string; outbound?:
 export function channelCommitLabel(channel:ThreadChannel):string {
   return channel==='sms'?'Send text':channel==='client_portal'?'Post to client portal':channel==='sub_portal'?'Post to sub portal':'Send email';
 }
+
+
+/** Same definition for sidebar, smart-view count, split count and visible rows. */
+export function threadNeedsMe(t: {filedOther?:boolean; automated?:boolean; attentionOverride?:boolean; attentionRequired?:boolean; newSender?:boolean; view?:string}, draftReady=false):boolean {
+  return !t.filedOther && (!t.automated || Boolean(t.attentionOverride ?? t.attentionRequired)) &&
+    (Boolean(t.automated) || !t.newSender) && (draftReady || t.view === 'needs_reply');
+}
+export function summaryEligible(messages:{body:string[]}[]):boolean {
+  return messages.length >= 2 || messages.some(m=>splitQuotedText(m.body).text.trim().split(/\s+/).filter(Boolean).length>120);
+}
+/** Relative completion windows use the message's calendar date in Central. */
+export function automationDeadline(evidence:string, receivedAt?:number):string|undefined {
+  const match=/(?:complete[d]?|auto-completes?)(?: automatically)?\s+(?:in|after|within)\s+(\d+)\s+(business\s+)?days?/i.exec(evidence);
+  if(!match || !receivedAt || !Number.isFinite(receivedAt))return undefined;
+  const parts=new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(new Date(receivedAt));
+  const get=(t:string)=>parts.find(p=>p.type===t)!.value;
+  const date=new Date(`${get('year')}-${get('month')}-${get('day')}T12:00:00Z`);
+  let days=Number(match[1]);if(days>366)return undefined;
+  while(days>0){date.setUTCDate(date.getUTCDate()+1);if(!match[2] || ![0,6].includes(date.getUTCDay()))days--;}
+  return `Auto-completes ${date.toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'})}`;
+}
+
+// Updated only by a normal inbox load; nav polling never loads Gmail itself.
+const loadedNeedsCounts=new Map<string,number>();
+export function rememberNeedsCount(mailbox:string,count:number) {loadedNeedsCounts.set(mailbox.toLowerCase(),count);}
+export function loadedNeedsCount(mailbox:string) {return loadedNeedsCounts.get(mailbox.toLowerCase()) ?? 0;}

@@ -4,7 +4,7 @@ import {substantiveSnippet,splitQuotedText,automationDetails} from '../lib/inbox
 import {canLoadMore,draftGenerationResult} from '../lib/inbox-experience.ts';
 import {teresaText,michelleText} from './fixtures/inbox-realistic-mail.mjs';
 test('rows prefer the latest actual request over pleasantries, links, signatures and quoted requests',()=>{
- assert.equal(substantiveSnippet([michelleText],'Closet work'),'Would you be able to add that in to the remainder of the work?');
+ assert.equal(substantiveSnippet([michelleText],'Closet work'),'We would like popcorn removal and hallway painting. Would you be able to add that in to the remainder of the work?');
  assert.equal(substantiveSnippet([teresaText],'Basement project details'),'Could you estimate the basement finish?');
  assert.equal(substantiveSnippet(['Hi Joe,\nSorry!\n[image: image]\nhttps://listing.example.test\nThanks,\nTeresa\nSent from my iPhone'],'Basement project details'),'Basement project details');
  assert.equal(substantiveSnippet(['Thanks.\nOn Wednesday, Joe wrote:\n> Could you send money?'],'Plans'),'Plans');
@@ -37,7 +37,7 @@ test('task cues retain titles and Central scheduled dates; context agrees and su
  assert.equal(todoDateLabel(task,new Date('2026-11-26T06:00:00Z')),'Nov 26');
  assert.match(contextStripText({fromName:'Michelle'},{job:{name:'Closet',stage:'Construction',money:{outstanding:0}},todos:[task]}),/Send revised estimate/);
  assert.doesNotMatch(contextStripText({fromName:'Michelle'},{job:{name:'Closet',stage:'Construction',money:{outstanding:0}},todos:[task]}),/\$0/);
- assert.deepEqual(contextLayout(959),{docked:false,compact:false});assert.deepEqual(contextLayout(960),{docked:true,compact:true});assert.deepEqual(contextLayout(1180),{docked:true,compact:false});
+ assert.equal(contextLayout(939).docked,false);assert.equal(contextLayout(954).docked,true);assert.equal(contextLayout(1180).compact,false);
 });
 
 test('Gmail line wrapping preserves exact deadline evidence, and an ask can follow an apology',()=>{

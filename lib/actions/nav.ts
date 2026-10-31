@@ -7,10 +7,10 @@
 
 import { can, getCurrentUser, type CurrentUser } from "@/lib/dal";
 import { query } from "@/lib/db";
-import { gmailConfigured, gmailInboxUnread } from "@/lib/gmail";
+import { loadedNeedsCount } from "@/lib/inbox-rules";
 import { getUnansweredChatCount } from "@/lib/chat";
 import { getUnreadSmsCount } from "@/lib/sms";
-import { withMailboxFor } from "@/lib/mailbox";
+import { withMailboxFor, activeMailbox } from "@/lib/mailbox";
 import { runDirect } from "@/lib/commands/db";
 import { countPending } from "@/lib/unsorted-docs-core";
 
@@ -39,16 +39,11 @@ export async function getNavCounts(): Promise<NavCounts> {
   return { inbox, chat, leads, messages, unsorted };
 }
 
-/** Unread count for THIS person's mailbox. Without the scope the badge would
+/** Loaded Needs me count for THIS person's mailbox. Without the scope the badge would
  *  report the owner's unread total to every staff login. */
 async function inboxUnread(user: CurrentUser): Promise<number> {
   return withMailboxFor(user, async () => {
-    if (!gmailConfigured()) return 0;
-    try {
-      return await gmailInboxUnread();
-    } catch {
-      return 0;
-    }
+    return loadedNeedsCount(activeMailbox()?.email ?? '');
   });
 }
 

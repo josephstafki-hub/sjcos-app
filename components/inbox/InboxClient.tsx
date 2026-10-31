@@ -52,6 +52,7 @@ import {
   VoiceButton,
 } from "@/components/ui";
 import {
+  automationDeadline, rememberNeedsCount,
   splitQuotedText,
   substantiveSnippet,
   channelCommitLabel,
@@ -63,6 +64,7 @@ import {
 import {completionKey,readCompletions,saveCompletion,clearCompletion,retryCompletion,type SentCompletion} from "@/lib/inbox-completion";
 import {attachInquiryContinuity} from "@/lib/inbox-continuity";
 import {MAIL_FILE_ACCEPT,validateMailFiles,fileSize} from "@/lib/inbox-files";
+import {readableEmailHtml} from "@/lib/inbox-email-html";
 import { applyRemoteImagePolicy } from "@/lib/inbox-image-policy";
 import { mergeTranscript } from "@/lib/append-transcript";
 import {
@@ -99,7 +101,7 @@ import type {
 
 import {
   INBOX_TABS,
-  orderedInboxThreads, rowDay, canLoadMore, completionQueue, attentionTaskTitle, draftGenerationResult,
+  orderedInboxThreads, rowDay, canLoadMore, completionPass, attentionTaskTitle, draftGenerationResult,
   applyInboxPreferences,
   contextStripText, threadTodoCue, todoDateLabel, contextLayout,
   completeAfterSend,
@@ -236,6 +238,9 @@ export function InboxClient({
   const [contextRefresh,setContextRefresh]=useState(0);
   const [wideContext,setWideContext]=useState(false);
   const [compactList,setCompactList]=useState(false);
+  const [contextWidths,setContextWidths]=useState({listWidth:240,panelWidth:274});
+  const [passFinished,setPassFinished]=useState(false);
+  const [passCompleted,setPassCompleted]=useState<Set<string>>(new Set());
   const [contextPreference,setContextPreference]=useState(true);
   const tabsRef=useRef<HTMLDivElement>(null);
   useEffect(()=>{try{setContextPreference(localStorage.getItem('sjc:inbox:context')!=='closed');}catch{}},[]);
@@ -244,7 +249,7 @@ export function InboxClient({
     if(!root)return;
     const observer=new ResizeObserver(([entry])=>{
       const layout=contextLayout(entry.contentRect.width);
-      setWideContext(layout.docked);setCompactList(layout.compact);
+      setWideContext(layout.docked);setCompactList(layout.compact);setContextWidths(layout);
     });
     observer.observe(root);return ()=>observer.disconnect();
   },[]);
@@ -267,7 +272,7 @@ export function InboxClient({
   useEffect(() => {
     window.dispatchEvent(
       new CustomEvent("sjc:inbox-surface", {
-        detail: Boolean(task || help || linking || context || composing),
+        detail: Boolean(mobileReader || task || help || linking || context || composing),
       }),
     );
     return () => {
@@ -275,7 +280,7 @@ export function InboxClient({
         new CustomEvent("sjc:inbox-surface", { detail: false }),
       );
     };
-  }, [task, help, linking, context, composing]);
+  }, [mobileReader, task, help, linking, context, composing]);
   // Threads/readers grow as "Load more" pages in from Gmail.
   const [draftIds, setDraftIds] = useState<Set<string>>(new Set());
   const onDraftReady = useCallback(
@@ -439,13 +444,13 @@ export function InboxClient({
       orderedInboxThreads(baseVisible
         .filter(
           (t) =>
-            (!tab || matchesInboxTab(t, tab, draftIds.has(t.id))) &&
+            !passCompleted.has(t.id) && (!tab || matchesInboxTab(t, tab, draftIds.has(t.id))) &&
             `${t.fromName} ${t.fromEmail??""} ${t.subject} ${t.preview} ${t.projectLabel ?? ""}`
               .toLowerCase()
               .includes(query.toLowerCase()),
         )
         .filter((t,i,all)=>tab!=='new'||all.findIndex(other=>other.fromEmail?.toLowerCase()===t.fromEmail?.toLowerCase())===i)),
-    [baseVisible, tab, draftIds, query],
+    [baseVisible, tab, draftIds, query,passCompleted],
   );
   // Count of threads sitting in the Gmail inbox (the plain "Inbox" rail view).
   const inboxCount = useMemo(
@@ -458,9 +463,14 @@ export function InboxClient({
     [baseVisible, draftIds],
   );
   const globalNeedsCount=tabCounts(threads.map(t=>applyInboxPreferences(t,preferences)),draftIds).needs;
+  useEffect(()=>{
+    rememberNeedsCount(selfEmail,globalNeedsCount);
+    window.dispatchEvent(new CustomEvent('sjc:inbox-needs-count',{detail:globalNeedsCount}));
+  },[selfEmail,globalNeedsCount]);
+  useEffect(()=>{setPassFinished(false);setPassCompleted(new Set());},[lens,tab,query]);
   // Keep the selection valid as the lens narrows the list.
   const selected =
-    visible.find((t) => t.id === selectedId) ?? visible[0] ?? null;
+    passFinished ? null : visible.find((t) => t.id === selectedId) ?? visible[0] ?? null;
   const continuityReaders=useMemo(()=>{
     const copy=Object.fromEntries(Object.entries(readers).map(([id,r])=>[id,{...r,...(r.form?{form:{...r.form}}:{})}]));
     attachInquiryContinuity([...threads,...(remoteData?.threads ?? [])].map(t=>({...t})),copy);return copy;
@@ -764,16 +774,16 @@ export function InboxClient({
     const previousView={lens,tab,query,selectedId,mobileReader};
     const r=await runAction(()=>t.channel==='email'?archiveThreadAction(t.id):markChannelDoneAction(t.id,readers[t.id]?.messages.at(-1)?.date??0),{fallback:'Could not mark done.'});
     if(!r.ok){setNotice(sent?"Sent — couldn't mark done":r.error??'Could not mark done.');return r;}
-    const queue=completionQueue([...new Map([...threads,...(remoteData?.threads??[])].map(t=>[t.id,applyInboxPreferences(t,preferences)])).values()],t.id,draftIds);
+    const queue=completionPass(visible,t.id);
     const next=queue.next;
     const patch=(v:InboxThread)=>v.id===t.id?{...v,inInbox:false,view:'done' as const,needsMeReason:undefined,newSender:false}:v;
     setThreads(ts=>[...new Map([...ts,...(remoteData?.threads??[])].map(v=>[v.id,patch(v)])).values()]);setRemoteData(d=>d?{...d,threads:d.threads.map(patch)}:d);
     setDraftIds(ids=>new Set([...ids].filter(id=>id!==t.id)));
-    setLens({kind:'all'});setTab('needs');setQuery('');setSelectedId(next?.id??'');setMobileReader(Boolean(next));
-    setNotice(`${sent?'Sent and marked done.':'Marked done.'} ${queue.left} left in Needs me.`);
+    setPassCompleted(ids=>new Set([...ids,t.id]));setSelectedId(next?.id??'');setMobileReader(Boolean(next));setPassFinished(!next);
+    setNotice(`${sent?'Sent and marked done.':'Marked done.'} ${queue.left} left in this pass.`);
     setUndo({label:sent?'Undo Done — the message stays sent.':'Undo Done',run:async()=>{
       const result=await runAction(()=>t.channel==='email'?restoreThreadToInboxAction(t.id):undoChannelDoneAction(t.id),{fallback:'Could not undo Done.'});
-      if(result.ok){setThreads(ts=>ts.map(v=>v.id===t.id?t:v));setRemoteData(d=>d?{...d,threads:d.threads.map(v=>v.id===t.id?t:v)}:d);setNotice('Done undone.');setUndo(null);setLens(previousView.lens);setTab(previousView.tab);setQuery(previousView.query);setSelectedId(previousView.selectedId||t.id);setMobileReader(previousView.mobileReader);router.refresh();}else setNotice(result.error??'Could not undo Done.');
+      if(result.ok){setThreads(ts=>ts.map(v=>v.id===t.id?t:v));setRemoteData(d=>d?{...d,threads:d.threads.map(v=>v.id===t.id?t:v)}:d);setNotice('Done undone.');setPassCompleted(ids=>new Set([...ids].filter(id=>id!==t.id)));setPassFinished(false);setUndo(null);setLens(previousView.lens);setTab(previousView.tab);setQuery(previousView.query);setSelectedId(previousView.selectedId||t.id);setMobileReader(previousView.mobileReader);router.refresh();}else setNotice(result.error??'Could not undo Done.');
     }});
     router.refresh();return {ok:true};
   }
@@ -860,9 +870,9 @@ export function InboxClient({
         >
           Views
         </Button>
-        <div ref={tabsRef} className="hidden @4xl/page:block order-last w-full min-w-0 overflow-x-auto [mask-image:linear-gradient(to_right,black_94%,transparent)] @4xl/page:order-none @4xl/page:w-auto @4xl/page:flex-1">
+        <div ref={tabsRef} title="Counts are loaded conversations" className="hidden @4xl/page:block order-last w-full min-w-0 overflow-x-auto [mask-image:linear-gradient(to_right,black_94%,transparent)] @4xl/page:order-none @4xl/page:w-auto @4xl/page:flex-1">
           <Segmented
-            aria-label="Inbox splits"
+            aria-label="Inbox splits · loaded conversations"
             value={tab ?? ""}
             onChange={(v) => {
               setTab(v as InboxTab);
@@ -1182,12 +1192,18 @@ export function InboxClient({
         {/* ─── Thread list ──────────────────────────────────────────── */}
         <section
           data-inbox-list
+          style={wideContext&&(context||contextPreference)?{width:contextWidths.listWidth}:undefined}
           className={[
             "min-w-0 w-full flex-none flex-col border-r border-rule-soft",
             compactList && (context || contextPreference) ? "@4xl/page:w-[240px]" : "@4xl/page:w-80 @[1100px]/page:w-[260px] @[1280px]/page:w-[340px]",
             mobileReader ? "hidden @4xl/page:flex" : "flex",
           ].join(" ")}
         >
+          <div className="relative border-b border-rule-soft px-3 py-1 @4xl/page:hidden">
+            <Button variant="ghost" className="min-h-11" aria-expanded={splitSheet} onClick={()=>setSplitSheet(v=>!v)}>{INBOX_TABS.find(t=>t.value===tab)?.label??headerLabel} {tab?counts[tab]:visible.length} ▾ <span className="text-meta text-ink-3">loaded</span></Button>
+            {splitSheet&&<div role="dialog" aria-label="Inbox splits" className="absolute inset-x-0 top-full z-[75] rounded-b-xl border border-rule bg-card p-3 shadow-pop"><div className="flex items-center"><h2 className="flex-1 text-subheading font-semibold">Inbox splits · loaded</h2><Button variant="ghost" icon={X} iconOnly aria-label="Close splits" title="Close splits" onClick={()=>setSplitSheet(false)}/></div>{INBOX_TABS.map(split=><button key={split.value} aria-pressed={tab===split.value} className="flex min-h-11 w-full items-center justify-between rounded-md px-3 text-body aria-pressed:bg-selected" onClick={()=>{setTab(split.value);setMobileReader(false);setSplitSheet(false);}}><span>{split.label}</span><span>{counts[split.value]}</span></button>)}</div>}
+          </div>
+          {passFinished&&<div className="border-b border-rule-soft p-3"><p className="mb-2 text-body">This pass is finished.</p><Button variant="secondary" onClick={()=>{setLens({kind:'all'});setTab('needs');setQuery('');setPassFinished(false);}}>Back to Needs me ({globalNeedsCount})</Button></div>}
           {lens.kind !== "all" && (
             <div className="flex min-h-11 items-center gap-2 border-b border-rule-soft px-3">
               <span className="min-w-0 flex-1 truncate text-meta text-ink-3">
@@ -1523,6 +1539,7 @@ export function InboxClient({
             onRetry={()=>setContextRefresh(n=>n+1)}
             docked={wideContext}
             compact={compactList}
+            panelWidth={contextWidths.panelWidth}
             onClose={closeContext}
             onLink={() => setLinking(true)}
             onSelect={(id) => {
@@ -1534,11 +1551,6 @@ export function InboxClient({
             }}
           />
         )}
-      </div>
-      <div className="relative z-40 flex shrink-0 items-center gap-2 border-t border-rule bg-paper px-3 py-1 @4xl/page:hidden">
-        <Button variant={tab==='needs'?'primary':'secondary'} className="min-h-11 flex-1" onClick={()=>{setLens({kind:'all'});setTab('needs');setMobileReader(false);setSplitSheet(false);}}>Needs me {globalNeedsCount}</Button>
-        <Button variant="secondary" className="min-h-11 flex-1" aria-expanded={splitSheet} onClick={()=>setSplitSheet(v=>!v)}>{tab&&tab!=='needs'?`${INBOX_TABS.find(t=>t.value===tab)?.label} ${counts[tab]}`:'Splits'} ▾</Button>
-        {splitSheet&&<div role="dialog" aria-label="Inbox splits" className="absolute inset-x-0 bottom-full rounded-t-xl border border-rule bg-card p-3 shadow-pop"><div className="flex items-center"><h2 className="flex-1 text-subheading font-semibold">Inbox splits</h2><Button variant="ghost" icon={X} iconOnly aria-label="Close splits" title="Close splits" onClick={()=>setSplitSheet(false)}/></div>{INBOX_TABS.map(split=><button key={split.value} aria-pressed={tab===split.value} className="flex min-h-11 w-full items-center justify-between rounded-md px-3 text-body aria-pressed:bg-selected" onClick={()=>{setTab(split.value);setMobileReader(false);setSplitSheet(false);}}><span>{split.label}</span><span>{counts[split.value]}</span></button>)}</div>}
       </div>
       {linking && (
         <LinkPicker
@@ -1615,14 +1627,14 @@ function useMailFiles(originals: {name:string;size:number;type:string}[] = []) {
   const [files,setFiles]=useState<File[]>([]);
   const [error,setError]=useState('');
   const data=()=>{const form=new FormData();for(const file of files)form.append('files',file);return form;};
-  const picker=(disabled:boolean)=><div className="my-2 text-meta">
-    <label className={`inline-flex min-h-11 cursor-pointer items-center gap-2 rounded-md border border-rule px-3 ${disabled?'opacity-50':''}`}>
-      <Paperclip className="size-4"/> Attach files / photos
+  const picker=(disabled:boolean)=><div className="flex max-w-full flex-wrap items-center gap-1 text-meta">
+    <label className={`inline-flex min-h-8 cursor-pointer items-center gap-1 rounded-md px-2 hover:bg-hover max-sm:min-h-11 ${disabled?'opacity-50':''}`}>
+      <Paperclip className="size-4"/><span>{files.length?`${files.length} · ${fileSize(files.reduce((n,f)=>n+f.size,0))}`:""}</span><span className="sr-only">Attach files / photos</span>
       <input type="file" multiple accept={MAIL_FILE_ACCEPT} disabled={disabled} className="sr-only" aria-label="Attach files or photos" onChange={e=>{
         const next=[...files,...Array.from(e.target.files ?? [])];
         try{validateMailFiles([...originals,...next]);setFiles(next);setError('');}catch(err){setError((err as Error).message);}e.target.value='';
       }}/>
-    </label><span className="ml-2 text-ink-3">20 MB total</span>
+    </label>
     <ul aria-label="Files to send" className="flex flex-wrap gap-2">{files.map((file,i)=><li key={i} className="flex min-w-0 items-center gap-1 rounded-md border border-rule bg-card px-2"><span className="break-all">{file.name} · {fileSize(file.size)}</span><Button variant="ghost" disabled={disabled} aria-label={`Remove ${file.name}`} title={`Remove ${file.name}`} icon={X} iconOnly onClick={()=>setFiles(items=>items.filter((_,j)=>j!==i))}/></li>)}</ul>
     {error&&<p role="alert" className="text-flag">{error}</p>}
   </div>;
@@ -1741,10 +1753,14 @@ const FORM_FIELD = /^([^\n]{1,40})\n([\s\S]+)$/;
 /** Wide mail tables scroll at their natural text size; quoted history folds. */
 function EmailHtml({ html }: { html: string }) {
   const inner = useRef<HTMLDivElement>(null);
+  const scroller=useRef<HTMLDivElement>(null);
+  const [overflowing,setOverflowing]=useState(false);
   const [hasQuote, setHasQuote] = useState(false);
   const [showQuote, setShowQuote] = useState(false);
   useLayoutEffect(() => {
     setHasQuote(!!inner.current?.querySelector("blockquote"));
+    const measure=()=>{if(scroller.current)setOverflowing(scroller.current.scrollWidth>scroller.current.clientWidth+1);};
+    const observer=new ResizeObserver(measure);if(scroller.current)observer.observe(scroller.current);if(inner.current)observer.observe(inner.current);measure();
     const imgs = Array.from(inner.current?.querySelectorAll("img") ?? []);
     const failed=(event:Event)=>{
       const im=event.target as HTMLImageElement;
@@ -1753,16 +1769,20 @@ function EmailHtml({ html }: { html: string }) {
     };
     imgs.forEach(im=>{im.addEventListener('error',failed);if(im.complete&&im.naturalWidth===0)failed({target:im} as unknown as Event);});
     return () => {
+      observer.disconnect();
       imgs.forEach(im=>im.removeEventListener('error',failed));
     };
   }, [html]);
   return (
-    <div className="min-w-0 overflow-x-auto">
+    <div className="relative min-w-0">
+      {overflowing&&<p className="sticky left-0 mb-1 text-meta font-semibold text-accent-2">Scroll sideways to see the full table →</p>}
+      <div ref={scroller} tabIndex={overflowing?0:undefined} role={overflowing?'region':undefined} aria-label={overflowing?'Scrollable email content':undefined} className="min-w-0 overflow-x-auto" style={overflowing?{background:'linear-gradient(to left, var(--paper-3), transparent) right / 18px 100% no-repeat',boxShadow:'inset -12px 0 12px -12px var(--ink-3)'}:undefined}>
       <div
         ref={inner}
         className={`email-html text-body leading-relaxed text-ink [&_a]:text-accent [&_a]:underline [&_img]:my-1 [&_img]:rounded ${showQuote ? "" : "[&_blockquote]:hidden"}`}
         dangerouslySetInnerHTML={{ __html: html }}
       />
+      </div>
       {hasQuote && (
         <button
           type="button"
@@ -2142,13 +2162,14 @@ function ChannelReaderBody({
         {canReply && <>
           <p title={reader.replyLabel} className="truncate text-meta font-semibold text-ink-2">{reader.replyLabel}</p>
           {reader.form&&<p className="truncate text-meta text-ink-3">Subject: {reader.form.outgoingSubject}</p>}
-          {reader.channel==='site_form'&&expanded&&files.picker(pending)}
+
         {safety.controls}
           {expanded ? <>
             {saved.value.ai&&<p className="text-meta text-ai">Draft by {saved.value.model} · {saved.value.basedOn}</p>}
             <textarea ref={replyRef} aria-label={reader.channel==='sms'?'Text reply':'Reply'} value={body} disabled={pending} onChange={e=>{setBody(e.target.value);setSent(false);}} rows={2} placeholder="Write a reply…" className="max-h-[18dvh] min-h-16 w-full resize-y rounded-lg border border-rule bg-card p-2 text-body text-ink" />
             <div className="grid grid-cols-2 gap-1">
               <div className="order-last col-span-2 flex flex-wrap items-center gap-1">
+                  {reader.channel==='site_form'&&files.picker(pending)}
               <Button variant="ai" size="sm" onClick={()=>generate()} disabled={safety.pending||pending}>Draft with AI</Button>
               <Button variant="ghost" size="sm" onClick={()=>{saved.clear();setReplying(false);}} disabled={pending}>Discard</Button>
               </div>
@@ -2236,7 +2257,7 @@ function ThreadRow({
           </span>
         </span>
         <span className="min-w-0 flex-1">
-          <span className="flex items-center gap-1.5">
+          <span className="flex min-h-7 items-center gap-1.5">
             {compact&&<Icon className="size-3 shrink-0 text-accent-2" aria-label={thread.channel.replaceAll('_',' ')}/>}
             <span
               className={`min-w-0 flex-1 truncate text-label ${thread.unread ? "font-bold text-ink" : needs ? "font-semibold text-ink" : "text-ink-2"}`}
@@ -2275,19 +2296,20 @@ function ThreadRow({
               </span>
             )}
             <span title="Outstanding" className="ml-auto shrink-0 text-meta text-warn">
-              {Boolean(thread.outstandingCents)&&new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(thread.outstandingCents!/100)}
+              {Boolean(thread.outstandingCents)&&new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(thread.outstandingCents!/100)}{Boolean(thread.outstandingCents)&&' due'}
             </span>
           </span>
           {threadTodoCue(thread)&&<span title={threadTodoCue(thread)} aria-label="Open to-do" className="block truncate text-meta text-accent-2">{threadTodoCue(thread)}</span>}
           {thread.newSender&&!compact&&<span title={thread.fromEmail} className="block truncate text-meta text-ink-3">{thread.fromEmail}</span>}
-          <span className={`block truncate text-meta text-ink-3`}>
+          {automationDeadline(thread.attentionEvidence??'',thread.receivedAt)&&<span className="my-0.5 inline-block rounded bg-warn-soft px-1 text-meta font-semibold text-warn">{automationDeadline(thread.attentionEvidence??'',thread.receivedAt)}</span>}
+          <span className="line-clamp-2 text-body leading-snug text-ink-2">
             {thread.preview || thread.subject}
           </span>
 
         </span>
       </button>
       {onScreen&&<div className="px-3 pb-1"><Button variant="secondary" size="sm" onClick={onSelect}>Screen…</Button></div>}
-      <div className="absolute top-1 right-2 hidden items-center rounded-md border border-rule bg-card shadow-card group-hover:flex group-focus-within:flex [@media(hover:none)]:hidden">
+      <div className="absolute top-2 right-2 hidden max-h-7 items-center rounded-md border border-rule bg-card shadow-card group-hover:flex group-focus-within:flex [@media(hover:none)]:hidden">
         <Button
           variant="ghost"
           size="sm"
@@ -2296,7 +2318,7 @@ function ThreadRow({
           aria-label={`Done: ${thread.fromName}`}
           title="Done (e)"
           onClick={onDone}
-          className="min-h-11 min-w-11 @4xl/page:min-h-7 @4xl/page:min-w-7"
+          className="!size-7 !min-h-7 !min-w-7"
         />
         <Button
           variant="ghost"
@@ -2306,7 +2328,7 @@ function ThreadRow({
           aria-label={`Remind me: ${thread.fromName}`}
           title="Remind me (h)"
           onClick={onRemind}
-          className="min-h-11 min-w-11 @4xl/page:min-h-7 @4xl/page:min-w-7"
+          className="!size-7 !min-h-7 !min-w-7"
         />
       </div>
       <Button
@@ -2367,6 +2389,7 @@ function EmailMessageCard({
 }) {
   const [forwarding,setForwarding]=useState(false);
   const [html, setHtml] = useState("");
+  const [readingMode,setReadingMode]=useState<"readable"|"original">("readable");
   const imageKey=`sjc:inbox:images:v1:${mailbox.toLowerCase()}:${message.fromEmail?.toLowerCase()??''}`;
   const [allowedImages,setAllowedImages]=useState(false);
   useEffect(()=>{try{setAllowedImages(localStorage.getItem(imageKey)==='show');}catch{}},[imageKey]);
@@ -2410,7 +2433,7 @@ function EmailMessageCard({
       {expanded && (
         <div className="border-t border-rule-soft px-3 py-3">
           <details className="mb-2 break-words text-meta text-ink-3">
-            <summary className="min-h-11 cursor-pointer py-2 text-meta">
+            <summary className="min-h-8 cursor-pointer py-1 text-meta">
               Message details
             </summary>
             <p>
@@ -2424,8 +2447,9 @@ function EmailMessageCard({
           </details>
           {html ? (
             <>
-              {imagePolicy.blocked>0&&<div className="mb-2 flex flex-wrap items-center gap-2 text-meta text-ink-3"><span>{imagePolicy.blocked} remote {imagePolicy.blocked===1?"image":"images"} blocked ·</span><Button variant="secondary" size="sm" onClick={()=>{setAllowedImages(true);try{localStorage.setItem(imageKey,'show');}catch{}}}>Show images</Button></div>}
-              <EmailHtml key={`${imageKey}:${allowedImages}`} html={imagePolicy.html} />
+              <div className="mb-2 flex items-center gap-1" aria-label="Reading mode"><Button size="sm" variant={readingMode==='readable'?'secondary':'ghost'} aria-pressed={readingMode==='readable'} onClick={()=>setReadingMode('readable')}>Readable</Button><Button size="sm" variant={readingMode==='original'?'secondary':'ghost'} aria-pressed={readingMode==='original'} onClick={()=>setReadingMode('original')}>Original</Button></div>
+              {readingMode==='original'&&imagePolicy.blocked>0&&<div className="mb-2 flex flex-wrap items-center gap-2 text-meta text-ink-3"><span>{imagePolicy.blocked} remote {imagePolicy.blocked===1?"resource":"resources"} blocked ·</span><Button variant="secondary" size="sm" onClick={()=>{setAllowedImages(true);try{localStorage.setItem(imageKey,'show');}catch{}}}>Show images</Button></div>}
+              <EmailHtml key={`${imageKey}:${allowedImages}:${readingMode}`} html={readingMode==='readable'?readableEmailHtml(imagePolicy.html):imagePolicy.html} />
             </>
           ) : (
             <PlainBody paras={message.body} />
@@ -2647,6 +2671,7 @@ function ReaderBody({
         </Button>
         {onSendDone&&<Button variant="secondary" disabled={!hasDraft||!toEmail.trim()||sending||drafting} onClick={()=>send(true)}>Send &amp; Done</Button>}
         <div className="col-span-2 flex flex-wrap gap-1">
+        {files.picker(sending)}
         <Button
           variant="ghost"
           onClick={() => generate()}
@@ -2776,7 +2801,7 @@ function ReaderBody({
                       value={toEmail}
                       disabled={sending}
                       onChange={(e) => update({ toEmail: e.target.value })}
-                      className="min-h-11 min-w-0 max-w-full bg-transparent text-base text-ink outline-none @4xl/page:text-meta"
+                      className="min-h-11 min-w-0 max-w-full bg-transparent text-body text-ink outline-none"
                     />
                     &gt;
                   </label>
@@ -2797,8 +2822,8 @@ function ReaderBody({
                 </div>
               </details>
             )}
+            {(composerExpanded(replying,draft)||draftOpen)&&<p aria-label="Incoming request" className="mb-2 line-clamp-3 border-l-2 border-accent pl-2 text-body text-ink-2 sm:hidden">{substantiveSnippet([...reader.messages].reverse().find(m=>!m.outbound)?.body??[],reader.subject)}</p>}
             {safety.controls}
-            {(composerExpanded(replying,draft)||draftOpen)&&files.picker(sending)}
             {isAI && hasDraft ? approval : composerExpanded(replying, draft) ? (
               <div className="rounded-lg border border-rule bg-card p-2">
                 <textarea
@@ -2816,6 +2841,7 @@ function ReaderBody({
                 />
                 <div className="grid grid-cols-2 gap-1">
                   <div className="order-last col-span-2 flex flex-wrap items-center gap-1">
+                  {files.picker(sending)}
                   <Button variant="ai" size="sm" onClick={()=>generate()} disabled={drafting||sending}>Draft with AI</Button>
                   <VoiceButton
                     compact

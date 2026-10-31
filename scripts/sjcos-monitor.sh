@@ -61,6 +61,9 @@ ESCALATE_AFTER="${SJCOS_MONITOR_ESCALATE_AFTER:-3}"
 mkdir -p "$(dirname "$LOG")" "$(dirname "$STATE")" 2>/dev/null || true
 
 envval() { grep -E "^$1=" "$ENV_FILE" 2>/dev/null | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//'; }
+# Read-only login (deploy/db-roles.md): DATABASE_URL_READONLY, falling back to
+# DATABASE_URL until Joe adds that line. The monitor only SELECTs.
+DATABASE_URL="${DATABASE_URL_READONLY:-${DATABASE_URL:-$(envval DATABASE_URL_READONLY)}}"
 DATABASE_URL="${DATABASE_URL:-$(envval DATABASE_URL)}"
 CRON_SECRET="${CRON_SECRET:-$(envval CRON_SECRET)}"
 TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-$(envval TELEGRAM_BOT_TOKEN)}"

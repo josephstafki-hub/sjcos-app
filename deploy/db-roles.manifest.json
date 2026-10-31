@@ -1,0 +1,2989 @@
+{
+  "about": [
+    "Which narrow database login may SELECT / INSERT / UPDATE / DELETE each public table or view (deploy/db-roles.md).",
+    "Every table must be listed, even with no grants (then say why in note). The owner login (sjcos: the website, Joe's own panel runs, migrations) owns everything and is not listed.",
+    "A change here needs the matching sjcos_grant(...) line in the same migration: node scripts/db-roles-sql.mjs <table> prints it. tests/db-roles-manifest-db.test.mjs compares this file with the database.",
+    "SELECT(a,b) = only those columns. sjcos_backup reads everything through pg_read_all_data (bootstrap), so only its writes are listed."
+  ],
+  "roles": {
+    "sjcos_agent": "MCP server (sjcos-mcp.service: Hermes, claude.ai, ChatGPT; stdio spawns), business-agent runs, staff panel turns. DATABASE_URL_AGENT.",
+    "sjcos_worker": "scripts/sjcos-worker.mjs: intent dispatch, Square / Telnyx / e-sign events, runbook wakeups. DATABASE_URL_WORKER.",
+    "sjcos_readonly": "scripts/sjcos-monitor.sh. DATABASE_URL_READONLY.",
+    "sjcos_backup": "pg_dump + the backup_runs ledger in scripts/backup.mjs. DATABASE_URL_BACKUP."
+  },
+  "invoker_trigger_functions": {
+    "sjcos_guard_narrow_writes": "must see the login that made the write; every other trigger function runs as its owner (SECURITY DEFINER, SET search_path = public, pg_temp)"
+  },
+  "tables": {
+    "action_attempts": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "action_intents": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "agent_executions": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "agent_instruction_versions": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "agent_interactions": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "agent_memories": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "agent_memory_source_refs": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "agent_pending_actions": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "agent_receipts": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "agent_runs": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "agent_triggers": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "agent_usage": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "ai_conversations": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "ai_folders": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "ai_messages": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "app_change_log": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "DELETE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "app_settings": {
+      "note": "settings incl. pricing/markup and link tokens; agents read non-secret keys only (row security hides *.token)",
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "authority_grants": {
+      "note": "who may approve what",
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "backup_runs": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ],
+      "sjcos_backup": [
+        "INSERT",
+        "UPDATE"
+      ]
+    },
+    "bid_invite_emails": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "bid_invites": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE",
+        "DELETE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "bid_package_files": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE",
+        "DELETE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "bid_packages": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "bid_submission_files": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "bid_submission_lines": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "bid_submissions": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "bills": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "budget_lines": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE",
+        "DELETE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE",
+        "DELETE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "budget_parties": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "DELETE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "DELETE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "buyout_obligations": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "call_events": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "calls": {
+      "sjcos_agent": [
+        "SELECT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "capability_status": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "cash_reservations": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "catalog_items": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "change_order_credits": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "DELETE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "DELETE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "change_orders": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "chat_ai_members": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "chat_channels": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "chat_dms": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "chat_members": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "chat_messages": {
+      "sjcos_agent": [
+        "SELECT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "chat_reads": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "chat_reads_by_user": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "chat_room_clients": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "chat_room_entities": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "chat_rooms": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "chat_team_members": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "client_activity": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "client_portal_invites": {
+      "sjcos_agent": [
+        "SELECT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "client_signoffs": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "closeout_actuals": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "closeout_checklists": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "commands": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "commitments": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "communication_optouts": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "company_funding_approvals": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "compliance_items": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "cost_items": {
+      "sjcos_agent": [
+        "SELECT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "cost_learning_revisions": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "cost_observations": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "cron_runs": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "daily_logs": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "decision_deliveries": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "decision_events": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "decisions": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "deliveries": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "design_decisions": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "designer_activity_events": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "detector_state": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "dev_agent_runs": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "document_drafts": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE",
+        "DELETE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "document_revisions": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "estimate_gaps": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "estimate_input_packages": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "estimate_lines": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE",
+        "DELETE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "estimates": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "eval_cases": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "eval_runs": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "expenses": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE",
+        "DELETE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE",
+        "DELETE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "field_evidence_requests": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "field_incidents": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "field_reports": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "file_trash": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE",
+        "DELETE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "files": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE",
+        "DELETE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "funding_events": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "DELETE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "DELETE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "incident_reports": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "insurance_policies": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "intent_authority": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "invoice_events": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "invoice_numbers": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "invoice_payments": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "invoices": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "job_sites": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "knowledge_items": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "lane_pauses": {
+      "note": "Joe's kill switches",
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "lead_activity": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "lead_estimates": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "lead_facts": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "lead_first_responses": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "lead_followups": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "lead_intake": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "lead_intake_reviews": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "lead_qualification": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "lead_tasks": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "leads": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "location_events": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "mailbox_checkpoints": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "marketing_draft_media": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "marketing_drafts": {
+      "sjcos_agent": [
+        "SELECT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "measurement_cases": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "metered_charges": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "DELETE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "milestone_confirmations": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "newsletter_assets": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "newsletter_groups": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "newsletter_outbox": {
+      "sjcos_agent": [
+        "SELECT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "newsletter_recipient_groups": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "newsletter_recipients": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "newsletter_sequence_steps": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "newsletter_sequences": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "newsletter_subscriptions": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "newsletters": {
+      "sjcos_agent": [
+        "SELECT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "notification_reads": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "notifications": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "obligation_sources": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "obligations": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "orchestration_events": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "orchestration_tasks": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "overhead_subscriptions": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE",
+        "DELETE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "owner_grants": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "owner_labor_rates": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "owner_replies": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "owner_touches": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "payee_validations": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "payment_attempts": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "payment_provider_config": {
+      "note": "where card payments go",
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "permission_audit": {
+      "note": "permission change log: website only",
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "plan_cost_rules": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "plan_design_comments": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "plan_design_files": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "plan_design_versions": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "plan_designs": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "policies": {
+      "note": "Joe's automation switches",
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "portal_deliveries": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "post_project_actions": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "price_observations": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "pricing_setups": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "procedure_checks": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "procedure_versions": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "project_floorplans": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "project_mood": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "project_mood_boards": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "project_mood_feedback": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "project_punch": {
+      "sjcos_agent": [
+        "SELECT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "project_sections": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "project_selection_options": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "project_selections": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "project_subs": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "project_uploads": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "project_workflow_events": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "project_workflows": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "projects": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "publication_rights": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "purchase_order_lines": {
+      "sjcos_agent": [
+        "SELECT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "purchase_orders": {
+      "sjcos_agent": [
+        "SELECT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "push_devices": {
+      "note": "phone push tokens; push-drain runs inside the website (cron route)"
+    },
+    "push_outbox": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "qbo_connection": {
+      "note": "QuickBooks OAuth connection; QBO sync runs inside the website (cron route)"
+    },
+    "qbo_import_batches": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "qbo_mappings": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "qbo_sync_settings": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "quote_lines": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "quotes": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "refunds": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "reminder_log": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "retainers": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "run_effects": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "run_steers": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "runbook_definition_versions": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "runbook_instances": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "runbook_repairs": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "runbook_steps": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "runbook_steps_log": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "runbook_wakeups": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "runbooks": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "safety_acknowledgments": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "safety_orientations": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "schedule_blocks": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "schedule_commitments": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "schedule_plans": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "schedule_template_phases": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "schedule_templates": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "schema_migrations": {
+      "note": "migration ledger",
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "scope_items": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "scope_registers": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "session_revocations": {
+      "note": "sign-outs: website only",
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "signature_events": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "signature_requests": {
+      "sjcos_agent": [
+        "SELECT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "site_visit_findings": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "site_visit_plans": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "sjc_temp_lead_imports": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "skill_versions": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "skills": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "sms_messages": {
+      "sjcos_agent": [
+        "SELECT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "sms_threads": {
+      "sjcos_agent": [
+        "SELECT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "source_events": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "stage_rules": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "status_ledgers": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "sub_document_requests": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "sub_documents": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "sub_invoices": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE",
+        "DELETE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE",
+        "DELETE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "sub_logs": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "sub_portal_invites": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "subs": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "supplier_capabilities": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "supplier_pricing_requests": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "team_members": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "telegram_reply_targets": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "telegram_updates": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "thread_links": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "threads": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "time_events": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "time_intervals": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "unsorted_docs": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "user_email_accounts": {
+      "note": "staff Gmail refresh tokens; only the website's own mailbox code reads them"
+    },
+    "users": {
+      "note": "logins and passwords: Joe's Settings › Team (website) or his own panel run only",
+      "sjcos_agent": [
+        "SELECT(id,email,name,role,initials,link_slug,active,permissions,created_at,portal_claimed_at,ai_scope,last_permission_change_at)"
+      ],
+      "sjcos_worker": [
+        "SELECT(id,email,name,role,initials,link_slug,active,permissions,created_at,portal_claimed_at,ai_scope,last_permission_change_at)"
+      ],
+      "sjcos_readonly": [
+        "SELECT(id,email,name,role,initials,link_slug,active,permissions,created_at,portal_claimed_at,ai_scope,last_permission_change_at)"
+      ]
+    },
+    "vendor_payment_config": {
+      "note": "where vendor payments go",
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "vendors": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "warranty_claims": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "warranty_projects": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "weekly_summaries": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "weekly_summary_settings": {
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "work_item_assignees": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "DELETE"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "work_items": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "workers": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    }
+  }
+}

@@ -7,7 +7,10 @@ standard, so this is **AI-agnostic** — any MCP client (Claude Desktop, Claude
 Code, Cursor, Continue, Codex, …) can connect, not just Claude.
 
 It runs as its own process over **stdio**, separate from the Next app, and reads
-`DATABASE_URL` from `../.env.local`.
+its database login from `../.env.local`: the narrow `DATABASE_URL_AGENT`
+(`sjcos_agent`), falling back to `DATABASE_URL` until that line exists. Only the
+Ask window's launcher, for Joe's own runs, passes `SJC_DB_LOGIN=owner` to get the
+owner login (`deploy/db-roles.md`, `lib/db-login.mjs`).
 
 ## Read tools
 

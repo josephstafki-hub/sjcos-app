@@ -20,7 +20,8 @@ export async function GET(request: Request) {
       'Content-Length':String(attachment.bytes.length),
       'Cache-Control':'private, no-store',
       'X-Content-Type-Options':'nosniff',
-      'Content-Security-Policy':"default-src 'none'; sandbox",
+      // Chrome's PDF viewer refuses a sandboxed response; images and downloads keep the sandbox.
+      'Content-Security-Policy':inline&&attachment.type==='application/pdf'?"default-src 'none'; object-src 'self'":"default-src 'none'; sandbox",
     }});
   }catch{return new Response('Attachment unavailable. Reopen the message and try again.',{status:404});}
 }

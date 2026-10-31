@@ -411,8 +411,21 @@ function strippedDollarError(...texts) {
 // so concurrent HTTP clients each need their own instance. The shared `pool` and
 // module-level helpers are reused across instances — only tool registration (a
 // handful of microseconds of zod schema setup) repeats.
+// Tier 4: what every MCP client (Hermes, claude.ai, ChatGPT, the panel) is
+// told when it connects. The detailed, versioned rules come from
+// get_operating_context; these are the few that must hold even for a client
+// that never calls it.
+export const SERVER_INSTRUCTIONS = [
+  "SJC OS is SJ Carpentry's system of record. Before working a project or lead, call get_operating_context (the versioned operating rules, active policies and scoped context). Read records with the tools; never rebuild history from an inbox scan.",
+  "Client-facing sends (emails, texts, invoices, POs, bid packages, documents for signature, newsletter release) need Joe's owner grant: draft and stage, then request_owner_permission. Pass owner_grant_id only for the exact target and message it was approved for. Never route around a grant.",
+  "Never activate a policy, arm a drip, or change pricing/markup; those are Joe's. A job's total, paid and % paid are computed from records; never write them.",
+  "Estimates: the formal estimate lives under Documents and is locked once out to the client. Before the contract, client changes are a Pre-con change estimate; after it, a change order. A selection over its allowance is a change order only after the contract.",
+  "Every to-do from an email passes email {message_id, thread_id} to create_work_item. Complete work with evidence (complete_work_item_with_evidence / update_work_item_status) and record what you did (record_agent_run, record_receipt).",
+  "Write money as \"$\" amounts through the tools; pass long text through mcp/call-tool.mjs stdin, never as a double-quoted shell argument.",
+].join("\n\n");
+
 function buildServer() {
-const server = new McpServer({ name: "sjcos", version: "1.0.0" });
+const server = new McpServer({ name: "sjcos", version: "1.0.0" }, { instructions: SERVER_INSTRUCTIONS });
 
 server.registerTool(
   "business_snapshot",

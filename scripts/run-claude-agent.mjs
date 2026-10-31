@@ -254,6 +254,10 @@ async function loadBusinessInstructions(principal, pageContext) {
       pageContext ?? null,
     );
     BUSINESS_INSTRUCTIONS = typeof out === "string" ? out : typeof out?.prompt === "string" ? out.prompt : "";
+    // Tier 4: which versions this run was given (migration 0055).
+    if (out && typeof out === "object" && out.versions) {
+      await client.query(`UPDATE dev_agent_runs SET instruction_versions = $2::jsonb WHERE id = $1`, [RUN_ID, JSON.stringify(out.versions)]).catch(() => {});
+    }
   } catch {
     BUSINESS_INSTRUCTIONS = "";
   }

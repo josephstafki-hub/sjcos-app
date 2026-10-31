@@ -1,8 +1,12 @@
 // Event hooks other features call to wake the operating agent (A24).
 //
 //   onDecisionResolved(run, decisionId)   → 'approval' trigger (approve / reject / revoke)
-//   onWorkItemDone(run, workItemId)       → 'approval' trigger when the item was owner-approved,
-//                                            else a 'note' trigger (a completed step is a fact)
+//   onWorkItemDone(run, workItemId, by?)  → 'approval' trigger when the item was owner-approved,
+//                                            else a 'note' trigger (a completed step is a fact) —
+//                                            except an agent closing a to-do while a worker run
+//                                            is working that same job: that's the run's own step,
+//                                            not news (2026-10-31: every financials run woke a
+//                                            second, paid run to re-check its own work)
 //   onSignatureCompleted(run, requestId)  → 'signature' trigger (W02)
 //   onClientPlanApproved(run, floorplanId) → 'selection' trigger (portal floor-plan sign-off)
 //
@@ -76,13 +80,31 @@ export async function onDecisionResolved(run: Run, decisionId: string): Promise<
   });
 }
 
-export async function onWorkItemDone(run: Run, workItemId: string): Promise<AgentTrigger | null> {
+/** A background worker run is in flight on this job right now (its own
+ *  to-dos closing are part of that run, not a new event). */
+async function workerRunOnSameJob(run: Run, projectId: string | null, leadId: string | null): Promise<boolean> {
+  if (!projectId && !leadId) return false;
+  try {
+    const [r] = await run<{ n: string }>(
+      `SELECT count(*)::text AS n FROM agent_executions
+        WHERE status = 'running' AND entry_point = 'worker' AND started_at > now() - interval '30 minutes'
+          AND ((project_id IS NOT NULL AND project_id = $1) OR (lead_id IS NOT NULL AND lead_id = $2))`,
+      [projectId, leadId],
+    );
+    return Number(r?.n ?? 0) > 0;
+  } catch {
+    return false;
+  }
+}
+
+export async function onWorkItemDone(run: Run, workItemId: string, by?: { principalKind?: string | null }): Promise<AgentTrigger | null> {
   const [w] = await run<{ id: string; title: string; status: string; approval_status: string; project_id: string | null; lead_id: string | null; assignee_kind: string; expected_runbook_slug: string | null; blocked_reason: string | null }>(
     `SELECT id, title, status, approval_status, project_id, lead_id, assignee_kind, expected_runbook_slug, blocked_reason FROM work_items WHERE id = $1`,
     [workItemId],
   );
   if (!w || w.status !== "done") return null;
   const kind: TriggerKind = w.approval_status === "approved" ? "approval" : "note";
+  if (kind === "note" && by?.principalKind && by.principalKind !== "user" && (await workerRunOnSameJob(run, w.project_id, w.lead_id))) return null;
   return safeEnqueue(run, {
     kind,
     ref: `work_item:${w.id}:done`,

@@ -117,8 +117,8 @@ export function inquiryReplySubject(scope: string, name: string): string {
 
 export type AutomationKind = 'Receipt' | 'Statement' | 'Payment' | 'Alert' | 'Marketing' | 'Notification';
 /** Uses only the already-fetched envelope; no provider calls or AI. */
-export function automationDetails(email: string, subject: string, snippet: string): {kind: AutomationKind; attention?: string} {
-  const text = `${subject} ${snippet}`;
+export function automationDetails(email: string, subject: string, snippet: string, body = ""): {kind: AutomationKind; attention?: string} {
+  const text = `${subject} ${snippet} ${body}`;
   const domain = emailAddress(email).split('@')[1] ?? '';
   const money = /squareup|square\.com|stripe|intuit|quickbooks|paypal|bank|creditunion/i.test(domain);
   const kind: AutomationKind = /\breceipt\b|order confirmation/i.test(text) ? 'Receipt'
@@ -129,7 +129,8 @@ export function automationDetails(email: string, subject: string, snippet: strin
   // Do not turn routine success confirmations or negated warnings into demands.
   const evidence = text.replace(/\b(?:not|no longer)\s+(?:past due|on hold|suspended)\b/gi, '')
     .match(/\b(?:payment (?:has )?failed|failed payment|on hold|past due|action required|approval (?:is )?(?:needed|required)|(?:bid|estimate) (?:is )?(?:awaiting|needs?|pending) (?:your )?(?:review|approval)|(?:COI|insurance)(?: coverage| policy)? (?:is )?(?:expiring|expires|expired)|account (?:is |has been )?suspended|verify(?: (?:your )?(?:identity|account|payment|email))?)\b/i)?.[0];
-  return {kind, attention: evidence};
+  const request = text.match(/\b(?:Your order will be marked as complete automatically in \d+ days?|(?:[a-z]+ )?will be automatically completed in \d+ days?|review and (?:accept|approve)|(?:approve|respond) by [^.!?\n]{1,80}|expires on [^.!?\n]{1,80}|final notice)\b/i)?.[0];
+  return {kind, attention: evidence ?? request};
 }
 export function screeningEligible(input: {email: string; inbound: boolean; done: boolean; known: boolean; staff: boolean; automated?: boolean; ownAddresses: string[]; decision?: string}): boolean {
   return input.inbound && !input.done && !input.staff && !input.automated &&
@@ -147,14 +148,25 @@ export function stageLabel(status: string): string {
 
 export function splitQuotedText(paras: string[]): {text: string; quote: string} {
   const text = paras.join('\n\n').replaceAll('\r', '');
-  const match = /(?:^|\n)[ \t]*(?:On [\s\S]{4,500}?wrote:[ \t]*(?:\n|$)|>|-{2,}\s*(?:Original|Forwarded) message)/im.exec(text);
+  const match = /(?:^|\n)[ \t]*(?:On[ \t\u00a0]+[\s\S]{4,1000}?wrote:[ \t]*(?:\n|$)|From:[^\n]+\n(?:[^\n]*\n){0,2}[ \t]*Sent:|>|-{2,}\s*(?:Original|Forwarded) message)/im.exec(text);
   return match ? {text:text.slice(0,match.index).trimEnd(),quote:text.slice(match.index).trimStart()} : {text,quote:''};
 }
 
-export function substantiveSnippet(paras: string[]): string {
-  return splitQuotedText(paras).text
-    .replace(/^\s*(?:hi|hello|hey|dear|good morning|good afternoon)(?:[ \t]+[^,\n!]{1,50})?[,!][ \t]*(?:\n+)?/i,'')
-    .replace(/\s+/g,' ').trim().slice(0,280);
+export function substantiveSnippet(paras: string[], subject = ''): string {
+  const text = splitQuotedText(paras).text
+    .replace(/\[image:[^\]]*\]|https?:\/\/\S+|<https?:[^>]+>/gi, '')
+    .replace(/^\s*(?:hi|hello|hey|dear|good morning|good afternoon)(?:[ \t]+[^,\n!]{1,50})?[,!][ \t]*(?:\n+)?/i, '');
+  const sentences = text.split(/\n+|(?<=[.!?])\s+/).map(s=>s.replace(/\s+/g,' ').trim()).filter(Boolean);
+  const meaningful: string[] = [];
+  for (const sentence of sentences) {
+    if (/^(?:sent from my|(?:best|kind) regards|regards|sincerely|cheers)\b/i.test(sentence)) break;
+    if (/^(?:thank(?:s| you)|sorry|apologies|I(?:'m| am) sorry)\b/i.test(sentence)) continue;
+    if (/^[\w .'-]{1,35}$/.test(sentence) && !/[?.!]/.test(sentence) && meaningful.length) continue;
+    if (/^(?:\[image|image unavailable|unsubscribe)\b/i.test(sentence)) continue;
+    meaningful.push(sentence);
+  }
+  const ask = meaningful.find(s=>/\?|\b(?:can you|could you|please|would you|need|when|how much|estimate|quote)\b/i.test(s));
+  return (ask || subject || meaningful[0] || '').slice(0,280);
 }
 
 export function conversationDraftContext(messages: {fromName?:string; outbound?:boolean; body:string[]}[], focalIndex=messages.length): {text:string; count:number} {

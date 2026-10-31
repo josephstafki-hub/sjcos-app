@@ -280,3 +280,25 @@ test('SMS uses the same draft path, short-text instruction and existing job grou
  const [instruction,prompt]=globalThis.__draftPrompts[0];assert.match(instruction,/short SMS/);assert.match(prompt,/Approved closet design/);assert.match(prompt,/Can you send photos/);assert.match(prompt,/Yes, tonight/);
  globalThis.__queryRows=undefined;
 });
+
+test('round 5 row and strip distinguish thread tasks from job tasks in one batch; full body raises Fiverr attention',async()=>{
+ const sqls=[];globalThis.__gmail.fail=null;globalThis.__gmail.mailbox='round5@example.test';
+ globalThis.__gmail.threads=[{...email,id:'michelle',fromEmail:'michelle@example.test'}, {...email,id:'fiverr',fromEmail:'noreply@fiverr.com',subject:'Your delivery is here',snippet:'Here is your delivery',bodyParas:['Intro '.repeat(40),'Your order will be marked as complete automatically in 3 days']}];
+ globalThis.__queryRows=sql=>{
+  sqls.push(sql);
+  if(/AS project_slug/.test(sql))return [{email:'michelle@example.test',project_slug:'closet',project_label:'Alcantara · Closet',stage:'construction'}];
+  if(/SELECT DISTINCT w.id::text/.test(sql))return [{id:'job-1',thread_id:'michelle',thread_linked:false,title:'Order hardware',due_at:'2026-11-26'}, {id:'job-2',thread_id:'michelle',thread_linked:false,title:'Paint hallway',due_at:null}];
+  return [];
+ };
+ invalidateInboxCache();const data=await getInboxData();
+ const michelle=data.threads.find(t=>t.id==='michelle');
+ assert.equal(michelle.hasOpenTodo,false);assert.equal(michelle.jobTodos.length,2);
+ const {threadTodoCue,contextStripText}=await import('../lib/inbox-experience.ts');
+ assert.equal(threadTodoCue(michelle),'2 job to-dos');
+ assert.match(contextStripText(michelle,{todos:michelle.jobTodos}),/2 job to-dos/);
+ assert.equal(sqls.filter(sql=>/SELECT DISTINCT w.id::text/.test(sql)).length,1);
+ assert.match(sqls.find(sql=>/SELECT DISTINCT w.id::text/.test(sql)),/COALESCE\(.*requested.id.*false\) AS thread_linked/);
+ const fiverr=data.threads.find(t=>t.id==='fiverr');assert.equal(fiverr.view,'needs_reply');assert.equal(fiverr.attentionEvidence,'Your order will be marked as complete automatically in 3 days');
+ assert.equal(data.readers.fiverr.messages[0].imagesBlocked,true);
+ globalThis.__queryRows=undefined;globalThis.__gmail.threads=[];
+});

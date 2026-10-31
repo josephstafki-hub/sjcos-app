@@ -23,8 +23,10 @@ import {
   reminderDueAt,
   relatedConversations,
   SHORTCUTS,
-  formatContactPhone,
+  formatContactPhone, todoDateLabel,
 } from "@/lib/inbox-experience";
+import { searchInboxDirectoryAction } from "@/lib/actions/inbox-screening";
+import type { InboxDirectoryEntry } from "@/lib/inbox-directory";
 import { runAction } from "@/lib/run-action";
 import type {
   InboxThread,
@@ -144,17 +146,20 @@ export function ShortcutHelp({ onClose }: { onClose: () => void }) {
   );
 }
 export function LinkPicker({
+  sender,
   options,
   value,
   onPick,
   onClose,
 }: {
+  sender?:string;
   options: InboxData["linkOptions"];
   value: string;
   onPick: (v: string) => void;
   onClose: () => void;
 }) {
   const [q, setQ] = useState("");
+  const directory=useDirectoryMatches(q,sender??"");
   const all = [
     ...(options?.projects ?? []).map((p) => ({
       ...p,
@@ -168,19 +173,22 @@ export function LinkPicker({
     })),
   ].filter((p) => p.name.toLowerCase().includes(q.toLowerCase()));
   return (
-    <InboxDialog title="Link to job / lead" onClose={onClose}>
+    <InboxDialog title="Link to existing" onClose={onClose}>
       <label className="flex items-center gap-2 rounded-md border border-rule p-2">
         <Search className="size-4 text-ink-3" />
         <input
-          aria-label="Search jobs and leads"
+          aria-label="Search directory"
           value={q}
           onChange={(e) => setQ(e.target.value)}
-          placeholder="Search jobs and leads…"
+          placeholder="Search people, jobs, subs and vendors…"
           className="min-h-8 min-w-0 flex-1 bg-transparent text-body outline-none"
         />
       </label>
       <div className="max-h-72 overflow-y-auto">
-        {all.map((p) => (
+        {directory.loading&&<p role="status" className="p-3 text-meta text-ink-3">Searching directory…</p>}
+        {directory.error&&<p role="alert" className="p-3 text-meta text-flag">{directory.error}</p>}
+        {directory.entries.map(p=><button key={`${p.kind}:${p.slug}`} className="block min-h-11 w-full rounded-md px-2 py-2 text-left hover:bg-hover" onClick={()=>{onPick(`${p.kind}:${p.slug}`);onClose();}}><span className="block text-body">{p.name} · {p.role}{p.job?` · ${p.job}`:''}</span><span className="block truncate text-meta text-ink-3">{p.email}{p.match==='email'?' · Exact email':p.match==='domain'?' · Same domain':''}</span></button>)}
+        {!sender&&!q&&all.map((p) => (
           <button
             key={p.value}
             onClick={() => {
@@ -194,8 +202,8 @@ export function LinkPicker({
             {value === p.value && <Check className="size-4 text-accent" />}
           </button>
         ))}
-        {!all.length && (
-          <p className="p-3 text-meta text-ink-3">No matching jobs or leads.</p>
+        {!directory.loading&&!directory.error&&!directory.entries.length&&Boolean(sender||q) && (
+          <p className="p-3 text-meta text-ink-3">No matching directory records.</p>
         )}
       </div>
       {value && (
@@ -559,7 +567,7 @@ export function ContextPanel({
       <aside
         role="complementary"
         aria-label="Person and job context"
-        className={`${docked?"static shadow-none":"absolute inset-y-0 right-0 shadow-pop"} z-[70] flex w-[300px] shrink-0 max-w-full flex-col border-l border-rule bg-paper-2`}
+        className={`${docked?"static w-[300px] shadow-none":"absolute inset-x-0 bottom-0 max-h-[85%] w-full rounded-t-xl shadow-pop @4xl/page:inset-y-0 @4xl/page:left-auto @4xl/page:right-0 @4xl/page:max-h-none @4xl/page:w-[300px] @4xl/page:rounded-none"} z-[70] flex shrink-0 max-w-full flex-col border-l border-rule bg-paper-2`}
       >
         <div className="flex min-h-13 items-center gap-2 border-b border-rule px-3">
           <h2 className="text-subheading font-semibold">Person & job</h2>
@@ -595,6 +603,10 @@ export function ContextPanel({
                   {data.person ? (
                     <>
                       <Chip kind="accent">{data.person.role}</Chip>
+                      <div className="flex flex-wrap gap-2">
+                        {data.person.phone&&<><a className="inline-flex min-h-11 items-center rounded-md border border-rule px-3 text-meta text-accent-2" href={`tel:${data.person.phone.replace(/[^+0-9]/g,'')}`}>Call</a><a className="inline-flex min-h-11 items-center rounded-md border border-rule px-3 text-meta text-accent-2" href={`sms:${data.person.phone.replace(/[^+0-9]/g,'')}`}>Text</a></>}
+                        {data.person.email&&<a className="inline-flex min-h-11 items-center rounded-md border border-rule px-3 text-meta text-accent-2" href={`mailto:${data.person.email}`}>Email</a>}
+                      </div>
                       {[data.person.email, data.person.phone]
                         .filter(Boolean)
                         .map((value) => {
@@ -730,7 +742,7 @@ export function ContextPanel({
                       <span className="block text-meta text-ink-3">{t.assignees || "Joe"}</span>
                       {t.due_at && (
                         <span className="block text-meta text-ink-3">
-                          {new Date(t.due_at).toLocaleDateString("en-US")}
+                          {todoDateLabel(t)}
                         </span>
                       )}
                     </a>
@@ -783,21 +795,51 @@ export function ContextPanel({
   );
 }
 
-export function ContactCreateDialog({thread,kind,onClose,onCreated}:{thread:InboxThread;kind:'lead'|'sub'|'vendor';onClose:()=>void;onCreated:(slug:string)=>void}) {
+export function ContactCreateDialog({thread,kind,onClose,onCreated,onLink}:{thread:InboxThread;kind:'lead'|'sub'|'vendor';onClose:()=>void;onCreated:(slug:string)=>void;onLink?:()=>void}) {
   const [pending,start]=useTransition();
   const [error,setError]=useState('');
   const [created,setCreated]=useState(false);
+  const directory=useDirectoryMatches('',thread.fromEmail??'');
   return <InboxDialog title={`Add as ${kind}`} onClose={onClose}><form className="space-y-3" action={form=>start(async()=>{
     setError('');
+    if(directory.loading||directory.error){setError('Wait for the duplicate check before creating.');return;}
     try {
       const result=await (kind==='lead'?createLeadFromInbox:kind==='sub'?createSubFromInbox:createVendorFromInbox)(form);
       if(result.slug){setCreated(true);onCreated(result.slug);}else setError('Enter a name.');
     }catch{setError('Could not create the contact. Check the directory before trying again.');}
   })}>
+    <DuplicateNotice directory={directory} onLink={onLink??onClose}/>
     <label className="block text-meta text-ink-3">Name<input name="name" required defaultValue={thread.fromName} className="mt-1 min-h-11 w-full rounded border border-rule bg-paper px-3 text-body" /></label>
     <label className="block text-meta text-ink-3">Email<input name="email" type="email" required readOnly defaultValue={thread.fromEmail} className="mt-1 min-h-11 w-full rounded border border-rule bg-paper px-3 text-body" /></label>
     {kind==='lead'?<><input type="hidden" name="source" value="Inbox"/><label className="block text-meta text-ink-3">Inquiry<textarea name="scope" defaultValue={`${thread.subject}\n${thread.preview}`} className="mt-1 min-h-24 w-full rounded border border-rule bg-paper p-3 text-body" /></label></>:<label className="block text-meta text-ink-3">Trade<input name="trade" className="mt-1 min-h-11 w-full rounded border border-rule bg-paper px-3 text-body" /></label>}
     {error&&<p role="alert" className="text-meta text-flag">{error}</p>}
-    <Button type="submit" disabled={pending||created}>{pending?'Creating…':`Create ${kind}`}</Button>
+    <Button type="submit" disabled={pending||created||directory.loading||Boolean(directory.error)}>{pending?'Creating…':`Create ${kind}`}</Button>
   </form></InboxDialog>;
+}
+
+function useDirectoryMatches(search:string,sender:string) {
+  const [entries,setEntries]=useState<InboxDirectoryEntry[]>([]);
+  const [loading,setLoading]=useState(true);
+  const [error,setError]=useState('');
+  useEffect(()=>{
+    let alive=true;setLoading(true);setEntries([]);setError('');
+    const timer=setTimeout(()=>{searchInboxDirectoryAction(search,sender).then(rows=>{if(alive)setEntries(rows);}).catch(()=>{if(alive)setError('Could not check the directory. Try opening Link again.');}).finally(()=>{if(alive)setLoading(false);});},180);
+    return ()=>{alive=false;clearTimeout(timer);};
+  },[search,sender]);
+  return {entries,loading,error};
+}
+function DuplicateNotice({directory,onLink}:{directory:ReturnType<typeof useDirectoryMatches>;onLink:()=>void}) {
+  const possible=directory.entries.find(p=>p.match==='email')??directory.entries.find(p=>p.match==='domain');
+  return <>{directory.loading&&<p role="status" className="text-meta text-ink-3">Checking directory…</p>}{directory.error&&<p role="alert" className="text-meta text-flag">{directory.error}</p>}{possible&&<p className="text-meta text-warn">Possible duplicate: {possible.name} ({possible.role}) · <button type="button" className="min-h-11 font-semibold text-accent-2 underline" onClick={onLink}>Link instead</button></p>}</>;
+}
+export function SenderScreening({thread,onLink,onAdd,onOther}:{thread:InboxThread;onLink:()=>void;onAdd:(kind:'lead'|'sub'|'vendor')=>void;onOther:()=>void}) {
+  const directory=useDirectoryMatches('',thread.fromEmail??'');
+  return <div className="w-full min-w-0">
+    <DuplicateNotice directory={directory} onLink={onLink}/>
+    <div className="flex items-center gap-1">
+      <Button size="sm" variant="secondary" onClick={onLink}>Link</Button>
+      <details className="relative"><summary className="flex min-h-11 cursor-pointer items-center rounded-md border border-rule px-3 text-meta font-semibold text-ink-2">Add as ▾</summary><div className="absolute left-0 top-full z-[75] min-w-36 rounded-lg border border-rule bg-card p-1 shadow-pop">{(['lead','sub','vendor'] as const).map(kind=><Button key={kind} disabled={directory.loading||Boolean(directory.error)} variant="ghost" onClick={()=>onAdd(kind)} className="w-full justify-start">{kind[0].toUpperCase()+kind.slice(1)}</Button>)}</div></details>
+      <Button size="sm" variant="ghost" onClick={onOther}>Other</Button>
+    </div>
+  </div>;
 }

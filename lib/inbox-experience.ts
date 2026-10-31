@@ -1,4 +1,4 @@
-import type { InboxThread, ThreadReader } from "./inbox";
+import type { InboxThread, InboxTodo, ThreadReader } from "./inbox";
 
 export type InboxTab = "needs" | "clients" | "leads" | "subs" | "new" | "other";
 export const INBOX_TABS: { value: InboxTab; label: string }[] = [
@@ -190,6 +190,7 @@ export interface SavedInboxDraft {
   toEmail: string;
   model: string;
   ai: boolean;
+  humanEdited?:boolean;
   replyAll?: boolean;
   basedOn?: string;
 }
@@ -313,14 +314,33 @@ export function rememberOtherSender(
   }
 }
 
-export function contextStripText(thread: Pick<InboxThread,'projectLabel'|'fromName'|'contactStage'>, context?: {job?: {name: string; stage: string; money?: {outstanding: number} | null} | null; schedule?: {label: string; day: string} | null; todos?: unknown[]} | null): string {
+/** Compare calendar days in Central, never present a later day's work as due now. */
+export function todoDateLabel(todo: Pick<InboxTodo,'due_at'>, now=new Date()): string {
+  if(!todo.due_at)return '';
+  const date=new Date(todo.due_at.length===10?todo.due_at+'T12:00:00Z':todo.due_at);
+  const day=centralDay(date), today=centralDay(now);
+  return `${day>today?'Scheduled · ':''}${date.toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'America/Chicago'})}`;
+}
+export function threadTodoCue(thread: Pick<InboxThread,'todos'|'jobTodos'>): string {
+  const todo=thread.todos?.[0];
+  if(todo)return ['To-do',todoDateLabel(todo),todo.title].filter(Boolean).join(' · ');
+  const n=thread.jobTodos?.length ?? 0;
+  return n?`${n} job to-do${n===1?'':'s'}`:'';
+}
+export function contextStripText(thread: Pick<InboxThread,'projectLabel'|'fromName'|'contactStage'|'todos'|'jobTodos'>, context?: {job?: {name: string; stage: string; money?: {outstanding: number} | null} | null; schedule?: {label: string; day: string} | null; todos?: InboxTodo[]} | null): string {
   const job = context?.job;
   const stage = (job?.stage || thread.contactStage || '').replaceAll('_', ' ');
   const identity = shortJobLabel(job?.name || thread.projectLabel || thread.fromName || 'No linked job');
-  const cue = job?.money ? `${new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(job.money.outstanding/100)} outstanding`
+  const cue = job?.money && job.money.outstanding>0 ? `${new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(job.money.outstanding/100)} outstanding`
     : context?.schedule ? `Next: ${context.schedule.label} ${new Date(context.schedule.day+'T12:00:00Z').toLocaleDateString('en-US',{weekday:'short',timeZone:'UTC'})}` : '';
-  return ['Context', identity, stage === 'intake' ? 'New inquiry' : /^pre construction$/i.test(stage) ? 'Pre-construction' : stage ? stage[0].toUpperCase()+stage.slice(1) : '', cue, context?.todos?.length ? `${context.todos.length} open to-do${context.todos.length===1?'':'s'}` : ''].filter(Boolean).join(' · ');
+  const tasks=context?.todos?{todos:context.todos.filter(t=>t.thread_linked===true),jobTodos:context.todos.filter(t=>t.thread_linked!==true)}:thread;
+  return ['Context', identity, stage === 'intake' ? 'New inquiry' : /^pre construction$/i.test(stage) ? 'Pre-construction' : stage ? stage[0].toUpperCase()+stage.slice(1) : '', cue, threadTodoCue(tasks)].filter(Boolean).join(' · ');
 }
+/** Width of the inbox itself (the left app dock is outside this box). */
+export function contextLayout(width:number): {docked:boolean;compact:boolean} {
+  return {docked:width>=1120,compact:width>=1120&&width<1180};
+}
+
 type CompletionResult = {ok: boolean; error?: string};
 /** Completion is separate so retrying it can never repeat a successful send. */
 export async function completeAfterSend(send: () => Promise<CompletionResult>, done?: () => Promise<CompletionResult>) {
@@ -377,7 +397,7 @@ export function canLoadMore(input:{token?:string;lens:string;channel?:string;rem
   return true;
 }
 export function draftGenerationResult(snapshot:SavedInboxDraft,current:SavedInboxDraft,suggestion:SavedInboxDraft, changed=false) {
-  const conflict=changed||JSON.stringify(snapshot)!==JSON.stringify(current);
+  const conflict=Boolean(current.body.trim()&&(!current.ai||current.humanEdited))||changed||JSON.stringify(snapshot)!==JSON.stringify(current);
   return {value:conflict?current:suggestion,previous:snapshot,suggestion:conflict?suggestion:null};
 }
 export function completionQueue(threads:InboxThread[],currentId:string,drafts:ReadonlySet<string>=new Set()) {

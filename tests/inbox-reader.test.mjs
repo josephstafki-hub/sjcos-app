@@ -26,7 +26,7 @@ registerHooks({
     const stubs={
       'stub:toast':'export const toast=()=>1,dismissToast=()=>{};',
       'stub:screen':'export const setInboxPreferenceAction=async()=>({ok:true});',
-      'stub:panels':'export const ContactCreateDialog=()=>null;export const ThreadSummary=()=>null;export const ContextPanel=()=>null;export const LinkPicker=()=>null;export const MessageTaskDialog=()=>null;export const ShortcutHelp=()=>null;',
+      'stub:panels':'export const SenderScreening=()=>null;export const ContactCreateDialog=()=>null;export const ThreadSummary=()=>null;export const ContextPanel=()=>null;export const LinkPicker=()=>null;export const MessageTaskDialog=()=>null;export const ShortcutHelp=()=>null;',
       'stub:experience-actions':'export const inboxContextAction=async()=>null,undoChannelDoneAction=async()=>({ok:true});export const markChannelDoneAction=async()=>({ok:true});',
       'stub:run':'export const runAction=async fn=>fn();',
       'stub:router':'export const useRouter=()=>({refresh(){}});',
@@ -108,7 +108,7 @@ test('saved tasks return to the reader and mark the row; unread names get their 
  const todo={id:'w1',title:'Send revised estimate',assignees:'Joe',due_at:'2026-11-06'};
  const html=render(ReaderBody,{reader,threadId:'thread',todos:[todo]});
  assert.match(html,/To-do: Send revised estimate/);assert.match(html,/Joe/);assert.match(html,/Fri/);assert.match(html,/engine\?work=w1/);
- const row=render(ThreadRow,{thread:{id:'1',fromName:'Michelle Alcantara',channel:'email',initials:'MA',when:'2h',view:'needs_reply',preview:'Please revise the closet estimate',needsMeReason:'Client replied',projectLabel:'Closet',unread:true,hasOpenTodo:true},onSelect(){}});
+ const row=render(ThreadRow,{thread:{id:'1',fromName:'Michelle Alcantara',channel:'email',initials:'MA',when:'2h',view:'needs_reply',preview:'Please revise the closet estimate',needsMeReason:'Client replied',projectLabel:'Closet',unread:true,hasOpenTodo:true,todos:[todo]},onSelect(){}});
  assert.equal((row.match(/>2h</g) ?? []).length,1);assert.match(row,/Open to-do/);assert.match(row,/aria-label="Unread"/);assert.match(row,/Michelle Alcantara/);
 });
 
@@ -117,5 +117,17 @@ test('plain-text attribution and quote fold together, compact rows expose ledger
  const html=render(ReaderBody,{reader:quoted,threadId:'quote'});
  assert.match(html,/Please confirm/);assert.match(html,/Show quoted text/);assert.doesNotMatch(html,/On Wednesday|old request/);
  const row=render(ThreadRow,{thread:{id:'balance',channel:'email',fromName:'Michelle',when:'2h',preview:'Please send photos',outstandingCents:225000,hasOpenTodo:true,todos:[{due_at:'2026-11-26T14:00:00Z'}]},onSelect(){}});
- assert.match(row,/\$2,250/);assert.match(row,/To-do · Nov 26/);assert.doesNotMatch(row,/pr-24/);
+ assert.match(row,/\$2,250/);assert.match(row,/To-do · Scheduled · Nov 26/);assert.doesNotMatch(row,/pr-24/);
+});
+
+test('six visible Needs me rows do not show Load more even with a Gmail next-page token',()=>{
+ const threads=Array.from({length:6},(_,i)=>({id:String(i),fromName:'Client '+i,channel:'email',view:'needs_reply',contactRole:'client',when:'2h',preview:'Please review'}));
+ const data={activeView:{key:'needs_reply'},smartViews:[],channels:[],projects:[],labels:[],threads,readers:Object.fromEntries(threads.map(t=>[t.id,reader])),selectedId:'0',nextPageToken:'more-in-gmail',mailbox:{connected:true,email:'joe@example.test'}};
+ assert.doesNotMatch(render(InboxClient,{data,selfEmail:'joe@example.test'}),/>Load more</);
+});
+test('screening rows expose one Screen control, job-wide tasks have their own cue, and hover controls replace trailing facts',()=>{
+ const thread={id:'new',fromName:'Person',initials:'P',channel:'email',when:'2h',preview:'Can you quote this?',newSender:true,jobTodos:[{id:'1'},{id:'2'}]};
+ const html=render(ThreadRow,{thread,onSelect(){},onScreen(){}});
+ assert.match(html,/Screen…/);assert.doesNotMatch(html,/Add as|Link to existing/);assert.match(html,/2 job to-dos/);
+ assert.match(html,/top-1 right-2/);assert.match(html,/group-hover:invisible/);
 });

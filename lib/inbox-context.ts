@@ -24,7 +24,7 @@ export interface InboxContext {
     money: { total: number; paid: number; outstanding: number } | null;
   } | null;
   schedule: { label: string; day: string; time: string } | null;
-  todos: { id: string; title: string; due_at: string | null; assignees?: string }[];
+  todos: { id: string; title: string; due_at: string | null; assignees?: string; thread_linked?: boolean }[];
 }
 /** Panel-only read: no Gmail import or request, and ledger cents are never inferred from invoices. */
 export async function loadInboxContext(
@@ -101,13 +101,14 @@ export async function loadInboxContext(
       : Promise.resolve({ rows: [] }),
     query<InboxContext["todos"][number]>(
       `SELECT w.id,w.title,w.due_at,
+        COALESCE((w.source_id=$3 OR EXISTS (SELECT 1 FROM obligation_sources os WHERE os.obligation_id=w.obligation_id AND os.thread_id=$3)),false) AS thread_linked,
         COALESCE((SELECT string_agg(u.name,', ' ORDER BY u.name) FROM work_item_assignees a JOIN users u ON u.id=a.user_id WHERE a.work_item_id=w.id),'Joe') AS assignees
         FROM work_items w
       LEFT JOIN projects p ON p.id=w.project_id LEFT JOIN leads l ON l.id=w.lead_id
       WHERE (p.slug=$1 OR l.slug=$2 OR w.source_id=$3 OR w.obligation_id IN
         (SELECT obligation_id FROM obligation_sources WHERE thread_id=$3))
         AND w.status NOT IN ('done', 'cancelled') AND w.archived_at IS NULL
-      ORDER BY w.due_at NULLS LAST,w.created_at DESC LIMIT 8`,
+      ORDER BY w.due_at NULLS LAST,w.id`,
       [p?.slug ?? null, lead ?? null, input.threadId],
     ),
   ]);

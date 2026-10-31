@@ -1,3 +1,4 @@
+import { foldEmailQuotes } from './inbox-email-html';
 // Gmail connector for the unified inbox.
 //
 // This is the ONLY module that imports the Google SDK. It is server-only (the
@@ -448,7 +449,7 @@ function collectInlineImages(part: gmail_v1.Schema$MessagePart | undefined, out:
  *  event handlers, and unknown schemes; keeps formatting + images (http(s)/data).
  *  Images are constrained to the container width via an inline max-width. */
 function sanitizeEmailHtml(html: string): string {
-  return sanitizeHtml(html, {
+  return sanitizeHtml(foldEmailQuotes(html), {
     allowedTags: sanitizeHtml.defaults.allowedTags.concat(["img", "h1", "h2", "span", "u", "font", "center"]),
     allowedAttributes: {
       "*": ["style", "align", "valign", "width", "height", "bgcolor", "color"],

@@ -25,3 +25,9 @@ export async function setInboxPreferenceAction(kind: 'sender'|'thread', target: 
     } catch {return {ok:false,error:'Could not save your decision. Try again.'};}
   });
 }
+
+export async function searchInboxDirectoryAction(search:string,sender:string) {
+  await requireAccess('inbox');
+  const {searchInboxDirectory}=await import('@/lib/inbox-directory');
+  return searchInboxDirectory(search,emailAddress(sender));
+}

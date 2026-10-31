@@ -1,3 +1,4 @@
+import type { InboxLinkKind } from "./inbox-directory";
 // Unified inbox data builder. Mock-backed today; swaps to DB queries in Phase 7
 // (the threads table already exists — see db/schema.sql). Shape stays stable.
 //
@@ -67,6 +68,7 @@ export interface InboxTodo {
   title: string;
   due_at: string | null;
   assignees?: string;
+  thread_linked?: boolean;
 }
 export interface InboxThread {
   outstandingCents?: number;
@@ -101,6 +103,8 @@ export interface InboxThread {
   inboundLast?: boolean;
   receivedAt?: number;
   attentionRequired?: boolean;
+  attentionEvidence?: string;
+  jobTodos?: InboxTodo[];
   attentionOverride?: boolean;
   senderDecision?: string;
   hasOpenTodo?: boolean;
@@ -127,7 +131,7 @@ export interface InboxThread {
   /** Linked project display name. */
   projectLabel?: string;
   /** Manual link (P6-3): the record this thread is pinned to, if any. */
-  linkedType?: "project" | "lead";
+  linkedType?: InboxLinkKind;
   linkedSlug?: string;
 }
 
@@ -228,6 +232,7 @@ const THREADS: InboxThread[] = [
 // ─── Reader pane ─────────────────────────────────────────────────────────────
 
 export interface ReaderMessage {
+  imagesBlocked?:boolean;
   id?: string;
   fromEmail?: string;
   cc?: string[];
@@ -245,6 +250,7 @@ export interface ReaderMessage {
 }
 
 export interface ThreadReader {
+  automationKind?: import("./inbox-rules").AutomationKind;
   /** Header tag chip, e.g. "CHEN LEAD · PHASE 1". */
   tag: string;
   channel: ThreadChannel;
@@ -535,7 +541,7 @@ function viewOf(r: RawGmailThread): ThreadStatus {
 }
 
 function rawToThread(r: RawGmailThread, labelMap: Map<string, string>): InboxThread {
-  const details = automationDetails(r.fromEmail, r.subject, r.snippet);
+  const details = automationDetails(r.fromEmail, r.subject, r.snippet, (r.messages ?? []).filter(m=>!m.outbound).map(m=>splitQuotedText(m.body).text).join("\n") || splitQuotedText(r.bodyParas).text);
   const view = isBulk(r) && details.attention && r.inInbox && !r.outbound && !r.snoozed ? "needs_reply" : viewOf(r);
   const needsReply = view === "needs_reply" && r.unread;
   // For outbound threads the counterparty is the recipient, not "me".
@@ -550,7 +556,7 @@ function rawToThread(r: RawGmailThread, labelMap: Map<string, string>): InboxThr
     fromName: who,
     channel: "email",
     subject: r.subject,
-    preview: substantiveSnippet(([...(r.messages ?? [])].reverse().find(m=>!m.outbound)?.body) ?? r.bodyParas ?? [r.snippet]) || r.snippet,
+    preview: substantiveSnippet(([...(r.messages ?? [])].reverse().find(m=>!m.outbound)?.body) ?? r.bodyParas ?? [r.snippet], r.subject),
     receivedAt:r.date,
     inboundLast:!r.outbound,
     when: relativeWhen(r.date),
@@ -560,6 +566,7 @@ function rawToThread(r: RawGmailThread, labelMap: Map<string, string>): InboxThr
     automated: isBulk(r),
     automationKind: details.kind,
     attentionRequired: Boolean(details.attention),
+    attentionEvidence: details.attention,
     starred: r.starred,
     unread: r.unread,
     labelNames: labelNames.length ? labelNames : undefined,
@@ -599,6 +606,7 @@ function rawToReader(r: RawGmailThread): ThreadReader {
   }];
   const incoming = r.messages && [...r.messages].reverse().find(m => !m.outbound);
   return {
+    automationKind: automationDetails(r.fromEmail,r.subject,r.snippet).kind,
     tag: "Email",
     channel: "email",
     channelLabel: channelLabel("email"),
@@ -799,7 +807,7 @@ function extractEmail(raw: string): string {
 }
 
 interface ManualLink {
-  type: "project" | "lead";
+  type: InboxLinkKind;
   slug: string;
   projectSlug?: string; // set for project links → drives the by-project rail
   label: string;
@@ -832,13 +840,15 @@ async function loadContactMaps(): Promise<ContactMaps> {
         WHERE l.email IS NOT NULL AND l.email <> ''
        UNION ALL SELECT lower(client_email), slug, name, status FROM projects WHERE client_email <> ''`,
     ),
-    query<{ thread_id: string; link_type: "project" | "lead"; link_slug: string; label: string; project_slug: string | null }>(
+    query<{ thread_id: string; link_type: InboxLinkKind; link_slug: string; label: string; project_slug: string | null }>(
       `SELECT tl.gmail_thread_id AS thread_id, tl.link_type, tl.link_slug,
-              COALESCE(p.name, l.name, tl.link_slug) AS label,
+              COALESCE(p.name, l.name, s.name, v.name, tl.link_slug) AS label,
               p.slug AS project_slug
          FROM thread_links tl
          LEFT JOIN projects p ON tl.link_type = 'project' AND p.slug = tl.link_slug
-         LEFT JOIN leads    l ON tl.link_type = 'lead'    AND l.slug = tl.link_slug`,
+         LEFT JOIN leads    l ON tl.link_type = 'lead'    AND l.slug = tl.link_slug
+         LEFT JOIN subs s ON tl.link_type='sub' AND s.slug=tl.link_slug
+         LEFT JOIN vendors v ON tl.link_type='vendor' AND v.slug=tl.link_slug`,
     ),
     query<{email:string}>(`SELECT lower(email) AS email FROM users WHERE role IN ('owner','staff')`),
     query<{subject_key:string;decision:string}>(`SELECT subject_key,decision FROM inbox_preferences WHERE mailbox=$1`, [activeMailbox()?.email?.toLowerCase() ?? ""]),
@@ -884,15 +894,14 @@ function classifyThread(
   audience?: Audience;
   projectSlug?: string;
   projectLabel?: string;
-  linkedType?: "project" | "lead";
+  linkedType?: InboxLinkKind;
   linkedSlug?: string;
 } {
-  // Manual link takes precedence — a linked thread is always a client thread,
-  // and a project link drives the by-project rail.
+  // An explicit directory link takes precedence over email/domain guesses.
   const manual = maps.linkByThread.get(r.id);
   if (manual) {
     return {
-      audience: "client",
+      audience: manual.type==="sub"?"sub":manual.type==="vendor"?"money":"client",
       projectSlug: manual.projectSlug,
       projectLabel: manual.label,
       linkedType: manual.type,
@@ -976,10 +985,10 @@ function mapRawThreads(
 
     });
     if (bulk && threads[i].view === 'needs_reply' && (threads[i].attentionOverride ?? threads[i].attentionRequired))
-      threads[i].needsMeReason = `Needs attention · ${automationDetails(r.fromEmail,r.subject,r.snippet).attention ?? 'Marked by you'}`;
+      threads[i].needsMeReason = `Needs attention · ${threads[i].attentionEvidence ?? 'Marked by you'}`;
     threads[i].newSender = screeningEligible({email:r.fromEmail,inbound:!r.outbound,done:!r.inInbox || r.snoozed,known,staff,automated:bulk,ownAddresses:own,decision});
     if (threads[i].newSender && threads[i].view === "needs_reply") threads[i].needsMeReason = "New sender";
-    threads[i].contactKey=person ? `${person.kind==='client'?'lead':person.kind}:${person.slug}` : c.projectSlug ? `project:${c.projectSlug}` : undefined;
+    threads[i].contactKey=c.linkedType?`${c.linkedType}:${c.linkedSlug}`:person ? `${person.kind==='client'?'lead':person.kind}:${person.slug}` : c.projectSlug ? `project:${c.projectSlug}` : undefined;
     threads[i].contactStage=c.projectSlug ? contactMaps.projectByEmail.get(threads[i].fromEmail ?? '')?.stage : person?.stage;
     if(person?.kind==='client'&&!c.projectSlug&&!c.linkedType){c.linkedType='lead';c.linkedSlug=person.slug;c.projectLabel=person.name;}
     threads[i].contactRole = c.audience === "sub" ? "sub" : c.audience === "money" ? "vendor" : c.linkedType === "lead" || (contactMaps.leadEmails.has(threads[i].fromEmail ?? "") && !c.projectSlug) ? "lead" : c.projectSlug ? "client" : undefined;
@@ -994,6 +1003,11 @@ function mapRawThreads(
   const readerEntries = raw.map(
     (r) => {
       const reader = rawToReader(r);
+      for(const message of reader.messages){
+        const address=emailAddress(message.fromEmail??'');
+        const screened=contactMaps.preferences.get(`sender:${address}`);
+        message.imagesBlocked=!message.outbound&&!contactMaps.contactByEmail.has(address)&&!contactMaps.projectByEmail.has(address)&&!['linked','lead','sub','vendor'].includes(screened??'');
+      }
       if (knownIds.has(r.id)) reader.automated = false;
       return [r.id, reader] as [string, ThreadReader];
     },
@@ -1018,14 +1032,21 @@ async function attachThreadTodos(threads: InboxThread[]): Promise<void> {
   if (!threads.length) return;
   try {
   const {rows} = await query<InboxTodo & {thread_id:string}>(
-    `SELECT DISTINCT w.id::text,w.title,w.due_at,COALESCE(os.thread_id,w.source_id) AS thread_id,
+    `SELECT DISTINCT w.id::text,w.title,w.due_at,requested.id AS thread_id,
+       COALESCE((w.source_id=requested.id OR EXISTS (SELECT 1 FROM obligation_sources os WHERE os.obligation_id=w.obligation_id AND os.thread_id=requested.id)),false) AS thread_linked,
        COALESCE((SELECT string_agg(u.name,', ' ORDER BY u.name) FROM work_item_assignees a JOIN users u ON u.id=a.user_id WHERE a.work_item_id=w.id),'Joe') AS assignees
-     FROM work_items w LEFT JOIN obligation_sources os ON os.obligation_id=w.obligation_id
+     FROM jsonb_to_recordset($1::jsonb) AS requested(id text, project text, lead text)
+     JOIN work_items w ON w.source_id=requested.id
+       OR EXISTS (SELECT 1 FROM obligation_sources os WHERE os.obligation_id=w.obligation_id AND os.thread_id=requested.id)
+       OR w.project_id IN (SELECT id FROM projects WHERE slug=requested.project)
+       OR w.lead_id IN (SELECT id FROM leads WHERE slug=requested.lead)
      WHERE w.status NOT IN ('done','cancelled') AND w.archived_at IS NULL
-       AND (w.source_id=ANY($1::text[]) OR os.thread_id=ANY($1::text[]))`,
-    [threads.map(t => t.id)]);
+     ORDER BY w.due_at NULLS LAST,w.id::text`,
+    [JSON.stringify(threads.map(t=>({id:t.id,project:t.projectSlug || (t.linkedType==='project'?t.linkedSlug:null),lead:t.linkedType==='lead'?t.linkedSlug:t.contactKey?.startsWith('lead:')?t.contactKey.slice(5):null})))]);
   for (const thread of threads) {
-    thread.todos = rows.filter(r => r.thread_id === thread.id);
+    const tasks = rows.filter(r=>r.thread_id===thread.id);
+    thread.todos = tasks.filter(r=>r.thread_linked!==false);
+    thread.jobTodos = tasks.filter(r=>r.thread_linked===false);
     thread.hasOpenTodo = thread.todos.length > 0;
   }
   } catch (error) {
@@ -1492,7 +1513,7 @@ async function loadChannelThreads(maps:ContactMaps,options:InboxData["linkOption
   const threads=parts.flatMap(p=>p.threads);
   const readerEntries=parts.flatMap(p=>p.readerEntries);
   const {rows:handled}=await query<{inbox_key:string;last_message_at:string}>(`SELECT inbox_key,last_message_at FROM threads WHERE inbox_key=ANY($1::text[]) AND status='done'`,[threads.map(t=>t.id)]);
-  const {rows:links}=await query<{thread_id:string;link_type:'project'|'lead';link_slug:string;label:string;stage:string}>(`SELECT tl.gmail_thread_id AS thread_id,tl.link_type,tl.link_slug,COALESCE(p.name,l.name) AS label,
+  const {rows:links}=await query<{thread_id:string;link_type:InboxLinkKind;link_slug:string;label:string;stage:string}>(`SELECT tl.gmail_thread_id AS thread_id,tl.link_type,tl.link_slug,COALESCE(p.name,l.name) AS label,
     COALESCE(p.status,l.stage) AS stage
     FROM thread_links tl LEFT JOIN projects p ON tl.link_type='project' AND p.slug=tl.link_slug
     LEFT JOIN leads l ON tl.link_type='lead' AND l.slug=tl.link_slug WHERE tl.gmail_thread_id=ANY($1::text[])`,[threads.map(t=>t.id)]);
@@ -1516,7 +1537,7 @@ async function loadChannelThreads(maps:ContactMaps,options:InboxData["linkOption
   for(const t of threads){
     const messages=readersById.get(t.id)?.messages;
     const inbound=messages&&[...messages].reverse().find(m=>!m.outbound);
-    if(inbound)t.preview=substantiveSnippet(inbound.body)||t.preview;
+    if(inbound)t.preview=substantiveSnippet(inbound.body,t.subject);
     if(messages?.at(-1)?.date)t.receivedAt=messages.at(-1)!.date;
   }
   const dates=new Map(handled.map(r=>[r.inbox_key,Date.parse(r.last_message_at)]));

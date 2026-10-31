@@ -85,7 +85,7 @@ const stubs = {
   "@/lib/actions/inbox-experience":
     "export const inboxContextAction=async()=>globalThis.__contextRequest?.(),undoChannelDoneAction=async()=>({ok:true});export const markChannelDoneAction=async()=>({ok:true});",
   "./InboxPanels":
-    "export const ContactCreateDialog=()=>null,ThreadSummary=()=>null,ContextPanel=()=>null,LinkPicker=()=>null,MessageTaskDialog=()=>null,ShortcutHelp=()=>null;",
+    "export const SenderScreening=()=>null,ContactCreateDialog=()=>null,ThreadSummary=()=>null,ContextPanel=()=>null,LinkPicker=()=>null,MessageTaskDialog=()=>null,ShortcutHelp=()=>null;",
   "@/lib/run-action": "export const runAction=async fn=>fn();",
 };
 registerHooks({
@@ -156,7 +156,7 @@ function find(pred) {
   return nodes(tree).find(pred);
 }
 function click(text) {
-  const n = find((n) => n.props?.children === text && n.props?.onClick);
+  const n = find((n) => (n.props?.children === text || n.props?.["aria-label"] === text) && n.props?.onClick);
   assert.ok(n, text);
   n.props.onClick();
   render();
@@ -284,6 +284,8 @@ test('regenerate retains previous reviewed version; never sends',async()=>{
  mount('regenerate');click('Draft with AI');await settle();
  find(n=>n.props?.['aria-label']==='AI draft body').props.onChange({target:{value:'Reviewed original'}});render();flush();
  const count=sends.length;click('Regenerate');await settle();
+ assert.equal(find(n=>n.props?.['aria-label']==='AI draft body').props.value,'Reviewed original');
+ click('Use suggestion');
  assert.equal(find(n=>n.props?.['aria-label']==='AI draft body').props.value,'Thanks, Tom.');
  click('Restore previous');
  assert.equal(find(n=>n.props?.['aria-label']==='AI draft body').props.value,'Reviewed original');assert.equal(sends.length,count);
@@ -331,7 +333,7 @@ test('plain Done advances after confirmation, clears search and reports remainin
   const cached={person:{name:'Tom'},job:{name:'Closet'},todos:[]};resolveContext(cached);for(let i=0;i<4;i++)await Promise.resolve();render();flush();
   // Open context and refresh while retaining its last good result.
   find(n=>n.props?.title==='Open contact, job, money and to-dos').props.onClick();render();flush();
-  let panel=find(n=>n.props?.initialData);assert.deepEqual(panel.props.initialData,cached);
+  let panel=find(n=>n.props?.initialData);assert.deepEqual(panel.props.initialData,cached);assert.equal(panel.props.docked,false,'phone strip opens the context sheet');assert.equal(find(n=>n.props?.['aria-label']==='Open person and job context').props['aria-expanded'],true);
   panel.props.onRetry();render();flush();panel=find(n=>n.props?.initialData);assert.deepEqual(panel.props.initialData,cached);
   for(const fn of timers.values())fn();render();flush();panel=find(n=>n.props?.initialData);assert.match(panel.props.loadError,/taking too long/);assert.ok(panel.props.onRetry);
   find(n=>n.props?.['aria-label']==='Search inbox').props.onChange({target:{value:'a'}});render();flush();
@@ -342,4 +344,14 @@ test('plain Done advances after confirmation, clears search and reports remainin
  }finally{
   cleanups.forEach(fn=>fn?.());cleanups=[];clientData=null;globalThis.setTimeout=realSet;globalThis.clearTimeout=realClear;globalThis.fetch=realFetch;delete globalThis.window;delete globalThis.document;
  }
+});
+
+test('a draft written before AI generation stays mine until I explicitly use the suggestion',async()=>{
+ mount('preexisting-human');click('Reply to Tom…');
+ find(n=>n.props?.['aria-label']==='Reply body').props.onChange({target:{value:'Please keep this exact reply.'}});render();flush();
+ const before=sends.length;click('Draft with AI');await settle();
+ assert.equal(find(n=>n.props?.['aria-label']==='Reply body').props.value,'Please keep this exact reply.');
+ assert.ok(find(n=>n.props?.children==='Compare'));assert.equal(sends.length,before);
+ click('Use suggestion');assert.equal(find(n=>n.props?.['aria-label']==='AI draft body').props.value,'Thanks, Tom.');
+ click('Restore previous');assert.equal(find(n=>n.props?.['aria-label']==='Reply body').props.value,'Please keep this exact reply.');
 });

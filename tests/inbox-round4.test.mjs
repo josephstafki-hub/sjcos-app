@@ -26,7 +26,7 @@ test('attention automation counts in Needs me only, ordinary automation remains 
 test('plain stage + compact strip never use a status note as the stage',()=>{
  assert.equal(stageLabel('pre_construction'),'Pre-construction');
  assert.equal(stageLabel('construction'),'Construction');
- assert.equal(contextStripText({fromName:'Michelle'}, {job:{name:'Alcantara · Closet',stage:'construction',money:{outstanding:225000}},todos:[{}]}),'Context · Alcantara · Closet · Construction · $2,250 outstanding · 1 open to-do');
+ assert.equal(contextStripText({fromName:'Michelle'}, {job:{name:'Alcantara · Closet',stage:'construction',money:{outstanding:225000}},todos:[{}]}),'Context · Alcantara · Closet · Construction · $2,250 outstanding · 1 job to-do');
 });
 test('multiline attribution folds with quote even when inside a paragraph',()=>{
  const body=['Hi Joe,\n\nPlease confirm the visit.\nOn Wednesday, October 28, 2026,\nJoseph <joe@example.test> wrote:\n> Earlier request'];
@@ -37,7 +37,7 @@ test('multiline attribution folds with quote even when inside a paragraph',()=>{
 test('AI generation protects edits and retains previous draft',()=>{
  const snapshot={body:'My draft',toEmail:'a@test.com',ai:false,model:''};
  const suggestion={...snapshot,body:'Suggestion',ai:true};
- assert.deepEqual(draftGenerationResult(snapshot,snapshot,suggestion),{value:suggestion,previous:snapshot,suggestion:null});
+ assert.deepEqual(draftGenerationResult(snapshot,snapshot,suggestion),{value:snapshot,previous:snapshot,suggestion});
  const edited={...snapshot,body:'Changed while waiting'};
  assert.deepEqual(draftGenerationResult(snapshot,edited,suggestion),{value:edited,previous:snapshot,suggestion});
 });

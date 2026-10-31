@@ -140,3 +140,27 @@ test('attachments are metadata on open; only deliberate retrieval downloads byte
  await assert.rejects(()=>gmail.fetchInboxAttachment('attachments','other-message','a20'),/not found/);
  await assert.rejects(()=>gmail.fetchInboxAttachment('attachments','20','other-attachment'),/not found/);assert.equal(downloads,1);
 });
+
+test('realistic Gmail multipart payload folds attribution with history after sanitization, including HTML-only and Outlook',async()=>{
+ const {gmailMessage,teresaText,teresaHtml,outlookHtml,michelleText}=await import('./fixtures/inbox-realistic-mail.mjs');
+ const {parseDocument,DomUtils}=await import('htmlparser2');
+ const {remoteImagePolicy}=await import('../lib/inbox-image-policy.ts');
+ mailbox={...mailbox,refreshToken:'realistic-multipart'};
+ messages=[gmailMessage('30',teresaText,teresaHtml),gmailMessage('31','',teresaHtml),gmailMessage('32','',outlookHtml),gmailMessage('33',michelleText,'<p>Would you be able to add that in to the remainder of the work?</p>')];
+ const before=calls.get;
+ const c=await gmail.fetchConversation('realistic-multipart');
+ assert.equal(rules.substantiveSnippet(c.messages[0].body,c.subject),'Could you estimate the basement finish?');
+ assert.equal(rules.substantiveSnippet(c.messages[1].body,c.subject),'Could you estimate the basement finish?');
+ assert.equal(rules.substantiveSnippet(c.messages[3].body,c.subject),'Would you be able to add that in to the remainder of the work?');
+ for(const id of ['30','31','32']){
+  const html=await gmail.fetchMessageHtml('realistic-multipart',id);
+  const doc=parseDocument(html);const quotes=DomUtils.findAll(e=>e.name==='blockquote',doc.children);
+  const quoteText=quotes.map(q=>DomUtils.textContent(q)).join(' ');
+  assert.match(quoteText,id==='32'?/From:.*Sent:.*OLD REQUEST/s:/On Wednesday,.*wrote:.*Can you send the listing/s);
+  for(const q of quotes)DomUtils.removeElement(q);
+  assert.doesNotMatch(DomUtils.textContent(doc),/wrote:|OLD REQUEST|From:/);
+ }
+ assert.equal(calls.get,before+1,'formatted bodies reuse the one full conversation payload');
+ const blocked=remoteImagePolicy('<img src="https://tracker.test/x"><img src="data:image/png;base64,AA"><div style="background:url(https://tracker.test/bg)">text</div>',false);
+ assert.doesNotMatch(blocked,/https:\/\/tracker/);assert.match(blocked,/src="data:/);
+});

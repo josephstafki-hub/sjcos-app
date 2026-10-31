@@ -11,6 +11,7 @@
 // thread archives it in their own account, and one with nothing linked gets
 // "Gmail is not connected" instead of a write against Joe's mailbox.
 
+import type { InboxLinkKind } from "@/lib/inbox-directory";
 import { inquiryReplySubject } from "@/lib/inbox-rules";
 import { sendSmsReply } from "@/lib/actions/sms";
 import { sendProjectMessage, sendLeadPortalMessage } from "@/lib/actions/portal";
@@ -54,13 +55,16 @@ export async function disconnectMyMailboxAction(): Promise<{ ok: boolean; error?
  *  re-linking just re-points it. Owner-gated. */
 export async function linkThread(
   threadId: string,
-  type: "project" | "lead",
+  type: InboxLinkKind,
   slug: string,
 ): Promise<{ ok: boolean; error?: string }> {
   await requireAccess("inbox");
-  if (!threadId || !slug || (type !== "project" && type !== "lead")) {
+  if (!threadId || !slug || !["project","lead","sub","vendor"].includes(type)) {
     return { ok: false, error: "Invalid link." };
   }
+  const table={project:'projects',lead:'leads',sub:'subs',vendor:'vendors'}[type];
+  const {rows:record}=await query(`SELECT slug FROM ${table} WHERE slug=$1`,[slug]);
+  if(!record.length)return {ok:false,error:'That directory record no longer exists.'};
   // Thread links are OUR records about a thread, not a Gmail call — no mailbox
   // scope needed, and deliberately shared: a thread pinned to the Henderson job
   // stays pinned whoever looks at it.

@@ -317,9 +317,12 @@ by Joe/staff don't feed the weekly update (only sub logs do).
   - ~~`revisions.ts` has no callers.~~ **Done (branch `t3/tier3-closeout`):** every signed document's
     content is pinned as its revision (a signature step in `lib/esign-hooks.ts`). The designer also pins
     through it (#83).
-  - `lib/closeout/marketing.ts` (publication rights, marketing drafts, the publish card) is still unwired.
-    The dispatcher has no `publication` kind and no social/website provider, so there is nowhere to post.
-    **Ask Joe** where marketing posts should go before wiring it.
+  - **Marketing is copy and paste (Joe, 2026-10-30: no paid social APIs).** /marketing drafts posts; Joe
+    copies the text and marks it posted.
+    - Each draft card now shows the job's photos with an **OK to share** tick (`publication_rights`, owner
+      only, `setPhotoShareable`) and a Download link for the shareable ones.
+    - The publish card and dispatcher `publication` kind stay unwired on purpose.
+    - Posting by an agent with computer use is a separate thread. Joe has the prompt.
 - ~~**Designer (A21):**~~ **Done (branch `t3/tier3-designer`):**
   - "Estimate from plan" now reads a pinned design version. It reuses the newest version when that version
     is the live drawing; otherwise it snapshots a new one first.

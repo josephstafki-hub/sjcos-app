@@ -27,7 +27,7 @@ import {
 } from "@/lib/inbox-experience";
 import { searchInboxDirectoryAction } from "@/lib/actions/inbox-screening";
 import type { InboxDirectoryEntry } from "@/lib/inbox-directory";
-import {summaryEligible} from "@/lib/inbox-rules";
+import {summaryEligible, substantiveSnippet} from "@/lib/inbox-rules";
 import { runAction } from "@/lib/run-action";
 import type {
   InboxThread,
@@ -253,7 +253,7 @@ export function MessageTaskDialog({
   onCreated: (todo: InboxTodo) => void;
 }) {
   const [title, setTitle] = useState(
-    () => thread.automated && !remind ? attentionTaskTitle(thread) : remind ? messageWorkItem(thread, reader, {}).get("title") as string : `Follow up with ${thread.fromName}: ${messageWorkItem(thread, reader, {}).get("title")}`.slice(0,160),
+    () => thread.automated && !remind ? attentionTaskTitle(thread) : substantiveSnippet([...reader.messages].reverse().find(m=>!m.outbound)?.body??[],thread.subject).slice(0,160),
   );
   const [due, setDue] = useState("");
   const [preset,setPreset]=useState<ReminderPreset | null>(remind?"tomorrow":null);

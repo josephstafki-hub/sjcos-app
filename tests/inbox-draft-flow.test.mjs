@@ -384,3 +384,27 @@ test('confirmation clears the draft and records recipient before completion reso
  const retry=pendingResult.retry();for(let i=0;i<3;i++)await Promise.resolve();finish({ok:true});await retry;
  assert.equal(readCompletions(localStorage,key).length,0);assert.equal(sent,1);assert.equal(doneCount,2);
 });
+
+test('failed SMS Retry uses the existing channel send path on click and preserves the composer draft',async()=>{
+ channel='sms';sends=[];const prior=reader.messages;
+ reader.messages=[{id:'failed-1',fromName:'Joe',outbound:true,body:['Retry this exact message'],deliveryState:'failed',deliveryError:'Carrier rejected'}];
+ try{
+  mount('retry-sms');assert.equal(sends.length,0);click('Write a reply…');
+  find(n=>n.props?.['aria-label']==='Text reply').props.onChange({target:{value:'Unsent newer reply'}});render();flush();
+  click('Retry');await settle();assert.equal(sends.length,1);assert.equal(sends[0].body,'Retry this exact message');
+  assert.equal(find(n=>n.props?.children==='Retry').props.disabled,true);
+  assert.equal(find(n=>n.props?.['aria-label']==='Text reply').props.value,'Unsent newer reply');
+ }finally{reader.messages=prior;channel=null;}
+});
+
+
+test('email and channel Send controls live outside the scrolling composer contents',()=>{
+ for(const kind of [null,'sms']){
+  channel=kind;mount(`pinned-${kind}`);click(kind?'Write a reply…':'Reply to Tom…');
+  const scrolling=nodes(tree).filter(n=>n.props?.className?.includes('max-sm:overflow-y-auto'));
+  assert.ok(scrolling.length);
+  for(const region of scrolling)assert.equal(nodes(region).some(n=>n.props?.children==='Send & Done'||n.props?.['aria-label']==='Send text'),false);
+  assert.ok(find(n=>n.props?.children==='Send & Done'));
+ }
+ channel=null;
+});

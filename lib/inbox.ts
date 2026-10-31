@@ -235,6 +235,8 @@ const THREADS: InboxThread[] = [
 // ─── Reader pane ─────────────────────────────────────────────────────────────
 
 export interface ReaderMessage {
+  deliveryState?:string;
+  deliveryError?:string;
   imagesBlocked?:boolean;
   id?: string;
   fromEmail?: string;
@@ -1215,9 +1217,11 @@ async function loadSmsThreads(): Promise<ChannelBuild> {
     thread_id: string;
     direction: "in" | "out";
     body: string;
+    status: string;
+    error_detail: string | null;
     created_at: string;
   }>(
-    `SELECT id::text AS id, thread_id::text AS thread_id, direction, body, created_at
+    `SELECT id::text AS id, thread_id::text AS thread_id, direction, body, status, error_detail, created_at
        FROM sms_messages WHERE thread_id = ANY($1::bigint[]) ORDER BY created_at, sms_messages.id`,
     [ids],
   );
@@ -1264,6 +1268,7 @@ async function loadSmsThreads(): Promise<ChannelBuild> {
     const conv = byThread.get(r.id) ?? [];
     const messages: ReaderMessage[] = conv.map((m) => ({
       id:m.id,date:Date.parse(m.created_at),outbound:m.direction === "out",
+      deliveryState:m.direction === "out"?m.status:undefined,deliveryError:m.error_detail??undefined,
       fromName: m.direction === "in" ? name : "Joe",
       initials: m.direction === "in" ? initialsOf(name) : "JS",
       meta: relativeWhen(Date.parse(m.created_at)),
@@ -1392,6 +1397,7 @@ async function loadPortalThreads(): Promise<ChannelBuild> {
     const conv = byKey.get(g.channel_key) ?? [];
     const messages: ReaderMessage[] = conv.map((m) => ({
       id:m.id,date:Date.parse(m.created_at),outbound:m.author_kind !== "user" || m.is_staff,
+      deliveryState:m.author_kind !== "user" || m.is_staff?"sent":undefined,
       fromName: m.author_name,
       initials: m.author_initials || initialsOf(m.author_name),
       meta: relativeWhen(Date.parse(m.created_at)),

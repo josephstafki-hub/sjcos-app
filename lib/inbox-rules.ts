@@ -131,6 +131,8 @@ export function automationDetails(email: string, subject: string, snippet: strin
   const kind: AutomationKind = financing ? 'Marketing'
     : /payment (?:confirmation|received|successful|processed)|you (?:paid|sent)|paid (?:invoice|to)|received (?:a |your )?payment/i.test(subject) ? 'Payment'
     : /e-?statement|\bstatement\b/i.test(subject) ? 'Statement'
+    : /\breceipt\b|order confirmation/i.test(subject) ? 'Receipt'
+    : /\bpayment\b|\bpaid\b/i.test(subject) ? 'Payment'
     : /\breceipt\b|order confirmation/i.test(text) ? 'Receipt'
     : /e-?statement|\bstatement\b/i.test(text + ' ' + email) ? 'Statement'
     : /payment|\bdebit\b|transfer|\bbilling\b/i.test(text) || money && /capital|hold|past due/i.test(text) ? 'Payment'

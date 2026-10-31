@@ -74,7 +74,7 @@ export function readableEmailHtml(html:string):string {
       return values.length?`<p>${values.join(': ')}</p>`:'';
     }
     const value=contents();
-    return /^(?:p|div|h[1-6]|li|section)$/.test(tag)?`<p>${value}</p>`:value;
+    return /^(?:div|section|li)$/.test(tag)?`<div>${value}</div>`:/^(?:p|h[1-6])$/.test(tag)?`<p>${value}</p>`:value;
   }
   return doc.children.map(render).join('').replace(/<p>\s*<\/p>/g,'');
 }

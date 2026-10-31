@@ -303,3 +303,16 @@ test('round 5 row and strip distinguish thread tasks from job tasks in one batch
  assert.equal(data.readers.fiverr.messages[0].imagesBlocked,true);
  globalThis.__queryRows=undefined;globalThis.__gmail.threads=[];
 });
+
+test('unified readers expose persisted outbound SMS status and successful portal posts',async()=>{
+ globalThis.__gmail.fail=null;globalThis.__gmail.threads=[];invalidateInboxCache();
+ globalThis.__queryRows=sql=>{
+  if(/FROM sms_threads/.test(sql))return [{id:'7',phone:'+16125550199',contact_name:'Pat',last_dir:'out',last_body:'Review the plans',last_message_at:'2026-10-31T15:00:00Z'}];
+  if(/FROM sms_messages WHERE/.test(sql))return [{id:'71',thread_id:'7',direction:'out',body:'Review the plans',status:'failed',error_detail:'Carrier rejected',created_at:'2026-10-31T15:00:00Z'}];
+  if(/FROM chat_messages m/.test(sql)&&/GROUP BY/.test(sql))return [{channel_key:'dm:pat',last_at:'2026-10-31T15:00:00Z',last_author:'owner',last_body:'Posted plans',sub_name:'Pat'}];
+  if(/FROM chat_messages m/.test(sql)&&/WHERE m.channel_key/.test(sql))return [{id:'72',channel_key:'dm:pat',author_kind:'owner',author_name:'Joe',body:'Posted plans',created_at:'2026-10-31T15:00:00Z'}];
+  return [];
+ };
+ try{const data=await getInboxData();const sms=data.readers['sms:7'].messages[0];assert.equal(sms.deliveryState,'failed');assert.equal(sms.deliveryError,'Carrier rejected');assert.equal(sms.outbound,true);assert.equal(data.readers['dm:pat'].messages[0].deliveryState,'sent');}
+ finally{globalThis.__queryRows=null;invalidateInboxCache();}
+});

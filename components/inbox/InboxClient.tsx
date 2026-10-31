@@ -885,6 +885,7 @@ export function InboxClient({
             className="w-max !max-w-none !overflow-visible h-11 [&_button]:shrink-0 [&_button]:h-11 @4xl/page:h-8 @4xl/page:[&_button]:h-7"
           />
         </div>
+        <span className="hidden @4xl/page:inline text-meta text-ink-3">loaded</span>
         <label className="flex min-h-11 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-rule bg-card px-2 @4xl/page:min-h-8 @4xl/page:w-28 @4xl/page:flex-none">
           <Search className="size-3.5 shrink-0 text-ink-3" />
           <input
@@ -1993,6 +1994,7 @@ function ChannelReaderBody({
   const chat = reader.channel !== "site_form";
   const safety=useSafeDraft(saved,threadId,setError);
   const composerStyle=useComposerViewport();
+  const [retried,setRetried]=useState<Set<string>>(new Set());
   const expanded=composerExpanded(replying,body);
   function generate(intent=''){setReplying(true);setSent(false);safety.generate(intent);}
   useLayoutEffect(() => {
@@ -2015,6 +2017,15 @@ function ChannelReaderBody({
         setSent(true);
         router.refresh();
       } else setError(r.error ?? "Could not send your reply.");
+    });
+  }
+  function retryMessage(message:ThreadReader['messages'][number]) {
+    if(!message.id || !message.outbound || !/failed|undelivered|expired/i.test(message.deliveryState??'') || retried.has(message.id))return;
+    setError('');
+    start(async()=>{
+      const result=await runAction(()=>sendChannelReplyAction({threadId,body:message.body.join('\n\n')}),{fallback:'Could not retry your message.'});
+      if(result.ok){setRetried(ids=>new Set([...ids,message.id!]));router.refresh();}
+      else setError(result.error??'Could not retry your message.');
     });
   }
   return (
@@ -2142,6 +2153,11 @@ function ChannelReaderBody({
                       </p>
                     )}
                   </div>
+                  {chat&&m.outbound&&m.deliveryState&&<div className="mt-1 flex max-w-[90%] flex-wrap items-center justify-end gap-1 text-meta text-ink-3">
+                    <span className={/failed|undelivered|expired/i.test(m.deliveryState)?'text-flag':''}>{retried.has(m.id??'')?'Retry submitted · see newest message':/failed|undelivered|expired/i.test(m.deliveryState)?'Failed':m.deliveryState==='sent'?'Sent':m.deliveryState==='delivered'?'Delivered':m.deliveryState==='queued'?'Queued':m.deliveryState==='sending'?'Sending':m.deliveryState}</span>
+                    {m.deliveryError&&<span className="break-words text-flag">{m.deliveryError}</span>}
+                    {m.id&&/failed|undelivered|expired/i.test(m.deliveryState)&&<Button size="sm" variant="secondary" disabled={pending||retried.has(m.id)} onClick={()=>retryMessage(m)}>Retry</Button>}
+                  </div>}
                 </div>
               </div>
             );
@@ -2152,13 +2168,14 @@ function ChannelReaderBody({
       <div
         data-reply-active={expanded}
         style={composerStyle}
-        className="flex-none border-t border-rule bg-paper-2 px-4 py-2 max-sm:max-h-[var(--inbox-composer-max)] max-sm:mb-[var(--inbox-keyboard-inset)] max-sm:overflow-y-auto"
+        className="flex flex-none flex-col border-t border-rule bg-paper-2 px-4 py-2 max-sm:max-h-[var(--inbox-composer-max)] max-sm:mb-[var(--inbox-keyboard-inset)]"
         onFocusCapture={() =>
           window.dispatchEvent(
             new CustomEvent("sjc:inbox-surface", { detail: true }),
           )
         }
       >
+        <div className="min-h-0 max-sm:overflow-y-auto">
         {canReply && <>
           <p title={reader.replyLabel} className="truncate text-meta font-semibold text-ink-2">{reader.replyLabel}</p>
           {reader.form&&<p className="truncate text-meta text-ink-3">Subject: {reader.form.outgoingSubject}</p>}
@@ -2173,8 +2190,7 @@ function ChannelReaderBody({
               <Button variant="ai" size="sm" onClick={()=>generate()} disabled={safety.pending||pending}>Draft with AI</Button>
               <Button variant="ghost" size="sm" onClick={()=>{saved.clear();setReplying(false);}} disabled={pending}>Discard</Button>
               </div>
-              <Button aria-label={channelCommitLabel(reader.channel)} className="min-w-0" onClick={()=>send()} disabled={!body.trim()||pending||safety.pending} icon={Send}>{pending?'Sending…':<><span className="@4xl/page:hidden">Send</span><span className="hidden @4xl/page:inline">{channelCommitLabel(reader.channel)}</span></>}</Button>
-              {onSendDone&&<Button variant="secondary" disabled={!body.trim()||pending||safety.pending} onClick={()=>send(true)}>Send &amp; Done</Button>}
+
             </div>
             <details><summary className="cursor-pointer py-1 text-meta text-ink-3">Reply intent</summary><div className="flex flex-wrap gap-1">{['Yes, works','Need more info','Schedule a visit','Thanks'].map(intent=><Button key={intent} variant="ghost" size="sm" disabled={pending||safety.pending} onClick={()=>generate(intent)}>{intent}</Button>)}</div></details>
           </> : <div className="flex min-h-13 items-center gap-2 rounded-lg border border-rule bg-card px-3">
@@ -2209,6 +2225,12 @@ function ChannelReaderBody({
             {reader.actionLabel ?? "Open project"}
           </a>
         )}
+        </div>
+        {canReply&&expanded&&<div className="grid shrink-0 grid-cols-2 gap-1 bg-paper-2 pt-2">
+          <Button aria-label={channelCommitLabel(reader.channel)} className="min-h-11 min-w-0 @4xl/page:min-h-8" icon={Send} disabled={!body.trim()||pending||safety.pending} onClick={()=>send()}>{pending?'Sending…':<><span className="@4xl/page:hidden">Send</span><span className="hidden @4xl/page:inline">{channelCommitLabel(reader.channel)}</span></>}</Button>
+          {onSendDone&&<Button variant="secondary" className="min-h-11 min-w-0 @4xl/page:min-h-8" disabled={!body.trim()||pending||safety.pending} onClick={()=>send(true)}>Send &amp; Done</Button>}
+        </div>}
+
       </div>
     </>
   );
@@ -2276,7 +2298,7 @@ function ThreadRow({
             <span
               className={`min-w-0 truncate text-meta ${attention?"rounded bg-warn-soft px-1 text-warn":needs?"text-accent-2":"text-ink-3"}`}
             >
-              {attention ? "Action required" : thread.needsMeReason ??
+              {attention ? thread.attentionEvidence ?? "Action required" : thread.needsMeReason ??
                 (thread.automated
                   ? `${thread.automationKind ?? "Notification"}${thread.inInbox===false?" · done":""}`
                   : thread.view === "done" && thread.inInbox === false
@@ -2296,11 +2318,12 @@ function ThreadRow({
               </span>
             )}
             <span title="Outstanding" className="ml-auto shrink-0 text-meta text-warn">
-              {Boolean(thread.outstandingCents)&&new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(thread.outstandingCents!/100)}{Boolean(thread.outstandingCents)&&' due'}
+              {Boolean(thread.outstandingCents)&&new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(thread.outstandingCents!/100)}{Boolean(thread.outstandingCents)&&' outstanding'}
             </span>
           </span>
           {threadTodoCue(thread)&&<span title={threadTodoCue(thread)} aria-label="Open to-do" className="block truncate text-meta text-accent-2">{threadTodoCue(thread)}</span>}
           {thread.newSender&&!compact&&<span title={thread.fromEmail} className="block truncate text-meta text-ink-3">{thread.fromEmail}</span>}
+          {thread.attentionEvidence&&!attention&&!automationDeadline(thread.attentionEvidence,thread.receivedAt)&&<span className="block truncate text-meta text-ink-2">{thread.attentionEvidence}</span>}
           {automationDeadline(thread.attentionEvidence??'',thread.receivedAt)&&<span className="my-0.5 inline-block rounded bg-warn-soft px-1 text-meta font-semibold text-warn">{automationDeadline(thread.attentionEvidence??'',thread.receivedAt)}</span>}
           <span className="line-clamp-2 text-body leading-snug text-ink-2">
             {thread.preview || thread.subject}
@@ -2660,16 +2683,6 @@ function ReaderBody({
         className="max-h-[18dvh] min-h-16 w-full resize-y bg-transparent text-body leading-relaxed text-ink outline-none focus-visible:ring-1 focus-visible:ring-focus"
       />
       <div className="mt-2 grid grid-cols-2 gap-1">
-        <Button
-          data-draft-send
-          onClick={()=>send()}
-          disabled={!hasDraft || !toEmail.trim() || sending || drafting}
-          icon={Send}
-          className="min-h-11 @4xl/page:min-h-8"
-        >
-          {sending ? "Sending…" : "Send email"}
-        </Button>
-        {onSendDone&&<Button variant="secondary" disabled={!hasDraft||!toEmail.trim()||sending||drafting} onClick={()=>send(true)}>Send &amp; Done</Button>}
         <div className="col-span-2 flex flex-wrap gap-1">
         {files.picker(sending)}
         <Button
@@ -2756,7 +2769,7 @@ function ReaderBody({
       <div
         data-reply-active={composerExpanded(replying,draft)||draftOpen}
         style={composerStyle}
-        className="flex-none border-t border-rule bg-paper-2 px-4 py-2 max-sm:max-h-[var(--inbox-composer-max)] max-sm:mb-[var(--inbox-keyboard-inset)] max-sm:overflow-y-auto"
+        className="flex flex-none flex-col border-t border-rule bg-paper-2 px-4 py-2 max-sm:max-h-[var(--inbox-composer-max)] max-sm:mb-[var(--inbox-keyboard-inset)]"
         onFocusCapture={() =>
           window.dispatchEvent(
             new CustomEvent("sjc:inbox-surface", { detail: true }),
@@ -2770,6 +2783,7 @@ function ReaderBody({
             setReplying(false);
         }}
       >
+        <div className="min-h-0 max-sm:overflow-y-auto">
         {automated ? (
           <div className="flex items-center gap-2">
             <p className="flex-1 text-meta text-ink-3">
@@ -2788,7 +2802,7 @@ function ReaderBody({
         ) : (
           <>
             {(composerExpanded(replying, draft) || draftOpen) && (
-              <details className="mb-2 text-meta text-ink-2">
+              <details className="mb-2 text-base text-ink-2 @4xl/page:text-body">
                 <summary title={toEmail} className="min-h-8 cursor-pointer truncate py-1 font-semibold">
                   To: {reader.replyTarget.toName} &lt;{toEmail}&gt; · Email
                 </summary>
@@ -2801,7 +2815,7 @@ function ReaderBody({
                       value={toEmail}
                       disabled={sending}
                       onChange={(e) => update({ toEmail: e.target.value })}
-                      className="min-h-11 min-w-0 max-w-full bg-transparent text-body text-ink outline-none"
+                      className="min-h-11 min-w-0 max-w-full bg-transparent text-base text-ink outline-none @4xl/page:text-body"
                     />
                     &gt;
                   </label>
@@ -2851,17 +2865,7 @@ function ReaderBody({
                     Discard
                   </Button>
                   </div>
-                  <Button
-                    className="min-w-0"
-                    onClick={()=>send()}
-                    disabled={
-                      !hasDraft || !toEmail.trim() || sending || drafting
-                    }
-                    icon={Send}
-                  >
-                    {sending ? "Sending…" : "Send email"}
-                  </Button>
-                  {onSendDone&&<Button variant="secondary" disabled={!hasDraft||!toEmail.trim()||sending||drafting} onClick={()=>send(true)}>Send &amp; Done</Button>}
+
                 </div>
               </div>
             ) : (
@@ -2940,6 +2944,12 @@ function ReaderBody({
             open until you send.
           </p>
         )}
+        </div>
+        {!automated&&reader.replyTarget&&(composerExpanded(replying,draft)||draftOpen)&&<div className="grid shrink-0 grid-cols-2 gap-1 bg-paper-2 pt-2">
+          <Button data-draft-send={isAI||undefined} className="min-h-11 min-w-0 @4xl/page:min-h-8" icon={Send} disabled={!hasDraft||!toEmail.trim()||sending||drafting} onClick={()=>send()}>{sending?'Sending…':'Send email'}</Button>
+          {onSendDone&&<Button variant="secondary" className="min-h-11 min-w-0 @4xl/page:min-h-8" disabled={!hasDraft||!toEmail.trim()||sending||drafting} onClick={()=>send(true)}>Send &amp; Done</Button>}
+        </div>}
+
       </div>
     </>
   );

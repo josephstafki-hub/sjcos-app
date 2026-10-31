@@ -1,6 +1,5 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
 import {substantiveSnippet, automationDetails, automationDeadline, threadNeedsMe, summaryEligible} from '../lib/inbox-rules.ts';
 import {contextLayout, matchesInboxTab, tabCounts, completionPass} from '../lib/inbox-experience.ts';
 import {readableEmailHtml} from '../lib/inbox-email-html.ts';
@@ -27,6 +26,7 @@ test('relative deadlines derive from message date, including year boundaries',()
 test('subject event semantics take priority over payment/statement words in a pitch or footer',()=>{
  assert.equal(automationDetails('agent@finance.example.test','Pre-Approved - MCA Consolidation','Reduce weekly payments','Statement of proposed terms').kind,'Marketing');
  assert.equal(automationDetails('notify@pay.example.test','Payment confirmation','$420 paid','View statement and receipt').kind,'Payment');
+ assert.equal(automationDetails('notify@pay.example.test','Your payment to Sample Electric','View statement and receipt').kind,'Payment');
  assert.equal(automationDetails('statements@bank.example.test','Your eStatement is available','Payment details enclosed').kind,'Statement');
 });
 test('context width budget accounts for borders and never squeezes the reader',()=>{

@@ -39,3 +39,9 @@ test('task cues retain titles and Central scheduled dates; context agrees and su
  assert.doesNotMatch(contextStripText({fromName:'Michelle'},{job:{name:'Closet',stage:'Construction',money:{outstanding:0}},todos:[task]}),/\$0/);
  assert.deepEqual(contextLayout(1119),{docked:false,compact:false});assert.deepEqual(contextLayout(1120),{docked:true,compact:true});assert.deepEqual(contextLayout(1180),{docked:true,compact:false});
 });
+
+test('Gmail line wrapping preserves exact deadline evidence, and an ask can follow an apology',()=>{
+ const phrase='Your order will be marked as complete\n automatically in 3 days';
+ assert.equal(automationDetails('notify@fiverr.com','Delivery','',phrase).attention,phrase);
+ assert.equal(substantiveSnippet(['Sorry for the delay, could you estimate the basement finish?'],'Basement'),'could you estimate the basement finish?');
+});

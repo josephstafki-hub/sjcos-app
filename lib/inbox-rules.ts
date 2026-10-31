@@ -129,7 +129,7 @@ export function automationDetails(email: string, subject: string, snippet: strin
   // Do not turn routine success confirmations or negated warnings into demands.
   const evidence = text.replace(/\b(?:not|no longer)\s+(?:past due|on hold|suspended)\b/gi, '')
     .match(/\b(?:payment (?:has )?failed|failed payment|on hold|past due|action required|approval (?:is )?(?:needed|required)|(?:bid|estimate) (?:is )?(?:awaiting|needs?|pending) (?:your )?(?:review|approval)|(?:COI|insurance)(?: coverage| policy)? (?:is )?(?:expiring|expires|expired)|account (?:is |has been )?suspended|verify(?: (?:your )?(?:identity|account|payment|email))?)\b/i)?.[0];
-  const request = text.match(/\b(?:Your order will be marked as complete automatically in \d+ days?|(?:[a-z]+ )?will be automatically completed in \d+ days?|review and (?:accept|approve)|(?:approve|respond) by [^.!?\n]{1,80}|expires on [^.!?\n]{1,80}|final notice)\b/i)?.[0];
+  const request = text.match(/\b(?:Your\s+order\s+will\s+be\s+marked\s+as\s+complete\s+automatically\s+in\s+\d+\s+days?|(?:[a-z]+\s+)?will\s+be\s+automatically\s+completed\s+in\s+\d+\s+days?|review\s+and\s+(?:accept|approve)|(?:approve|respond)\s+by\s+[^.!?\n]{1,80}|expires\s+on\s+[^.!?\n]{1,80}|final\s+notice)\b/i)?.[0];
   return {kind, attention: evidence ?? request};
 }
 export function screeningEligible(input: {email: string; inbound: boolean; done: boolean; known: boolean; staff: boolean; automated?: boolean; ownAddresses: string[]; decision?: string}): boolean {
@@ -160,7 +160,11 @@ export function substantiveSnippet(paras: string[], subject = ''): string {
   const meaningful: string[] = [];
   for (const sentence of sentences) {
     if (/^(?:sent from my|(?:best|kind) regards|regards|sincerely|cheers)\b/i.test(sentence)) break;
-    if (/^(?:thank(?:s| you)|sorry|apologies|I(?:'m| am) sorry)\b/i.test(sentence)) continue;
+    if (/^(?:thank(?:s| you)|sorry|apologies|I(?:'m| am) sorry)\b/i.test(sentence)) {
+      const ask=/\b(?:can you|could you|please|would you|when|how much)\b/i.exec(sentence);
+      if(ask)meaningful.push(sentence.slice(ask.index));
+      continue;
+    }
     if (/^[\w .'-]{1,35}$/.test(sentence) && !/[?.!]/.test(sentence) && meaningful.length) continue;
     if (/^(?:\[image|image unavailable|unsubscribe)\b/i.test(sentence)) continue;
     meaningful.push(sentence);

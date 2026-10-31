@@ -79,7 +79,7 @@ const stubs = {
   "@/lib/actions/inbox": actionNames
     .map(
       (n) =>
-        `export const ${n}=${n === "archiveThreadAction" ? "async(...args)=>globalThis.__archive(...args)" : n === "draftReplyAction" ? "globalThis.__draftActions.draft" : (n === "sendReplyAction" || n === "sendChannelReplyAction") ? "globalThis.__draftActions.send" : "async()=>({ok:true})"};`,
+        `export const ${n}=${n === "getThreadHtmlAction" ? "async()=>({html:globalThis.__imageHtml??''})" : n === "archiveThreadAction" ? "async(...args)=>globalThis.__archive(...args)" : n === "draftReplyAction" ? "globalThis.__draftActions.draft" : (n === "sendReplyAction" || n === "sendChannelReplyAction") ? "globalThis.__draftActions.send" : "async()=>({ok:true})"};`,
     )
     .join("\n"),
   "@/lib/actions/inbox-experience":
@@ -100,7 +100,7 @@ registerHooks({
     if (u === url)
       return {
         format: "module",
-        source: ts.transpileModule(source + "\nexport {ReaderBody,ChannelReaderBody};", {
+        source: ts.transpileModule(source + "\nexport {ReaderBody,ChannelReaderBody,EmailMessageCard};", {
           compilerOptions: {
             jsx: ts.JsxEmit.ReactJSX,
             module: ts.ModuleKind.ESNext,
@@ -114,7 +114,7 @@ registerHooks({
       : n(u, c);
   },
 });
-const { ReaderBody, ChannelReaderBody, InboxClient } = await import(url);
+const { ReaderBody, ChannelReaderBody, InboxClient, EmailMessageCard } = await import(url);
 const reader = {
   messages: [{ id: "m1", fromEmail:"tom@example.test", body: ["Plans?"] }],
   subject: "Plans",
@@ -125,9 +125,10 @@ const reader = {
 let tree,
   id = "t1",
   channel = null,
-  clientData = null;
+  clientData = null, cardData = null;
 function render() {
   cursor = 0;
+  if(cardData){tree=EmailMessageCard(cardData);return;}
   if(clientData){tree=InboxClient({data:clientData,selfEmail:"joe@example.test"});return;}
   const Component=channel?ChannelReaderBody:ReaderBody;
   tree = Component({ reader:channel?{...reader,channel,replyLabel:"To (612) 555-1234"}:reader, threadId: id, mailbox: "joe@example.test", onSendDone:async()=>{globalThis.__doneCalls=(globalThis.__doneCalls??0)+1;return {ok:!globalThis.__doneFails,error:"offline"};} });
@@ -354,4 +355,19 @@ test('a draft written before AI generation stays mine until I explicitly use the
  assert.ok(find(n=>n.props?.children==='Compare'));assert.equal(sends.length,before);
  click('Use suggestion');assert.equal(find(n=>n.props?.['aria-label']==='AI draft body').props.value,'Thanks, Tom.');
  click('Restore previous');assert.equal(find(n=>n.props?.['aria-label']==='Reply body').props.value,'Please keep this exact reply.');
+});
+
+test('remote image consent is explicit and remembered per sender and mailbox without changing screening keys',async()=>{
+ globalThis.__imageHtml='<p>Delivery</p><img src="https://tracker.example.test/pixel">';
+ const base={threadId:'images',expanded:true,onToggle(){},blockImages:true,mailbox:'joe@example.test'};
+ const open=async(email,mailbox='joe@example.test')=>{cardData={...base,mailbox,message:{id:email,fromEmail:email,fromName:email,body:[],initials:'P'}};mount('images');await settle();};
+ const formatted=()=>find(n=>typeof n.type==='function'&&n.type.name==='EmailHtml').props.html;
+ try {
+  await open('unknown@example.test');assert.doesNotMatch(formatted(),/src="https:/);assert.ok(find(n=>n.props?.children==='Show images'));
+  const prior=new Set(map.keys());click('Show images');assert.match(formatted(),/src="https:/);
+  const keys=[...map.keys()].filter(k=>!prior.has(k));assert.deepEqual(keys,['sjc:inbox:images:v1:joe@example.test:unknown@example.test']);
+  await open('unknown@example.test');assert.match(formatted(),/src="https:/);
+  await open('different@example.test');assert.doesNotMatch(formatted(),/src="https:/);
+  await open('unknown@example.test','staff@example.test');assert.doesNotMatch(formatted(),/src="https:/);
+ }finally{cardData=null;delete globalThis.__imageHtml;}
 });

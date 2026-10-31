@@ -2,11 +2,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 const calls=[];
-globalThis.__replyAction = { calls, row:{email:'teresa@example.test',name:'Teresa',scope:'Kitchen'}, allowed:true };
+globalThis.__replyAction = { calls, queries:[], row:{email:'teresa@example.test',name:'Teresa',scope:'Kitchen'}, allowed:true };
 const stubs = {
   'next/cache':'export const revalidatePath = () => {};',
   '@/lib/dal':`export const requireAccess = async area => { if (!globalThis.__replyAction.allowed) throw Error('Forbidden'); return {id:'owner',role:'owner'}; };`,
-  '@/lib/db':`export const query = async () => ({rows:globalThis.__replyAction.row ? [globalThis.__replyAction.row] : []});`,
+  '@/lib/db':`export const query = async (sql,p) => {globalThis.__replyAction.queries.push([sql,p]);return {rows:globalThis.__replyAction.row ? [globalThis.__replyAction.row] : []};};`,
   '@/lib/mailbox':`export const unlinkMailbox = async () => {}; export const withMailboxFor = async (u,fn) => fn();`,
   '@/lib/gmail':`export const gmailConfigured = () => true; export const sendReply = async o => globalThis.__replyAction.calls.push(['email',o]); export const sendNewEmail = async o => globalThis.__replyAction.calls.push(['new',o]); export const modifyThread=async()=>{}; export const trashThread=async()=>{}; export const fetchThreadHtml=async()=>''; export const fetchMessageHtml=async(t,m)=>t+':'+m;`,
   '@/lib/inbox':`export const draftReplyForThread=async()=>({}); export const invalidateInboxCache=()=>{}; export const loadMoreInbox=async()=>({}); export const loadLabelInbox=async()=>({}); export const loadSystemView=async()=>({});`,
@@ -45,4 +45,15 @@ test('typed reply action preserves blank To for SERVER resolution and opt-in rep
 });
 test('HTML action requests a specific message rather than always the last message',async()=>{
   assert.equal((await actions.getThreadHtmlAction('thread','earlier')).html,'thread:earlier');
+});
+
+test('directory links validate existing records and reuse thread_links for all four roles without sending',async()=>{
+ calls.length=0;const queries=globalThis.__replyAction.queries;queries.length=0;
+ for(const type of ['project','lead','sub','vendor'])assert.equal((await actions.linkThread('thread',type,'existing')).ok,true);
+ const writes=queries.filter(([sql])=>sql.includes('INSERT INTO thread_links'));
+ assert.deepEqual(writes.map(([,p])=>p),['project','lead','sub','vendor'].map(type=>['thread',type,'existing']));
+ assert.equal(calls.length,0);
+ globalThis.__replyAction.row=null;const before=queries.length;assert.equal((await actions.linkThread('thread','sub','missing')).ok,false);assert.equal(queries.length,before+1);
+ globalThis.__replyAction.allowed=false;await assert.rejects(()=>actions.linkThread('thread','sub','existing'),/Forbidden/);assert.equal(queries.length,before+1);
+ globalThis.__replyAction.allowed=true;globalThis.__replyAction.row={slug:'existing'};
 });

@@ -2086,7 +2086,7 @@ function ChannelReaderBody({
               <Button aria-label={channelCommitLabel(reader.channel)} className="min-w-0" onClick={()=>send()} disabled={!body.trim()||pending||safety.pending} icon={Send}>{pending?'Sending…':<><span className="@4xl/page:hidden">Send</span><span className="hidden @4xl/page:inline">{channelCommitLabel(reader.channel)}</span></>}</Button>
               {onSendDone&&<Button variant="secondary" disabled={!body.trim()||pending||safety.pending} onClick={()=>send(true)}>Send &amp; Done</Button>}
             </div>
-            <details><summary className="cursor-pointer py-1 text-meta text-ink-3">Reply intent</summary><div className="flex gap-1 overflow-x-auto">{['Yes, works','Need more info','Schedule a visit','Thanks'].map(intent=><Button key={intent} variant="ghost" size="sm" disabled={pending||safety.pending} onClick={()=>generate(intent)}>{intent}</Button>)}</div></details>
+            <details><summary className="cursor-pointer py-1 text-meta text-ink-3">Reply intent</summary><div className="flex flex-wrap gap-1">{['Yes, works','Need more info','Schedule a visit','Thanks'].map(intent=><Button key={intent} variant="ghost" size="sm" disabled={pending||safety.pending} onClick={()=>generate(intent)}>{intent}</Button>)}</div></details>
           </> : <div className="flex min-h-13 items-center gap-2 rounded-lg border border-rule bg-card px-3">
             <button onClick={()=>{setReplying(true);requestAnimationFrame(()=>replyRef.current?.focus());}} className="min-h-11 min-w-0 flex-1 truncate text-left text-body text-ink-3">Write a reply…</button>
             <Button variant="ai" size="sm" onClick={()=>generate()} disabled={safety.pending||pending}>Draft with AI</Button>
@@ -2792,7 +2792,7 @@ function ReaderBody({
             )}
 
             {!isAI && composerExpanded(replying, draft) && (
-              <details className="mt-1"><summary className="cursor-pointer text-meta text-ink-3">Reply intent</summary><div className="flex items-center gap-1 overflow-x-auto">
+              <details className="mt-1"><summary className="cursor-pointer text-meta text-ink-3">Reply intent</summary><div className="flex flex-wrap items-center gap-1">
                 {[
                   "Yes, works",
                   "Need more info",

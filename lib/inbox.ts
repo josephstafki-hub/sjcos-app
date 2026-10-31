@@ -398,8 +398,11 @@ export async function getInboxData(viewer?: MailboxViewer): Promise<InboxData> {
       // mailbox and a plain reason, with a way to try again.
       const message = (err as Error).message;
       console.error(`[inbox:gmail] could not load — ${message}`);
+      // Texts, portal messages and website forms don't come from Gmail: keep
+      // showing them; only the email half is missing.
+      const base = await buildFromGmail(mailboxState(mb), [{ threads: [], nextPageToken: undefined }, []]).catch(() => buildEmptyMailbox(mb));
       return {
-        ...buildEmptyMailbox(mb),
+        ...base,
         loadError: /rate limit|quota/i.test(message)
           ? "Gmail is answering too many requests right now. Try again in a minute."
           : "Gmail didn't answer, so your email can't be shown right now. Try again in a minute.",
@@ -1334,9 +1337,13 @@ function cachedGmail(key: string) {
   return data;
 }
 
-async function buildFromGmail(mailbox: MailboxState): Promise<InboxData> {
+async function buildFromGmail(
+  mailbox: MailboxState,
+  /** Gmail's half supplied by the caller (empty when Gmail failed). */
+  gmail?: [Awaited<ReturnType<typeof fetchThreadPage>>, Awaited<ReturnType<typeof fetchLabelCounts>>],
+): Promise<InboxData> {
   const [[page, labels], contactMaps, linkOptions, folded] = await Promise.all([
-    cachedGmail(mailbox.email ?? "default"),
+    gmail ?? cachedGmail(mailbox.email ?? "default"),
     loadContactMaps(),
     getLinkOptions(),
     loadChannelThreads(),

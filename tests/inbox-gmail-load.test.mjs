@@ -8,7 +8,7 @@ import { registerHooks } from "node:module";
 globalThis.__gmail = { pageCalls: 0, fail: null };
 const stubs = {
   "./ai": "export const ai = {};",
-  "./db": "export const query = async () => ({ rows: [] });",
+  "./db": "export const query = async (sql) => ({ rows: globalThis.__smsRows && /sms/i.test(sql) ? globalThis.__smsRows : [] });",
   "./dal": 'export const getCurrentUser = async () => ({ id: "u", role: "owner", name: "Joe" });',
   "./mailbox":
     'export const activeMailbox = () => ({ refreshToken: "r", email: "joe@example.test", linked: false }); export const mailboxFor = async () => ({ refreshToken: "r", email: "joe@example.test", linked: false }); export const runWithMailbox = (mb, fn) => fn();',
@@ -43,6 +43,7 @@ test("a Gmail failure shows an empty mailbox and says why — never the demo con
   assert.equal(data.threads.length, 0, "no made-up threads");
   assert.match(data.loadError ?? "", /too many requests/i);
   assert.equal(data.mailbox.connected, true);
+  assert.ok(Array.isArray(data.channels) && data.channels.length > 0, "the channel rail (texts, portal, forms) still renders");
 });
 
 test("one Gmail load serves page refreshes for a short while; a failure or an inbox action re-fetches", async () => {

@@ -52,6 +52,9 @@ import {
   VoiceButton,
 } from "@/components/ui";
 import {
+  splitQuotedText,
+  substantiveSnippet,
+  channelCommitLabel,
   smsSegments,
   latestInboundIndex,
   composerExpanded,
@@ -91,8 +94,7 @@ import type {
 
 import {
   INBOX_TABS,
-  triageRank,
-  nextNeedsThread,
+  orderedInboxThreads, rowDay, canLoadMore, completionQueue, attentionTaskTitle, draftGenerationResult,
   applyInboxPreferences,
   contextStripText,
   completeAfterSend,
@@ -109,7 +111,7 @@ import {
 } from "@/lib/inbox-experience";
 import { setInboxPreferenceAction } from "@/lib/actions/inbox-screening";
 import type { InboxContext } from "@/lib/inbox-context";
-import { inboxContextAction, undoChannelDoneAction, markChannelDoneAction } from "@/lib/actions/inbox-experience";
+import { undoChannelDoneAction, markChannelDoneAction } from "@/lib/actions/inbox-experience";
 import {
   ContactCreateDialog,
   ContextPanel,
@@ -223,7 +225,9 @@ export function InboxClient({
   const [screeningThread,setScreeningThread]=useState<InboxThread|null>(null);
   const [adding,setAdding]=useState<{thread:InboxThread;kind:'lead'|'sub'|'vendor'}|null>(null);
   const [contextError,setContextError]=useState("");
-  const [contextData,setContextData]=useState<InboxContext|null>(null);
+  const [contextResult,setContextResult]=useState<{key:string;data:InboxContext|null;pending:boolean}|null>(null);
+  const contextCache=useRef(new Map<string,InboxContext>());
+  const [contextRefresh,setContextRefresh]=useState(0);
   const [wideContext,setWideContext]=useState(false);
   const [contextPreference,setContextPreference]=useState(true);
   const tabsRef=useRef<HTMLDivElement>(null);
@@ -232,7 +236,10 @@ export function InboxClient({
     const root=rootRef.current;
     const container=root?.closest('.\\@container\\/page') ?? root?.parentElement;
     if(!container)return;
-    const observer=new ResizeObserver(([entry])=>setWideContext(entry.contentRect.width>=1280));
+    const observer=new ResizeObserver(([entry])=>{
+      const listWidth=root?.querySelector('[data-inbox-list]')?.getBoundingClientRect().width??320;
+      setWideContext(entry.contentRect.width>=1100 && (root?.clientWidth??0)-listWidth-300>=560);
+    });
     observer.observe(container);return ()=>observer.disconnect();
   },[]);
   useEffect(()=>{tabsRef.current?.querySelector('[aria-pressed="true"]')?.scrollIntoView({block:'nearest',inline:'nearest'});},[tab]);
@@ -344,7 +351,7 @@ export function InboxClient({
           [...threads, ...(remoteData?.threads ?? [])]
             .filter((t) => {
               const d = readDraft(localStorage, draftKey(selfEmail, t.id));
-              return d?.ai && d.body.trim();
+              return t.view!=="done" && d?.ai && d.body.trim();
             })
             .map((t) => t.id),
         ),
@@ -360,7 +367,7 @@ export function InboxClient({
     setPreferences(p=>({...p,[`${kind}:${kind==='sender'?target.toLowerCase():target}`]:decision}));
     if(offerUndo){
       setNotice(decision==='other'?'Filed in Other.':'Screening decision saved.');
-      setUndo({label:'Undo',run:async()=>{if(await savePreference(thread,kind,r.previous??null,false)){setNotice('Decision undone.');setUndo(null);}}});
+      setUndo({label:'Undo filing',run:async()=>{if(await savePreference(thread,kind,r.previous??null,false)){setNotice('Decision undone.');setUndo(null);}}});
     }
     router.refresh();return true;
   }
@@ -412,7 +419,7 @@ export function InboxClient({
 
   const visible = useMemo(
     () =>
-      baseVisible
+      orderedInboxThreads(baseVisible
         .filter(
           (t) =>
             (!tab || matchesInboxTab(t, tab, draftIds.has(t.id))) &&
@@ -420,8 +427,7 @@ export function InboxClient({
               .toLowerCase()
               .includes(query.toLowerCase()),
         )
-        .sort((a, b) => triageRank(a) - triageRank(b))
-        .filter((t,i,all)=>tab!=='new'||all.findIndex(other=>other.fromEmail?.toLowerCase()===t.fromEmail?.toLowerCase())===i),
+        .filter((t,i,all)=>tab!=='new'||all.findIndex(other=>other.fromEmail?.toLowerCase()===t.fromEmail?.toLowerCase())===i)),
     [baseVisible, tab, draftIds, query],
   );
   // Count of threads sitting in the Gmail inbox (the plain "Inbox" rail view).
@@ -438,11 +444,31 @@ export function InboxClient({
   const selected =
     visible.find((t) => t.id === selectedId) ?? visible[0] ?? null;
   const reader = selected ? readers[selected.id] : undefined;
+  const contextKey=`${selfEmail}:${selected?.id??''}`;
+  const contextData=contextResult?.key===contextKey?contextResult.data:null;
   useEffect(()=>{
-    let active=true;setContextData(null);setContextError("");
-    if(selected)inboxContextAction({threadId:selected.id,email:selected.fromEmail,contactKey:selected.contactKey,projectSlug:selected.projectSlug,leadSlug:selected.linkedType==='lead'?selected.linkedSlug:undefined}).then(d=>{if(active)setContextData(d);}).catch(()=>{if(active)setContextError('Could not load context. Select this conversation again to retry.');});
-    return ()=>{active=false;};
-  },[selected?.id,selected?.projectSlug,selected?.linkedSlug,selected?.contactKey]);
+    let active=true;
+    setContextError('');
+    if(!selected){setContextResult(null);return;}
+    const key=contextKey;
+    setContextResult({key,data:contextCache.current.get(key) ?? null,pending:true});
+    // A queued server action used to leave the wide panel in Loading forever.
+    // Keep the last successful result and always give a stalled request a retry.
+    const controller=new AbortController();
+    const timeout=setTimeout(()=>{if(active){active=false;controller.abort();setContextResult(r=>r?{...r,pending:false}:r);setContextError('Context is taking too long. Try again.');}},12000);
+    const params=new URLSearchParams({threadId:selected?.id??''});
+    if(selected?.fromEmail)params.set('email',selected.fromEmail);
+    if(selected?.contactKey)params.set('contactKey',selected.contactKey);
+    if(selected?.projectSlug)params.set('projectSlug',selected.projectSlug);
+    if(selected?.linkedType==='lead'&&selected.linkedSlug)params.set('leadSlug',selected.linkedSlug);
+    if(selected)fetch(`/api/inbox/context?${params}`,{cache:'no-store',signal:controller.signal}).then(async response=>{
+      if(!response.ok)throw Error('Context unavailable');
+      return await response.json() as InboxContext;
+    }).then(d=>{
+      if(active){contextCache.current.set(key,d);if(contextCache.current.size>50)contextCache.current.delete(contextCache.current.keys().next().value!);setContextResult({key,data:d,pending:false});clearTimeout(timeout);}
+    }).catch(()=>{if(active){setContextResult(r=>r?{...r,pending:false}:r);setContextError('Could not load context. Try again.');clearTimeout(timeout);}});
+    return ()=>{active=false;controller.abort();clearTimeout(timeout);};
+  },[selected?.id,selected?.projectSlug,selected?.linkedSlug,selected?.contactKey,contextRefresh,selfEmail]);
   // Email gets its mailbox controls; every channel has its own reply adapter.
   const readerIsEmail = (reader?.channel ?? "email") === "email";
 
@@ -574,7 +600,8 @@ export function InboxClient({
   };
   // "Load more" pages within the open remote lens when one is selected, else the
   // main inbox.
-  const moreToken = onRemote ? remoteData?.pageToken : pageToken;
+  const moreToken = onRemote ? remoteData?.pageToken : remoteKey ? undefined : pageToken;
+  const showLoadMore=canLoadMore({token:moreToken,lens:lens.kind,channel:lens.kind==='channel'?lens.channel:undefined,remoteReady:onRemote,tab,visibleCount:visible.length});
 
   const loadMore = () => {
     if (!moreToken || loadingMore) return;
@@ -710,13 +737,14 @@ export function InboxClient({
   async function doneThread(t: InboxThread, sent=false) {
     const r=await runAction(()=>t.channel==='email'?archiveThreadAction(t.id):markChannelDoneAction(t.id,readers[t.id]?.messages.at(-1)?.date??0),{fallback:'Could not mark done.'});
     if(!r.ok){setNotice(sent?"Sent — couldn't mark done":r.error??'Could not mark done.');return r;}
-    const next=nextNeedsThread(threads.map(t=>applyInboxPreferences(t,preferences)),t.id,draftIds);
+    const queue=completionQueue([...new Map([...threads,...(remoteData?.threads??[])].map(t=>[t.id,applyInboxPreferences(t,preferences)])).values()],t.id,draftIds);
+    const next=queue.next;
     const patch=(v:InboxThread)=>v.id===t.id?{...v,inInbox:false,view:'done' as const,needsMeReason:undefined,newSender:false}:v;
-    setThreads(ts=>ts.map(patch));setRemoteData(d=>d?{...d,threads:d.threads.map(patch)}:d);
-    if(sent){setLens({kind:'all'});setTab('needs');setSelectedId(next?.id??'');setMobileReader(Boolean(next));}
-    else setMobileReader(false);
-    setNotice(sent?'Sent and marked done.':'Marked done.');
-    setUndo({label:'Undo',run:async()=>{
+    setThreads(ts=>[...new Map([...ts,...(remoteData?.threads??[])].map(v=>[v.id,patch(v)])).values()]);setRemoteData(d=>d?{...d,threads:d.threads.map(patch)}:d);
+    setDraftIds(ids=>new Set([...ids].filter(id=>id!==t.id)));
+    setLens({kind:'all'});setTab('needs');setQuery('');setSelectedId(next?.id??'');setMobileReader(Boolean(next));
+    setNotice(`${sent?'Sent and marked done.':'Marked done.'} ${queue.left} left in Needs me.`);
+    setUndo({label:'Undo Done',run:async()=>{
       const result=await runAction(()=>t.channel==='email'?restoreThreadToInboxAction(t.id):undoChannelDoneAction(t.id),{fallback:'Could not undo Done.'});
       if(result.ok){setThreads(ts=>ts.map(v=>v.id===t.id?t:v));setRemoteData(d=>d?{...d,threads:d.threads.map(v=>v.id===t.id?t:v)}:d);setNotice('Done undone.');setUndo(null);setSelectedId(t.id);router.refresh();}else setNotice(result.error??'Could not undo Done.');
     }});
@@ -1123,8 +1151,9 @@ export function InboxClient({
 
         {/* ─── Thread list ──────────────────────────────────────────── */}
         <section
+          data-inbox-list
           className={[
-            "min-w-0 w-full flex-none flex-col border-r border-rule-soft @4xl/page:w-80 @5xl/page:w-[340px]",
+            "min-w-0 w-full flex-none flex-col border-r border-rule-soft @4xl/page:w-80 @[1100px]/page:w-[240px] @[1200px]/page:w-80 @[1280px]/page:w-[340px]",
             mobileReader ? "hidden @4xl/page:flex" : "flex",
           ].join(" ")}
         >
@@ -1205,7 +1234,7 @@ export function InboxClient({
               ))
             )}
 
-            {moreToken && (
+            {showLoadMore && (
               <button
                 onClick={loadMore}
                 disabled={loadingMore}
@@ -1220,7 +1249,7 @@ export function InboxClient({
         {/* ─── Reader ───────────────────────────────────────────────── */}
         <section
           className={[
-            "min-w-0 flex-1 flex-col",
+            "min-w-0 flex-1 flex-col group/reader",
             mobileReader ? "flex" : "hidden @4xl/page:flex",
           ].join(" ")}
         >
@@ -1403,16 +1432,16 @@ export function InboxClient({
                     )}
                   </div>
                 </div>
-                <div className="px-4 pb-3">
-                  <h1 className="line-clamp-2 font-serif text-title font-medium leading-tight text-accent-2">
+                <div className="px-4 pb-3 max-sm:group-has-[[data-reply-active=true]]/reader:pb-1">
+                  <h1 className="line-clamp-2 font-serif text-title font-medium leading-tight text-accent-2 max-sm:group-has-[[data-reply-active=true]]/reader:truncate max-sm:group-has-[[data-reply-active=true]]/reader:text-body">
                     {reader.subject}
                   </h1>
-                  <button onClick={openContext} title="Open contact, job, money and to-dos" className="mt-2 flex min-h-11 w-full items-center gap-2 rounded-md border border-rule bg-card px-3 text-left text-meta text-ink-2 @4xl/page:min-h-8">
-                    <span className="min-w-0 flex-1 line-clamp-2">{contextStripText(selected,contextData)}</span><ChevronRight className="size-3.5 shrink-0"/>
+                  <button onClick={openContext} title="Open contact, job, money and to-dos" className="max-sm:group-has-[[data-reply-active=true]]/reader:hidden mt-2 flex min-h-11 w-full items-center gap-2 rounded-md border border-rule bg-card px-3 text-left text-meta text-ink-2 @4xl/page:min-h-8">
+                    <span className="min-w-0 flex-1 truncate">{contextStripText(selected,contextData)}</span><ChevronRight className="size-3.5 shrink-0"/>
                   </button>
                   {selected.automated&&<div className="mt-1 flex flex-wrap items-center gap-2 text-meta text-ink-3"><span>{selected.automationKind??'Notification'}{(selected.attentionOverride??selected.attentionRequired)?' · Needs attention':''}</span><Button variant="ghost" size="sm" disabled={pending} onClick={()=>startTransition(async()=>{await savePreference(selected,'thread',(selected.attentionOverride??selected.attentionRequired)?'other':'attention');})}>{(selected.attentionOverride??selected.attentionRequired)?'Keep in Other':'Needs my attention'}</Button></div>}
                   {(selected.newSender||selected.senderDecision)&&selected.fromEmail&&!selected.automated&&<div className="mt-1 flex flex-wrap items-center gap-1 text-meta text-ink-3">
-                    <span className="w-full break-all">{selected.newSender?'New sender':`Screened: ${selected.senderDecision}`} · {selected.fromEmail}</span>
+                    <span title={selected.fromEmail} className="w-full truncate">{selected.newSender?'New sender':`Screened: ${selected.senderDecision}`} · {selected.fromEmail}</span>
                     {selected.newSender?<><Button variant="secondary" size="sm" onClick={()=>{setScreeningThread(selected);setLinking(true);}}>Link to existing</Button>{(['lead','sub','vendor'] as const).map(kind=><Button key={kind} variant="ghost" size="sm" onClick={()=>setAdding({thread:selected,kind})}>Add as {kind}</Button>)}<Button variant="ghost" size="sm" onClick={()=>fileSender(selected,true)}>Other</Button></>:<Button variant="ghost" size="sm" onClick={()=>startTransition(async()=>{if(await savePreference(selected,'sender','pending'))setTab('new');})}>Undo screening</Button>}
                   </div>}
 
@@ -1426,6 +1455,7 @@ export function InboxClient({
                   todos={selected.todos}
                   threadId={selected.id}
                   needsAttention={selected.attentionOverride??selected.attentionRequired}
+                  onMakeTodo={()=>setTask({thread:selected,remind:false})}
                   onDone={archiveSelected}
                   onSendDone={()=>doneThread(selected,true)}
                   onDraftReady={onDraftReady}
@@ -1453,7 +1483,10 @@ export function InboxClient({
             threads={threads}
             initialTab={context??"job"}
             initialData={contextData}
-            loadError={contextError}
+            refreshing={contextResult?.key===contextKey&&contextResult.pending}
+            loadError={contextResult?.key===contextKey?contextError:undefined}
+            onRetry={()=>setContextRefresh(n=>n+1)}
+            docked={wideContext}
             onClose={closeContext}
             onLink={() => setLinking(true)}
             onSelect={(id) => {
@@ -1621,13 +1654,6 @@ const FORM_FIELD = /^([^\n]{1,40})\n([\s\S]+)$/;
 
 /** Where the quoted earlier conversation starts in a plain-text body: the
  *  "On <date>, <name> wrote:" line, or the first "> " quoted line. */
-function quoteStart(paras: string[]): number {
-  const i = paras.findIndex(
-    (p) => /^On .{4,200}wrote:\s*$/m.test(p) || /^>/.test(p),
-  );
-  return i <= 0 ? -1 : i;
-}
-
 /** A rich email body. Wide newsletter / store emails (fixed 600–700px tables)
  *  are scaled down to the reading column instead of scrolling sideways; the
  *  quoted earlier conversation (blockquotes) folds behind "Show quoted text". */
@@ -1696,8 +1722,8 @@ function EmailHtml({ html }: { html: string }) {
 
 function PlainBody({ paras }: { paras: string[] }) {
   const [showQuote, setShowQuote] = useState(false);
-  const q = quoteStart(paras);
-  const shown = q > 0 && !showQuote ? paras.slice(0, q) : paras;
+  const {text,quote}=splitQuotedText(paras);
+  const shown=(showQuote?[text,quote]:[text]).filter(Boolean);
   return (
     <div className="flex flex-col gap-2.5">
       {shown.map((para, j) => (
@@ -1708,7 +1734,7 @@ function PlainBody({ paras }: { paras: string[] }) {
           {para}
         </p>
       ))}
-      {q > 0 && (
+      {quote && (
         <button
           type="button"
           onClick={() => setShowQuote((v) => !v)}
@@ -1754,13 +1780,58 @@ function useInboxDraft(
       setStorageError(true);
     }
   }, [key, value, loaded]);
+  const latest=useRef(value);latest.current=value;
+  const revision=useRef(0);
+  function set(next:SavedInboxDraft){revision.current++;latest.current=next;setValue(next);}
   function clear() {
+    revision.current++;
+    latest.current={body:'',toEmail,model:'',ai:false};
     try {
       writeDraft(localStorage, key, null);
     } catch {}
     setValue({ body: "", toEmail, model: "", ai: false });
   }
-  return { value, set: setValue, clear, loaded, storageError };
+  return { value, set, clear, latest, revision, loaded, storageError };
+}
+/** The same conflict/restore flow protects drafts on every channel. */
+function useSafeDraft(saved:ReturnType<typeof useInboxDraft>, threadId:string, onError:(message:string)=>void) {
+  const [suggestion,setSuggestion]=useState<SavedInboxDraft|null>(null);
+  const [previous,setPrevious]=useState<SavedInboxDraft|null>(null);
+  const [pending,start]=useTransition();
+  const alive=useRef(true);
+  useEffect(()=>{alive.current=true;return ()=>{alive.current=false;};},[]);
+  function generate(intent='') {
+    const snapshot={...saved.latest.current};
+    const revision=saved.revision.current;
+    onError('');
+    start(async()=>{
+      const r=await runAction(()=>draftReplyAction(threadId,'hermes',intent),{fallback:'Could not draft a reply.'});
+      if(!alive.current)return;
+      if(!r.ok){onError(r.error??'Could not draft a reply.');return;}
+      const candidate:SavedInboxDraft={...snapshot,body:r.body??'',toEmail:snapshot.toEmail||r.toEmail||'',ai:true,model:r.model??'Hermes',basedOn:r.basedOn};
+      const result=draftGenerationResult(snapshot,saved.latest.current,candidate,saved.revision.current!==revision);
+      setPrevious(result.previous);setSuggestion(result.suggestion);
+      if(!result.suggestion)saved.set(result.value);
+    });
+  }
+  return {pending,generate,controls:<>
+    {suggestion&&<div className="rounded border border-ai/30 bg-ai-soft p-2 text-meta">
+      <p>Your text changed. Your reply is safe.</p><details><summary className="cursor-pointer py-1">View suggestion</summary><p className="whitespace-pre-line">{suggestion.body}</p></details>
+      <div className="flex gap-2"><Button size="sm" onClick={()=>{setPrevious({...saved.latest.current});saved.set({...saved.latest.current,body:suggestion.body,ai:suggestion.ai,model:suggestion.model,basedOn:suggestion.basedOn});setSuggestion(null);}}>Use suggestion</Button><Button size="sm" variant="ghost" onClick={()=>setSuggestion(null)}>Keep mine</Button></div>
+    </div>}
+    {previous&&<Button variant="ghost" size="sm" onClick={()=>{saved.set(previous);setPrevious(null);setSuggestion(null);}}>Restore previous</Button>}
+  </>};
+}
+function useComposerViewport() {
+  const [viewportSize,setViewportSize]=useState<{height:number;inset:number}|null>(null);
+  useEffect(()=>{
+    if(typeof window==='undefined')return;
+    const viewport=window.visualViewport;
+    const measure=()=>setViewportSize({height:Math.floor((viewport?.height??window.innerHeight)*0.45),inset:Math.max(0,window.innerHeight-(viewport?.height??window.innerHeight)-(viewport?.offsetTop??0))});
+    measure();viewport?.addEventListener('resize',measure);viewport?.addEventListener('scroll',measure);
+    return ()=>{viewport?.removeEventListener('resize',measure);viewport?.removeEventListener('scroll',measure);};
+  },[]);
+  return {'--inbox-composer-max':viewportSize?`${viewportSize.height}px`:'45dvh','--inbox-keyboard-inset':`${viewportSize?.inset??0}px`} as React.CSSProperties;
 }
 function useReplyShortcut(
   ref: React.RefObject<HTMLTextAreaElement | null>,
@@ -1823,13 +1894,18 @@ function ChannelReaderBody({
   const body = saved.value.body;
   const setBody = (body: string) => saved.set({ ...saved.value, body });
   const replyRef = useRef<HTMLTextAreaElement>(null);
-  useReplyShortcut(replyRef);
+  const [replying,setReplying]=useState(false);
+  useReplyShortcut(replyRef,()=>setReplying(true));
   const [error, setError] = useState("");
   const [sent, setSent] = useState(false);
   const [retryDone,setRetryDone]=useState<null|(()=>Promise<{ok:boolean;error?:string}>)>(null);
   const [pending, start] = useTransition();
   const router = useRouter();
   const chat = reader.channel !== "site_form";
+  const safety=useSafeDraft(saved,threadId,setError);
+  const composerStyle=useComposerViewport();
+  const expanded=composerExpanded(replying,body);
+  function generate(intent=''){setReplying(true);setSent(false);safety.generate(intent);}
   useLayoutEffect(() => {
     if (chat && scroller.current)
       scroller.current.scrollTop = scroller.current.scrollHeight;
@@ -1924,7 +2000,8 @@ function ChannelReaderBody({
                           {reader.form.email && (
                             <a
                               href={`mailto:${reader.form.email}`}
-                              className="inline-flex min-h-11 max-w-full items-center break-all rounded-full border border-rule px-3 text-meta text-accent-2"
+                              title={reader.form.email}
+                              className="inline-flex min-h-11 max-w-full items-center truncate rounded-full border border-rule px-3 text-meta text-accent-2"
                             >
                               Email {reader.form.email}
                             </a>
@@ -1980,54 +2057,38 @@ function ChannelReaderBody({
         <ThreadTasks todos={todos} />
       </div>
       <div
-        className="flex-none border-t border-rule bg-paper-2 px-4 py-3"
+        data-reply-active={expanded}
+        style={composerStyle}
+        className="flex-none border-t border-rule bg-paper-2 px-4 py-2 max-sm:max-h-[var(--inbox-composer-max)] max-sm:mb-[var(--inbox-keyboard-inset)] max-sm:overflow-y-auto"
         onFocusCapture={() =>
           window.dispatchEvent(
             new CustomEvent("sjc:inbox-surface", { detail: true }),
           )
         }
       >
-        <p className="mb-2 break-words text-meta text-ink-3">
-          {reader.replyLabel}
-        </p>
-        {canReply && (
-          <>
-            {reader.form && (
-              <p className="mb-2 break-words text-meta text-ink-2">
-                Subject: {reader.form.outgoingSubject}
-              </p>
-            )}
-            <textarea
-              ref={replyRef}
-              aria-label={reader.channel === "sms" ? "Text reply" : "Reply"}
-              value={body}
-              onChange={(e) => {
-                setBody(e.target.value);
-                setSent(false);
-              }}
-              rows={reader.channel === "sms" ? 2 : 3}
-              placeholder="Write a reply…"
-              className="max-h-[30dvh] min-h-16 w-full resize-y rounded-lg border border-rule bg-card p-2 text-body text-ink"
-            />
-            <div className="mt-2 flex items-center gap-2">
-              {reader.channel === "sms" && (
-                <span className="text-meta text-ink-3">
-                  {smsSegments(body)} segment
-                  {smsSegments(body) === 1 ? "" : "s"}
-                </span>
-              )}
-              <div className="flex-1" />
-              <Button
-                onClick={()=>send()}
-                disabled={!body.trim() || pending}
-                icon={Send}
-              >
-                {pending ? "Sending…" : reader.channel==="sms"?"Send text":reader.channel==="site_form"?"Send email":"Post to portal"}
-              </Button>
-              {onSendDone&&<Button variant="secondary" disabled={!body.trim()||pending} onClick={()=>send(true)}>Send &amp; Done</Button>}
+        {canReply && <>
+          <p title={reader.replyLabel} className="truncate text-meta font-semibold text-ink-2">{reader.replyLabel}</p>
+          {reader.form&&<p className="truncate text-meta text-ink-3">Subject: {reader.form.outgoingSubject}</p>}
+          {safety.controls}
+          {expanded ? <>
+            {saved.value.ai&&<p className="text-meta text-ai">Draft by {saved.value.model} · {saved.value.basedOn}</p>}
+            <textarea ref={replyRef} aria-label={reader.channel==='sms'?'Text reply':'Reply'} value={body} disabled={pending} onChange={e=>{setBody(e.target.value);setSent(false);}} rows={2} placeholder="Write a reply…" className="max-h-[18dvh] min-h-16 w-full resize-y rounded-lg border border-rule bg-card p-2 text-body text-ink" />
+            <div className="flex items-center gap-1 overflow-x-auto [&_button]:shrink-0">
+              <Button variant="ai" size="sm" onClick={()=>generate()} disabled={safety.pending||pending}>Draft with AI</Button>
+              <Button variant="ghost" size="sm" onClick={()=>{saved.clear();setReplying(false);}} disabled={pending}>Discard</Button>
+              <span className="flex-1"/>
+              <Button onClick={()=>send()} disabled={!body.trim()||pending||safety.pending} icon={Send}>{pending?'Sending…':channelCommitLabel(reader.channel)}</Button>
+              {onSendDone&&<Button variant="secondary" disabled={!body.trim()||pending||safety.pending} onClick={()=>send(true)}>Send &amp; Done</Button>}
             </div>
-          </>
-        )}
+            <details><summary className="cursor-pointer py-1 text-meta text-ink-3">Reply intent</summary><div className="flex gap-1 overflow-x-auto">{['Yes, works','Need more info','Schedule a visit','Thanks'].map(intent=><Button key={intent} variant="ghost" size="sm" disabled={pending||safety.pending} onClick={()=>generate(intent)}>{intent}</Button>)}</div></details>
+          </> : <div className="flex min-h-13 items-center gap-2 rounded-lg border border-rule bg-card px-3">
+            <button onClick={()=>{setReplying(true);requestAnimationFrame(()=>replyRef.current?.focus());}} className="min-h-11 min-w-0 flex-1 truncate text-left text-body text-ink-3">Write a reply…</button>
+            <Button variant="ai" size="sm" onClick={()=>generate()} disabled={safety.pending||pending}>Draft with AI</Button>
+          </div>}
+          {reader.channel==='sms'&&<p className="text-meta text-ink-3">{smsSegments(body)} segment{smsSegments(body)===1?'':'s'}</p>}
+          {safety.pending&&<p role="status" className="text-meta text-ink-3">Drafting a reply…</p>}
+        </>}
+        {saved.storageError&&<p className="text-meta text-warn">Draft storage is unavailable in this browser. Keep this conversation open until you send.</p>}
         {retryDone&&<Button variant="secondary" disabled={pending} onClick={()=>start(async()=>{const r=await retryDone();if(r.ok){setRetryDone(null);setError('');}else setError("Sent — couldn't mark done");})}>Retry marking done</Button>}
         {sent && (
           <p role="status" className="mt-2 text-meta text-accent-2">
@@ -2057,12 +2118,6 @@ function ChannelReaderBody({
   );
 }
 
-function rowDay(thread:InboxThread):string {
-  if(!thread.receivedAt)return /am|pm/.test(thread.when)?'Today':thread.when==='Yesterday'?'Yesterday':'Earlier';
-  const day=(date:Date)=>new Intl.DateTimeFormat('en-CA',{timeZone:'America/Chicago'}).format(date);
-  const now=new Date();const yesterday=new Date(now);yesterday.setDate(now.getDate()-1);
-  return day(new Date(thread.receivedAt))===day(now)?'Today':day(new Date(thread.receivedAt))===day(yesterday)?'Yesterday':'Earlier';
-}
 function ThreadRow({
   thread,
   selected,
@@ -2082,19 +2137,18 @@ function ThreadRow({
 }) {
   const Icon = CHANNEL_ICON[thread.channel];
   const [rowMenu, setRowMenu] = useState(false);
+  const attention=thread.automated && (thread.attentionOverride??thread.attentionRequired) && thread.view==="needs_reply";
   const needs = Boolean(thread.needsMeReason) || thread.view === "needs_reply";
   return (
     <div
       className={`group relative border-b border-rule-soft ${selected ? "bg-selected" : "hover:bg-hover"}`}
     >
-      {selected && (
-        <span className="absolute inset-y-0 left-0 w-[3px] bg-accent" />
-      )}
+      {(selected||attention) && <span className={`absolute inset-y-0 left-0 w-[3px] ${attention?"bg-warn":"bg-accent"}`} />}
       <button
         data-thread-row={thread.id}
         onClick={onSelect}
         aria-current={selected ? "true" : undefined}
-        className="flex min-h-16 w-full items-start gap-2 px-3 py-2 text-left pr-24 [@media(hover:none)]:pr-14"
+        className="flex min-h-16 w-full items-start gap-2 px-3 py-2 text-left [@media(hover:none)]:pr-14"
       >
         <span className="relative mt-1 shrink-0">
           <Avatar initials={thread.initials} kind={needs ? "accent" : "gray"} />
@@ -2118,13 +2172,13 @@ function ThreadRow({
                 className="size-1.5 shrink-0 rounded-full bg-accent"
               />
             )}
-            <span className="absolute right-3 top-2 shrink-0 text-meta text-ink-3 [@media(hover:none)]:right-14">{thread.when}</span>
+            <span className="shrink-0 text-meta text-ink-3">{thread.when}</span>
           </span>
           <span className="flex min-w-0 items-center gap-1.5">
             <span
-              className={`shrink-0 text-meta ${needs ? "text-accent-2" : "text-ink-3"}`}
+              className={`min-w-0 truncate text-meta ${attention?"rounded bg-warn-soft px-1 text-warn":needs?"text-accent-2":"text-ink-3"}`}
             >
-              {thread.needsMeReason ??
+              {attention ? "Action required" : thread.needsMeReason ??
                 (thread.automated
                   ? thread.automationKind ?? "Notification"
                   : thread.view === "done"
@@ -2143,22 +2197,20 @@ function ThreadRow({
                 · {shortJobLabel(thread.projectLabel)}
               </span>
             )}
-            {thread.hasOpenTodo && (
-              <ListPlus
-                aria-label="Open to-do"
-                className="size-3.5 shrink-0 text-accent"
-              />
-            )}
+            <span className="ml-auto flex shrink-0 items-center gap-1 text-meta">
+              {Boolean(thread.outstandingCents)&&<span className="text-warn">{new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(thread.outstandingCents!/100)}</span>}
+              {thread.hasOpenTodo&&<span aria-label="Open to-do" className="text-accent-2">To-do{thread.todos?.[0]?.due_at?` · ${new Date(thread.todos[0].due_at).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'America/Chicago'})}`:''}</span>}
+            </span>
           </span>
-          {thread.newSender&&<span className="block break-all text-meta text-ink-3">{thread.fromEmail}</span>}
+          {thread.newSender&&<span title={thread.fromEmail} className="block truncate text-meta text-ink-3">{thread.fromEmail}</span>}
           <span className="block truncate text-meta text-ink-3">
-            {thread.newSender?thread.subject:thread.preview || thread.subject}
+            {thread.preview || thread.subject}
           </span>
-          {thread.todos?.[0]&&<span className="mt-1 flex min-w-0 justify-end gap-2 text-meta text-accent-2"><span className="truncate">{thread.todos[0].title}</span><span className="shrink-0">{thread.todos[0].due_at?new Date(thread.todos[0].due_at).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',timeZone:'America/Chicago'}):'No due day'}</span></span>}
+
         </span>
       </button>
       {onScreen&&<div className="flex flex-wrap gap-1 px-3 pb-2"><Button variant="secondary" size="sm" onClick={onScreen}>Link to existing</Button>{(['lead','sub','vendor'] as const).map(kind=><Button key={kind} variant="ghost" size="sm" onClick={()=>onAdd?.(kind)}>Add as {kind}</Button>)}<Button variant="ghost" size="sm" onClick={onOther}>Other</Button></div>}
-      <div className="absolute top-8 right-2 hidden items-center rounded-md border border-rule bg-card shadow-card group-hover:flex group-focus-within:flex [@media(hover:none)]:hidden">
+      <div className="absolute bottom-1 right-2 hidden items-center rounded-md border border-rule bg-card shadow-card group-hover:flex group-focus-within:flex [@media(hover:none)]:hidden">
         <Button
           variant="ghost"
           size="sm"
@@ -2264,7 +2316,7 @@ function EmailMessageCard({
         </span>
         {!expanded && (
           <span className="min-w-0 flex-1 truncate text-meta text-ink-3">
-            {message.body[0]}
+            {substantiveSnippet(message.body)}
           </span>
         )}
         <span className="ml-auto shrink-0 text-meta text-ink-3">
@@ -2321,6 +2373,7 @@ function ReaderBody({
   todos,
   threadId,
   onDone,
+  onMakeTodo,
   onSendDone,
   needsAttention,
   onDraftReady,
@@ -2330,6 +2383,7 @@ function ReaderBody({
   todos?: InboxTodo[];
   threadId: string;
   onDone?: () => void;
+  onMakeTodo?:()=>void;
   onSendDone?:()=>Promise<{ok:boolean;error?:string}>;
   needsAttention?:boolean;
   onDraftReady?: (id: string, ready: boolean) => void;
@@ -2365,9 +2419,12 @@ function ReaderBody({
   const [error, setError] = useState("");
   const [sent, setSent] = useState(false);
   const [retryDone,setRetryDone]=useState<null|(()=>Promise<{ok:boolean;error?:string}>)>(null);
-  const [drafting, startDraft] = useTransition();
+  const safety=useSafeDraft(saved,threadId,setError);
+  const drafting=safety.pending;
+  const composerStyle=useComposerViewport();
   const [sending, startSend] = useTransition();
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const latestPassage=useRef<HTMLDivElement>(null);
   const approvalRef = useRef<HTMLTextAreaElement>(null);
   const regionRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -2405,6 +2462,11 @@ function ReaderBody({
         new CustomEvent("sjc:inbox-surface", { detail: true }),
       );
   }, [replying, draftOpen, drafting]);
+  useEffect(()=>{
+    if(typeof window!=='undefined'&&(replying||draftOpen)&&window.matchMedia('(max-width: 639px)').matches){
+      requestAnimationFrame(()=>{const scroller=regionRef.current,passage=latestPassage.current;if(scroller&&passage)scroller.scrollTop=passage.offsetTop-scroller.offsetTop;});
+    }
+  },[replying,draftOpen]);
   function toggleMessage(id: string) {
     setExpanded((prev) => {
       const n = new Set(prev);
@@ -2417,22 +2479,9 @@ function ReaderBody({
     setError("");
     setSent(false);
     setDraftOpen(true);
-    startDraft(async () => {
-      const r = await runAction(
-        () => draftReplyAction(threadId, "hermes", intent),
-        { fallback: "Could not draft a reply." },
-      );
-      if (r.ok) {
-        saved.set({
-          body: r.body ?? "",
-          toEmail: toEmail || r.toEmail || "",
-          ai: true,
-          model: r.model ?? "Hermes",
-          replyAll,
-        });
-      } else setError(r.error ?? "Could not draft a reply.");
-    });
+    safety.generate(intent);
   }
+
   function discard() {
     saved.clear();
     setReplying(false);
@@ -2468,24 +2517,17 @@ function ReaderBody({
   }
   const approval = (
     <div
-      className={`rounded-xl border border-ai/35 bg-card p-3 shadow-card ${draftOpen ? "" : "hidden @4xl/page:block"}`}
+      className="rounded-lg border border-ai/35 bg-card p-2"
     >
       <div className="mb-2 flex items-start gap-2">
         <Chip kind="ai">Draft by {model || "AI"}</Chip>
         <span className="flex-1" />
-        <Button
-          variant="ghost"
-          icon={X}
-          iconOnly
-          aria-label="Close draft sheet"
-          title="Close draft sheet"
-          onClick={() => setDraftOpen(false)}
-          className="size-11 @4xl/page:hidden"
-        />
+
       </div>
       <p className="mb-2 break-words text-meta text-ink-3">
         To {reader.replyTarget?.toName} &lt;{toEmail}&gt; · via Email · not sent
       </p>
+      <p className="text-meta text-ink-3">{saved.value.basedOn}</p>
       <textarea
         onFocus={() =>
           window.dispatchEvent(
@@ -2497,10 +2539,10 @@ function ReaderBody({
         value={draft}
         disabled={sending}
         onChange={(e) => update({ body: e.target.value })}
-        rows={6}
-        className="max-h-[40dvh] min-h-24 w-full resize-y bg-transparent text-body leading-relaxed text-ink outline-none focus-visible:ring-1 focus-visible:ring-focus"
+        rows={3}
+        className="max-h-[18dvh] min-h-16 w-full resize-y bg-transparent text-body leading-relaxed text-ink outline-none focus-visible:ring-1 focus-visible:ring-focus"
       />
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      <div className="mt-2 flex items-center gap-1 overflow-x-auto [&_button]:shrink-0">
         <Button
           data-draft-send
           onClick={()=>send()}
@@ -2511,13 +2553,6 @@ function ReaderBody({
           {sending ? "Sending…" : "Send email"}
         </Button>
         {onSendDone&&<Button variant="secondary" disabled={!hasDraft||!toEmail.trim()||sending||drafting} onClick={()=>send(true)}>Send &amp; Done</Button>}
-        <Button
-          variant="ghost"
-          onClick={() => approvalRef.current?.focus()}
-          className="min-h-11 @4xl/page:min-h-8"
-        >
-          Edit
-        </Button>
         <Button
           variant="ghost"
           onClick={() => generate()}
@@ -2547,9 +2582,9 @@ function ReaderBody({
           <ThreadSummary reader={reader} />
           {latestInboundIndex(reader.messages) > 0 && (
             <details>
-              <summary className="min-h-11 cursor-pointer py-3 text-meta font-semibold text-accent-2">
+              <summary className="min-h-8 cursor-pointer truncate py-1 text-meta font-semibold text-accent-2">
                 {latestInboundIndex(reader.messages)} earlier {latestInboundIndex(reader.messages)===1?"message":"messages"}
-                <span className="block truncate font-normal text-ink-3">{reader.messages[latestInboundIndex(reader.messages)-1]?.body[0]}</span>
+                <span className="ml-2 font-normal text-ink-3">{reader.messages[latestInboundIndex(reader.messages)-1]?.fromName} · {substantiveSnippet(reader.messages[latestInboundIndex(reader.messages)-1]?.body??[])}</span>
               </summary>
               <Button
                 variant="ghost"
@@ -2583,27 +2618,22 @@ function ReaderBody({
               const id =
                 m.id ?? String(latestInboundIndex(reader.messages) + j);
               return (
-                <EmailMessageCard
-                  key={id}
+                <div key={id} ref={j===0?latestPassage:undefined}><EmailMessageCard
                   message={m}
                   threadId={threadId}
                   expanded={expanded.has(id)}
                   onToggle={() => toggleMessage(id)}
-                />
+                /></div>
               );
             })}
           <ThreadTasks todos={todos} />
-          {!automated && isAI && hasDraft && (
-            <div
-              className={`${draftOpen ? "absolute inset-x-0 bottom-0 z-40 max-h-[80%] overflow-y-auto rounded-t-2xl border-t border-rule bg-paper p-3 shadow-modal @4xl/page:static @4xl/page:z-auto @4xl/page:max-h-none @4xl/page:border-0 @4xl/page:bg-transparent @4xl/page:p-0 @4xl/page:shadow-none" : "hidden @4xl/page:block"}`}
-            >
-              {approval}
-            </div>
-          )}
+
         </div>
       </div>
       <div
-        className="flex-none border-t border-rule bg-paper-2 px-4 py-2.5"
+        data-reply-active={composerExpanded(replying,draft)||draftOpen}
+        style={composerStyle}
+        className="flex-none border-t border-rule bg-paper-2 px-4 py-2 max-sm:max-h-[var(--inbox-composer-max)] max-sm:mb-[var(--inbox-keyboard-inset)] max-sm:overflow-y-auto"
         onFocusCapture={() =>
           window.dispatchEvent(
             new CustomEvent("sjc:inbox-surface", { detail: true }),
@@ -2625,6 +2655,7 @@ function ReaderBody({
             {reader.replyTarget && !isNoReplyAddress(reader.replyTarget.toEmail) && (
               <Button variant="ghost" onClick={() => { setReplyAnyway(true); setReplying(true); }}>Reply anyway</Button>
             )}
+            {needsAttention&&<Button variant="secondary" onClick={onMakeTodo}>Make to-do</Button>}
             <Button onClick={onDone}>Done</Button>
           </div>
         ) : !reader.replyTarget ? (
@@ -2635,7 +2666,7 @@ function ReaderBody({
           <>
             {(composerExpanded(replying, draft) || draftOpen) && (
               <details className="mb-2 text-meta text-ink-2">
-                <summary className="min-h-11 cursor-pointer break-words py-2">
+                <summary title={toEmail} className="min-h-8 cursor-pointer truncate py-1 font-semibold">
                   To: {reader.replyTarget.toName} &lt;{toEmail}&gt; · Email
                 </summary>
                 <div className="flex flex-wrap items-center gap-2">
@@ -2645,6 +2676,7 @@ function ReaderBody({
                       aria-label="Reply recipient"
                       type="email"
                       value={toEmail}
+                      disabled={sending}
                       onChange={(e) => update({ toEmail: e.target.value })}
                       className="min-h-11 min-w-0 max-w-full bg-transparent text-base text-ink outline-none @4xl/page:text-meta"
                     />
@@ -2667,20 +2699,14 @@ function ReaderBody({
                 </div>
               </details>
             )}
-            {isAI && hasDraft ? (
-              <Button
-                variant="ai"
-                onClick={() => setDraftOpen(true)}
-                className="min-h-11 @4xl/page:hidden"
-              >
-                Review draft
-              </Button>
-            ) : composerExpanded(replying, draft) ? (
+            {safety.controls}
+            {isAI && hasDraft ? approval : composerExpanded(replying, draft) ? (
               <div className="rounded-lg border border-rule bg-card p-2">
                 <textarea
                   ref={composerRef}
                   aria-label="Reply body"
                   value={draft}
+                  disabled={sending}
                   onChange={(e) => {
                     setSent(false);
                     update({ body: e.target.value });
@@ -2689,7 +2715,8 @@ function ReaderBody({
                   placeholder={reader.replyPlaceholder}
                   className="max-h-[30dvh] min-h-16 w-full resize-y bg-transparent text-body text-ink outline-none"
                 />
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1 overflow-x-auto [&_button]:shrink-0">
+                  <Button variant="ai" size="sm" onClick={()=>generate()} disabled={drafting||sending}>Draft with AI</Button>
                   <VoiceButton
                     compact
                     onText={(t) => update({ body: mergeTranscript(draft, t) })}
@@ -2740,9 +2767,9 @@ function ReaderBody({
                 </Button>
               </div>
             )}
-            {composerExpanded(replying,draft)&&<Button variant="ai" icon={Sparkles} size="sm" onClick={()=>generate()} disabled={drafting||sending} className="mt-2 min-h-11">Draft with AI</Button>}
+
             {!isAI && composerExpanded(replying, draft) && (
-              <div className="mt-2 flex items-center gap-1 overflow-x-auto">
+              <details className="mt-1"><summary className="cursor-pointer text-meta text-ink-3">Reply intent</summary><div className="flex items-center gap-1 overflow-x-auto">
                 {[
                   "Yes, works",
                   "Need more info",
@@ -2760,7 +2787,7 @@ function ReaderBody({
                     {intent}
                   </Button>
                 ))}
-              </div>
+              </div></details>
             )}
             {drafting && (
               <p role="status" className="mt-1 text-meta text-ink-3">

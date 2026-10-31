@@ -18,6 +18,7 @@ import {
   summarizeInboxAction,
 } from "@/lib/actions/inbox-experience";
 import {
+  attentionTaskTitle,
   messageWorkItem,
   reminderDueAt,
   relatedConversations,
@@ -227,7 +228,7 @@ export function MessageTaskDialog({
   onCreated: (todo: InboxTodo) => void;
 }) {
   const [title, setTitle] = useState(
-    () => remind ? messageWorkItem(thread, reader, {}).get("title") as string : `Follow up with ${thread.fromName}: ${messageWorkItem(thread, reader, {}).get("title")}`.slice(0,160),
+    () => thread.automated && !remind ? attentionTaskTitle(thread) : remind ? messageWorkItem(thread, reader, {}).get("title") as string : `Follow up with ${thread.fromName}: ${messageWorkItem(thread, reader, {}).get("title")}`.slice(0,160),
   );
   const [due, setDue] = useState("");
   const [preset,setPreset]=useState<"tomorrow"|"monday"|"pick">("tomorrow");
@@ -449,11 +450,11 @@ export function ThreadSummary({ reader }: { reader: ThreadReader }) {
   const [pending, start] = useTransition();
   if (reader.messages.length < 2 && !reader.messages.some(m=>m.body.join("\n").length>600)) return null;
   return (
-    <div className="mb-3 rounded-lg border border-ai/25 bg-ai-soft/40 px-3 py-2">
+    <div className="mb-1 border-b border-rule-soft px-1 text-meta">
       <div className="flex items-center gap-2">
         <span className="min-w-0 flex-1 truncate text-meta text-ink-2">
           {summary?.headline ??
-            `${reader.messages.length} messages · Get who needs what`}
+            `${reader.messages.length} ${reader.messages.length===1?"message":"messages"}`}
         </span>
         <Button
           variant="ghost"
@@ -516,6 +517,9 @@ export function ContextPanel({
   onSelect,
   initialData,
   loadError,
+  onRetry,
+  docked=false,
+  refreshing=false,
 }: {
   thread: InboxThread;
   threads: InboxThread[];
@@ -525,6 +529,9 @@ export function ContextPanel({
   initialTab?: "person" | "job";
   initialData?: InboxContext | null;
   loadError?:string;
+  onRetry?:()=>void;
+  docked?:boolean;
+  refreshing?:boolean;
 }) {
   const data = initialData;
   const [error,setError]=useState('');
@@ -547,12 +554,12 @@ export function ContextPanel({
         aria-label="Close context panel"
         onClick={onClose}
         tabIndex={-1}
-        className="absolute inset-0 z-[65] bg-ink/20 @[1280px]/page:hidden"
+        className={`absolute inset-0 z-[65] bg-ink/20 ${docked?"hidden":""}`}
       />
       <aside
         role="complementary"
         aria-label="Person and job context"
-        className="absolute inset-y-0 right-0 z-[70] flex w-[300px] max-w-full flex-col border-l border-rule bg-paper-2 shadow-pop @[1280px]/page:static @[1280px]/page:shadow-none"
+        className={`${docked?"static shadow-none":"absolute inset-y-0 right-0 shadow-pop"} z-[70] flex w-[300px] shrink-0 max-w-full flex-col border-l border-rule bg-paper-2`}
       >
         <div className="flex min-h-13 items-center gap-2 border-b border-rule px-3">
           <h2 className="text-subheading font-semibold">Person & job</h2>
@@ -566,20 +573,22 @@ export function ContextPanel({
             className="size-11"
           />
         </div>
-        <div className="space-y-5 overflow-y-auto p-4">
+        <div className="space-y-3 overflow-y-auto p-3">
           {(error||loadError) && (
-            <p role="alert" className="text-meta text-flag">
+            <div role="alert" className="text-meta text-flag">
               {error||loadError}
-            </p>
+              {onRetry&&<Button variant="ghost" onClick={onRetry}>Try again</Button>}
+            </div>
           )}
           {!data && !error && !loadError && (
             <p className="text-meta text-ink-3">Loading context…</p>
           )}
+          {data&&refreshing&&<p role="status" className="text-meta text-ink-3">Updating context… Showing the last saved context.</p>}
           {data && (
             <>
               {
                 <>
-                  <Avatar initials={thread.initials} size="lg" />
+
                   <h3 className="text-subheading font-semibold">
                     {data.person?.name ?? thread.fromName}
                   </h3>
@@ -600,7 +609,8 @@ export function ContextPanel({
                             >
                               <a
                                 href={href}
-                                className="inline-flex min-h-11 min-w-0 flex-1 items-center break-all text-body text-accent-2 underline"
+                                title={value!}
+                                className="block min-h-8 min-w-0 flex-1 truncate text-body text-accent-2 underline"
                               >
                                 {email ? value : formatContactPhone(value!)}
                               </a>
@@ -669,7 +679,7 @@ export function ContextPanel({
                       >
                         {data.job.name}
                       </a>
-                      <p className="text-body capitalize text-ink-2">
+                      <p className="text-body text-ink-2">
                         {data.job.stage}
                       </p>
                       {data.job.money && (
@@ -692,14 +702,7 @@ export function ContextPanel({
                       No linked job or lead.
                     </p>
                   )}
-                  <Button
-                    variant="ghost"
-                    icon={LinkIcon}
-                    onClick={onLink}
-                    className="mt-2 min-h-11"
-                  >
-                    Link to job / lead
-                  </Button>
+
                 </section>
               }
               <section>
@@ -724,6 +727,7 @@ export function ContextPanel({
                       className="block min-h-11 border-b border-rule-soft py-2 text-body text-accent-2"
                     >
                       {t.title}
+                      <span className="block text-meta text-ink-3">{t.assignees || "Joe"}</span>
                       {t.due_at && (
                         <span className="block text-meta text-ink-3">
                           {new Date(t.due_at).toLocaleDateString("en-US")}
@@ -760,6 +764,15 @@ export function ContextPanel({
                   </p>
                 )}
               </section>
+              {data.job?.latestNote&&<details className="text-body text-ink-2"><summary className="min-h-11 cursor-pointer py-2 text-meta font-semibold">Latest note</summary><p className="whitespace-pre-line">{data.job.latestNote}</p></details>}
+                  <Button
+                    variant="ghost"
+                    icon={LinkIcon}
+                    onClick={onLink}
+                    className="mt-2 min-h-11"
+                  >
+                    Link to job / lead
+                  </Button>
             </>
           )}
         </div>

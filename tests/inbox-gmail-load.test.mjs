@@ -12,10 +12,10 @@ const stubs = {
   "./dal": 'export const getCurrentUser = async () => ({ id: "u", role: "owner", name: "Joe" });',
   "./mailbox":
     'export const activeMailbox = () => ({ refreshToken: globalThis.__gmail.disconnected ? null : "r", email: globalThis.__gmail.mailbox, linked: false }); export const mailboxFor = async () => ({ refreshToken: globalThis.__gmail.disconnected ? null : "r", email: globalThis.__gmail.mailbox, linked: false }); export const runWithMailbox = (mb, fn) => fn();',
-  "./dev-agents": "export const askHermes = async () => ({});",
+  "./dev-agents": "export const askHermes = async (...args) => { globalThis.__draftPrompts.push(args); return 'Suggested reply'; };",
   "./gmail": `
     export const gmailOAuthAppConfigured = () => true;
-    export const fetchConversation = async () => ({});
+    export const fetchConversation = async () => {globalThis.__conversationCalls++;return globalThis.__conversation;};
     export const fetchThreads = async () => [];
     export const fetchLabels = async () => [];
     export const fetchLabelCounts = async () => [];
@@ -36,7 +36,7 @@ registerHooks({
     return n(u, c);
   },
 });
-const { getInboxData, invalidateInboxCache, loadSystemView, loadLabelInbox } = await import("../lib/inbox.ts");
+const { getInboxData, invalidateInboxCache, loadSystemView, loadLabelInbox, draftReplyForThread } = await import("../lib/inbox.ts");
 
 test("a Gmail failure shows an empty mailbox and says why — never the demo conversations", async () => {
   invalidateInboxCache();
@@ -252,5 +252,31 @@ test('row money uses a single batch read for shared and distinct jobs and never 
  assert.equal(data.threads.find(t=>t.id==='job-b').outstandingCents,50000);
  assert.equal(data.threads.find(t=>t.id==='job-b').contactStage,'Pre-construction');
  assert.ok(sqls.every(sql=>!/^\s*(UPDATE|INSERT|DELETE)/i.test(sql)));
+ globalThis.__queryRows=undefined;
+});
+
+
+test('email AI draft includes bounded earlier conversation, quotes stripped and business grounding',async()=>{
+ globalThis.__draftPrompts=[];globalThis.__conversationCalls=0;
+ globalThis.__conversation={subject:'Plans',ownAddresses:['joe@example.test'],messages:Array.from({length:9},(_,i)=>({id:String(i),fromName:i%2?'Joe':'Tom',fromEmail:i%2?'joe@example.test':'tom@example.test',outbound:i%2===1,body:[`Message ${i}\nOn Tuesday, Joe wrote:\n> QUOTED HISTORY`]}))};
+ globalThis.__queryRows=sql=>/AS project_slug/.test(sql)?[{email:'tom@example.test',project_slug:'closet',project_label:'Closet',stage:'construction'}]:/FROM knowledge_items/.test(sql)?[{kind:'scope',content:'Approved closet design'}]:[];
+ const result=await draftReplyForThread('draft-thread','hermes','Confirm visit');
+ assert.equal(globalThis.__conversationCalls,1);assert.equal(result.body,'Suggested reply');assert.equal(result.basedOn,'Based on: project Closet, 6 earlier messages');
+ const [instruction,prompt]=globalThis.__draftPrompts[0];
+ assert.match(instruction,/do NOT create work/);assert.match(prompt,/Message 2/);assert.match(prompt,/Message 8/);assert.match(prompt,/Approved closet design/);assert.match(prompt,/Joe wants to convey: Confirm visit/);assert.doesNotMatch(prompt,/Message 0|QUOTED HISTORY/);
+ globalThis.__queryRows=undefined;
+});
+test('SMS uses the same draft path, short-text instruction and existing job grounding without Gmail',async()=>{
+ globalThis.__draftPrompts=[];globalThis.__conversationCalls=0;
+ globalThis.__queryRows=sql=>{
+  if(/FROM sms_threads/.test(sql))return [{id:'42',phone:'+16125551234',contact_name:'Tom',last_message_at:'2026-10-31',last_body:'Photos?',last_dir:'in',link_type:'project',link_slug:'closet'}];
+  if(/AS project_slug/.test(sql))return [{email:'tom@example.test',project_slug:'closet',project_label:'Closet',stage:'construction'}];
+  if(/FROM projects ORDER/.test(sql))return [{slug:'closet',name:'Closet',stage:'construction'}];
+  if(/FROM sms_messages WHERE thread_id = ANY/.test(sql))return [{id:'1',thread_id:'42',direction:'out',body:'Can you send photos?',created_at:'2026-10-30'},{id:'2',thread_id:'42',direction:'in',body:'Yes, tonight',created_at:'2026-10-31'}];
+  if(/FROM knowledge_items/.test(sql))return [{kind:'scope',content:'Approved closet design'}];return [];
+ };
+ const result=await draftReplyForThread('sms:42','hermes','Thanks');
+ assert.equal(globalThis.__conversationCalls,0);assert.match(result.basedOn,/project Closet, 1 earlier message$/);
+ const [instruction,prompt]=globalThis.__draftPrompts[0];assert.match(instruction,/short SMS/);assert.match(prompt,/Approved closet design/);assert.match(prompt,/Can you send photos/);assert.match(prompt,/Yes, tonight/);
  globalThis.__queryRows=undefined;
 });

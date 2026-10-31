@@ -66,7 +66,7 @@ test('automated mail has Done and no composer or AI draft button',()=>{
 test('chat uses left/right bubbles with days, scrolls newest, and has the inline channel composer',()=>{
   const html=render(ChannelReaderBody,{reader:{...reader,channel:'sms',replyLabel:'Text from the SJC number (612) 555-1234'},threadId:'sms:1'});
   assert.match(html,/items-start/); assert.match(html,/items-end/); assert.match(html,/role="separator"/);
-  assert.match(html,/Text from the SJC number/); assert.match(html,/textarea/); assert.match(html,/segment/);
+  assert.match(html,/Text from the SJC number/); assert.doesNotMatch(html,/textarea/); assert.match(html,/Write a reply…/); assert.match(html,/Draft with AI/); assert.match(html,/segment/);
   assert.match(source,/scrollTop\s*=\s*[^;]*scrollHeight/);
 });
 test('chat row shows a repeated subject/preview only once and a plain needs-me reason',()=>{
@@ -95,7 +95,7 @@ test('phase 2 uses counted split tabs, dense channel rows, no page title or nati
  assert.doesNotMatch(html,/inbox-link|<select|>Inbox<\/h1>/);
  assert.match(html,/data-thread-row/);assert.match(html,/min-h-16/);assert.match(html,/aria-label="Done: Tom"/);
  assert.match(source,/data-draft-send/);assert.match(source,/Your Send click approves this draft/);
- assert.match(source,/absolute inset-x-0 bottom-0/);assert.match(source,/ContextPanel/);
+ assert.match(source,/max-sm:max-h-\[var\(--inbox-composer-max\)\]/);assert.match(source,/ContextPanel/);
 });
 
 test('website card has contact actions, formatted phone and exact outgoing subject before Send',()=>{
@@ -110,4 +110,12 @@ test('saved tasks return to the reader and mark the row; unread names get their 
  assert.match(html,/To-do: Send revised estimate/);assert.match(html,/Joe/);assert.match(html,/Fri/);assert.match(html,/engine\?work=w1/);
  const row=render(ThreadRow,{thread:{id:'1',fromName:'Michelle Alcantara',channel:'email',initials:'MA',when:'2h',view:'needs_reply',preview:'Please revise the closet estimate',needsMeReason:'Client replied',projectLabel:'Closet',unread:true,hasOpenTodo:true},onSelect(){}});
  assert.equal((row.match(/>2h</g) ?? []).length,1);assert.match(row,/Open to-do/);assert.match(row,/aria-label="Unread"/);assert.match(row,/Michelle Alcantara/);
+});
+
+test('plain-text attribution and quote fold together, compact rows expose ledger and task cues',()=>{
+ const quoted={...reader,messages:[{...messages[1],body:['Please confirm.\nOn Wednesday, October 28, 2026,\nJoe <joe@example.test> wrote:\n> old request']}]};
+ const html=render(ReaderBody,{reader:quoted,threadId:'quote'});
+ assert.match(html,/Please confirm/);assert.match(html,/Show quoted text/);assert.doesNotMatch(html,/On Wednesday|old request/);
+ const row=render(ThreadRow,{thread:{id:'balance',channel:'email',fromName:'Michelle',when:'2h',preview:'Please send photos',outstandingCents:225000,hasOpenTodo:true,todos:[{due_at:'2026-11-26T14:00:00Z'}]},onSelect(){}});
+ assert.match(row,/\$2,250/);assert.match(row,/To-do · Nov 26/);assert.doesNotMatch(row,/pr-24/);
 });

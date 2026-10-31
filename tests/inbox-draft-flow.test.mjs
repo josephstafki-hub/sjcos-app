@@ -11,7 +11,8 @@ let states = [],
   effects = [],
   pending = [],
   sends = [],
-  draftCalls = [];
+  draftCalls = [],
+  cleanups = [];
 const map = new Map();
 globalThis.localStorage = {
   getItem: (k) => map.get(k) ?? null,
@@ -31,15 +32,15 @@ globalThis.__draftHooks = {
       },
     ];
   },
-  useRef() {
+  useRef(initial) {
     const i = cursor++;
-    return states[i] ?? (states[i] = { current: null });
+    return states[i] ?? (states[i] = { current: initial });
   },
   useEffect(fn, deps) {
     const i = cursor++;
     if (!states[i] || !deps || deps.some((d, j) => d !== states[i][j])) {
       states[i] = deps;
-      effects.push(fn);
+      effects.push(()=>{cleanups[i]?.();cleanups[i]=fn();});
     }
   },
   useTransition() {
@@ -49,6 +50,7 @@ globalThis.__draftHooks = {
 globalThis.__draftActions = {
   draft: async (...args) => {
     draftCalls.push(args);
+    if(globalThis.__waitDraft)await globalThis.__waitDraft;
     return {
       ok: true,
       body: "Thanks, Tom.",
@@ -77,11 +79,11 @@ const stubs = {
   "@/lib/actions/inbox": actionNames
     .map(
       (n) =>
-        `export const ${n}=${n === "draftReplyAction" ? "globalThis.__draftActions.draft" : n === "sendReplyAction" ? "globalThis.__draftActions.send" : "async()=>({ok:true})"};`,
+        `export const ${n}=${n === "archiveThreadAction" ? "async(...args)=>globalThis.__archive(...args)" : n === "draftReplyAction" ? "globalThis.__draftActions.draft" : (n === "sendReplyAction" || n === "sendChannelReplyAction") ? "globalThis.__draftActions.send" : "async()=>({ok:true})"};`,
     )
     .join("\n"),
   "@/lib/actions/inbox-experience":
-    "export const inboxContextAction=async()=>null,undoChannelDoneAction=async()=>({ok:true});export const markChannelDoneAction=async()=>({ok:true});",
+    "export const inboxContextAction=async()=>globalThis.__contextRequest?.(),undoChannelDoneAction=async()=>({ok:true});export const markChannelDoneAction=async()=>({ok:true});",
   "./InboxPanels":
     "export const ContactCreateDialog=()=>null,ThreadSummary=()=>null,ContextPanel=()=>null,LinkPicker=()=>null,MessageTaskDialog=()=>null,ShortcutHelp=()=>null;",
   "@/lib/run-action": "export const runAction=async fn=>fn();",
@@ -98,7 +100,7 @@ registerHooks({
     if (u === url)
       return {
         format: "module",
-        source: ts.transpileModule(source + "\nexport {ReaderBody};", {
+        source: ts.transpileModule(source + "\nexport {ReaderBody,ChannelReaderBody};", {
           compilerOptions: {
             jsx: ts.JsxEmit.ReactJSX,
             module: ts.ModuleKind.ESNext,
@@ -112,19 +114,23 @@ registerHooks({
       : n(u, c);
   },
 });
-const { ReaderBody } = await import(url);
+const { ReaderBody, ChannelReaderBody, InboxClient } = await import(url);
 const reader = {
-  messages: [{ id: "m1", body: ["Plans?"] }],
+  messages: [{ id: "m1", fromEmail:"tom@example.test", body: ["Plans?"] }],
   subject: "Plans",
   replyTarget: { toEmail: "tom@example.test", toName: "Tom", cc: [] },
   replyPlaceholder: "Reply to Tom…",
   aiDraft: { body: "" },
 };
 let tree,
-  id = "t1";
+  id = "t1",
+  channel = null,
+  clientData = null;
 function render() {
   cursor = 0;
-  tree = ReaderBody({ reader, threadId: id, mailbox: "joe@example.test", onSendDone:async()=>{globalThis.__doneCalls=(globalThis.__doneCalls??0)+1;return {ok:!globalThis.__doneFails,error:"offline"};} });
+  if(clientData){tree=InboxClient({data:clientData,selfEmail:"joe@example.test"});return;}
+  const Component=channel?ChannelReaderBody:ReaderBody;
+  tree = Component({ reader:channel?{...reader,channel,replyLabel:"To (612) 555-1234"}:reader, threadId: id, mailbox: "joe@example.test", onSendDone:async()=>{globalThis.__doneCalls=(globalThis.__doneCalls??0)+1;return {ok:!globalThis.__doneFails,error:"offline"};} });
 }
 function flush() {
   for (let i = 0; i < 3; i++) {
@@ -135,6 +141,7 @@ function flush() {
   }
 }
 function mount(next) {
+  cleanups.forEach(fn=>fn?.());cleanups=[];
   states = [];
   effects = [];
   id = next;
@@ -254,3 +261,85 @@ test('Send & Done keeps failed drafts; completion failure clears sent draft and 
  globalThis.__doneFails=false;click('Retry marking done');await settle();assert.equal(sends.length,before+2);assert.equal(globalThis.__doneCalls,2);
 });
 function readDraftFor(id){return map.get(`sjc:inbox:draft:v1:joe%40example.test:${id}`)??null;}
+
+
+test('generation never overwrites concurrent edits; explicit suggestion and restore retain both versions',async()=>{
+ mount('conflict');click('Reply to Tom…');
+ const edit=body=>{find(n=>n.props?.['aria-label']==='Reply body').props.onChange({target:{value:body}});render();flush();};
+ edit('Before generation');
+ let release;globalThis.__waitDraft=new Promise(resolve=>{release=resolve;});
+ click('Draft with AI');edit('Joe edited during generation');
+ release();globalThis.__waitDraft=null;await settle();
+ assert.equal(find(n=>n.props?.['aria-label']==='Reply body').props.value,'Joe edited during generation');
+ click('Keep mine');
+ assert.equal(find(n=>n.props?.['aria-label']==='Reply body').props.value,'Joe edited during generation');
+ globalThis.__waitDraft=new Promise(resolve=>{release=resolve;});
+ click('Draft with AI');edit('Another edit');release();globalThis.__waitDraft=null;await settle();
+ click('Use suggestion');
+ assert.equal(find(n=>n.props?.['aria-label']==='AI draft body').props.value,'Thanks, Tom.');
+ click('Restore previous');
+ assert.equal(find(n=>n.props?.['aria-label']==='Reply body').props.value,'Another edit');
+});
+test('regenerate retains previous reviewed version; never sends',async()=>{
+ mount('regenerate');click('Draft with AI');await settle();
+ find(n=>n.props?.['aria-label']==='AI draft body').props.onChange({target:{value:'Reviewed original'}});render();flush();
+ const count=sends.length;click('Regenerate');await settle();
+ assert.equal(find(n=>n.props?.['aria-label']==='AI draft body').props.value,'Thanks, Tom.');
+ click('Restore previous');
+ assert.equal(find(n=>n.props?.['aria-label']==='AI draft body').props.value,'Reviewed original');assert.equal(sends.length,count);
+});
+
+
+test('SMS, both portals and website forms share protected drafts and commit only after the channel Send click',async()=>{
+ for(const kind of ['sms','client_portal','sub_portal','site_form']){
+  channel=kind;mount(`channel-${kind}`);click('Write a reply…');
+  const aria=kind==='sms'?'Text reply':'Reply';
+  const edit=text=>{find(n=>n.props?.['aria-label']===aria).props.onChange({target:{value:text}});render();flush();};
+  edit('Original channel reply');const before=sends.length;
+  let release;globalThis.__waitDraft=new Promise(resolve=>{release=resolve;});click('Draft with AI');edit('Edited while AI runs');
+  release();globalThis.__waitDraft=null;await settle();
+  assert.equal(find(n=>n.props?.['aria-label']===aria).props.value,'Edited while AI runs');
+  assert.equal(sends.length,before);click('Use suggestion');
+  assert.equal(find(n=>n.props?.['aria-label']===aria).props.value,'Thanks, Tom.');
+  click('Restore previous');assert.equal(find(n=>n.props?.['aria-label']===aria).props.value,'Edited while AI runs');
+  const label=kind==='sms'?'Send text':kind==='client_portal'?'Post to client portal':kind==='sub_portal'?'Post to sub portal':'Send email';
+  globalThis.__sendFails=true;click(label);await settle();assert.equal(find(n=>n.props?.['aria-label']===aria).props.value,'Edited while AI runs');
+  globalThis.__sendFails=false;click(label);await settle();assert.equal(sends.length,before+2);assert.equal(sends.at(-1).body,'Edited while AI runs');
+ }
+ channel=null;
+});
+test('phone composer bounds itself to visual viewport height and moves above keyboard',()=>{
+ globalThis.window={innerHeight:844,visualViewport:{height:400,offsetTop:0,addEventListener(){},removeEventListener(){}},matchMedia:()=>({matches:true}),dispatchEvent(){}};
+ mount('phone');click('Reply to Tom…');
+ const footer=find(n=>n.props?.['data-reply-active']);
+ assert.equal(footer.props.style['--inbox-composer-max'],'180px');assert.equal(footer.props.style['--inbox-keyboard-inset'],'444px');
+ delete globalThis.window;
+});
+
+
+test('plain Done advances after confirmation, clears search and reports remaining; context retains cache and times out with retry',async()=>{
+ const timers=new Map();let timerId=0;const realSet=globalThis.setTimeout,realClear=globalThis.clearTimeout,realFetch=globalThis.fetch;
+ globalThis.fetch=async()=>{const data=globalThis.__contextRequest();return {ok:true,json:()=>data};};
+ globalThis.setTimeout=fn=>{timers.set(++timerId,fn);return timerId;};globalThis.clearTimeout=id=>timers.delete(id);
+ globalThis.window={dispatchEvent(){}};globalThis.document={addEventListener(){},removeEventListener(){}};
+ globalThis.__archive=async()=>({ok:true});
+ let resolveContext;globalThis.__contextRequest=()=>new Promise(resolve=>{resolveContext=resolve;});
+ const row=id=>({id,fromName:id,fromEmail:`${id}@example.test`,channel:'email',when:'2h',view:'needs_reply',contactRole:'client',inInbox:true});
+ clientData={threads:[row('a'),row('b'),row('c')],readers:{a:reader,b:reader,c:reader},selectedId:'a',mailbox:{connected:true},smartViews:[],channels:[],labels:[],projects:[]};
+ try{
+  mount('root');
+  const cached={person:{name:'Tom'},job:{name:'Closet'},todos:[]};resolveContext(cached);for(let i=0;i<4;i++)await Promise.resolve();render();flush();
+  // Open context and refresh while retaining its last good result.
+  find(n=>n.props?.title==='Open contact, job, money and to-dos').props.onClick();render();flush();
+  let panel=find(n=>n.props?.initialData);assert.deepEqual(panel.props.initialData,cached);
+  panel.props.onRetry();render();flush();panel=find(n=>n.props?.initialData);assert.deepEqual(panel.props.initialData,cached);
+  for(const fn of timers.values())fn();render();flush();panel=find(n=>n.props?.initialData);assert.match(panel.props.loadError,/taking too long/);assert.ok(panel.props.onRetry);
+  find(n=>n.props?.['aria-label']==='Search inbox').props.onChange({target:{value:'a'}});render();flush();
+  click('Done');await settle();
+  const selected=find(n=>n.type===ReaderBody);assert.equal(selected.props.threadId,'b');
+  assert.equal(find(n=>n.props?.['aria-label']==='Search inbox').props.value,'');
+  assert.ok(nodes(tree).some(n=>typeof n.props?.children==='string'&&n.props.children.includes('2 left in Needs me')));
+ }finally{
+  cleanups.forEach(fn=>fn?.());cleanups=[];clientData=null;globalThis.setTimeout=realSet;globalThis.clearTimeout=realClear;globalThis.fetch=realFetch;delete globalThis.window;delete globalThis.document;
+ }
+});

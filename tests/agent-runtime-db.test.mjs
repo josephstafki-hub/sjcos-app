@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import pg from "pg";
 import { withTestDb, harnessAvailable, cleanFoundation } from "./_harness/testdb.mjs";
-import { SEED_VERSIONS, WORKFLOW_DIGEST_V2, checksumOf } from "../lib/agent-runtime/instruction-texts.mjs";
+import { SEED_VERSIONS, TONE_GUIDE_V2, WORKFLOW_DIGEST_V2, checksumOf } from "../lib/agent-runtime/instruction-texts.mjs";
 import { readFileSync } from "node:fs";
 import { standingContextBlock as standingBlockJs, activateInstructionVersion, proposeInstructionVersion, rollbackInstructionVersion } from "../lib/agent-runtime/instructions-block.mjs";
 import { buildBusinessInstructions, standingContextBlock, loadActiveInstructionBlocks } from "../lib/agent-runtime/instructions.ts";
@@ -370,5 +370,26 @@ test("workflow_digest v2 (0053): above-allowance choices are a change order only
     // Re-running it changes nothing.
     await client.query(readFileSync(new URL("../db/migrations/0053_workflow_digest_allowance_v2.sql", import.meta.url), "utf8"));
     assert.equal((await client.query(`SELECT count(*)::int AS n FROM agent_instruction_versions WHERE key = 'workflow_digest'`)).rows[0].n, 2);
+  });
+});
+
+test("tone_guide v2 (0063): a portal message gets a portal reply; the migration's text = the module's", { skip }, async () => {
+  await withTestDb(async (_url, client) => {
+    await cleanAgents(client);
+    const run = async (sql, params) => (await client.query(sql, params)).rows;
+    const sql = readFileSync(new URL("../db/migrations/0063_tone_guide_portal_v2.sql", import.meta.url), "utf8");
+    await client.query(sql);
+    const blocks = await loadActiveInstructionBlocks(run);
+    assert.equal(blocks.tone_guide.version, 2);
+    assert.equal(blocks.tone_guide.body, TONE_GUIDE_V2);
+    assert.equal(blocks.tone_guide.checksum, checksumOf(TONE_GUIDE_V2));
+    assert.match(blocks.tone_guide.body, /channel "portal"/);
+    assert.match(blocks.tone_guide.body, /Never answer a portal message with an email/);
+    assert.match(blocks.tone_guide.body, /Client email drafts start with "To: <address>"/, "the email rule is kept");
+    const { rows } = await client.query(`SELECT version, state FROM agent_instruction_versions WHERE key = 'tone_guide' ORDER BY version`);
+    assert.deepEqual(rows.map((r) => `${r.version}:${r.state}`), ["1:retired", "2:active"]);
+    // Re-running it changes nothing.
+    await client.query(sql);
+    assert.equal((await client.query(`SELECT count(*)::int AS n FROM agent_instruction_versions WHERE key = 'tone_guide'`)).rows[0].n, 2);
   });
 });

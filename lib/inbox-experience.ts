@@ -372,7 +372,7 @@ export function applyInboxPreferences(t:InboxThread, preferences:Record<string,s
   const attentionOverride=override===undefined?t.attentionOverride:override===null?undefined:override==='attention';
   const attention=Boolean(t.automated&&(attentionOverride??t.attentionRequired));
   const actionable=attention&&t.inInbox&&t.inboundLast&&t.view!=='snoozed';
-  return {...t,senderDecision:decision??undefined,filedOther:decision==='other',attentionOverride,
+  return {...t,senderDecision:decision??undefined,filedOther:decision==='other'||decision==='blocked',attentionOverride,
     view:actionable?'needs_reply':t.view,
     needsMeReason:t.automated?(actionable?`Needs attention · ${t.needsMeReason?.split(' · ').slice(1).join(' · ')||'Marked by you'}`:undefined):t.needsMeReason,
     newSender:decision==='pending'?t.view==='needs_reply':decision?false:t.newSender};
@@ -393,9 +393,9 @@ export function rowDay(thread: Pick<InboxThread,'receivedAt'|'when'>, now=new Da
   const yesterday=new Date(`${get('year')}-${get('month')}-${get('day')}T12:00:00Z`);yesterday.setUTCDate(yesterday.getUTCDate()-1);
   return day(new Date(thread.receivedAt))===day(now)?'Today':day(new Date(thread.receivedAt))===day(yesterday)?'Yesterday':'Earlier';
 }
-export function orderedInboxThreads(threads:InboxThread[],now=new Date()):InboxThread[] {
+export function orderedInboxThreads(threads:InboxThread[],now=new Date(),drafts:ReadonlySet<string>=new Set()):InboxThread[] {
   const days={Today:0,Yesterday:1,Earlier:2};
-  return [...threads].sort((a,b)=>days[rowDay(a,now)]-days[rowDay(b,now)]||triageRank(a)-triageRank(b));
+  return [...threads].sort((a,b)=>Number(drafts.has(b.id)&&threadNeedsMe(b,true)&&!b.automated)-Number(drafts.has(a.id)&&threadNeedsMe(a,true)&&!a.automated)||days[rowDay(a,now)]-days[rowDay(b,now)]||triageRank(a)-triageRank(b));
 }
 export function canLoadMore(input:{token?:string;lens:string;channel?:string;remoteReady?:boolean;tab?:InboxTab|null;visibleCount?:number;knownTotal?:number}):boolean {
   if(!input.token)return false;

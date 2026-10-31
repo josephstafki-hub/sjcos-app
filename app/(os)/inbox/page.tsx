@@ -14,7 +14,7 @@ export default async function InboxPage() {
     <Shell breadcrumb="INBOX · UNIFIED">
       {/* Compose's To: prefill — the connected address when there is one, else
           their login email. Never someone else's. */}
-      <InboxClient data={data} selfEmail={data.mailbox.email ?? user.email} />
+      <InboxClient data={data} selfEmail={data.mailbox.email ?? user.email} userId={user.id} owner={user.role === "owner"} />
     </Shell>
   );
 }

@@ -361,7 +361,7 @@ export function SettingsClient({ data, initialSection = "profile" }: { data: Set
             </div>
             <div className="mt-5 max-w-[600px]">
               {data.aiToggles.map((t) => (
-                <Toggle key={t.key} settingKey={t.key} label={t.label} on={t.on} action={setAiToggle} />
+                <div key={t.key}><Toggle settingKey={t.key} label={t.label} on={t.on} action={setAiToggle} />{t.key==='ai.inboxAutoDraft'&&<p className="mb-3 text-meta text-ink-3">Draft replies to clients, leads and subs when their email arrives. Nothing is sent until you press Send.</p>}</div>
               ))}
               <FirstResponseModelPicker initial={data.leadFirstResponseModel} />
               <InboxDraftModelPicker initial={data.inboxDraftModel} />

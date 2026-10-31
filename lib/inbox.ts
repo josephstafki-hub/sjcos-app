@@ -981,7 +981,7 @@ function mapRawThreads(
     const override = contactMaps.preferences.get(`thread:${r.id}`);
     threads[i].screeningFacts={knownContact:known,hasUnsubscribe:Boolean(r.messages?.some(m=>m.hasUnsubscribe)),looksPitch:/\b(?:partnership|marketing|promot(?:e|ion)|grow your|offer our|our services|pre-approved|funding offer)\b/i.test(r.subject+' '+(r.messages?.at(-1)?.body.join(' ') ?? r.snippet))};
     threads[i].senderDecision = decision;
-    threads[i].filedOther = decision === 'other';
+    threads[i].filedOther = decision === 'other' || decision === 'blocked';
     threads[i].attentionOverride = override ? override === 'attention' : undefined;
     if (bulk && (threads[i].attentionOverride ?? threads[i].attentionRequired) && r.inInbox && !r.outbound && !r.snoozed) threads[i].view = 'needs_reply';
     if (bulk && override === 'other') threads[i].view = r.inInbox ? 'awaiting_them' : 'done';

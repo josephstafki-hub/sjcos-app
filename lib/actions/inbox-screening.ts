@@ -9,7 +9,7 @@ export async function setInboxPreferenceAction(kind: 'sender'|'thread', target: 
   const user = await requireAccess('inbox');
   if (!['sender','thread'].includes(kind) || !target || target.length>400 || /[\r\n]/.test(target) ||
     kind === 'sender' && !validRecipient(emailAddress(target)) ||
-    decision !== null && !(kind === 'sender' ? ['linked','lead','sub','vendor','other','pending'] : ['attention','other']).includes(decision))
+    decision !== null && !(kind === 'sender' ? ['linked','lead','sub','vendor','other','pending','blocked'] : ['attention','other']).includes(decision))
     return {ok:false,error:'Choose a valid screening decision.'};
   return withMailboxFor(user, async()=>{
     const mailbox = activeMailbox()?.email?.toLowerCase();

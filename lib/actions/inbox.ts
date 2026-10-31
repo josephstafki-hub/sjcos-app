@@ -447,3 +447,10 @@ export async function sendChannelReplyAction(input: {
 export async function restoreThreadToInboxAction(threadId: string) {
   return withGmail(()=>modifyThread(threadId,{addLabelIds:['INBOX']}));
 }
+
+/** Joe's explicit report/undo uses the same mailbox-scoped Gmail mutation path. */
+export async function setThreadSpamAction(threadId: string, spam: boolean, restoreInbox = true) {
+  return withGmail(() => modifyThread(threadId, spam
+    ? {addLabelIds:['SPAM'],removeLabelIds:['INBOX']}
+    : {removeLabelIds:['SPAM'],...(restoreInbox?{addLabelIds:['INBOX']}:{})}));
+}

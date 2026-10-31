@@ -39,7 +39,7 @@ export interface AiToggle {
 /** The AI toggle set, with stable keys + defaults (used when a row is
  *  absent from app_settings). */
 const AI_TOGGLES: { key: string; label: string; default: boolean }[] = [
-  { key: "ai.inboxAutoDraft", label: "Inbox auto-drafts (review before sending)", default: true },
+  { key: "ai.inboxAutoDraft", label: "Inbox auto-drafts", default: true },
   { key: "ai.draftReplies", label: "Draft client replies by default", default: true },
   { key: "ai.autoPinWatchouts", label: "Auto-pin watchouts in team chat", default: true },
   { key: "ai.summarizeVoicemails", label: "Auto-summarize incoming voicemails", default: true },

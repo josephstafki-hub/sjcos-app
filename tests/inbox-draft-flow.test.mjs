@@ -1,3 +1,5 @@
+import {draftTransport,draftActionStub,draftComponentUrls,draftResolve} from './helpers/inbox-draft-transport.mjs';
+globalThis.__draftServer=draftTransport();
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { registerHooks } from "node:module";
@@ -14,11 +16,14 @@ let states = [],
   draftCalls = [],
   cleanups = [];
 const map = new Map();
+const testWindow={localStorage:null,innerHeight:1000,setInterval:()=>1,clearInterval(){},addEventListener(){},removeEventListener(){},dispatchEvent(){},matchMedia:()=>({matches:false})};
+globalThis.window=testWindow;
 globalThis.localStorage = {
   getItem: (k) => map.get(k) ?? null,
   setItem: (k, v) => map.set(k, v),
   removeItem: (k) => map.delete(k),
 };
+testWindow.localStorage=globalThis.localStorage;
 globalThis.requestAnimationFrame = (fn) => fn();
 globalThis.__draftHooks = {
   useState(initial) {
@@ -71,6 +76,7 @@ const actionNames = source
   .map((s) => s.trim())
   .filter(Boolean);
 const stubs = {
+  "@/lib/actions/inbox-drafts":draftActionStub,
   "@/components/ui/Toast":"export const toast=()=>1,dismissToast=()=>{};",
   "@/lib/actions/inbox-screening":"export const setInboxPreferenceAction=async()=>({ok:true});",
   react: `const h=globalThis.__draftHooks;export const useState=h.useState,useRef=h.useRef,useEffect=h.useEffect,useLayoutEffect=h.useEffect,useTransition=h.useTransition,useCallback=f=>f,useMemo=f=>f();`,
@@ -90,13 +96,15 @@ const stubs = {
 };
 registerHooks({
   resolve(s, c, n) {
-    if (s in stubs && (s !== "react" || c.parentURL === url))
+    if (s in stubs && (s !== "react" || c.parentURL === url || draftComponentUrls.includes(c.parentURL)))
       return { url: "stub:" + s, shortCircuit: true };
+    const draft=draftResolve(s,c,n);if(draft)return draft;
     if (s.startsWith("@/"))
       return n(new URL("../" + s.slice(2) + ".ts", import.meta.url).href, c);
     return n(s, c);
   },
   load(u, c, n) {
+    if(draftComponentUrls.includes(u))return {format:'module',source:ts.transpileModule(readFileSync(new URL(u),'utf8'),{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText,shortCircuit:true};
     if (u === url)
       return {
         format: "module",
@@ -116,6 +124,7 @@ registerHooks({
 });
 const { ReaderBody, ChannelReaderBody, InboxClient, EmailMessageCard, sendWithReceipt } = await import(url);
 const reader = {
+  channel:"email",
   messages: [{ id: "m1", fromEmail:"tom@example.test", body: ["Plans?"] }],
   subject: "Plans",
   replyTarget: { toEmail: "tom@example.test", toName: "Tom", cc: [] },
@@ -125,13 +134,14 @@ const reader = {
 let tree,
   id = "t1",
   channel = null,
-  clientData = null, cardData = null;
+  clientData = null, cardData = null, viewerOwner=false;
 function render() {
+  if(globalThis.window)Object.assign(window,{localStorage,setInterval:()=>1,clearInterval(){}});
   cursor = 0;
   if(cardData){tree=EmailMessageCard(cardData);return;}
-  if(clientData){tree=InboxClient({data:clientData,selfEmail:"joe@example.test"});return;}
+  if(clientData){tree=InboxClient({data:clientData,selfEmail:"joe@example.test",owner:viewerOwner});return;}
   const Component=channel?ChannelReaderBody:ReaderBody;
-  tree = Component({ reader:channel?{...reader,channel,replyLabel:"To (612) 555-1234"}:reader, threadId: id, mailbox: "joe@example.test", onSendDone:async()=>{globalThis.__doneCalls=(globalThis.__doneCalls??0)+1;return {ok:!globalThis.__doneFails,error:"offline"};} });
+  tree = Component({ reader:channel?{...reader,channel,replyLabel:"To (612) 555-1234"}:reader, threadId: id, mailbox: "joe@example.test", owner:viewerOwner, onSendDone:async()=>{globalThis.__doneCalls=(globalThis.__doneCalls??0)+1;return {ok:!globalThis.__doneFails,error:"offline"};} });
 }
 function flush() {
   for (let i = 0; i < 3; i++) {
@@ -142,7 +152,9 @@ function flush() {
   }
 }
 function mount(next) {
+  globalThis.window={...testWindow,...globalThis.window};
   cleanups.forEach(fn=>fn?.());cleanups=[];
+  globalThis.window??=testWindow;Object.assign(window,{localStorage,setInterval:()=>1,clearInterval(){}});
   states = [];
   effects = [];
   id = next;
@@ -164,12 +176,9 @@ function click(text) {
   flush();
 }
 async function settle() {
-  await Promise.all(pending);
-  pending = [];
-  render();
-  flush();
+  for(let i=0;i<8;i++){await Promise.all(pending);pending=[];await Promise.resolve();render();flush();}
 }
-test("typed draft restores across conversation switches/reloads with edited recipient; discard clears it", () => {
+test("typed draft restores across conversation switches/reloads with edited recipient; discard clears it", async () => {
   mount("t1");
   click("Reply to Tom…");
   find((n) => n.props?.["aria-label"] === "Reply body").props.onChange({
@@ -196,7 +205,7 @@ test("typed draft restores across conversation switches/reloads with edited reci
     find((n) => n.props?.["aria-label"] === "Reply recipient").props.value,
     "ana@example.test",
   );
-  click("Discard");
+  await settle();click("Discard");await settle();
   mount("t1");
   assert.equal(
     find((n) => n.props?.["aria-label"] === "Reply body"),
@@ -232,7 +241,7 @@ test("intent creates an editable approval card but NEVER sends until the Send cl
   find((n) => "data-draft-send" in (n.props ?? {})).props.onClick();
   await settle();
   assert.equal(sends.length, 2);
-  assert.equal(map.size, 0);
+  assert.equal(__draftServer.rows.get('t1:email').status,'sent');
 });
 
 test("empty reply collapses on blur, typing preserves it and default AI button still never sends", async () => {
@@ -262,7 +271,7 @@ test('Send & Done keeps failed drafts; completion failure clears sent draft and 
  click('Send & Done');await settle();assert.equal(sends.length,before+2);assert.equal(globalThis.__doneCalls,1);assert.equal(readDraftFor('send-done'),null);
  globalThis.__doneFails=false;click('Retry marking done');await settle();assert.equal(sends.length,before+2);assert.equal(globalThis.__doneCalls,2);
 });
-function readDraftFor(id){return map.get(`sjc:inbox:draft:v1:joe%40example.test:${id}`)??null;}
+function readDraftFor(id){const row=__draftServer.rows.get(`${id}:${channel??'email'}`);return row?.status==='ready'&&row.body?row.body:null;}
 
 
 test('generation never overwrites concurrent edits; explicit suggestion and restore retain both versions',async()=>{
@@ -407,4 +416,85 @@ test('email and channel Send controls live outside the scrolling composer conten
   assert.ok(find(n=>n.props?.children==='Send & Done'));
  }
  channel=null;
+});
+
+const autoSuggestion=(threadKey,patch={})=>({id:'11111111-1111-1111-1111-111111111111',threadKey,channel:'email',source:'ai',sourceMessageId:'m1',status:'ready',version:1,toEmail:'tom@example.test',cc:[],subject:'Plans',body:'Automatic draft for review',model:'claude',basedOn:'The latest email and job notes',summary:'Confirm the visit',...patch});
+const footer=()=>{const node=find(n=>typeof n.type==='function'&&n.type.name==='DraftSyncFooter');return {saved:node.props.saved,nodes:nodes(node.type(node.props))};};
+
+test('ready automatic suggestion opens an editable approval card without saving or sending until approval',async()=>{
+ viewerOwner=true;__draftServer.suggestions=[autoSuggestion('arrival')];const before=sends.length;
+ try{
+  mount('arrival');await settle();
+  assert.equal(find(n=>n.props?.['aria-label']==='AI draft body').props.value,'Automatic draft for review');
+  assert.ok(find(n=>String(n.props?.children).includes('Based on: The latest email')));
+  assert.equal(sends.length,before);assert.equal(__draftServer.rows.has('arrival:email'),false);
+  click('Send email');await settle();assert.equal(sends.length,before+1);
+  assert.equal(__draftServer.calls.findLast(([type])=>type==='sent')[1].suggestionId,'11111111-1111-1111-1111-111111111111');
+ }finally{viewerOwner=false;__draftServer.suggestions=[];}
+});
+test('automatic suggestion never replaces human text; Dismiss retires only the suggestion; staff see none',async()=>{
+ viewerOwner=true;const key='human-arrival';__draftServer.suggestions=[autoSuggestion(key)];
+ __draftServer.rows.set(`${key}:email`,{...autoSuggestion(key),source:'human',body:'My exact words',version:3});
+ try{
+  mount(key);await settle();assert.equal(find(n=>n.props?.['aria-label']==='Reply body').props.value,'My exact words');
+  assert.ok(find(n=>[n.props?.children].flat().join('')==='Claude drafted a reply'));assert.ok(find(n=>n.props?.children==='Compare'));
+  click('Dismiss');await settle();assert.equal(__draftServer.suggestions.length,0);assert.equal(find(n=>n.props?.['aria-label']==='Reply body').props.value,'My exact words');
+  viewerOwner=false;__draftServer.suggestions=[autoSuggestion('staff-arrival')];mount('staff-arrival');await settle();
+  assert.equal(find(n=>n.props?.['aria-label']==='AI draft body'),undefined);assert.equal(find(n=>[n.props?.children].flat().join('')==='Claude drafted a reply'),undefined);
+ }finally{viewerOwner=false;__draftServer.suggestions=[];}
+});
+test('every reply channel exposes sync status, conflict choices and sends only the version saved',async()=>{
+ for(const kind of [null,'sms','client_portal','sub_portal','site_form']){
+  channel=kind;const key=`sync-${kind}`;mount(key);await settle();click(kind?'Write a reply…':'Reply to Tom…');
+  const label=kind?(kind==='sms'?'Text reply':'Reply'):'Reply body';
+  find(n=>n.props?.['aria-label']===label).props.onChange({target:{value:'Mine'}});render();flush();
+  const saved=footer().saved;
+  assert.ok(footer().nodes.some(n=>n.props?.children==='Saving…'));
+  const their={...autoSuggestion(key),source:'human',channel:kind??'email',body:'Theirs',version:7};__draftServer.rows.set(`${key}:${kind??'email'}`,their);
+  await saved.synced.refresh();await settle();assert.ok(footer().nodes.some(n=>n.props?.children==='This draft changed on another device'));
+  assert.equal(find(n=>n.props?.['aria-label']===label).props.value,'Mine');
+  const before=sends.length;click('Send & Done');await settle();assert.equal(sends.length,before);
+  footer().nodes.find(n=>n.props?.children==='Use theirs').props.onClick();render();flush();
+  assert.equal(find(n=>n.props?.['aria-label']===label).props.value,'Theirs');
+  assert.ok(footer().nodes.some(n=>n.props?.children==='Saved'));
+  click('Send & Done');await settle();assert.equal(sends.length,before+1);
+  assert.equal(__draftServer.calls.findLast(([type])=>type==='sent')[1].baseVersion,7);
+ }
+ channel=null;
+});
+test('a successful send with failed draft cleanup displays a sent warning and never resends',async()=>{
+ mount('cleanup-failure');await settle();click('Reply to Tom…');
+ find(n=>n.props?.['aria-label']==='Reply body').props.onChange({target:{value:'Only send once'}});render();flush();
+ const before=sends.length;__draftServer.cleanupFails=true;
+ try{click('Send email');await settle();assert.equal(sends.length,before+1);assert.ok(find(n=>typeof n.props?.children==='string'&&n.props.children.includes('Sent. Could not clear')));assert.equal(find(n=>n.props?.children==='Send email').props.disabled,true);}
+ finally{__draftServer.cleanupFails=false;}
+});
+test('list loads suggestions once in a batch for the window and reuses it on rerender',async()=>{
+ __draftServer.calls.length=0;viewerOwner=true;
+ const row=id=>({id,channel:'email',fromName:id,subject:'Plans',preview:'Plans?',when:'Today',view:'needs_reply',inInbox:true});
+ clientData={threads:[row('batch-a'),row('batch-b')],readers:{'batch-a':reader,'batch-b':reader},selectedId:'batch-a',mailbox:{connected:true},smartViews:[],channels:[],labels:[],projects:[]};
+ const previousFetch=globalThis.fetch;globalThis.fetch=async()=>({ok:true,json:async()=>null});globalThis.document={addEventListener(){},removeEventListener(){}};
+ try{mount('batch');await settle();render();flush();assert.deepEqual(__draftServer.calls.filter(([type])=>type==='load'),[['load',['batch-a','batch-b']]]);}
+ finally{cleanups.forEach(f=>f?.());cleanups=[];clientData=null;viewerOwner=false;globalThis.fetch=previousFetch;delete globalThis.document;}
+});
+
+test('offline footer stays honest, Keep mine explicitly rebases without losing text',async()=>{
+ mount('offline-footer');await settle();click('Reply to Tom…');
+ find(n=>n.props?.['aria-label']==='Reply body').props.onChange({target:{value:'Offline words'}});render();flush();
+ __draftServer.offline=true;
+ try{await footer().saved.synced.flush();await settle();assert.ok(footer().nodes.some(n=>n.props?.children==='Saved on this device only'));}
+ finally{__draftServer.offline=false;}
+ __draftServer.rows.set('offline-footer:email',{...autoSuggestion('offline-footer'),source:'human',body:'Remote words',version:2});
+ await footer().saved.synced.refresh();await settle();assert.equal(footer().saved.synced.status,'conflict');
+ footer().nodes.find(n=>n.props?.children==='Keep mine').props.onClick();render();flush();await footer().saved.synced.flush();await settle();
+ assert.equal(__draftServer.rows.get('offline-footer:email').body,'Offline words');assert.equal(footer().saved.synced.status,'saved');
+});
+
+test('accepted automatic suggestion retains its exact id across reload for send cleanup',async()=>{
+ viewerOwner=true;__draftServer.suggestions=[autoSuggestion('accepted-reload')];
+ try{
+  mount('accepted-reload');await settle();find(n=>n.props?.['aria-label']==='AI draft body').props.onChange({target:{value:'Edited automatic draft'}});render();flush();await settle();
+  mount('accepted-reload');await settle();click('Send email');await settle();
+  assert.equal(__draftServer.calls.findLast(([type])=>type==='sent')[1].suggestionId,'11111111-1111-1111-1111-111111111111');
+ }finally{viewerOwner=false;__draftServer.suggestions=[];}
 });

@@ -41,14 +41,28 @@ export function InboxDialog({
   title,
   onClose,
   children,
-  bottom = false,
+  bottom = false, anchor,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
-  bottom?: boolean;
+  bottom?: boolean; anchor?:HTMLElement|null;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const [placement,setPlacement]=useState<{left:number;top:number;maxHeight:number}|null>(null);
+  useEffect(()=>{
+    if(!anchor)return;
+    const position=()=>{
+      if(window.matchMedia('(max-width: 639px)').matches){setPlacement(null);return;}
+      const rect=anchor.getBoundingClientRect();
+      const height=Math.min(600,window.innerHeight-24);
+      const top=rect.bottom+8+height<=window.innerHeight?rect.bottom+8:Math.max(12,rect.top-height-8);
+      setPlacement({left:Math.max(12,Math.min(rect.left,window.innerWidth-536)),top,maxHeight:window.innerHeight-top-12});
+    };
+    const outside=(e:PointerEvent)=>{if(!ref.current?.contains(e.target as Node)&&!anchor.contains(e.target as Node))onClose();};
+    position();window.addEventListener('resize',position);window.addEventListener('scroll',position,true);document.addEventListener('pointerdown',outside);
+    return()=>{window.removeEventListener('resize',position);window.removeEventListener('scroll',position,true);document.removeEventListener('pointerdown',outside);};
+  },[anchor,onClose]);
   useEffect(() => {
     const before = document.activeElement as HTMLElement | null;
     const box = ref.current;
@@ -58,7 +72,7 @@ export function InboxDialog({
         e.preventDefault();
         onClose();
       }
-      if (e.key === "Tab" && box) {
+      if (e.key === "Tab" && box && (!anchor || window.matchMedia('(max-width: 639px)').matches)) {
         const els = Array.from(
           box.querySelectorAll<HTMLElement>(
             'button:not(:disabled),a[href],input,textarea,select,[tabindex="0"]',
@@ -83,16 +97,17 @@ export function InboxDialog({
   }, []);
   return (
     <div
-      className={`absolute inset-0 z-[80] flex justify-center bg-ink/25 p-3 ${bottom ? "items-end" : "items-center"}`}
-      onClick={onClose}
+      className={placement?"pointer-events-none fixed inset-0 z-[80]":`absolute inset-0 z-[80] flex justify-center bg-ink/25 p-3 ${bottom ? "items-end" : "items-center"}`}
+      onClick={placement?undefined:onClose}
     >
       <div
         ref={ref}
         role="dialog"
-        aria-modal="true"
+        aria-modal={placement?undefined:true}
         aria-label={title}
         onClick={(e) => e.stopPropagation()}
-        className={`max-h-[90%] w-full max-w-lg overflow-y-auto border border-rule bg-card shadow-modal ${bottom ? "rounded-t-2xl" : "rounded-xl"}`}
+        style={placement?{position:"fixed",...placement,width:512}:undefined}
+        className={`pointer-events-auto max-h-[90%] w-full max-w-lg overflow-y-auto border border-rule bg-card shadow-modal ${bottom ? "rounded-t-2xl" : "rounded-xl"}`}
       >
         <div className="flex min-h-13 items-center gap-2 border-b border-rule px-4">
           <h2 className="flex-1 text-subheading font-semibold">{title}</h2>
@@ -243,11 +258,11 @@ export function MessageTaskDialog({
   remind,
   options,
   onClose,
-  onCreated,
+  onCreated, anchor,
 }: {
   thread: InboxThread;
   reader: ThreadReader;
-  remind: boolean;
+  remind: boolean; anchor?:HTMLElement|null;
   options: InboxData["linkOptions"];
   onClose: () => void;
   onCreated: (todo: InboxTodo) => void;
@@ -349,6 +364,7 @@ export function MessageTaskDialog({
   const filteredJobs=[...jobs,{value:'',name:'No job or lead'}].filter(p=>p.name.toLowerCase().includes(jobSearch.toLowerCase()));
   return (
     <InboxDialog
+      anchor={anchor}
       title={remind ? "Remind me" : "Make to-do"}
       onClose={onClose}
       bottom
@@ -786,7 +802,7 @@ function DuplicateNotice({directory,onLink}:{directory:ReturnType<typeof useDire
   const possible=directory.entries.find(p=>p.match==='email')??directory.entries.find(p=>p.match==='domain');
   return <>{directory.loading&&<p role="status" className="text-meta text-ink-3">Checking directory…</p>}{directory.error&&<p role="alert" className="text-meta text-flag">{directory.error}</p>}{possible&&<p className="text-meta text-warn">Possible duplicate: {possible.name} ({possible.role}) · <button type="button" className="min-h-11 font-semibold text-accent-2 underline" onClick={onLink}>Link instead</button></p>}</>;
 }
-export function SenderScreening({thread,onLink,onAdd,onOther}:{thread:InboxThread;onLink:()=>void;onAdd:(kind:'lead'|'sub'|'vendor')=>void;onOther:()=>void}) {
+export function SenderScreening({thread,onLink,onAdd,onOther,onBlock,onSpam}:{thread:InboxThread;onLink:()=>void;onAdd:(kind:'lead'|'sub'|'vendor')=>void;onOther:()=>void;onBlock?:()=>void;onSpam?:()=>void}) {
   const directory=useDirectoryMatches('',thread.fromEmail??'');
   const exact=directory.entries.some(entry=>entry.match==='email');
   const pitch=thread.screeningFacts?.looksPitch;
@@ -796,10 +812,12 @@ export function SenderScreening({thread,onLink,onAdd,onOther}:{thread:InboxThrea
     <p className="mb-1 text-meta text-ink-3">{reason}</p>
     <DuplicateNotice directory={directory} onLink={onLink}/>
     <div className="flex flex-wrap items-center gap-1">
-      <Button size="sm" variant={recommended==='link'?'primary':'secondary'} onClick={onLink}>Link{recommended==='link'?' · Recommended':''}</Button>
-      {recommended==='lead'&&<Button size="sm" disabled={directory.loading||Boolean(directory.error)} onClick={()=>onAdd('lead')}>Add as lead · Recommended</Button>}
+      <Button size="sm" className="min-h-11" variant={recommended==='link'?'primary':'secondary'} onClick={onLink}>Link{recommended==='link'?' · Recommended':''}</Button>
+      {recommended==='lead'&&<Button size="sm" className="min-h-11" disabled={directory.loading||Boolean(directory.error)} onClick={()=>onAdd('lead')}>Add as lead · Recommended</Button>}
       <details className="relative"><summary className="flex min-h-11 cursor-pointer items-center rounded-md px-3 text-meta font-semibold text-ink-2">Add as ▾</summary><div className="absolute left-0 top-full z-[75] min-w-36 rounded-lg border border-rule bg-card p-1 shadow-pop">{(['lead','sub','vendor'] as const).map(kind=><Button key={kind} disabled={directory.loading||Boolean(directory.error)} variant="ghost" onClick={()=>onAdd(kind)} className="w-full justify-start">{kind[0].toUpperCase()+kind.slice(1)}</Button>)}</div></details>
-      <Button size="sm" variant={recommended==='other'?'primary':'ghost'} onClick={onOther}>Always file to Other{recommended==='other'?' · Recommended':''}</Button>
+      <Button size="sm" className="min-h-11" variant={recommended==='other'?'primary':'ghost'} onClick={onOther}>Always file to Other{recommended==='other'?' · Recommended':''}</Button>
+      {onBlock&&<Button size="sm" variant="ghost" className="min-h-11" onClick={onBlock}>Block sender</Button>}
+      {onSpam&&<Button size="sm" variant="ghost" className="min-h-11" onClick={onSpam}>Report spam</Button>}
     </div>
   </div>;
 }

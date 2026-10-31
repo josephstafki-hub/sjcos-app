@@ -1,3 +1,5 @@
+import {draftTransport,draftActionStub,draftComponentUrls,draftResolve} from './helpers/inbox-draft-transport.mjs';
+globalThis.__draftServer=draftTransport();
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -10,6 +12,8 @@ const componentUrl = new URL('../components/inbox/InboxClient.tsx',import.meta.u
 const source = readFileSync(new URL(componentUrl),'utf8');
 registerHooks({
   resolve(s,c,n){
+    if(s==='@/lib/actions/inbox-drafts')return {url:'stub:drafts',shortCircuit:true};
+    const draft=draftResolve(s,c,n);if(draft)return draft;
     if(s==='@/components/ui/Toast')return {url:'stub:toast',shortCircuit:true};
     if(s==='@/lib/actions/inbox-screening')return {url:'stub:screen',shortCircuit:true};
     if(s==='./InboxPanels')return {url:'stub:panels',shortCircuit:true};
@@ -22,8 +26,10 @@ registerHooks({
     return n(s,c);
   },
   load(u,c,n){
+    if(draftComponentUrls.includes(u))return {format:'module',source:ts.transpileModule(readFileSync(new URL(u),'utf8'),{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText,shortCircuit:true};
     if(u===componentUrl)return {format:'module',source:ts.transpileModule(source+'\nexport {ReaderBody, ChannelReaderBody, ThreadRow};',{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText,shortCircuit:true};
     const stubs={
+      'stub:drafts':draftActionStub,
       'stub:toast':'export const toast=()=>1,dismissToast=()=>{};',
       'stub:screen':'export const setInboxPreferenceAction=async()=>({ok:true});',
       'stub:panels':'export const SenderScreening=()=>null;export const ContactCreateDialog=()=>null;export const ThreadSummary=()=>null;export const ContextPanel=()=>null;export const LinkPicker=()=>null;export const MessageTaskDialog=()=>null;export const ShortcutHelp=()=>null;',

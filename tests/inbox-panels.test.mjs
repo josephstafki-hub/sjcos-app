@@ -25,7 +25,7 @@ const stubs={
  '@/lib/run-action':`export const runAction=async f=>f();`,
 };
 registerHooks({resolve(s,c,n){if(s in stubs&&(s!=='react'||c.parentURL===url))return {url:'stub:'+s,shortCircuit:true};if(s==='@/lib/inbox-rules')return n(new URL('../lib/inbox-rules.ts',import.meta.url).href,c);if(s==='@/lib/inbox-experience')return n(new URL('../lib/inbox-experience.ts',import.meta.url).href,c);return n(s,c)},load(u,c,n){if(u===url)return {format:'module',source:ts.transpileModule(readFileSync(new URL(url),'utf8')+'\nexport {DuplicateNotice};',{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText,shortCircuit:true};return u.startsWith('stub:')?{format:'module',source:stubs[u.slice(5)],shortCircuit:true}:n(u,c)}});
-const {MessageTaskDialog,ThreadSummary,ContactCreateDialog,DuplicateNotice,SenderScreening,MiniCalendar}=await import(url);
+const {MessageTaskDialog,ThreadSummary,ContactCreateDialog,DuplicateNotice,SenderScreening,MiniCalendar,InboxDialog}=await import(url);
 const thread={id:'thread-1',channel:'email',subject:'Review tile',fromName:'Tom',fromEmail:'tom@example.test',preview:'Please review the tile'};
 const reader={messages:[{id:'message-1',fromName:'Tom',fromEmail:'tom@example.test',body:['Please review the tile'],date:1000}]};
 let tree;
@@ -97,4 +97,24 @@ test('inline calendar changes months and selects an ISO day without a native dat
  find(n=>n.props?.['aria-label']==='Next month').props.onClick();render();
  const day=find(n=>n.props?.['aria-label']==='2027-02-03');assert.ok(day);day.props.onClick();assert.equal(chosen,'2027-02-03');
  assert.equal(find(n=>n.type==='input'),undefined);
+});
+
+test('Block and spam are same-height explicit screener controls',()=>{
+ let blocked=0,spam=0;mount(SenderScreening,{thread,onLink(){},onAdd(){},onOther(){},onBlock:()=>blocked++,onSpam:()=>spam++});
+ for(const label of ['Block sender','Report spam']){const button=find(n=>n.props?.children===label);assert.ok(button.props.className.includes('min-h-11'));button.props.onClick();}
+ assert.equal(blocked,1);assert.equal(spam,1);
+});
+test('desktop task popover anchors without a modal backdrop, phone remains a bottom sheet',()=>{
+ const anchor={getBoundingClientRect:()=>({left:180,top:100,bottom:140}),contains:()=>false};
+ const props={anchor,title:'Remind me',bottom:true,onClose(){},children:'Presets'};
+ globalThis.window={innerHeight:1000,innerWidth:1600,matchMedia:()=>({matches:false}),addEventListener(){},removeEventListener(){}};
+ globalThis.document={activeElement:null,addEventListener(){},removeEventListener(){}};
+ let cleanup=[];
+ try{
+  let render=mount(InboxDialog,props);cleanup=__panels.effects.splice(0).map(fn=>fn());render();
+  assert.equal(tree.props.onClick,undefined);assert.equal(find(n=>n.props?.role==='dialog').props['aria-modal'],undefined);
+  assert.equal(find(n=>n.props?.role==='dialog').props.style.left,180);assert.equal(find(n=>n.props?.role==='dialog').props.style.top,148);
+  cleanup.forEach(f=>f?.());window.matchMedia=()=>({matches:true});render=mount(InboxDialog,props);cleanup=__panels.effects.splice(0).map(fn=>fn());render();
+  assert.match(tree.props.className,/items-end/);assert.equal(find(n=>n.props?.role==='dialog').props['aria-modal'],true);
+ }finally{cleanup.forEach(f=>f?.());delete globalThis.window;delete globalThis.document;}
 });

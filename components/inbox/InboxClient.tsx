@@ -80,6 +80,7 @@ import {
   archiveThreadAction,
   restoreThreadToInboxAction,
   trashThreadAction,
+  setThreadSpamAction,
   loadMoreInboxAction,
   loadLabelInboxAction,
   loadSystemViewAction,
@@ -110,12 +111,13 @@ import {
   matchesInboxTab,
   tabCounts,
   shortcutFor,
-  draftKey,
-  readDraft,
-  writeDraft,
   type InboxTab,
   type SavedInboxDraft,
 } from "@/lib/inbox-experience";
+import {useComposerDraft, DraftSyncFooter} from './useComposerDraft';
+import {loadDrafts, dismissSuggestion} from '@/lib/actions/inbox-drafts';
+import {matchingSuggestion, draftRow, prepareDraftSend} from '@/lib/inbox-draft-ui';
+import type {InboxDraft} from '@/lib/inbox-draft-types';
 import { setInboxPreferenceAction } from "@/lib/actions/inbox-screening";
 import type { InboxLinkKind } from "@/lib/inbox-directory";
 import type { InboxContext } from "@/lib/inbox-context";
@@ -216,7 +218,9 @@ function MenuItem({
 export function InboxClient({
   data,
   selfEmail,
+  userId = selfEmail, owner = false,
 }: {
+  userId?:string; owner?:boolean;
   data: InboxData;
   /** The signed-in person's own address — the connected mailbox when there is
    *  one, else their login email. Used only to prefill Compose's To: field.
@@ -259,8 +263,12 @@ export function InboxClient({
 
   const [task, setTask] = useState<{
     thread: InboxThread;
-    remind: boolean;
+    remind: boolean; anchor?:HTMLElement|null;
   } | null>(null);
+  function openTask(thread:InboxThread,remind:boolean,anchor?:HTMLElement|null){
+    const focused=typeof document!=='undefined'?document.activeElement as HTMLElement|null:null;
+    setTask({thread,remind,anchor:anchor??(focused?.tagName==='BUTTON'?focused:rootRef.current?.querySelector<HTMLElement>('[data-task-anchor]'))});
+  }
   const [help, setHelp] = useState(false);
   const [selectedId, setSelectedId] = useState(data.selectedId);
   // Mobile master/detail: below lg, show the thread list OR the reader, not both.
@@ -366,20 +374,33 @@ export function InboxClient({
     return ()=>dismissToast(id);
   },[undo]);
 
-  useEffect(() => {
-    try {
-      setDraftIds(
-        new Set(
-          [...threads, ...(remoteData?.threads ?? [])]
-            .filter((t) => {
-              const d = readDraft(localStorage, draftKey(selfEmail, t.id));
-              return t.view!=="done" && d?.ai && d.body.trim();
-            })
-            .map((t) => t.id),
-        ),
-      );
-    } catch {}
-  }, [selfEmail, threads, remoteData]);
+  const [serverDrafts,setServerDrafts]=useState<{key:string;rows:InboxDraft[]}>({key:'',rows:[]});
+  // One batch per loaded window (the action accepts at most 200 keys), never per row.
+  const draftWindow=JSON.stringify([...new Set([...threads,...(remoteData?.threads??[])].map(t=>t.id))].sort());
+  const draftScope=JSON.stringify([selfEmail,userId,owner,draftWindow]);
+  useEffect(()=>{
+    let alive=true,loading=false;
+    const refresh=async()=>{
+      if(loading)return;loading=true;
+      try{
+        const keys:string[]=JSON.parse(draftWindow),rows:InboxDraft[]=[];
+        for(let offset=0;offset<keys.length;offset+=200){
+          rows.push(...await loadDrafts(keys.slice(offset,offset+200)));
+          if(!alive)return;
+        }
+        if(alive)setServerDrafts({key:draftScope,rows});
+      }
+      catch{/* Retain the last successful batch during an outage. */}finally{loading=false;}
+    };
+    void refresh();const timer=window.setInterval(()=>void refresh(),20_000);
+    window.addEventListener('focus',refresh);window.addEventListener('inbox-drafts-changed',refresh);
+    return()=>{alive=false;window.clearInterval(timer);window.removeEventListener('focus',refresh);window.removeEventListener('inbox-drafts-changed',refresh);};
+  },[draftWindow,draftScope]);
+  const suggestions=useMemo(()=>new Map([...threads,...(remoteData?.threads??[])].flatMap(t=>{
+    const suggestion=matchingSuggestion(serverDrafts.key===draftScope?serverDrafts.rows:[],t.id,readers[t.id],owner);
+    return suggestion&&t.view!=='done'&&!t.automated&&!t.filedOther&&!t.newSender?[[t.id,suggestion] as const]:[];
+  })),[threads,remoteData,readers,owner,serverDrafts,draftScope]);
+  const readyIds=useMemo(()=>new Set([...threads,...(remoteData?.threads??[])].filter(t=>t.view!=='done'&&(draftIds.has(t.id)||suggestions.has(t.id))).map(t=>t.id)),[threads,remoteData,draftIds,suggestions]);
 
   useEffect(()=>setPreferences({}),[selfEmail]);
   async function savePreference(thread:InboxThread,kind:'sender'|'thread',decision:string|null, offerUndo=true) {
@@ -388,12 +409,29 @@ export function InboxClient({
     if(!r.ok){setNotice(r.error??'Could not save your decision.');return false;}
     setPreferences(p=>({...p,[`${kind}:${kind==='sender'?target.toLowerCase():target}`]:decision}));
     if(offerUndo){
-      setNotice(decision==='other'?'Filed in Other.':'Screening decision saved.');
-      setUndo({label:'Undo filing',run:async()=>{if(await savePreference(thread,kind,r.previous??null,false)){setNotice('Decision undone.');setUndo(null);}}});
+      setNotice(decision==='blocked'?'Sender blocked. Future mail files to Other.':decision==='other'?'Filed in Other.':'Screening decision saved.');
+      setUndo({label:decision==='blocked'?'Undo block':'Undo filing',run:async()=>{if(await savePreference(thread,kind,r.previous??null,false)){setNotice('Decision undone.');setUndo(null);}}});
     }
     router.refresh();return true;
   }
   function fileSender(thread:InboxThread,other:boolean){startTransition(async()=>{await savePreference(thread,'sender',other?'other':null);});}
+  function blockSender(thread:InboxThread){startTransition(async()=>{await savePreference(thread,'sender','blocked');});}
+  function reportSpam(thread:InboxThread){
+    setMenuOpen(false);
+    startTransition(async()=>{
+      const result=await runAction(()=>setThreadSpamAction(thread.id,true),{fallback:'Could not report spam.'});
+      if(!result.ok){setNotice(result.error??'Could not report spam.');return;}
+      setThreads(ts=>ts.filter(t=>t.id!==thread.id));setRemoteData(d=>d?{...d,threads:d.threads.filter(t=>t.id!==thread.id)}:d);
+      setNotice('Reported as spam.');
+      setUndo({label:'Undo spam',run:async()=>{
+        const restored=await runAction(()=>setThreadSpamAction(thread.id,false,Boolean(thread.inInbox)),{fallback:'Could not undo spam.'});
+        if(!restored.ok){setNotice(restored.error??'Could not undo spam.');return;}
+        setThreads(ts=>[thread,...ts.filter(t=>t.id!==thread.id)]);setRemoteData(d=>d&&d.key===remoteData?.key?{...d,threads:[thread,...d.threads.filter(t=>t.id!==thread.id)]}:d);setUndo(null);setNotice('Spam report undone.');router.refresh();
+      }});
+      router.refresh();
+    });
+  }
+
 
   // Threads under the current lens, before the audience filter is applied.
   const sourceVisible = useMemo(() => {
@@ -408,7 +446,7 @@ export function InboxClient({
         return threads.filter(
           (t) =>
             t.view === lens.view ||
-            (lens.view === "needs_reply" && draftIds.has(t.id)),
+            (lens.view === "needs_reply" && readyIds.has(t.id)),
         );
       case "channel":
         return threads.filter((t) => t.channel === lens.channel);
@@ -435,7 +473,7 @@ export function InboxClient({
       case "project":
         return threads.filter((t) => t.projectSlug === lens.slug);
     }
-  }, [threads, lens, remoteData, draftIds]);
+  }, [threads, lens, remoteData, readyIds]);
 
   const baseVisible=useMemo(()=>sourceVisible.map(t=>applyInboxPreferences(t,preferences)),[sourceVisible,preferences]);
 
@@ -444,13 +482,13 @@ export function InboxClient({
       orderedInboxThreads(baseVisible
         .filter(
           (t) =>
-            !passCompleted.has(t.id) && (!tab || matchesInboxTab(t, tab, draftIds.has(t.id))) &&
+            !passCompleted.has(t.id) && (!tab || matchesInboxTab(t, tab, readyIds.has(t.id))) &&
             `${t.fromName} ${t.fromEmail??""} ${t.subject} ${t.preview} ${t.projectLabel ?? ""}`
               .toLowerCase()
               .includes(query.toLowerCase()),
         )
-        .filter((t,i,all)=>tab!=='new'||all.findIndex(other=>other.fromEmail?.toLowerCase()===t.fromEmail?.toLowerCase())===i)),
-    [baseVisible, tab, draftIds, query,passCompleted],
+        .filter((t,i,all)=>tab!=='new'||all.findIndex(other=>other.fromEmail?.toLowerCase()===t.fromEmail?.toLowerCase())===i),new Date(),tab==='needs'?readyIds:new Set()),
+    [baseVisible, tab, readyIds, query,passCompleted],
   );
   // Count of threads sitting in the Gmail inbox (the plain "Inbox" rail view).
   const inboxCount = useMemo(
@@ -459,10 +497,10 @@ export function InboxClient({
   );
 
   const counts = useMemo(
-    () => tabCounts(baseVisible, draftIds),
-    [baseVisible, draftIds],
+    () => tabCounts(baseVisible, readyIds),
+    [baseVisible, readyIds],
   );
-  const globalNeedsCount=tabCounts(threads.map(t=>applyInboxPreferences(t,preferences)),draftIds).needs;
+  const globalNeedsCount=tabCounts(threads.map(t=>applyInboxPreferences(t,preferences)),readyIds).needs;
   useEffect(()=>{
     rememberNeedsCount(selfEmail,globalNeedsCount);
     window.dispatchEvent(new CustomEvent('sjc:inbox-needs-count',{detail:globalNeedsCount}));
@@ -836,7 +874,7 @@ export function InboxClient({
       else if (action === "open") setMobileReader(true);
       else if (action === "done") archiveSelected();
       else if (action === "remind" && selected)
-        setTask({ thread: selected, remind: true });
+        openTask(selected,true);
       else if (action === "link") setLinking(true);
       else if (action === "search") {
         setMobileReader(false);
@@ -1259,17 +1297,10 @@ export function InboxClient({
                 <div key={t.id}>
                 {(i===0||rowDay(t)!==rowDay(visible[i-1]))&&<p className="border-b border-rule-soft bg-paper-2 px-3 py-1.5 text-meta font-semibold text-ink-3">{rowDay(t)}</p>}
                 <ThreadRow
-                  thread={
-                    draftIds.has(t.id) &&
-                    !t.automated &&
-                    !t.filedOther &&
-                    !t.newSender
-                      ? { ...t, needsMeReason: "Draft ready to review" }
-                      : t
-                  }
+                  thread={draftRow(t,suggestions.get(t.id))}
                   selected={selected?.id === t.id}
                   onDone={() => startTransition(async()=>{await doneThread(t);})}
-                  onRemind={() => setTask({ thread: t, remind: true })}
+                  onRemind={anchor => openTask(t,true,anchor)}
                   compact={compactList && Boolean(context || contextPreference)}
                   onScreen={t.newSender?()=>{setScreeningThread(t);setLinking(true);}:undefined}
                   onAdd={t.newSender?kind=>setAdding({thread:t,kind}):undefined}
@@ -1336,16 +1367,17 @@ export function InboxClient({
                     Done
                   </Button>
                   <Button
-                    onClick={() => setTask({ thread: selected, remind: true })}
+                    onClick={() => openTask(selected,true)}
                     icon={Clock}
                     variant="ghost"
+                    data-task-anchor
                     title="Remind me (h)"
                     className="hidden @4xl/page:inline-flex"
                   >
                     Remind me
                   </Button>
                   <Button
-                    onClick={() => setTask({ thread: selected, remind: false })}
+                    onClick={() => openTask(selected,false)}
                     icon={ListPlus}
                     variant="ghost"
                     className="hidden @5xl/page:inline-flex"
@@ -1406,7 +1438,7 @@ export function InboxClient({
                             icon={Clock}
                             onClick={() => {
                               setMenuOpen(false);
-                              setTask({ thread: selected, remind: true });
+                              openTask(selected,true);
                             }}
                           >
                             Remind me
@@ -1415,7 +1447,7 @@ export function InboxClient({
                             icon={ListPlus}
                             onClick={() => {
                               setMenuOpen(false);
-                              setTask({ thread: selected, remind: false });
+                              openTask(selected,false);
                             }}
                           >
                             Make to-do
@@ -1431,6 +1463,8 @@ export function InboxClient({
                           </MenuItem>
                           {readerIsEmail && (
                             <>
+                              {selected.fromEmail&&<MenuItem icon={OctagonAlert} onClick={()=>{setMenuOpen(false);blockSender(selected);}}>Block sender</MenuItem>}
+                              <MenuItem icon={OctagonAlert} onClick={()=>reportSpam(selected)}>Report spam</MenuItem>
                               <MenuItem icon={Star} onClick={toggleStar}>
                                 {selectedStarred ? "Unstar" : "Star"}
                               </MenuItem>
@@ -1491,7 +1525,7 @@ export function InboxClient({
                   {selected.automated&&<div className="mt-1 flex flex-wrap items-center gap-2 text-meta text-ink-3"><span>{selected.automationKind??'Notification'}{(selected.attentionOverride??selected.attentionRequired)?` · ${selected.attentionEvidence??'Marked by you'}`:''}</span><Button variant="secondary" size="sm" disabled={pending} onClick={()=>startTransition(async()=>{await savePreference(selected,'thread',(selected.attentionOverride??selected.attentionRequired)?'other':'attention');})}>{(selected.attentionOverride??selected.attentionRequired)?'Keep in Other':'Needs my attention'}</Button></div>}
                   {(selected.newSender||selected.senderDecision)&&selected.fromEmail&&!selected.automated&&<div className="mt-1 flex flex-wrap items-center gap-1 text-meta text-ink-3">
                     <span title={selected.fromEmail} className="w-full truncate">{selected.newSender?'New sender':`Screened: ${selected.senderDecision}`} · {selected.fromEmail}</span>
-                    {selected.newSender?<SenderScreening thread={selected} onLink={()=>{setScreeningThread(selected);setLinking(true);}} onAdd={kind=>setAdding({thread:selected,kind})} onOther={()=>fileSender(selected,true)}/>:<Button variant="ghost" size="sm" onClick={()=>startTransition(async()=>{if(await savePreference(selected,'sender','pending'))setTab('new');})}>Undo screening</Button>}
+                    {selected.newSender?<SenderScreening thread={selected} onLink={()=>{setScreeningThread(selected);setLinking(true);}} onAdd={kind=>setAdding({thread:selected,kind})} onOther={()=>fileSender(selected,true)} onBlock={()=>blockSender(selected)} onSpam={()=>reportSpam(selected)}/>:<Button variant="ghost" size="sm" onClick={()=>startTransition(async()=>{if(await savePreference(selected,'sender','pending'))setTab('new');})}>Undo screening</Button>}
                   </div>}
 
                 </div>
@@ -1499,21 +1533,21 @@ export function InboxClient({
 
               {readerIsEmail ? (
                 <ReaderBody
-                  key={selected.id}
+                  key={`${selfEmail}:${userId}:${selected.id}`}
                   reader={reader}
                   todos={selected.todos}
                   threadId={selected.id}
                   needsAttention={selected.attentionOverride??selected.attentionRequired}
-                  onMakeTodo={()=>setTask({thread:selected,remind:false})}
+                  onMakeTodo={()=>openTask(selected,false)}
                   onDone={archiveSelected}
                   onSendDone={()=>doneThread(selected,true)}
                   onDraftReady={onDraftReady}
-                  mailbox={selfEmail}
+                  mailbox={selfEmail} userId={userId} owner={owner}
                   blockImages={!selected.contactRole && !selected.projectSlug && !["linked","lead","sub","vendor"].includes(selected.senderDecision??"")}
                 />
               ) : (
                 <ChannelReaderBody
-                  key={selected.id}
+                  key={`${selfEmail}:${userId}:${selected.id}`}
                   reader={reader}
                   todos={selected.todos}
                   threadId={selected.id}
@@ -1521,7 +1555,7 @@ export function InboxClient({
                   onOpenConversation={openConversation}
                   availableConversations={threads.filter(t=>t.channel==='email').map(t=>t.id)}
                   onSendDone={()=>doneThread(selected,true)}
-                  mailbox={selfEmail}
+                  mailbox={selfEmail} userId={userId} owner={owner}
                 />
               )}
             </>
@@ -1573,7 +1607,7 @@ export function InboxClient({
         <MessageTaskDialog
           thread={task.thread}
           reader={readers[task.thread.id]}
-          remind={task.remind}
+          remind={task.remind} anchor={task.anchor}
           options={linkOptions}
           onClose={() => setTask(null)}
           onCreated={(todo) => {
@@ -1602,7 +1636,8 @@ export function InboxClient({
       )}
       {composing && (
         <ComposeModal
-          selfEmail={selfEmail}
+          key={`${selfEmail}:${userId}`}
+          selfEmail={selfEmail} userId={userId} owner={owner}
           onClose={() => setComposing(false)}
         />
       )}
@@ -1646,16 +1681,22 @@ type ForwardMessage = {threadId:string;subject:string;message:ThreadReader['mess
 function ComposeModal({
   selfEmail,
   onClose,
-  forward,
+  forward, userId=selfEmail, owner=false,
 }: {
+  userId?:string;owner?:boolean;
   selfEmail: string;
   onClose: () => void;
   forward?:ForwardMessage;
 }) {
-  const [to, setTo] = useState(forward?'':selfEmail);
-  const [cc,setCc]=useState('');
-  const [subject, setSubject] = useState(forward?`Fwd: ${forward.subject.replace(/^fwd?:\s*/i,'')}`:'');
-  const [body, setBody] = useState(forward?`\n\n---------- Forwarded message ----------\nFrom: ${forward.message.fromName} <${forward.message.fromEmail ?? ''}>\nDate: ${forward.message.date?new Date(forward.message.date).toLocaleString('en-US'):forward.message.meta}\nSubject: ${forward.subject}\nTo: ${forward.message.to}\n\n${forward.message.body.join('\n\n')}`:'');
+  const saved=useComposerDraft({mailbox:selfEmail,userId,owner,channel:'email',threadKey:forward?`forward:${forward.threadId}:${forward.message.id}`:'compose:new',
+    initial:{toEmail:forward?'':selfEmail,cc:[],subject:forward?`Fwd: ${forward.subject.replace(/^fwd?:\s*/i,'')}`:'',
+      body:forward?`\n\n---------- Forwarded message ----------\nFrom: ${forward.message.fromName} <${forward.message.fromEmail??''}>\nDate: ${forward.message.date?new Date(forward.message.date).toLocaleString('en-US'):forward.message.meta??''}\nSubject: ${forward.subject}\nTo: ${forward.message.to??''}\n\n${forward.message.body.join('\n\n')}`:''}});
+  const {body,toEmail:to,subject}=saved.synced.draft;
+  const cc=saved.synced.draft.cc.join(', ');
+  const setTo=(toEmail:string)=>saved.synced.setDraft(d=>({...d,toEmail}));
+  const setCc=(value:string)=>saved.synced.setDraft(d=>({...d,cc:value.split(',')}));
+  const setSubject=(subject:string)=>saved.synced.setDraft(d=>({...d,subject}));
+  const setBody=(next:string|((body:string)=>string))=>saved.synced.setDraft(d=>({...d,body:typeof next==='function'?next(d.body):next}));
   const [originals,setOriginals]=useState(forward?.message.attachments ?? []);
   const files=useMailFiles(originals);
   const [error, setError] = useState("");
@@ -1665,13 +1706,17 @@ function ComposeModal({
   function send() {
     setError("");
     startSend(async () => {
+      let snapshot;
+      try{snapshot=await saved.prepare();}catch(e){setError((e as Error).message);return;}
       const res = await runAction(
         () => sendNewEmailAction({ to, cc, subject, body, files:files.data(), ...(forward?{forward:{threadId:forward.threadId,messageId:forward.message.id!,attachmentIds:originals.map(a=>a.id)}}:{}) }),
         { fallback: "Send failed." },
       );
       if (res.ok) {
         setSent(true);
-        setTimeout(onClose, 900);
+        const warning=await saved.finish(snapshot.version);
+        window.dispatchEvent(new Event('inbox-drafts-changed'));
+        if(warning)setError(warning);else setTimeout(onClose,900);
       } else setError(res.error ?? "Send failed.");
     });
   }
@@ -1702,7 +1747,7 @@ function ComposeModal({
         </div>
         <div className="flex flex-col gap-2 p-4">
           <input
-            value={to}
+            value={to} disabled={sending||sent}
             onChange={(e) => setTo(e.target.value)}
             aria-label="To"
             placeholder="To"
@@ -1711,14 +1756,14 @@ function ComposeModal({
           <input value={cc} onChange={e=>setCc(e.target.value)} aria-label="Cc" placeholder="Cc (optional)" disabled={sending||sent} className="rounded-md border border-rule bg-paper px-3 py-2 text-body" />
           {forward&&<p className="text-meta text-ink-3">Review To and Cc before sending. Original files are included below.</p>}
           <input
-            value={subject}
+            value={subject} disabled={sending||sent}
             onChange={(e) => setSubject(e.target.value)}
             aria-label="Subject"
             placeholder="Subject"
             className="rounded-md border border-rule bg-paper px-3 py-2 text-body text-ink focus:outline-none focus:ring-1 focus:ring-accent"
           />
           <textarea
-            value={body}
+            value={body} disabled={sending||sent}
             onChange={(e) => setBody(e.target.value)}
             rows={8}
             aria-label="Message"
@@ -1727,6 +1772,9 @@ function ComposeModal({
           />
           <ul aria-label="Original files to forward">{originals.map(a=><li key={a.id} className="flex items-center gap-2 text-meta"><span className="min-w-0 flex-1 break-all">{a.name} · {fileSize(a.size)} · Original</span><Button variant="ghost" disabled={sending||sent} aria-label={`Remove ${a.name}`} title={`Remove ${a.name}`} icon={X} iconOnly onClick={()=>setOriginals(items=>items.filter(v=>v.id!==a.id))}/></li>)}</ul>
           {files.picker(sending||sent)}
+          <DraftSyncFooter saved={saved} disabled={sending||sent}/>
+          <p className="text-meta text-ink-3">Files stay on this device. Attach them here before sending.</p>
+          <Button variant="ghost" disabled={sending||sent} onClick={()=>startSend(async()=>{try{await saved.clear();onClose();}catch(e){setError((e as Error).message);}})}>Discard</Button>
           {error && <p className="text-meta text-flag">{error}</p>}
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <Button
@@ -1824,54 +1872,8 @@ function PlainBody({ paras }: { paras: string[] }) {
   );
 }
 
-function useInboxDraft(
-  mailbox: string,
-  threadId: string,
-  toEmail: string,
-  initialBody = "",
-) {
-  const key = draftKey(mailbox, threadId);
-  const [value, setValue] = useState<SavedInboxDraft>({
-    body: initialBody,
-    toEmail,
-    model: "",
-    ai: false,
-  });
-  const [loaded, setLoaded] = useState(false);
-  const [storageError, setStorageError] = useState(false);
-  useEffect(() => {
-    try {
-      const d = readDraft(localStorage, key);
-      if (d) setValue(d);
-    } catch {
-      setStorageError(true);
-    }
-    setLoaded(true);
-  }, [key]);
-  useEffect(() => {
-    if (!loaded) return;
-    try {
-      if (!writeDraft(localStorage, key, value.body ? value : null))
-        setStorageError(true);
-    } catch {
-      setStorageError(true);
-    }
-  }, [key, value, loaded]);
-  const latest=useRef(value);latest.current=value;
-  const revision=useRef(0);
-  function set(next:SavedInboxDraft){revision.current++;latest.current=next;setValue(next);}
-  function clear() {
-    revision.current++;
-    latest.current={body:'',toEmail,model:'',ai:false};
-    try {
-      writeDraft(localStorage, key, null);
-    } catch {}
-    setValue({ body: "", toEmail, model: "", ai: false });
-  }
-  return { value, set, clear, latest, revision, loaded, storageError };
-}
 /** The same conflict/restore flow protects drafts on every channel. */
-function useSafeDraft(saved:ReturnType<typeof useInboxDraft>, threadId:string, onError:(message:string)=>void) {
+function useSafeDraft(saved:ReturnType<typeof useComposerDraft>, threadId:string, onError:(message:string)=>void) {
   const [suggestion,setSuggestion]=useState<SavedInboxDraft|null>(null);
   const [previous,setPrevious]=useState<SavedInboxDraft|null>(null);
   const [pending,start]=useTransition();
@@ -1957,9 +1959,10 @@ function ChannelReaderBody({
   threadId,
   visible,
   onSendDone,
-  mailbox = "",
+  mailbox = "", userId=mailbox, owner=false,
   onOpenConversation,availableConversations=[],
 }: {
+  userId?:string;owner?:boolean;
   onOpenConversation?:(id:string)=>void;availableConversations?:string[];
   reader: ThreadReader;
   todos?: InboxTodo[];
@@ -1980,7 +1983,8 @@ function ChannelReaderBody({
   const conversations=[...new Map([...(reader.form?.conversations ?? []),...earlierEmail].map(c=>[c.id,c])).values()];
   const scroller = useRef<HTMLDivElement>(null);
   const files=useMailFiles();
-  const saved = useInboxDraft(mailbox, threadId, "");
+  const saved = useComposerDraft({mailbox,userId,owner,threadKey:threadId,channel:reader.channel,
+    initial:{toEmail:reader.form?.email??'',subject:reader.form?.outgoingSubject??reader.subject}});
   const body = saved.value.body;
   const setBody = (body: string) => saved.set({ ...saved.value, body, humanEdited:true });
   const replyRef = useRef<HTMLTextAreaElement>(null);
@@ -2005,16 +2009,19 @@ function ChannelReaderBody({
   function send(andDone=false) {
     setError("");
     start(async () => {
+      let snapshot;
+      try{snapshot=await saved.prepare();}catch(e){setError((e as Error).message);return;}
       let sendWarning:string|undefined;
       const r = await sendWithReceipt(mailbox,threadId,reader,reader.form?.email ?? reader.replyLabel ?? reader.channel,()=>runAction(
-        async () => {const result=await sendChannelReplyAction({ threadId, body, ...(reader.channel==='site_form'?{files:files.data()}:{}) });sendWarning=result.warning;return result;},
+        async () => {const result=await sendChannelReplyAction({ threadId, body:snapshot.draft.body, ...(reader.channel==='site_form'?{files:files.data()}:{}) });sendWarning=result.warning;return result;},
         { fallback: "Could not send your reply." },
-      ),andDone?onSendDone:undefined,()=>{saved.clear();files.clear();setSent(true);});
+      ),andDone?onSendDone:undefined,()=>{files.clear();setSent(true);});
       if (r.sent) {
         if(r.error){setError(r.error);setRetryDone(()=>r.retry??null);}
         if(sendWarning)setError(sendWarning);
-        saved.clear();files.clear();
-        setSent(true);
+        files.clear();setSent(true);
+        const warning=await saved.finish(snapshot.version);if(warning)setError(warning);
+        window.dispatchEvent(new Event('inbox-drafts-changed'));
         router.refresh();
       } else setError(r.error ?? "Could not send your reply.");
     });
@@ -2188,7 +2195,7 @@ function ChannelReaderBody({
               <div className="order-last col-span-2 flex flex-wrap items-center gap-1">
                   {reader.channel==='site_form'&&files.picker(pending)}
               <Button variant="ai" size="sm" onClick={()=>generate()} disabled={safety.pending||pending}>Draft with AI</Button>
-              <Button variant="ghost" size="sm" onClick={()=>{saved.clear();setReplying(false);}} disabled={pending}>Discard</Button>
+              <Button variant="ghost" size="sm" onClick={()=>start(async()=>{try{await saved.clear();setReplying(false);}catch(e){setError((e as Error).message);}})} disabled={pending}>Discard</Button>
               </div>
 
             </div>
@@ -2200,7 +2207,7 @@ function ChannelReaderBody({
           {reader.channel==='sms'&&<p className="text-meta text-ink-3">{smsSegments(body)} segment{smsSegments(body)===1?'':'s'}</p>}
           {safety.pending&&<p role="status" className="text-meta text-ink-3">Drafting a reply…</p>}
         </>}
-        {saved.storageError&&<p className="text-meta text-warn">Draft storage is unavailable in this browser. Keep this conversation open until you send.</p>}
+        <DraftSyncFooter saved={saved} disabled={pending}/>
         {retryDone&&<Button variant="secondary" disabled={pending} onClick={()=>start(async()=>{const r=await retryDone();if(r.ok){setRetryDone(null);setError('');}else setError("Sent — couldn't mark done");})}>Retry marking done</Button>}
         {sent && (
           <p role="status" className="mt-2 text-meta text-accent-2">
@@ -2227,8 +2234,8 @@ function ChannelReaderBody({
         )}
         </div>
         {canReply&&expanded&&<div className="grid shrink-0 grid-cols-2 gap-1 bg-paper-2 pt-2">
-          <Button aria-label={channelCommitLabel(reader.channel)} className="min-h-11 min-w-0 @4xl/page:min-h-8" icon={Send} disabled={!body.trim()||pending||safety.pending} onClick={()=>send()}>{pending?'Sending…':<><span className="@4xl/page:hidden">Send</span><span className="hidden @4xl/page:inline">{channelCommitLabel(reader.channel)}</span></>}</Button>
-          {onSendDone&&<Button variant="secondary" className="min-h-11 min-w-0 @4xl/page:min-h-8" disabled={!body.trim()||pending||safety.pending} onClick={()=>send(true)}>Send &amp; Done</Button>}
+          <Button aria-label={channelCommitLabel(reader.channel)} className="min-h-11 min-w-0 @4xl/page:min-h-8" icon={Send} disabled={!body.trim()||pending||safety.pending||sent} onClick={()=>send()}>{pending?'Sending…':<><span className="@4xl/page:hidden">Send</span><span className="hidden @4xl/page:inline">{channelCommitLabel(reader.channel)}</span></>}</Button>
+          {onSendDone&&<Button variant="secondary" className="min-h-11 min-w-0 @4xl/page:min-h-8" disabled={!body.trim()||pending||safety.pending||sent} onClick={()=>send(true)}>Send &amp; Done</Button>}
         </div>}
 
       </div>
@@ -2248,7 +2255,7 @@ function ThreadRow({
   selected: boolean;
   onSelect: () => void;
   onDone?: () => void;
-  onRemind?: () => void;
+  onRemind?: (anchor?:HTMLElement) => void;
   onScreen?:()=>void;
   compact?:boolean;
   onAdd?:(kind:"lead"|"sub"|"vendor")=>void;
@@ -2350,7 +2357,7 @@ function ThreadRow({
           iconOnly
           aria-label={`Remind me: ${thread.fromName}`}
           title="Remind me (h)"
-          onClick={onRemind}
+          onClick={e=>onRemind?.(e.currentTarget)}
           className="!size-7 !min-h-7 !min-w-7"
         />
       </div>
@@ -2402,9 +2409,9 @@ function EmailMessageCard({
   threadId,
   expanded,
   onToggle,
-  blockImages=false, mailbox="", subject="Email conversation",
+  blockImages=false, mailbox="", subject="Email conversation", userId=mailbox, owner=false,
 }: {
-  blockImages?:boolean; mailbox?:string; subject?:string;
+  blockImages?:boolean; mailbox?:string; subject?:string;userId?:string;owner?:boolean;
   message: ThreadReader["messages"][number];
   threadId: string;
   expanded: boolean;
@@ -2478,7 +2485,7 @@ function EmailMessageCard({
             <PlainBody paras={message.body} />
           )}
           {message.id&&<Button variant="ghost" size="sm" onClick={()=>setForwarding(true)}>Forward</Button>}
-          {forwarding&&<ComposeModal selfEmail={mailbox} onClose={()=>setForwarding(false)} forward={{threadId,subject,message}}/>}
+          {forwarding&&<ComposeModal selfEmail={mailbox} userId={userId} owner={owner} onClose={()=>setForwarding(false)} forward={{threadId,subject,message}}/>}
           {Boolean(message.attachments?.length) && (
             <ul
               aria-label="Attachments"
@@ -2502,8 +2509,8 @@ function EmailMessageCard({
 
 // Scrollable message body + AI draft card + send composer, with the draft/send
 // state for this thread. Keyed on threadId by the caller so it resets on switch.
-// The AI draft is generated on demand (local-LLM, too slow to prebuild for every
-// thread); the mock path may arrive with aiDraft.body already filled.
+// Arrival suggestions remain separate from the human draft until accepted.
+// On-demand regeneration uses the same protected composer and explicit Send.
 function ReaderBody({
   reader,
   todos,
@@ -2514,8 +2521,9 @@ function ReaderBody({
   needsAttention,
   onDraftReady,
   mailbox = "",
-  blockImages=false,
+  blockImages=false, userId=mailbox, owner=false,
 }: {
+  userId?:string;owner?:boolean;
   blockImages?:boolean;
   reader: ThreadReader;
   todos?: InboxTodo[];
@@ -2534,21 +2542,22 @@ function ReaderBody({
           String(latestInboundIndex(reader.messages)),
       ]),
   );
-  const saved = useInboxDraft(
-    mailbox,
-    threadId,
-    reader.replyTarget?.toEmail ?? "",
-    reader.aiDraft.body,
-  );
-  const {
-    body: draft,
-    toEmail,
-    ai: isAI,
-    model,
-    replyAll = false,
-  } = saved.value;
-  const update = (patch: Partial<SavedInboxDraft>) =>
-    saved.set({ ...saved.value, ...patch });
+  const saved = useComposerDraft({mailbox,userId,owner,threadKey:threadId,channel:'email',
+    latestMessageId:reader.messages.findLast(m=>!m.outbound)?.id,
+    initial:{body:reader.aiDraft.body,toEmail:reader.replyTarget?.toEmail??'',subject:reader.subject}});
+  const sentPreviewHidden=useRef(false);
+  const [dismissed,setDismissed]=useState<string|null>(null);
+  const suggestion=saved.suggestion?.id!==dismissed?saved.suggestion:null;
+  // A pristine composer previews the suggestion as an approval card. It is
+  // still separate from Joe's synced draft until he edits or clicks Send.
+  const preview=Boolean(suggestion&&!saved.value.body&&!saved.accepted&&!sentPreviewHidden.current);
+  const display=preview&&suggestion?{...saved.value,body:suggestion.body,toEmail:suggestion.toEmail,ai:true,model:suggestion.model==='claude'?'Claude':'Hermes',basedOn:suggestion.basedOn}:saved.value;
+  const {body:draft,toEmail,ai:isAI,model}=display;
+  const replyAll=Boolean(saved.synced.draft.cc.length);
+  const update=(patch:Partial<SavedInboxDraft>)=>{
+    if(preview)saved.acceptSuggestion();
+    saved.set({...display,...patch},preview?suggestion?.id:undefined);
+  };
   const [replying, setReplying] = useState(false);
   // Filed as automated, but Joe may still answer it (the server only refuses no-reply addresses).
   const [replyAnyway, setReplyAnyway] = useState(false);
@@ -2622,37 +2631,36 @@ function ReaderBody({
   }
 
   function discard() {
-    saved.clear();files.clear();
-    setReplying(false);
-    setDraftOpen(false);
-    setSent(false);
-    setError("");
-    onDraftReady?.(threadId, false);
+    startSend(async()=>{
+      try{
+        if(preview&&suggestion){await dismissSuggestion(suggestion.id);setDismissed(suggestion.id);await saved.synced.refresh();}
+        else await saved.clear();
+        files.clear();setReplying(false);setDraftOpen(false);setSent(false);setError('');onDraftReady?.(threadId,false);
+        window.dispatchEvent(new Event('inbox-drafts-changed'));
+      }catch(e){setError((e as Error).message);}
+    });
   }
   function send(andDone=false) {
-    setError("");
-    startSend(async () => {
-      const r = await sendWithReceipt(mailbox,threadId,reader,toEmail,()=>runAction(
-        () =>
-          sendReplyAction({
-            threadId,
-            toEmail,
-            replyAll,
-            subject: reader.subject,
-            body: draft,
-            files:files.data(),
-          }),
-        { fallback: "Send failed." },
-      ),andDone?onSendDone:undefined,()=>{saved.clear();files.clear();setSent(true);});
-      if (r.sent) {
-        if(r.error){setError(r.error);setRetryDone(()=>r.retry??null);}
-        saved.clear();files.clear();
-        setSent(true);
-        setDraftOpen(false);
-        setReplying(false);
-        onDraftReady?.(threadId, false);
-        router.refresh();
-      } else setError(r.error ?? "Send failed.");
+    setError('');
+    startSend(async()=>{
+      let snapshot;
+      const suggestionId=preview?suggestion?.id:saved.accepted?.id;
+      try{
+        if(preview)saved.acceptSuggestion();
+        // Flush the exact accepted suggestion or the text currently displayed.
+        snapshot=await (preview
+          ? prepareDraftSend({body:draft,toEmail,cc:suggestion!.cc,subject:suggestion!.subject},saved.synced.flush)
+          : saved.prepare());
+      }catch(e){setError((e as Error).message);return;}
+      const r=await sendWithReceipt(mailbox,threadId,reader,snapshot.draft.toEmail,()=>runAction(
+        ()=>sendReplyAction({threadId,toEmail:snapshot.draft.toEmail,replyAll:Boolean(snapshot.draft.cc.length),subject:snapshot.draft.subject,body:snapshot.draft.body,files:files.data()}),
+        {fallback:'Send failed.'}),andDone?onSendDone:undefined,()=>{sentPreviewHidden.current=true;files.clear();setSent(true);});
+      if(!r.sent){setError(r.error??'Send failed.');return;}
+      if(r.error){setError(r.error);setRetryDone(()=>r.retry??null);}
+      setSent(true);setDraftOpen(false);setReplying(false);onDraftReady?.(threadId,false);
+      const warning=await saved.finish(snapshot.version,suggestionId);if(warning)setError(warning);
+      window.dispatchEvent(new Event('inbox-drafts-changed'));
+      router.refresh();
     });
   }
   const approval = (
@@ -2667,7 +2675,7 @@ function ReaderBody({
       <p className="mb-2 break-words text-meta text-ink-3">
         To {reader.replyTarget?.toName} &lt;{toEmail}&gt; · via Email · not sent
       </p>
-      <p className="text-meta text-ink-3">{saved.value.basedOn}</p>
+      <p className="text-meta text-ink-3">{display.basedOn && `Based on: ${display.basedOn.replace(/^Based on:\s*/i,'')}`}</p>
       <textarea
         onFocus={() =>
           window.dispatchEvent(
@@ -2685,6 +2693,7 @@ function ReaderBody({
       <div className="mt-2 grid grid-cols-2 gap-1">
         <div className="col-span-2 flex flex-wrap gap-1">
         {files.picker(sending)}
+        <Button variant="ghost" disabled={sending} onClick={()=>{if(preview)saved.acceptSuggestion();requestAnimationFrame(()=>approvalRef.current?.focus());}}>Edit</Button>
         <Button
           variant="ghost"
           onClick={() => generate()}
@@ -2738,7 +2747,7 @@ function ReaderBody({
                     <EmailMessageCard
                       key={m.id ?? i}
                       message={m}
-                      blockImages={m.imagesBlocked??(blockImages&&!m.outbound)} mailbox={mailbox} subject={reader.subject}
+                      blockImages={m.imagesBlocked??(blockImages&&!m.outbound)} mailbox={mailbox} userId={userId} owner={owner} subject={reader.subject}
                       threadId={threadId}
                       expanded={expanded.has(m.id ?? String(i))}
                       onToggle={() => toggleMessage(m.id ?? String(i))}
@@ -2755,7 +2764,7 @@ function ReaderBody({
               return (
                 <div key={id} ref={j===0?latestPassage:undefined}><EmailMessageCard
                   message={m}
-                  blockImages={m.imagesBlocked??(blockImages&&!m.outbound)} mailbox={mailbox} subject={reader.subject}
+                  blockImages={m.imagesBlocked??(blockImages&&!m.outbound)} mailbox={mailbox} userId={userId} owner={owner} subject={reader.subject}
                   threadId={threadId}
                   expanded={expanded.has(id)}
                   onToggle={() => toggleMessage(id)}
@@ -2823,7 +2832,7 @@ function ReaderBody({
                     <input
                       type="checkbox"
                       checked={replyAll}
-                      onChange={(e) => update({ replyAll: e.target.checked })}
+                      onChange={(e) => saved.synced.setDraft(d=>({...d,cc:e.target.checked?reader.replyTarget!.cc:[]}))}
                     />
                     Reply all
                   </label>
@@ -2838,6 +2847,12 @@ function ReaderBody({
             )}
             {(composerExpanded(replying,draft)||draftOpen)&&<p aria-label="Incoming request" className="mb-2 line-clamp-3 border-l-2 border-accent pl-2 text-body text-ink-2 sm:hidden">{substantiveSnippet([...reader.messages].reverse().find(m=>!m.outbound)?.body??[],reader.subject)}</p>}
             {safety.controls}
+            {suggestion&&!preview&&saved.accepted?.id!==suggestion.id&&<div className="rounded-md border border-ai/30 bg-ai-soft p-2 text-meta">
+              <p>{suggestion.model==='hermes'?'Hermes':'Claude'} drafted a reply</p>
+              <div className="flex flex-wrap gap-1"><Button size="sm" disabled={sending} onClick={()=>{saved.acceptSuggestion();setSent(false);}}>Use it</Button>
+              <details><summary className="min-h-8 cursor-pointer px-2 py-1">Compare</summary><p className="whitespace-pre-line">Your reply: {draft}</p><p className="mt-2 whitespace-pre-line">{suggestion.body}</p><p className="text-ink-3">Based on: {suggestion.basedOn.replace(/^Based on:\s*/i,'')}</p></details>
+              <Button size="sm" variant="ghost" disabled={sending} onClick={()=>startSend(async()=>{try{await dismissSuggestion(suggestion.id);setDismissed(suggestion.id);await saved.synced.refresh();window.dispatchEvent(new Event('inbox-drafts-changed'));}catch{setError('Could not dismiss the suggestion.');}})}>Dismiss</Button></div>
+            </div>}
             {isAI && hasDraft ? approval : composerExpanded(replying, draft) ? (
               <div className="rounded-lg border border-rule bg-card p-2">
                 <textarea
@@ -2938,16 +2953,12 @@ function ReaderBody({
             Reply sent ✓
           </p>
         )}
-        {saved.storageError && (
-          <p className="mt-1 text-meta text-warn">
-            Draft storage is unavailable in this browser. Keep this conversation
-            open until you send.
-          </p>
-        )}
+        <DraftSyncFooter saved={saved} disabled={sending}/>
+        {files.files.length>0&&<p className="text-meta text-ink-3">Attached files stay on this device.</p>}
         </div>
         {!automated&&reader.replyTarget&&(composerExpanded(replying,draft)||draftOpen)&&<div className="grid shrink-0 grid-cols-2 gap-1 bg-paper-2 pt-2">
-          <Button data-draft-send={isAI||undefined} className="min-h-11 min-w-0 @4xl/page:min-h-8" icon={Send} disabled={!hasDraft||!toEmail.trim()||sending||drafting} onClick={()=>send()}>{sending?'Sending…':'Send email'}</Button>
-          {onSendDone&&<Button variant="secondary" className="min-h-11 min-w-0 @4xl/page:min-h-8" disabled={!hasDraft||!toEmail.trim()||sending||drafting} onClick={()=>send(true)}>Send &amp; Done</Button>}
+          <Button data-draft-send={isAI||undefined} className="min-h-11 min-w-0 @4xl/page:min-h-8" icon={Send} disabled={!hasDraft||!toEmail.trim()||sending||drafting||sent} onClick={()=>send()}>{sending?'Sending…':'Send email'}</Button>
+          {onSendDone&&<Button variant="secondary" className="min-h-11 min-w-0 @4xl/page:min-h-8" disabled={!hasDraft||!toEmail.trim()||sending||drafting||sent} onClick={()=>send(true)}>Send &amp; Done</Button>}
         </div>}
 
       </div>

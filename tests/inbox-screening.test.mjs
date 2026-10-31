@@ -29,3 +29,11 @@ test('invalid choices and unauthorized access cannot write',async()=>{
  const before=calls;assert.equal((await decide('sender','bad','other')).ok,false);assert.equal((await decide('thread','t1','lead')).ok,false);assert.equal(calls,before);
  allowed=false;await assert.rejects(()=>decide('sender','new@example.test','other'),/Forbidden/);assert.equal(calls,before);
 });
+
+test('block is remembered per mailbox and undo restores the exact earlier decision',async()=>{
+ allowed=true;mailbox='joe@example.test';
+ await decide('sender','block@example.test','linked');
+ const result=await decide('sender','BLOCK@example.test','blocked');assert.equal(result.ok,true);assert.equal(result.previous,'linked');
+ mailbox='staff@example.test';assert.equal((await decide('sender','block@example.test','other')).previous,null);
+ mailbox='joe@example.test';assert.equal((await decide('sender','block@example.test',result.previous)).previous,'blocked');
+});

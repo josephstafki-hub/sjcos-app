@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useEffect, useTransition, type ReactNode } from "react";
+import { useMemo, useState, useEffect, useLayoutEffect, useRef, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
   Filter,
@@ -163,6 +163,7 @@ export function InboxClient({
   const [audienceFilter, setAudienceFilter] = useState<Audience | null>(null);
   const [selectedId, setSelectedId] = useState(data.selectedId);
   // Mobile master/detail: below lg, show the thread list OR the reader, not both.
+  const router = useRouter();
   const [mobileReader, setMobileReader] = useState(false);
   const [showSources, setShowSources] = useState(false);
   const [composing, setComposing] = useState(false);
@@ -498,7 +499,13 @@ export function InboxClient({
 
   return (
     <div className="flex h-full min-h-0 flex-col [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-focus [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-focus">
-      <div className="border-b border-rule-soft px-4 py-5 @2xl/page:px-5"><PageHeader title="Inbox" meta="Email, texts and portal conversations in one place." /></div>
+      <div className="border-b border-rule-soft px-4 py-3 @2xl/page:px-5"><PageHeader title="Inbox" /></div>
+      {data.loadError && (
+        <div role="alert" className="flex flex-wrap items-center gap-3 border-b border-warn/20 bg-warn-soft px-4 py-3">
+          <p className="min-w-0 flex-1 text-body text-ink-2">{data.loadError}</p>
+          <Button variant="secondary" size="sm" onClick={() => router.refresh()}>Try again</Button>
+        </div>
+      )}
       {!data.mailbox.connected && (
         <div className="border-b border-warn/20 bg-warn-soft px-4 py-3">
           <div className="flex flex-col items-start gap-2 @xl/page:flex-row @xl/page:items-center">
@@ -518,10 +525,10 @@ export function InboxClient({
           </details>}
         </div>
       )}
-      <div className="flex items-center gap-2 border-b border-rule-soft px-3 py-2 @5xl/page:hidden"><Button onClick={() => {setShowSources(v => !v); setMobileReader(false);}} variant="secondary" size="sm" icon={Filter} aria-expanded={showSources}>Views and channels</Button><span className="min-w-0 truncate text-meta text-ink-3">{headerLabel}</span></div>
-      <div className="flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1">
+      {showSources && <button type="button" aria-label="Close views and channels" tabIndex={-1} onClick={() => setShowSources(false)} className="absolute inset-0 z-20 cursor-default bg-ink/10 @5xl/page:hidden" />}
       {/* ─── Sources rail ─────────────────────────────────────────── */}
-      <aside aria-label="Inbox views and channels" onClick={(e) => { if ((e.target as HTMLElement).closest("button")) setShowSources(false); }} className={`flex-none flex-col overflow-y-auto border-r border-rule-soft bg-paper-2 p-3 @5xl/page:flex @5xl/page:w-52 ${showSources ? "flex w-full" : "hidden"}`}>
+      <aside aria-label="Inbox views and channels" onClick={(e) => { if ((e.target as HTMLElement).closest("button")) setShowSources(false); }} className={`flex-none flex-col overflow-y-auto bg-paper-2 p-3 @5xl/page:static @5xl/page:flex @5xl/page:w-52 @5xl/page:max-h-none @5xl/page:rounded-none @5xl/page:border-0 @5xl/page:border-r @5xl/page:border-rule-soft @5xl/page:shadow-none ${showSources ? "absolute left-2 top-2 z-30 flex max-h-[calc(100%-1rem)] w-72 max-w-[calc(100%-1rem)] rounded-lg border border-rule shadow-pop" : "hidden"}`}>
         <button
           onClick={() => setLens({ kind: "inbox" })}
           className={[
@@ -677,12 +684,13 @@ export function InboxClient({
       <section
         className={[
           "min-w-0 w-full flex-none flex-col border-r border-rule-soft @4xl/page:w-80 @5xl/page:w-[380px]",
-          showSources ? "hidden @5xl/page:flex" : mobileReader ? "hidden @4xl/page:flex" : "flex",
+          mobileReader ? "hidden @4xl/page:flex" : "flex",
         ].join(" ")}
       >
         <div className="flex-none border-b border-rule px-3.5 py-3">
           <div className="flex items-center gap-2">
-            <h2 className="flex-1 text-subheading font-semibold text-ink">
+            <Button onClick={() => setShowSources(v => !v)} variant="secondary" size="sm" icon={Filter} aria-expanded={showSources} className="@5xl/page:hidden">Views</Button>
+            <h2 className="min-w-0 flex-1 truncate text-subheading font-semibold text-ink">
               {headerLabel}
               <span className="ml-1.5 text-meta font-normal text-ink-3">
                 {visible.length}
@@ -753,7 +761,7 @@ export function InboxClient({
       <section
         className={[
           "min-w-0 flex-1 flex-col",
-          showSources ? "hidden @5xl/page:flex" : mobileReader ? "flex" : "hidden @4xl/page:flex",
+          mobileReader ? "flex" : "hidden @4xl/page:flex",
         ].join(" ")}
       >
         {!reader || !selected ? <div className="grid flex-1 place-items-center"><EmptyState icon={Mail} title="Select a conversation" description="Choose a message from the list to read it and reply." /></div> : (
@@ -767,17 +775,16 @@ export function InboxClient({
                 >
                   <ChevronLeft className="size-4" strokeWidth={1.5} />
                 </button>
-                <span className="text-meta font-semibold text-ink-2">{reader.tag}</span>
-                <Chip kind="ghost">
+                <span className="inline-flex min-w-0 items-center gap-1.5 truncate text-meta font-semibold text-ink-2">
                   {(() => {
                     const Icon = CHANNEL_ICON[reader.channel];
-                    return <Icon className="size-2.5" strokeWidth={1.5} />;
+                    return <Icon className="size-3.5 flex-none text-ink-3" strokeWidth={1.5} />;
                   })()}
-                  {reader.channelLabel}
-                </Chip>
-                <Chip kind="ghost">
-                  {reader.messageCount} {reader.messageCount === 1 ? "message" : "messages"}
-                </Chip>
+                  <span className="truncate">{reader.tag === reader.channelLabel ? reader.tag : `${reader.tag} · ${reader.channelLabel}`}</span>
+                </span>
+                {reader.messageCount > 1 && (
+                  <span className="flex-none text-meta text-ink-3">{reader.messageCount} messages</span>
+                )}
                 <div className="flex-1" />
                 {readerIsEmail && (
                   <button
@@ -853,25 +860,28 @@ export function InboxClient({
               <h1 className="font-serif text-title font-medium leading-tight text-accent-2">
                 {reader.subject}
               </h1>
-              <div className="mt-1.5 flex items-center gap-1.5">
+              <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
                 <Avatar initials={reader.messages[0].initials} size="sm" />
-                <span className="flex-1 text-meta text-ink-3">
-                  {reader.messages[0].fromName} · {reader.messages[0].meta}
+                <span className="min-w-0 max-w-full flex-1 truncate text-meta text-ink-3" title={`${reader.messages[0].fromName} · ${reader.messages[0].meta}`}>
+                  <span className="font-medium text-ink-2">{reader.messages[0].fromName}</span> · {reader.messages[0].meta}
                 </span>
-                <ArrowRight className="size-3 text-ink-3" strokeWidth={1.5} />
-                <span className="text-meta text-ink-3">{reader.messages[0].to}</span>
+                <span className="inline-flex min-w-0 max-w-full items-center gap-1 text-meta text-ink-3" title={reader.messages[0].to}>
+                  <ArrowRight className="size-3 flex-none" strokeWidth={1.5} />
+                  <span className="truncate">{reader.messages[0].to}</span>
+                </span>
               </div>
 
               {readerIsEmail && linkOptions && (
                 <div className="mt-2 flex items-center gap-1.5">
                   <Tag className="size-3 flex-none text-ink-3" strokeWidth={1.75} />
-                  <span className="text-meta text-ink-3">Linked to</span>
+                  <label htmlFor="inbox-link" className="text-meta text-ink-3">Job or lead</label>
                   <select
+                    id="inbox-link"
                     value={currentLink}
                     onChange={(e) => relink(e.target.value)}
-                    className="max-w-[220px] rounded border border-rule bg-card px-1.5 py-0.5 text-meta text-ink-2 focus-visible:outline-2 focus-visible:outline-focus"
+                    className="min-w-0 max-w-[240px] flex-1 rounded-md border border-rule bg-card px-2 py-1 text-meta text-ink-2 focus-visible:outline-2 focus-visible:outline-focus max-sm:min-h-11"
                   >
-                    <option value="">— not linked —</option>
+                    <option value="">Not linked</option>
                     {linkOptions.projects.length > 0 && (
                       <optgroup label="Projects">
                         {linkOptions.projects.map((p) => (
@@ -998,6 +1008,78 @@ function ComposeModal({
 // Non-email channels are read-only in the unified inbox: render the
 // conversation and link out to where a reply actually happens (the channel's
 // own surface). No AI-draft/Gmail-send composer, no lazy html fetch.
+/** "Project\nPartial basement finish" — a website-form field and its value. */
+const FORM_FIELD = /^([^\n]{1,40})\n([\s\S]+)$/;
+
+/** Where the quoted earlier conversation starts in a plain-text body: the
+ *  "On <date>, <name> wrote:" line, or the first "> " quoted line. */
+function quoteStart(paras: string[]): number {
+  const i = paras.findIndex((p) => /^On .{4,200}wrote:\s*$/m.test(p) || /^>/.test(p));
+  return i <= 0 ? -1 : i;
+}
+
+/** A rich email body. Wide newsletter / store emails (fixed 600–700px tables)
+ *  are scaled down to the reading column instead of scrolling sideways; the
+ *  quoted earlier conversation (blockquotes) folds behind "Show quoted text". */
+function EmailHtml({ html }: { html: string }) {
+  const outer = useRef<HTMLDivElement>(null);
+  const inner = useRef<HTMLDivElement>(null);
+  const [zoom, setZoom] = useState(1);
+  const [hasQuote, setHasQuote] = useState(false);
+  const [showQuote, setShowQuote] = useState(false);
+  useLayoutEffect(() => {
+    const fit = () => {
+      const o = outer.current, i = inner.current;
+      if (!o || !i) return;
+      i.style.zoom = "1";
+      // Text wraps to the column; only a fixed-width layout (a 600–700px table)
+      // overflows it — that one is scaled down to fit.
+      const natural = i.scrollWidth, room = i.clientWidth;
+      setZoom(natural > room + 2 && room > 0 ? Math.max(0.45, room / natural) : 1);
+    };
+    fit();
+    setHasQuote(!!inner.current?.querySelector("blockquote"));
+    const ro = new ResizeObserver(fit);
+    if (outer.current) ro.observe(outer.current);
+    const imgs = Array.from(inner.current?.querySelectorAll("img") ?? []);
+    imgs.forEach((im) => im.addEventListener("load", fit));
+    return () => { ro.disconnect(); imgs.forEach((im) => im.removeEventListener("load", fit)); };
+  }, [html]);
+  return (
+    <div ref={outer} className="min-w-0 overflow-x-auto">
+      <div
+        ref={inner}
+        style={{ zoom }}
+        className={`email-html text-body leading-relaxed text-ink [&_a]:text-accent [&_a]:underline [&_img]:my-1 [&_img]:rounded ${showQuote ? "" : "[&_blockquote]:hidden"}`}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+      {hasQuote && (
+        <button type="button" onClick={() => setShowQuote((v) => !v)} className="mt-2 inline-flex min-h-9 items-center rounded-md px-2 text-meta font-semibold text-accent-2 hover:bg-hover">
+          {showQuote ? "Hide quoted text" : "Show quoted text"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function PlainBody({ paras }: { paras: string[] }) {
+  const [showQuote, setShowQuote] = useState(false);
+  const q = quoteStart(paras);
+  const shown = q > 0 && !showQuote ? paras.slice(0, q) : paras;
+  return (
+    <div className="flex flex-col gap-2.5">
+      {shown.map((para, j) => (
+        <p key={j} className="whitespace-pre-line break-words text-body leading-relaxed text-ink">{para}</p>
+      ))}
+      {q > 0 && (
+        <button type="button" onClick={() => setShowQuote((v) => !v)} className="inline-flex min-h-9 w-fit items-center rounded-md px-2 text-meta font-semibold text-accent-2 hover:bg-hover">
+          {showQuote ? "Hide quoted text" : "Show quoted text"}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function ReadOnlyReaderBody({ reader }: { reader: ThreadReader }) {
   return (
     <>
@@ -1011,7 +1093,22 @@ function ReadOnlyReaderBody({ reader }: { reader: ThreadReader }) {
                 <span>· {m.meta}</span>
               </div>
               <div className="flex flex-col gap-2 pl-[26px]">
-                {m.body.map((para, j) => (
+                {reader.channel === "site_form" && m.body.length > 1 && m.body.slice(1).every((p) => FORM_FIELD.test(p)) ? (
+                  <>
+                    <p className="whitespace-pre-line text-body leading-relaxed text-ink">{m.body[0]}</p>
+                    <dl className="grid gap-x-4 gap-y-2 @xl/page:grid-cols-[minmax(0,10rem)_minmax(0,1fr)]">
+                      {m.body.slice(1).map((para, j) => {
+                        const [, label, value] = para.match(FORM_FIELD) ?? [];
+                        return (
+                          <div key={j} className="contents">
+                            <dt className="text-meta text-ink-3 @xl/page:pt-0.5">{label}</dt>
+                            <dd className="mb-1 whitespace-pre-line break-words text-body text-ink @xl/page:mb-0">{value}</dd>
+                          </div>
+                        );
+                      })}
+                    </dl>
+                  </>
+                ) : m.body.map((para, j) => (
                   <p key={j} className="whitespace-pre-line text-body leading-relaxed text-ink">
                     {para}
                   </p>
@@ -1025,7 +1122,7 @@ function ReadOnlyReaderBody({ reader }: { reader: ThreadReader }) {
       <div className="flex-none border-t border-rule bg-paper-2 px-4 py-3">
         <div className="flex items-center gap-2">
           <span className="flex-1 text-meta text-ink-3">
-            Read-only here — reply on the {reader.channelLabel.toLowerCase()} surface.
+            {reader.actionHref ? `Came in through ${reader.channelLabel.toLowerCase()} — reply from its page.` : `Came in through ${reader.channelLabel.toLowerCase()}; there is no reply from here.`}
           </span>
           {reader.actionHref && (
             <a
@@ -1073,7 +1170,7 @@ function ThreadRow({
           <div className="flex items-center gap-1.5">
             <span
               className={[
-                "min-w-0 flex-1 break-words text-subheading",
+                "min-w-0 flex-1 truncate text-subheading",
                 unread ? "font-bold text-ink" : "font-normal text-ink-2",
               ].join(" ")}
             >
@@ -1095,8 +1192,8 @@ function ThreadRow({
           <div className={`mt-0.5 truncate text-meta ${unread ? "text-ink-2" : "text-ink-3"}`}>
             {thread.preview}
           </div>
-          <div className="mt-1.5 flex flex-wrap items-center gap-1">
-            <span className="text-meta text-ink-3">{thread.tag}</span>
+          {(thread.tag !== "Email" || thread.labelNames?.length || thread.aiVerdict || thread.activeJob) && <div className="mt-1.5 flex flex-wrap items-center gap-1">
+            {thread.tag !== "Email" && <span className="text-meta text-ink-3">{thread.tag}</span>}
             {thread.labelNames?.map((name) => (
               <Chip key={name} kind="ghost">
                 {name}
@@ -1108,7 +1205,7 @@ function ThreadRow({
                 Active job
               </Chip>
             )}
-          </div>
+          </div>}
         </div>
       </div>
     </button>
@@ -1121,12 +1218,15 @@ function ThreadRow({
 // thread); the mock path may arrive with aiDraft.body already filled.
 function ReaderBody({ reader, threadId }: { reader: ThreadReader; threadId: string }) {
   const [draft, setDraft] = useState(reader.aiDraft.body);
-  const [meta, setMeta] = useState<{ toEmail: string; subject: string } | null>(null);
+  const [meta, setMeta] = useState<{ toEmail: string; subject: string; summary?: string } | null>(null);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState("");
   const [drafting, startDraft] = useTransition();
   const [sending, startSend] = useTransition();
   const hasDraft = draft.trim().length > 0;
+  // The reply box stays a one-line bar until Joe starts a reply, so the email
+  // itself gets the room.
+  const [replying, setReplying] = useState(false);
 
   // Rich HTML body (with inline images) is resolved lazily on thread open so the
   // list fetch stays cheap. Empty string = no HTML / not connected → fall back to
@@ -1150,7 +1250,7 @@ function ReaderBody({ reader, threadId }: { reader: ThreadReader; threadId: stri
       const r = await runAction(() => draftReplyAction(threadId, "hermes"), { fallback: "Could not draft a reply." });
       if (r.ok) {
         setDraft(r.body ?? "");
-        setMeta({ toEmail: r.toEmail ?? "", subject: r.subject ?? reader.subject });
+        setMeta({ toEmail: r.toEmail ?? "", subject: r.subject ?? reader.subject, summary: r.summary });
       } else {
         setError(r.error ?? "Could not draft a reply.");
       }
@@ -1178,42 +1278,49 @@ function ReaderBody({ reader, threadId }: { reader: ThreadReader; threadId: stri
   return (
     <>
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        <div className="flex max-w-[600px] flex-col gap-2.5">
+        <div className="flex max-w-[720px] flex-col gap-4">
           {reader.messages.map((m, i) => {
             const isLatest = i === reader.messages.length - 1;
             // The rich HTML body (`fetchThreadHtml`) covers only the latest
             // message; earlier ones keep the plain-text paragraphs.
-            if (isLatest && html) {
-              return (
-                <div
-                  key={i}
-                  className="email-html text-body leading-relaxed text-ink [&_a]:text-accent [&_a]:underline [&_img]:my-1 [&_img]:rounded"
-                  dangerouslySetInnerHTML={{ __html: html }}
-                />
-              );
-            }
-            return (
-              <div key={i} className="flex flex-col gap-2.5">
-                {m.body.map((para, j) => (
-                  <p key={j} className="whitespace-pre-line text-body leading-relaxed text-ink">
-                    {para}
-                  </p>
-                ))}
-              </div>
-            );
+            if (isLatest && html) return <EmailHtml key={i} html={html} />;
+            return <PlainBody key={i} paras={m.body} />;
           })}
         </div>
 
 
       </div>
 
-      <div className="flex-none border-t border-rule-soft px-4 py-3">
-        <div className="rounded-lg border border-rule bg-card p-3 focus-within:outline-2 focus-within:outline-focus">
-          <div className="mb-2 flex flex-wrap items-center justify-between gap-2"><div className="min-w-0 flex-1">{hasDraft && <Chip kind="ai">AI draft</Chip>}<p className="mt-1 text-meta text-ink-3">{reader.aiDraft.summary}</p></div><Button variant="ghost" size="sm" onClick={generate} disabled={drafting}>{drafting ? "Drafting…" : hasDraft ? "Regenerate draft" : `Draft with ${AI_NAME}`}</Button></div>
-          <textarea value={draft} onChange={e => setDraft(e.target.value)} rows={3} placeholder={reader.replyPlaceholder} className="min-h-20 w-full resize-y border-0 bg-transparent text-body leading-relaxed text-ink outline-none" />
-          {error && <p role="alert" className="mt-2 text-meta text-flag">{error}</p>}
-          <div className="mt-2 flex items-center justify-end gap-2"><VoiceButton compact onText={t => setDraft(cur => mergeTranscript(cur,t))} /><Button onClick={send} icon={Send} disabled={!draft.trim() || sending || sent}>{sent ? "Sent" : sending ? "Sending…" : "Send"}</Button></div>
-        </div>
+      <div className="flex-none border-t border-rule-soft px-4 py-2.5">
+        {!replying && !hasDraft && !drafting ? (
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => setReplying(true)} className="min-h-10 min-w-0 flex-1 truncate rounded-lg border border-rule bg-card px-3 text-left text-body text-ink-3 hover:border-ink-4">
+              {reader.replyPlaceholder}
+            </button>
+            <Button variant="ai" size="sm" onClick={() => { setReplying(true); generate(); }} disabled={drafting}>{`Draft with ${AI_NAME}`}</Button>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-rule bg-card p-3 focus-within:outline-2 focus-within:outline-focus">
+            {(hasDraft || drafting) && (
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0 flex-1">
+                  {hasDraft && meta && <Chip kind="ai">AI draft</Chip>}
+                  {drafting ? <p className="mt-1 text-meta text-ink-3">{AI_NAME} is drafting a reply…</p> : meta?.summary ? <p className="mt-1 text-meta text-ink-3">{meta.summary}</p> : null}
+                </div>
+                {hasDraft && <Button variant="ghost" size="sm" onClick={generate} disabled={drafting}>Regenerate draft</Button>}
+              </div>
+            )}
+            <textarea autoFocus value={draft} onChange={e => setDraft(e.target.value)} rows={4} placeholder={reader.replyPlaceholder} className="max-h-[40dvh] min-h-24 w-full resize-y border-0 bg-transparent text-body leading-relaxed text-ink outline-none" />
+            {error && <p role="alert" className="mt-2 text-meta text-flag">{error}</p>}
+            <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+              {!hasDraft && !drafting && <Button variant="ghost" size="sm" onClick={generate}>{`Draft with ${AI_NAME}`}</Button>}
+              <div className="flex-1" />
+              <Button variant="ghost" size="sm" disabled={sending} onClick={() => { setReplying(false); setDraft(""); setMeta(null); setError(""); }}>Cancel</Button>
+              <VoiceButton compact onText={t => setDraft(cur => mergeTranscript(cur,t))} />
+              <Button onClick={send} icon={Send} disabled={!draft.trim() || sending || sent}>{sent ? "Sent" : sending ? "Sending…" : "Send"}</Button>
+            </div>
+          </div>
+        )}
         {sent && <p className="mt-1 text-meta text-ink-3">Reply sent ✓</p>}
       </div>
     </>
@@ -1253,7 +1360,7 @@ function MailboxStrip({ mailbox }: { mailbox: MailboxState }) {
   return (
     <div className="mt-1 px-2 py-1">
       <p className="truncate text-meta text-ink-3" title={mailbox.email ?? undefined}>
-        {mailbox.email ?? "Connected"}
+        {mailbox.email ?? "Gmail connected"}
       </p>
       {mailbox.linked && (
         <button

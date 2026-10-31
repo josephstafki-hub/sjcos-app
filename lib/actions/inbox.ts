@@ -21,7 +21,7 @@ import {
   trashThread,
   fetchThreadHtml,
 } from "@/lib/gmail";
-import { draftReplyForThread, loadMoreInbox, loadLabelInbox, loadSystemView } from "@/lib/inbox";
+import { draftReplyForThread, invalidateInboxCache, loadMoreInbox, loadLabelInbox, loadSystemView } from "@/lib/inbox";
 import type { InboxThread, ThreadReader } from "@/lib/inbox";
 import { SYSTEM_VIEWS, type SystemViewKey } from "@/lib/types";
 import type { DraftModel } from "@/lib/dev-agents-meta";
@@ -40,6 +40,7 @@ async function mailbox<T>(fn: () => Promise<T>): Promise<T> {
 export async function disconnectMyMailboxAction(): Promise<{ ok: boolean; error?: string }> {
   const user = await requireAccess("inbox");
   await unlinkMailbox(user.id);
+  invalidateInboxCache();
   revalidatePath("/inbox");
   return { ok: true };
 }
@@ -64,6 +65,7 @@ export async function linkThread(
      ON CONFLICT (gmail_thread_id) DO UPDATE SET link_type = EXCLUDED.link_type, link_slug = EXCLUDED.link_slug`,
     [threadId, type, slug],
   );
+  invalidateInboxCache();
   revalidatePath("/inbox");
   return { ok: true };
 }
@@ -72,6 +74,7 @@ export async function linkThread(
 export async function unlinkThread(threadId: string): Promise<{ ok: boolean; error?: string }> {
   await requireAccess("inbox");
   await query(`DELETE FROM thread_links WHERE gmail_thread_id = $1`, [threadId]);
+  invalidateInboxCache();
   revalidatePath("/inbox");
   return { ok: true };
 }
@@ -85,7 +88,8 @@ async function withGmail(fn: () => Promise<void>): Promise<ActionResult> {
     if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
     try {
       await fn();
-      revalidatePath("/inbox");
+      invalidateInboxCache();
+  revalidatePath("/inbox");
       return { ok: true };
     } catch (err) {
       const msg = (err as Error).message;
@@ -237,7 +241,8 @@ export async function sendNewEmailAction(input: {
     if (!gmailConfigured()) return { ok: false, error: "Gmail is not connected." };
     try {
       await sendNewEmail({ to: input.to.trim(), subject: input.subject, bodyText: input.body, attachments: input.attachments });
-      revalidatePath("/inbox");
+      invalidateInboxCache();
+  revalidatePath("/inbox");
       return { ok: true };
     } catch (err) {
       return { ok: false, error: (err as Error).message };
@@ -292,7 +297,8 @@ export async function sendReplyAction(input: {
         subject: input.subject,
         bodyText: input.body,
       });
-      revalidatePath("/inbox");
+      invalidateInboxCache();
+  revalidatePath("/inbox");
       return { ok: true };
     } catch (err) {
       return { ok: false, error: (err as Error).message };

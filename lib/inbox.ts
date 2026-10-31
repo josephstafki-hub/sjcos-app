@@ -291,6 +291,9 @@ export interface InboxData {
   linkOptions?: { projects: { slug: string; name: string }[]; leads: { slug: string; name: string }[] };
   /** Whose mailbox this payload is, and whether one is connected at all. */
   mailbox: MailboxState;
+  /** Gmail is connected but this load failed (rate limit, outage). The lists
+   *  are empty on purpose; the page says why. */
+  loadError?: string;
 }
 
 /** What the Email rail needs to say about the connected account. `connected:
@@ -391,8 +394,16 @@ export async function getInboxData(viewer?: MailboxViewer): Promise<InboxData> {
     try {
       return await buildFromGmail(mailboxState(mb));
     } catch (err) {
-      console.error(`[inbox:gmail] falling back to mock — ${(err as Error).message}`);
-      return buildFromMock(mailboxState(mb));
+      // Never show the demo conversations as if they were Joe's mail: an empty
+      // mailbox and a plain reason, with a way to try again.
+      const message = (err as Error).message;
+      console.error(`[inbox:gmail] could not load — ${message}`);
+      return {
+        ...buildEmptyMailbox(mb),
+        loadError: /rate limit|quota/i.test(message)
+          ? "Gmail is answering too many requests right now. Try again in a minute."
+          : "Gmail didn't answer, so your email can't be shown right now. Try again in a minute.",
+      };
     }
   });
 }
@@ -528,7 +539,7 @@ function rawToReader(r: RawGmailThread): ThreadReader {
       },
     ],
     aiDraft: {
-      summary: "Open this thread to draft a reply with AI.",
+      summary: "",
       body: "",
     },
     replyPlaceholder: `Reply to ${r.fromName.split(" ")[0]}…`,
@@ -1300,10 +1311,32 @@ async function loadChannelThreads(): Promise<ChannelBuild> {
   };
 }
 
+// The page re-renders whenever anything in the database changes (LiveUpdates
+// polls every few seconds and agents write often). Re-fetching the whole
+// mailbox each time — one list call plus one per thread — ran Joe's Gmail
+// account into Google's per-minute limit. The Gmail half (threads + label
+// counts) is kept for a short while per mailbox; texts, portal messages, forms
+// and job links stay live. Any inbox action clears it (invalidateInboxCache).
+const GMAIL_TTL_MS = 30_000;
+const gmailCache = new Map<string, { at: number; data: Promise<[Awaited<ReturnType<typeof fetchThreadPage>>, Awaited<ReturnType<typeof fetchLabelCounts>>]> }>();
+
+export function invalidateInboxCache(): void {
+  gmailCache.clear();
+}
+
+function cachedGmail(key: string) {
+  const hit = gmailCache.get(key);
+  if (hit && Date.now() - hit.at < GMAIL_TTL_MS) return hit.data;
+  const data = Promise.all([fetchThreadPage(INBOX_PAGE), fetchLabelCounts()]);
+  gmailCache.set(key, { at: Date.now(), data });
+  // A failed load is not kept: the next render tries Gmail again.
+  data.catch(() => { if (gmailCache.get(key)?.data === data) gmailCache.delete(key); });
+  return data;
+}
+
 async function buildFromGmail(mailbox: MailboxState): Promise<InboxData> {
-  const [page, labels, contactMaps, linkOptions, folded] = await Promise.all([
-    fetchThreadPage(INBOX_PAGE),
-    fetchLabelCounts(),
+  const [[page, labels], contactMaps, linkOptions, folded] = await Promise.all([
+    cachedGmail(mailbox.email ?? "default"),
     loadContactMaps(),
     getLinkOptions(),
     loadChannelThreads(),

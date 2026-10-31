@@ -109,7 +109,15 @@ async function deliverReferralThanks(lead: {
 }
 
 /** Create a lead from the "New lead" form, then open its detail page. */
-export async function createLead(formData: FormData) {
+export async function createLead(formData: FormData): Promise<void> {
+  const slug = await createLeadRecord(formData);
+  if (slug) redirect(`/leads/${slug}`);
+}
+export async function createLeadFromInbox(formData: FormData): Promise<{slug?:string}> {
+  return {slug: await createLeadRecord(formData)};
+}
+
+async function createLeadRecord(formData: FormData) {
   await requireAccess("leads");
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return;
@@ -171,7 +179,7 @@ export async function createLead(formData: FormData) {
 
   revalidatePath("/leads");
   revalidatePath("/notifications");
-  redirect(`/leads/${slug}`);
+  return slug;
 }
 
 /** Owner: manually (re)send a referral thank-you for a lead. */

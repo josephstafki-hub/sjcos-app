@@ -6,7 +6,7 @@
 // opens a real reader pane. The AI draft-reply card routes through lib/ai.ts —
 // never a provider directly.
 
-import { inquiryReplySubject, isAutomatedSender, isNoReplyAddress, needsMeReason, resolveReplyTarget, type ReplyTarget } from "./inbox-rules";
+import { automationDetails, screeningEligible, emailAddress, inquiryReplySubject, isAutomatedSender, isNoReplyAddress, needsMeReason, resolveReplyTarget, type ReplyTarget } from "./inbox-rules";
 import type { SystemViewKey, ThreadChannel, ThreadStatus } from "./types";
 import { ai } from "./ai";
 import { query } from "./db";
@@ -96,6 +96,12 @@ export interface InboxThread {
   aiVerdict?: string;
   needsMeReason?: string;
   automated?: boolean;
+  automationKind?: import("./inbox-rules").AutomationKind;
+  inboundLast?: boolean;
+  receivedAt?: number;
+  attentionRequired?: boolean;
+  attentionOverride?: boolean;
+  senderDecision?: string;
   hasOpenTodo?: boolean;
   newSender?: boolean;
   filedOther?: boolean;
@@ -346,7 +352,7 @@ function countViews(threads: InboxThread[]): Record<ThreadStatus, number> {
     done: 0,
   };
   for (const t of threads) {
-    if (t.view === "needs_reply" && (t.automated || t.newSender)) continue;
+    if (t.view === "needs_reply" && (t.filedOther || t.newSender || (t.automated && !(t.attentionOverride ?? t.attentionRequired)))) continue;
     counts[t.view]++;
   }
   return counts;
@@ -528,7 +534,8 @@ function viewOf(r: RawGmailThread): ThreadStatus {
 }
 
 function rawToThread(r: RawGmailThread, labelMap: Map<string, string>): InboxThread {
-  const view = viewOf(r);
+  const details = automationDetails(r.fromEmail, r.subject, r.snippet);
+  const view = isBulk(r) && details.attention && r.inInbox && !r.outbound && !r.snoozed ? "needs_reply" : viewOf(r);
   const needsReply = view === "needs_reply" && r.unread;
   // For outbound threads the counterparty is the recipient, not "me".
   const who = r.outbound && r.toLine ? displayName(r.toLine) : r.fromName;
@@ -543,11 +550,15 @@ function rawToThread(r: RawGmailThread, labelMap: Map<string, string>): InboxThr
     channel: "email",
     subject: r.subject,
     preview: r.snippet,
+    receivedAt:r.date,
+    inboundLast:!r.outbound,
     when: relativeWhen(r.date),
     view,
     tag: "Email",
     emphasis: needsReply ? "flag" : r.starred ? "accent" : "ghost",
     automated: isBulk(r),
+    automationKind: details.kind,
+    attentionRequired: Boolean(details.attention),
     starred: r.starred,
     unread: r.unread,
     labelNames: labelNames.length ? labelNames : undefined,
@@ -782,6 +793,7 @@ interface ManualLink {
   label: string;
 }
 interface ContactMaps {
+  preferences: Map<string,string>;
   staffEmails: Set<string>;
   leadEmails: Set<string>;
   contactByEmail: Map<string,ContactRow>;
@@ -793,7 +805,7 @@ interface ContactMaps {
 
 /** Load the contact index from Postgres once per inbox build. */
 async function loadContactMaps(): Promise<ContactMaps> {
-  const [contacts, links, threadLinks, staff] = await Promise.all([
+  const [contacts, links, threadLinks, staff, preferences] = await Promise.all([
     query<ContactRow>(
       `SELECT lower(email) AS email, name, slug, 'client' AS kind, replace(stage,'_',' ') AS stage
          FROM leads WHERE email IS NOT NULL AND email <> ''
@@ -817,6 +829,7 @@ async function loadContactMaps(): Promise<ContactMaps> {
          LEFT JOIN leads    l ON tl.link_type = 'lead'    AND l.slug = tl.link_slug`,
     ),
     query<{email:string}>(`SELECT lower(email) AS email FROM users WHERE role IN ('owner','staff')`),
+    query<{subject_key:string;decision:string}>(`SELECT subject_key,decision FROM inbox_preferences WHERE mailbox=$1`, [activeMailbox()?.email?.toLowerCase() ?? ""]),
   ]);
 
   const byEmail = new Map<string, Audience>();
@@ -847,7 +860,7 @@ async function loadContactMaps(): Promise<ContactMaps> {
     });
   }
 
-  return { contactByEmail:new Map(contacts.rows.map(c=>[c.email,c])), byEmail, subDomains, projectByEmail, linkByThread, staffEmails:new Set(staff.rows.map(r => r.email)), leadEmails:new Set(contacts.rows.filter(c=>c.kind === "client").map(c=>c.email)) };
+  return { preferences:new Map(preferences.rows.map(p=>[p.subject_key,p.decision])), contactByEmail:new Map(contacts.rows.map(c=>[c.email,c])), byEmail, subDomains, projectByEmail, linkByThread, staffEmails:new Set(staff.rows.map(r => r.email)), leadEmails:new Set(contacts.rows.filter(c=>c.kind === "client").map(c=>c.email)) };
 }
 
 /** Classify one thread's counterparty into an audience + optional project. A
@@ -900,11 +913,12 @@ function mapRawThreads(
   labelMap: Map<string, string>,
   contactMaps: ContactMaps,
 ): { threads: InboxThread[]; readerEntries: [string, ThreadReader][] } {
+  const own = [...new Set([activeMailbox()?.email ?? "", ...raw.flatMap(r=>[...(r.ownAddresses ?? []), ...r.messages?.filter(m=>m.outbound).map(m=>m.fromEmail) ?? [], ...(r.outbound ? [r.fromEmail] : [])])].map(emailAddress))];
   const threads = raw.map((r) => rawToThread(r, labelMap));
   const knownIds = new Set<string>();
   raw.forEach((r, i) => {
     const c = classifyThread(r, contactMaps);
-    const staff = contactMaps.staffEmails.has(r.fromEmail.toLowerCase());
+    const staff = contactMaps.staffEmails.has(r.fromEmail.toLowerCase()) || own.includes(emailAddress(r.fromEmail));
     if (staff && threads[i].view === 'needs_reply') threads[i].view = 'awaiting_them';
     const person=contactMaps.contactByEmail.get(threads[i].fromEmail ?? '');
     const known = Boolean(person || c.projectSlug || c.linkedType || c.audience === "sub");
@@ -919,6 +933,13 @@ function mapRawThreads(
       }
     }
     const bulk = Boolean(threads[i].automated);
+    const decision = contactMaps.preferences.get(`sender:${threads[i].fromEmail?.toLowerCase()}`);
+    const override = contactMaps.preferences.get(`thread:${r.id}`);
+    threads[i].senderDecision = decision;
+    threads[i].filedOther = decision === 'other';
+    threads[i].attentionOverride = override ? override === 'attention' : undefined;
+    if (bulk && (threads[i].attentionOverride ?? threads[i].attentionRequired) && r.inInbox && !r.outbound && !r.snoozed) threads[i].view = 'needs_reply';
+    if (bulk && override === 'other') threads[i].view = r.inInbox ? 'awaiting_them' : 'done';
     threads[i].needsMeReason = needsMeReason({
       channel: "email",
       inbound: !r.outbound,
@@ -929,7 +950,9 @@ function mapRawThreads(
       isLead: c.linkedType === "lead" || (contactMaps.leadEmails.has(r.fromEmail.toLowerCase()) && !c.projectSlug),
 
     });
-    threads[i].newSender = !known && !bulk && !staff && !r.outbound;
+    if (bulk && threads[i].view === 'needs_reply' && (threads[i].attentionOverride ?? threads[i].attentionRequired))
+      threads[i].needsMeReason = `Needs attention · ${automationDetails(r.fromEmail,r.subject,r.snippet).attention ?? 'Marked by you'}`;
+    threads[i].newSender = screeningEligible({email:r.fromEmail,inbound:!r.outbound,done:!r.inInbox || r.snoozed,known,staff,automated:bulk,ownAddresses:own,decision});
     if (threads[i].newSender && threads[i].view === "needs_reply") threads[i].needsMeReason = "New sender";
     threads[i].contactKey=person ? `${person.kind==='client'?'lead':person.kind}:${person.slug}` : c.projectSlug ? `project:${c.projectSlug}` : undefined;
     threads[i].contactStage=c.projectSlug ? contactMaps.projectByEmail.get(threads[i].fromEmail ?? '')?.stage : person?.stage;

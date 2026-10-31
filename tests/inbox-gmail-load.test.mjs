@@ -95,7 +95,7 @@ test('system and label caches include mailbox, view and page; actions invalidate
 });
 
 test('rows explain needs-me, outbound unread and staff never need Joe, email reader maps every message', async () => {
-  globalThis.__gmail.threads = [email, {...email,id:'staff',fromEmail:'staff@example.test'}, {...email,id:'out',outbound:true,unread:true}];
+  globalThis.__gmail.threads = [email, {...email,id:'staff',fromEmail:'staff@example.test'}, {...email,id:'out',fromEmail:'joe@example.test',toLine:'client@example.test',outbound:true,unread:true}];
   globalThis.__queryRows = sql => /FROM users/.test(sql) ? [{email:'staff@example.test'}] : [];
   invalidateInboxCache(); const data = await getInboxData();
   assert.equal(data.smartViews.find(v=>v.key==='needs_reply').label,'Needs me');
@@ -207,4 +207,21 @@ test('a known client Gmail tags Updates (or a CRM List-Unsubscribe) stays in Nee
   assert.equal(data.readers['client-upd'].automated,false);
   assert.equal(data.threads.find(t=>t.id==='stranger-upd').automated,true);
   globalThis.__queryRows=null;globalThis.__gmail.threads=[];
+});
+
+
+test('round 3 preserves action-required automation, excludes done/self/outbound screening, and restores persisted decisions',async()=>{
+ globalThis.__gmail.fail=null;
+ const raw=(id,patch={})=>({...email,id,...patch});
+ globalThis.__gmail.threads=[raw('square',{fromEmail:'noreply@squareup.com',subject:'Action required to avoid a hold on Square transfers',category:'updates'}),raw('receipt',{fromEmail:'receipts@menards.com',subject:'Your receipt',category:'updates'}),raw('done',{inInbox:false}),raw('self',{fromEmail:'alias@example.test'}),raw('out-alias',{fromEmail:'alias@example.test',outbound:true,toLine:'other@example.test'}),raw('decided'),raw('pending')];
+ globalThis.__queryRows=sql=>/FROM inbox_preferences/.test(sql)?[{subject_key:'sender:client@example.test',decision:'other'},{subject_key:'thread:receipt',decision:'attention'}]:[];
+ invalidateInboxCache();let data=await getInboxData();
+ const square=data.threads.find(t=>t.id==='square');assert.equal(square.view,'needs_reply');assert.match(square.needsMeReason,/Needs attention · Action required/);
+ assert.equal(data.threads.find(t=>t.id==='receipt').view,'needs_reply');
+ assert.equal(data.threads.find(t=>t.id==='done').newSender,false);assert.equal(data.threads.find(t=>t.id==='self').newSender,false);assert.equal(data.threads.find(t=>t.id==='out-alias').newSender,false);
+ assert.equal(data.threads.find(t=>t.id==='decided').filedOther,true);assert.equal(data.threads.find(t=>t.id==='pending').newSender,false);
+ globalThis.__queryRows=sql=>/FROM inbox_preferences/.test(sql)?[{subject_key:'thread:square',decision:'other'}]:[];
+ data=await getInboxData();assert.notEqual(data.threads.find(t=>t.id==='square').view,'needs_reply');
+ assert.equal(data.threads.find(t=>t.id==='pending').newSender,true);
+ globalThis.__queryRows=null;globalThis.__gmail.threads=[];
 });

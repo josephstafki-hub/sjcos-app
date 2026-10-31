@@ -30,7 +30,15 @@ async function uniqueSlug(name: string): Promise<string> {
 }
 
 /** Onboard a vendor from the directory's "Add vendor" form, then open them. */
-export async function createVendor(formData: FormData) {
+export async function createVendor(formData: FormData): Promise<void> {
+  const slug = await createVendorRecord(formData);
+  if (slug) redirect(`/vendors/${slug}`);
+}
+export async function createVendorFromInbox(formData: FormData): Promise<{slug?:string}> {
+  return {slug: await createVendorRecord(formData)};
+}
+
+async function createVendorRecord(formData: FormData) {
   await requireAccess("vendors");
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return;
@@ -45,7 +53,7 @@ export async function createVendor(formData: FormData) {
   );
 
   revalidatePath("/vendors");
-  redirect(`/vendors/${slug}`);
+  return slug;
 }
 
 type Result =

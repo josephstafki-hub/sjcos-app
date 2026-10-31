@@ -10,7 +10,7 @@ export const INBOX_TABS: { value: InboxTab; label: string }[] = [
   { value: "other", label: "Other" },
 ];
 export function inboxBucket(t: InboxThread): Exclude<InboxTab, "needs"> {
-  if (t.automated || t.filedOther) return "other";
+  if (t.filedOther || t.automated) return "other";
   if (t.newSender) return "new";
   if (
     t.audience === "sub" ||
@@ -32,7 +32,7 @@ export function inboxBucket(t: InboxThread): Exclude<InboxTab, "needs"> {
     t.audience === "client"
   )
     return "clients";
-  return "new";
+  return "other";
 }
 export function matchesInboxTab(
   t: InboxThread,
@@ -40,7 +40,7 @@ export function matchesInboxTab(
   draftReady = false,
 ) {
   return tab === "needs"
-    ? !["other", "new"].includes(inboxBucket(t)) &&
+    ? !t.filedOther && (!t.automated || Boolean(t.attentionOverride ?? t.attentionRequired)) && (t.automated || inboxBucket(t) !== "new") &&
         (draftReady || t.view === "needs_reply")
     : inboxBucket(t) === tab;
 }
@@ -50,9 +50,10 @@ export function tabCounts(
 ) {
   const counts = { needs: 0, clients: 0, leads: 0, subs: 0, new: 0, other: 0 };
   for (const t of threads) {
-    counts[inboxBucket(t)]++;
+    if(inboxBucket(t)!=="new") counts[inboxBucket(t)]++;
     if (matchesInboxTab(t, "needs", drafts.has(t.id))) counts.needs++;
   }
+  counts.new=new Set(threads.filter(t=>inboxBucket(t)==="new").map(t=>t.fromEmail?.toLowerCase()??t.id)).size;
   return counts;
 }
 export const SHORTCUTS = {
@@ -240,6 +241,7 @@ export function relatedConversations(
 
 /** Rank only; stable sorting preserves arrival order within each group. */
 export function triageRank(t: InboxThread): number {
+  if (t.automated && (t.attentionOverride ?? t.attentionRequired) && !t.filedOther && t.view === "needs_reply") return 1;
   if (inboxBucket(t) === "other") return 4;
   if (inboxBucket(t) === "new") return 3;
   return t.view === "needs_reply" ? 0 : 2;
@@ -308,4 +310,26 @@ export function rememberOtherSender(
   } catch {
     return false;
   }
+}
+
+export function contextStripText(thread: Pick<InboxThread,'projectLabel'|'fromName'|'contactStage'>, context?: {job?: {name: string; stage: string; money?: {outstanding: number} | null} | null; schedule?: {label: string; day: string} | null} | null): string {
+  const job = context?.job;
+  const stage = (job?.stage || thread.contactStage || '').replaceAll('_', ' ');
+  const identity = shortJobLabel(job?.name || thread.projectLabel || thread.fromName || 'No linked job');
+  const cue = job?.money ? `${new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(job.money.outstanding/100)} outstanding`
+    : context?.schedule ? `Next: ${context.schedule.label} ${new Date(context.schedule.day+'T12:00:00Z').toLocaleDateString('en-US',{weekday:'short',timeZone:'UTC'})}` : '';
+  return ['Context', identity, stage === 'intake' ? 'New inquiry' : stage, cue].filter(Boolean).join(' · ');
+}
+type CompletionResult = {ok: boolean; error?: string};
+/** Completion is separate so retrying it can never repeat a successful send. */
+export async function completeAfterSend(send: () => Promise<CompletionResult>, done?: () => Promise<CompletionResult>) {
+  let result: CompletionResult;
+  try { result = await send(); } catch { result = {ok:false,error:'Send failed.'}; }
+  if (!result.ok) return {sent:false, done:false, error:result.error};
+  const retry = async () => {
+    try { return await done!(); } catch { return {ok:false,error:'Could not mark done.'}; }
+  };
+  if (!done) return {sent:true,done:false};
+  const completion = await retry();
+  return {sent:true, done:completion.ok, error:completion.ok ? undefined : "Sent — couldn't mark done", retry};
 }

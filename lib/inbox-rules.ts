@@ -114,3 +114,25 @@ export function smsSegments(body: string): number {
 export function inquiryReplySubject(scope: string, name: string): string {
   return `Re: Your inquiry — ${(scope || name).replace(/[\r\n]+/g, " ").slice(0,100)}`;
 }
+
+export type AutomationKind = 'Receipt' | 'Statement' | 'Payment' | 'Alert' | 'Marketing' | 'Notification';
+/** Uses only the already-fetched envelope; no provider calls or AI. */
+export function automationDetails(email: string, subject: string, snippet: string): {kind: AutomationKind; attention?: string} {
+  const text = `${subject} ${snippet}`;
+  const domain = emailAddress(email).split('@')[1] ?? '';
+  const money = /squareup|square\.com|stripe|intuit|quickbooks|paypal|bank|creditunion/i.test(domain);
+  const kind: AutomationKind = /\breceipt\b|order confirmation/i.test(text) ? 'Receipt'
+    : /e-?statement|\bstatement\b/i.test(text + ' ' + email) ? 'Statement'
+    : /payment|\bdebit\b|transfer|\bbilling\b/i.test(text) || money && /capital|hold|past due/i.test(text) ? 'Payment'
+    : /alert|security|COI|insurance|suspended/i.test(text) ? 'Alert'
+    : /sale|discount|save on|offer|unsubscribe|promotion/i.test(text) ? 'Marketing' : 'Notification';
+  // Do not turn routine success confirmations or negated warnings into demands.
+  const evidence = text.replace(/\b(?:not|no longer)\s+(?:past due|on hold|suspended)\b/gi, '')
+    .match(/\b(?:payment (?:has )?failed|failed payment|on hold|past due|action required|approval (?:is )?(?:needed|required)|(?:bid|estimate) (?:is )?(?:awaiting|needs?|pending) (?:your )?(?:review|approval)|(?:COI|insurance)(?: coverage| policy)? (?:is )?(?:expiring|expires|expired)|account (?:is |has been )?suspended|verify (?:your )?(?:identity|account|payment|email))\b/i)?.[0];
+  return {kind, attention: evidence};
+}
+export function screeningEligible(input: {email: string; inbound: boolean; done: boolean; known: boolean; staff: boolean; automated?: boolean; ownAddresses: string[]; decision?: string}): boolean {
+  return input.inbound && !input.done && !input.staff && !input.automated &&
+    !input.ownAddresses.map(emailAddress).includes(emailAddress(input.email)) &&
+    (input.decision === 'pending' || (!input.known && !input.decision));
+}

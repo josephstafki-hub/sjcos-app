@@ -1,0 +1,9 @@
+[Unit]
+Description=Draft inbox replies every 10 minutes
+
+[Timer]
+OnCalendar=*:7/10
+Persistent=true
+
+[Install]
+WantedBy=timers.target

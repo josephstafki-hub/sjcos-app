@@ -1,5 +1,6 @@
 "use client";
 
+import { InboxDraftModelPicker } from "./InboxDraftModelPicker";
 import { SettingsForm } from "./SettingsForm";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -363,6 +364,7 @@ export function SettingsClient({ data, initialSection = "profile" }: { data: Set
                 <Toggle key={t.key} settingKey={t.key} label={t.label} on={t.on} action={setAiToggle} />
               ))}
               <FirstResponseModelPicker initial={data.leadFirstResponseModel} />
+              <InboxDraftModelPicker initial={data.inboxDraftModel} />
             </div>
           </>
         )}

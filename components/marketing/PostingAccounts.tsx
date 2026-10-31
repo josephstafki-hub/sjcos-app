@@ -21,7 +21,7 @@ export function PostingAccounts({ accounts }: { accounts: Accounts }) {
   const [pending, startTransition] = useTransition();
   const [signin, setSignin] = useState<PostPlatform | null>(null);
   const dirty = JSON.stringify(form) !== JSON.stringify(accounts);
-  const input = "min-w-0 flex-1 rounded-md border border-rule bg-card px-2 py-1 text-[12px] text-ink outline-none focus:border-accent";
+  const input = "min-w-0 w-full flex-1 rounded-md border border-rule bg-card px-2 py-1 text-[12px] text-ink outline-none focus:border-accent";
 
   function save() {
     startTransition(async () => {
@@ -33,22 +33,22 @@ export function PostingAccounts({ accounts }: { accounts: Accounts }) {
 
   return (
     <Card className="mb-5 p-3.5">
-      <div className="mb-2 flex items-center gap-2">
+      <div className="mb-2 flex flex-wrap items-center gap-2">
         <KeyRound className="size-4 text-accent" strokeWidth={1.75} />
         <span className="text-[13px] font-semibold text-ink">Posting accounts</span>
         <span className="text-[11px] text-ink-3">Where the posting agent posts, signed in by you.</span>
       </div>
       <div className="grid gap-1.5 text-[11px] text-ink-3">
-        <label className="flex items-center gap-2">
-          <span className="w-[120px] flex-none">Facebook page link</span>
+        <label className="flex flex-col gap-1 @xl/page:flex-row @xl/page:items-center @xl/page:gap-2">
+          <span className="flex-none @xl/page:w-[120px]">Facebook page link</span>
           <input className={input} value={form.facebookPage} placeholder="https://www.facebook.com/YourPage" onChange={(e) => setForm({ ...form, facebookPage: e.target.value })} />
         </label>
-        <label className="flex items-center gap-2">
-          <span className="w-[120px] flex-none">Instagram account</span>
+        <label className="flex flex-col gap-1 @xl/page:flex-row @xl/page:items-center @xl/page:gap-2">
+          <span className="flex-none @xl/page:w-[120px]">Instagram account</span>
           <input className={input} value={form.instagramHandle} placeholder="@yourbusiness" onChange={(e) => setForm({ ...form, instagramHandle: e.target.value })} />
         </label>
-        <label className="flex items-center gap-2">
-          <span className="w-[120px] flex-none">Google Business name</span>
+        <label className="flex flex-col gap-1 @xl/page:flex-row @xl/page:items-center @xl/page:gap-2">
+          <span className="flex-none @xl/page:w-[120px]">Google Business name</span>
           <input className={input} value={form.googleBusinessName} placeholder="SJ Carpentry LLC" onChange={(e) => setForm({ ...form, googleBusinessName: e.target.value })} />
         </label>
       </div>

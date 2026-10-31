@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {registerHooks} from 'node:module';
 const stored=[],updates=[];
 globalThis.__marketingDb={
- query:async(sql,args)=>{if(sql.includes('INSERT INTO marketing_drafts'))stored.push(args);if(sql.includes('UPDATE marketing_drafts'))updates.push(args);return {rows:[{id:42}]};},
+ query:async(sql,args)=>{if(sql.includes('INSERT INTO marketing_drafts'))stored.push(args);if(sql.includes('UPDATE marketing_drafts'))updates.push([sql,...args]);return {rows:[{id:42}],rowCount:globalThis.__rowCount??1};},
  queryOne:async(sql)=>sql.includes('FROM projects')?{id:'project',name:'Kitchen',scope:'Cabinets',city:'St Paul'}:sql.includes('count(*)')?{n:1}:null,
 };
 registerHooks({resolve(s,c,n){
@@ -18,7 +18,7 @@ registerHooks({resolve(s,c,n){
  if(s.startsWith('@/'))return n(new URL('../'+s.slice(2)+'.ts',import.meta.url).href,c);
  return n(s,c);
 }});
-const {generateDraft,autoDraftBlogOnCompletion,autoDraftSocialOnCompletion,updateDraft}=await import('../lib/actions/marketing.ts');
+const {generateDraft,autoDraftBlogOnCompletion,autoDraftSocialOnCompletion,updateDraft,markDraft}=await import('../lib/actions/marketing.ts');
 test('manual and both completion paths store prose rather than an AI envelope',async()=>{
  globalThis.__aiCopy=JSON.stringify({blogPost:{title:'A kitchen',content:['First paragraph.','Second paragraph.']}});
  const created = await generateDraft('kitchen','blog');
@@ -34,5 +34,15 @@ test('manual and both completion paths store prose rather than an AI envelope',a
 
 test('editing repaired copy preserves an editable headline alongside the prose',async()=>{
  const r=await updateDraft(42,'Edited paragraphs.','A better kitchen');
- assert.equal(r.ok,true);assert.deepEqual(updates.at(-1),[42,'Edited paragraphs.','A better kitchen']);
+ assert.equal(r.ok,true);assert.deepEqual(updates.at(-1).slice(1),[42,'Edited paragraphs.','A better kitchen']);
+});
+
+test('Move to drafts only reopens a post marked posted by hand, never one the posting agent put up',async()=>{
+ globalThis.__rowCount=1;
+ assert.equal((await markDraft(7)).ok,true);
+ assert.match(updates.at(-1)[0],/publication_intent_id IS NULL/);
+ globalThis.__rowCount=0;
+ const r=await markDraft(8);
+ assert.equal(r.ok,false);assert.match(r.error,/posting agent put this one up/);
+ globalThis.__rowCount=undefined;
 });

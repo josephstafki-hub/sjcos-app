@@ -12,9 +12,8 @@ export function SettingsForm({action,children,className='',saveLabel='Save chang
   await runAction(()=>action(fd), {onSuccess:()=>{setDirty(false);setFeedback('Saved');router.refresh();},onError:message=>setFeedback(message)});
  });}} className={className}>
   <fieldset disabled={pending} className="contents">{children}</fieldset>
-  {feedback&&<p role="status" className="mt-3 text-body text-ink-2">{feedback}</p>}
   {<div role="status" className="col-span-full sticky bottom-3 z-10 mt-5 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-rule bg-card px-4 py-3 shadow-pop">
-   <span className="text-body text-ink-2">{pending?'Saving…':dirty?'Unsaved changes':feedback || 'No changes'}</span><div className="flex gap-2"><Button variant="ghost" disabled={pending} onClick={()=>{ref.current?.reset();setDirty(false);setFeedback('');}}>Discard</Button><Button type="submit" disabled={pending || !dirty}>{pending?'Saving…':saveLabel}</Button></div>
+   <span className={`text-body ${feedback&&feedback!=='Saved'&&!pending&&!dirty?'text-flag':'text-ink-2'}`}>{pending?'Saving…':dirty?'Unsaved changes':feedback || 'No changes'}</span><div className="flex gap-2"><Button variant="ghost" disabled={pending} onClick={()=>{ref.current?.reset();setDirty(false);setFeedback('');}}>Discard</Button><Button type="submit" disabled={pending || !dirty}>{pending?'Saving…':saveLabel}</Button></div>
   </div>}
  </form>;
 }

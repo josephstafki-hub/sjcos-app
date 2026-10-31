@@ -40,7 +40,12 @@ async function seed(client) {
   const est = await one(`INSERT INTO estimates (project_id, kind, status, title) VALUES ($1, 'formal', 'draft', 'Formal') RETURNING id`, [proj.id]);
   const wi = await one(`INSERT INTO work_items (title, status, project_id) VALUES ('ZZ roles to-do', 'queued', $1) RETURNING id`, [proj.id]);
   const draftWi = await one(`INSERT INTO work_items (title, status, project_id) VALUES ('ZZ roles draft', 'queued', $1) RETURNING id`, [proj.id]);
-  return { leadId: lead.id, projectId: proj.id, estimateId: Number(est.id), workItemId: wi.id, draftWorkItemId: draftWi.id };
+  // directory + sub-assignment tools (0061): a sub on the job, a vendor, a catalog item
+  await one(`INSERT INTO subs (slug, name, trade) VALUES ('zz-roles-sub', 'ZZ Roles Sub', 'Tile') RETURNING slug`);
+  await one(`INSERT INTO vendors (slug, name) VALUES ('zz-roles-vendor', 'ZZ Roles Vendor') RETURNING slug`);
+  const item = await one(`INSERT INTO catalog_items (name) VALUES ('ZZ roles tile') RETURNING id`);
+  await one(`INSERT INTO project_subs (project_id, sub_slug, role_label) VALUES ($1, 'zz-roles-sub', 'Tile') RETURNING sub_slug`, [proj.id]);
+  return { leadId: lead.id, projectId: proj.id, estimateId: Number(est.id), workItemId: wi.id, draftWorkItemId: draftWi.id, catalogItemId: Number(item.id) };
 }
 
 test("sjcos_agent: the real MCP server reads and writes what agents need, and nothing refuses it", { skip }, async () => {
@@ -126,6 +131,13 @@ test("sjcos_agent: the real MCP server reads and writes what agents need, and no
         await call("create_purchase_order", { project_slug: "zz-roles-job", title: "ZZ PO", vendor_name: "ZZ Lumber" }, { mustSucceed: false });
         await call("prepare_tentative_schedule", { project_slug: "zz-roles-job", phases: [{ key: "demo", label: "Demo", durationDays: 2 }] }, { mustSucceed: false });
         await call("procedure_checks", {}, { mustSucceed: false });
+        // directory upkeep (reversible): archive + restore, and a sub's job assignment out + back
+        for (const [name, key, value] of [["set_sub_archived", "sub_slug", "zz-roles-sub"], ["set_vendor_archived", "vendor_slug", "zz-roles-vendor"], ["set_catalog_material_archived", "material_id", ids.catalogItemId]]) {
+          await call(name, { [key]: value, archived: true });
+          await call(name, { [key]: value, archived: false });
+        }
+        await call("set_sub_assignment_active", { project_slug: "zz-roles-job", sub_slug: "zz-roles-sub", active: false });
+        await call("set_sub_assignment_active", { project_slug: "zz-roles-job", sub_slug: "zz-roles-sub", active: true });
         // converting a lead moves its client portal login (owner-run helper)
         const created = await call("create_project", { lead_slug: "zz-roles-lead" });
         if (created?.slug) {
@@ -144,6 +156,8 @@ test("sjcos_agent: the real MCP server reads and writes what agents need, and no
       assert.equal(await n(`SELECT count(*) AS n FROM work_items WHERE title = 'ZZ agent-made to-do'`), 1);
       assert.equal(await n(`SELECT count(*) AS n FROM estimate_lines WHERE estimate_id = $1`, [ids.estimateId]), 1);
       assert.equal(await n(`SELECT count(*) AS n FROM app_settings WHERE key = 'measure.known_tools'`), 1, "procedure_checks recorded its tool list through the helper");
+      assert.equal(await n(`SELECT count(*) AS n FROM project_subs WHERE sub_slug = 'zz-roles-sub'`), 1, "the sub's assignment came back from the trash");
+      assert.equal(await n(`SELECT count(*) AS n FROM subs WHERE slug = 'zz-roles-sub' AND archived_at IS NULL`), 1, "the sub was restored");
     },
     { fresh: true },
   );

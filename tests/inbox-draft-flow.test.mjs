@@ -600,3 +600,15 @@ test('unseen rich reader defaults to formatted, exposes failures and allows only
   assert.ok(find(n=>n.props?.children==='Text-only email · no HTML part'));assert.equal(retry(),undefined);
  } finally {cleanups.forEach(fn=>fn?.());cleanups=[];cardData=null;delete globalThis.__htmlRequest;}
 });
+
+test('unseen approval card discloses actual saved inputs separately from its recipients',async()=>{
+ viewerOwner=true;__draftServer.suggestions=[autoSuggestion('courtyard-sources',{basedOn:'Based on: project Pine courtyard, 2 earlier messages'})];
+ try {
+  mount('courtyard-sources');await settle();
+  const disclosure=find(n=>n.props?.['data-draft-sources']!==undefined);assert.ok(disclosure);
+  assert.deepEqual(nodes(disclosure).filter(n=>n.type==='li').map(n=>n.props.children),['Latest message when drafted','2 earlier messages','project Pine courtyard']);
+  const recipient=find(n=>n.type==='summary'&&n.props.title==='To tom@example.test');assert.ok(recipient);
+  assert.ok(!nodes(recipient).includes(disclosure));
+  const card=find(n=>n.props?.['data-draft-card']!==undefined);assert.doesNotMatch(card.props.className,/mt-auto/,'spare space follows the card');
+ }finally{viewerOwner=false;__draftServer.suggestions=[];}
+});

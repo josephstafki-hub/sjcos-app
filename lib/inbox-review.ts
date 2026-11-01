@@ -106,3 +106,13 @@ export function excerptLinks(text:string):{href:string;label:string}[] {
     try {const url=new URL(href);return [{href,label:`link · ${url.hostname.replace(/^www\./,'')}`}];}catch{return [];}
   });
 }
+
+/** This string is saved by the drafting path, including its bounded history
+ * count and matched record name. Never substitute today's loaded thread count. */
+export function draftInputSources(basedOn:string):string[] {
+  const value=basedOn.replace(/^Based on:\s*/i,'').trim();
+  const match=/^(.+), (\d+) earlier messages?$/.exec(value);
+  if(!match)return value?[value]:[];
+  const record=/^(?:email )?conversation$/i.test(match[1])?'':match[1];
+  return ['Latest message when drafted',`${match[2]} earlier message${match[2]==='1'?'':'s'}`,record].filter(Boolean);
+}

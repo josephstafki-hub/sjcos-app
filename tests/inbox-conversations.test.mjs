@@ -198,5 +198,6 @@ test('unseen MIME shapes decode entities, preserve comparison labels, and clean 
   messages=[msg('503','Notices <notice@example.test>')];messages[0].payload.parts=[{mimeType:'text/html',body:{data:Buffer.from('<script>void 0</script>').toString('base64url')}}];
   await assert.rejects(()=>gmail.fetchMessageHtml('unseen-empty','503'),/empty/);
   await assert.rejects(()=>gmail.fetchMessageHtml('unseen-empty','missing'),/unavailable/);
+  messages=[];await assert.rejects(()=>gmail.fetchThreadHtml('unseen-empty-thread'),/unavailable/);
  } finally {messages=previous;}
 });

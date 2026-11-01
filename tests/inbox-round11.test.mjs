@@ -49,3 +49,10 @@ test('attention groups stay contiguous, with newer dates inside each group',()=>
  assert.equal(attentionGroup(threads[2],drafts),'Needs attention');
  assert.deepEqual(orderedAttentionThreads(threads,drafts).map(t=>t.id),['draft-new','draft-old','alert','newest','waiting']);
 });
+
+test('draft sources use the saved drafting provenance, never counts from newer loaded mail',async()=>{
+ const {draftInputSources}=await import('../lib/inbox-review.ts');
+ assert.deepEqual(draftInputSources('Based on: project Pine courtyard, 2 earlier messages'),['Latest message when drafted','2 earlier messages','project Pine courtyard']);
+ assert.deepEqual(draftInputSources('Based on: email conversation, 0 earlier messages'),['Latest message when drafted','0 earlier messages']);
+ assert.deepEqual(draftInputSources('Legacy drafting notes'),['Legacy drafting notes']);
+});

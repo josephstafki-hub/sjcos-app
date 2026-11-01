@@ -533,7 +533,8 @@ export async function fetchConversation(threadId: string): Promise<EmailConversa
 export async function fetchThreadHtml(threadId: string): Promise<string> {
   const data = await cachedThread(threadId);
   const message = [...(data.messages ?? [])].sort((a,b) => Number(a.internalDate ?? 0) - Number(b.internalDate ?? 0)).at(-1);
-  return message?.id ? fetchMessageHtml(threadId, message.id) : '';
+  if(!message?.id)throw new Error('Message content is unavailable.');
+  return fetchMessageHtml(threadId,message.id);
 }
 export async function fetchMessageHtml(threadId: string, messageId: string): Promise<string> {
   const key = detailKey(threadId) + ':' + messageId;

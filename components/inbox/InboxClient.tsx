@@ -119,7 +119,7 @@ import {
   type InboxTab,
   type SavedInboxDraft,
 } from "@/lib/inbox-experience";
-import {reflowPlainText, draftRecipientName, askExcerpt, excerptLinks, rowActionTitle, automationState, composerMode, olderOtherMail, completeMailBatch, draftReviewSize, regenerateModel, restoreForwardChoices} from '@/lib/inbox-review';
+import {reflowPlainText, draftInputSources, draftRecipientName, askExcerpt, excerptLinks, rowActionTitle, automationState, composerMode, olderOtherMail, completeMailBatch, draftReviewSize, regenerateModel, restoreForwardChoices} from '@/lib/inbox-review';
 import {useComposerDraft, DraftSyncFooter} from './useComposerDraft';
 import {loadDrafts, dismissSuggestion} from '@/lib/actions/inbox-drafts';
 import {matchingSuggestion, draftRow} from '@/lib/inbox-draft-ui';
@@ -2769,11 +2769,15 @@ function ReaderBody({
             <p className="break-all">From {mailbox}</p>
             <label>To <input aria-label="AI reply recipient" type="email" value={toEmail} disabled={sending} onChange={e=>update({toEmail:e.target.value})} className="min-h-9 w-full bg-paper p-1"/></label>
             <label className="flex min-h-9 items-center gap-1"><input type="checkbox" checked={replyAll} disabled={sending} onChange={e=>{if(preview)saved.acceptSuggestion();saved.synced.setDraft(d=>({...d,cc:e.target.checked?reader.replyTarget?.cc??[]:[]}));}}/>Reply all{replyAll&&` · ${saved.synced.draft.cc.join(', ')}`}</label>
-            {display.basedOn&&<p title={`Based on: ${display.basedOn.replace(/^Based on:\s*/i,'')}`} className="break-words">Based on: {display.basedOn.replace(/^Based on:\s*/i,'')} <button type="button" className="min-h-9 text-accent-2 underline" onClick={()=>setShowSource(true)}>Read full message</button></p>}
           </div>
         </details>
         {!reviewExpanded&&<Button variant="ghost" icon={Maximize2} iconOnly aria-label="Expand review" title="Expand review" className="size-11 shrink-0" onClick={()=>setReviewExpanded(true)}/>}
       </div>
+      {display.basedOn&&<details data-draft-sources title={`Based on: ${display.basedOn.replace(/^Based on:\s*/i,'')}`} className="shrink-0 text-meta text-ink-3">
+        <summary className="min-h-8 cursor-pointer py-1 text-accent-2">Based on</summary>
+        <ul className="list-disc space-y-1 pb-2 pl-4">{draftInputSources(display.basedOn).map(source=><li key={source} className="break-words">{source}</li>)}</ul>
+        <button type="button" className="mb-1 min-h-9 text-accent-2 underline" onClick={()=>setShowSource(true)}>Read full message</button>
+      </details>}
       <DraftBody
         onFocus={() => window.dispatchEvent(new CustomEvent("sjc:inbox-surface", { detail: true }))}
         inputRef={approvalRef}

@@ -147,7 +147,7 @@ export async function sweepInboxDrafts() {
       const ready=readyDrafts.find(d=>d.thread_key===candidate.thread.id&&d.source_message_id===candidate.messageId);
       if(ready){
         const summary=ready.summary?.trim()??'';
-        const legacy=!summary||summary.toLowerCase().startsWith(`${candidate.thread.fromName.toLowerCase()}:`)||/^[…\s.]|^Based on:|^Draft/i.test(summary);
+        const legacy=!summary||summary.toLowerCase().startsWith(`${candidate.thread.fromName.toLowerCase()}:`)||/^[…\s.]|^Based on:|^Drafted with\b/i.test(summary);
         if(!legacy){counts.skipped++;continue;}
         const message=data.readers[candidate.thread.id]?.messages.find(m=>m.id===candidate.messageId);
         const inbound=splitQuotedText(message?.body??[]).text;

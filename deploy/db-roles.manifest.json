@@ -568,7 +568,8 @@
       ],
       "sjcos_readonly": [
         "SELECT"
-      ]
+      ],
+      "note": "Portal retry lineage and delivery state use existing website writes; no new login privileges."
     },
     "chat_reads": {
       "sjcos_agent": [
@@ -2611,7 +2612,8 @@
       ],
       "sjcos_readonly": [
         "SELECT"
-      ]
+      ],
+      "note": "Retry lineage is supplied by website sends; no new login write path or privileges."
     },
     "sms_threads": {
       "sjcos_agent": [
@@ -3003,6 +3005,18 @@
         "INSERT",
         "UPDATE"
       ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "inbox_preferences": {
+      "note": "Mailbox-scoped inbox screening and attention choices. Website only; no agent/worker write path.",
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "inbox_drafts": {
+      "note": "Mailbox/user scoped synced drafts and AI suggestions, including exact source references. Website only; no agent/worker write path.",
       "sjcos_readonly": [
         "SELECT"
       ]

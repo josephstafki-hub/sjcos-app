@@ -277,3 +277,8 @@ details[open] > summary:not(.list-none)::before {
 @media (prefers-reduced-motion: reduce) {
   details > summary:not(.list-none)::before { transition: none; }
 }
+
+/* Mail layout retains its own spacing; wide receipts scroll in the reader. */
+.email-html table { table-layout: auto; }
+.email-html td, .email-html th { padding: .35rem .5rem; vertical-align: top; }
+.email-html { overflow-wrap: break-word; }

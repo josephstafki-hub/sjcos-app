@@ -39,6 +39,7 @@ export interface AiToggle {
 /** The AI toggle set, with stable keys + defaults (used when a row is
  *  absent from app_settings). */
 const AI_TOGGLES: { key: string; label: string; default: boolean }[] = [
+  { key: "ai.inboxAutoDraft", label: "Inbox auto-drafts", default: true },
   { key: "ai.draftReplies", label: "Draft client replies by default", default: true },
   { key: "ai.autoPinWatchouts", label: "Auto-pin watchouts in team chat", default: true },
   { key: "ai.summarizeVoicemails", label: "Auto-summarize incoming voicemails", default: true },
@@ -94,6 +95,7 @@ export interface SettingsData {
   aiToggles: AiToggle[];
   /** Which agent drafts the same-day first response to inbound leads. */
   leadFirstResponseModel: "claude" | "hermes";
+  inboxDraftModel: "claude" | "hermes";
   notifyToggles: AiToggle[];
   /** Company / contract boilerplate used by generated contracts + SOWs (B5). */
   companyDocs: {
@@ -269,6 +271,7 @@ export async function getSettingsData(): Promise<SettingsData> {
       },
       { name: "Google Drive", sub: "Doc archive (deferred)", connected: false },
     ],
+    inboxDraftModel: get("ai.inboxDraftModel") === "hermes" ? "hermes" : "claude",
     leadFirstResponseModel: get("ai.leadFirstResponseModel") === "hermes" ? "hermes" : "claude",
     aiToggles: AI_TOGGLES.map((t) => ({
       key: t.key,

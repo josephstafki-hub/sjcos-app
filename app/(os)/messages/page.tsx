@@ -6,7 +6,9 @@ import { requireAccess } from "@/lib/dal";
 
 export const dynamic = "force-dynamic";
 
-export default async function MessagesPage() {
+export default async function MessagesPage({searchParams}:{searchParams:Promise<{thread?:string}>}) {
+  const {thread}=await searchParams;
+  const initialThreadId=thread&&/^\d+$/.test(thread)?Number(thread):undefined;
   await requireAccess("comms");
   const [threads, linkOptions] = await Promise.all([getSmsThreads(), getSmsLinkOptions()]);
   const status = smsStatus();
@@ -14,6 +16,7 @@ export default async function MessagesPage() {
   return (
     <Shell breadcrumb="MESSAGES · SMS">
       <MessagesClient
+        initialThreadId={initialThreadId}
         threads={threads}
         linkOptions={linkOptions}
         configured={smsConfigured()}

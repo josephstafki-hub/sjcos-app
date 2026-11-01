@@ -29,7 +29,15 @@ async function uniqueSlug(name: string): Promise<string> {
 }
 
 /** Onboard a sub from the directory's "Onboard a sub" form, then open them. */
-export async function createSub(formData: FormData) {
+export async function createSub(formData: FormData): Promise<void> {
+  const slug = await createSubRecord(formData);
+  if (slug) redirect(`/subs/${slug}`);
+}
+export async function createSubFromInbox(formData: FormData): Promise<{slug?:string}> {
+  return {slug: await createSubRecord(formData)};
+}
+
+async function createSubRecord(formData: FormData) {
   await requireAccess("subs");
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return;
@@ -46,7 +54,7 @@ export async function createSub(formData: FormData) {
   );
 
   revalidatePath("/subs");
-  redirect(`/subs/${slug}`);
+  return slug;
 }
 
 /** Save the owner's private notes on a sub. Owner-gated. */

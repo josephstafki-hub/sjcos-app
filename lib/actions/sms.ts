@@ -31,7 +31,7 @@ export async function loadSmsThread(id: number, markRead = true): Promise<{ mess
   return { messages: data.messages, unreadCleared };
 }
 
-async function ownerSend(to: string, body: string, contactName?: string | null): Promise<{ ok: boolean; threadId?: number; error?: string }> {
+async function ownerSend(to: string, body: string, contactName?: string | null, retryOfId?:string): Promise<{ ok: boolean; threadId?: number; error?: string }> {
   if (!smsConfigured()) {
     return { ok: false, error: connectionCopy("sms").error };
   }
@@ -48,7 +48,7 @@ async function ownerSend(to: string, body: string, contactName?: string | null):
     maxUses: 1,
     expiresInMinutes: 10,
   });
-  const r = await sendSms({ to: norm.e164, body, grantId: grant.id, actor: "owner", contactName });
+  const r = await sendSms({ to: norm.e164, body, grantId: grant.id, actor: "owner", contactName, retryOfId });
   revalidatePath("/messages");
   if (!r.ok) return { ok: false, threadId: r.threadId, error: r.error };
   return { ok: true, threadId: r.threadId };
@@ -71,11 +71,11 @@ export async function startSmsThread(phone: string, body: string, contactName: s
 }
 
 /** Send a reply on an SMS thread. Owner-only. */
-export async function sendSmsReply(threadId: number, body: string): Promise<{ ok: boolean; error?: string }> {
+export async function sendSmsReply(threadId: number, body: string, retryOfId?:string): Promise<{ ok: boolean; error?: string }> {
   await requireAccess("comms");
   const data = await getSmsThread(threadId);
   if (!data) return { ok: false, error: "Thread not found." };
-  return ownerSend(data.thread.phone, body, data.thread.contactName);
+  return ownerSend(data.thread.phone, body, data.thread.contactName,retryOfId);
 }
 
 const LINK_TYPES = ["lead", "sub", "client", "project", "vendor"] as const;

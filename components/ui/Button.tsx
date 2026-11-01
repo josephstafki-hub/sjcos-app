@@ -43,8 +43,11 @@ const ICON_SIZES: Record<ButtonSize, string> = {
 export function Button({
   children, variant, size = "md", icon: Icon, iconOnly, className = "", ...props
 }: ButtonProps) {
+  // `hidden` from the caller must win (e.g. "hidden @4xl/page:inline-flex"):
+  // our own inline-flex would otherwise override it, as the two have no order.
+  const hiddenByCaller = /(^|\s)hidden(\s|$)/.test(className);
   const classes = [
-    "inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md font-sans font-semibold transition-colors",
+    `${hiddenByCaller ? "" : "inline-flex "}shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md font-sans font-semibold transition-colors`,
     "disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50",
     "focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus",
     VARIANTS[variant ?? (iconOnly ? "ghost" : "primary")],

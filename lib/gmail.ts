@@ -1,3 +1,5 @@
+import { cleanEmailText, htmlToEmailText, hasEmailContent } from './inbox-email-content.ts';
+import { foldEmailQuotes } from './inbox-email-html';
 // Gmail connector for the unified inbox.
 //
 // This is the ONLY module that imports the Google SDK. It is server-only (the
@@ -21,6 +23,7 @@ import { google } from "googleapis";
 import type { gmail_v1 } from "googleapis";
 import sanitizeHtml from "sanitize-html";
 import { activeMailbox } from "./mailbox";
+import { emailAddress, splitAddresses, resolveReplyTarget, validRecipient, isAutomatedSender, isNoReplyAddress } from "./inbox-rules";
 
 export const GMAIL_SCOPES = [
   // modify = read + label/state changes (star, archive, mark read, important,
@@ -119,6 +122,31 @@ export async function exchangeCodeForMailbox(
 
 /** Neutral, presentation-free view of a Gmail thread. lib/inbox.ts maps this
  *  onto the InboxThread / ThreadReader shapes the UI consumes. */
+export interface ConversationMessage {
+  hasUnsubscribe?:boolean;
+  automated?: boolean;
+  id: string;
+  fromName: string;
+  fromEmail: string;
+  to: string[];
+  cc: string[];
+  date: number;
+  body: string[];
+  snippet: string;
+  outbound: boolean;
+  replyTo: string;
+  messageId: string;
+  references: string;
+  attachments: { id: string; name: string; size: number; type: string }[];
+}
+export interface EmailConversation {
+  id: string;
+  subject: string;
+  messages: ConversationMessage[];
+  ownAddresses: string[];
+  category: GmailCategory;
+}
+
 export interface RawGmailThread {
   id: string;
   fromName: string;
@@ -143,6 +171,8 @@ export interface RawGmailThread {
   labelIds: string[];
   /** Plain-text body paragraphs of the latest message. */
   bodyParas: string[];
+  messages?: ConversationMessage[];
+  ownAddresses?: string[];
 }
 
 export type GmailCategory =
@@ -328,13 +358,12 @@ function extractBody(payload: gmail_v1.Schema$MessagePart | undefined): string[]
   }
   if (!text.trim()) return [];
 
-  return text
+  return cleanEmailText(text)
     .replace(/\r\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .split(/\n{2,}/)
     .map((p) => p.trim())
-    .filter(Boolean)
-    .slice(0, 14);
+    .filter(Boolean);
 }
 
 /** Reject parts that aren't real prose — both true binary (control/replacement
@@ -353,7 +382,8 @@ function looksLikeText(s: string): boolean {
   if (control / sample.length >= 0.05) return false;
 
   const tokens = sample.split(/\s+/).filter(Boolean);
-  if (tokens.length < 3) return false;
+  // A one-word acknowledgement is still a complete message.
+  if (tokens.length < 3) return sample.length < 160 && !/^[A-Za-z0-9+/=]{40,}$/.test(sample);
   const wordlike = tokens.filter((t) =>
     /^[a-zA-Z][a-zA-Z.,!?'"-]*$/.test(t),
   ).length;
@@ -372,21 +402,7 @@ function findPart(
   return null;
 }
 
-function stripHtml(html: string): string {
-  return html
-    .replace(/<style[\s\S]*?<\/style>/gi, "")
-    .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<\/(p|div|tr|h[1-6]|li)>/gi, "\n")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&quot;/gi, '"')
-    .replace(/[ \t]+/g, " ");
-}
+function stripHtml(html: string): string { return htmlToEmailText(html); }
 
 // ─── Rich HTML body (with images) — resolved lazily when a thread is opened ──
 
@@ -421,7 +437,7 @@ function collectInlineImages(part: gmail_v1.Schema$MessagePart | undefined, out:
  *  event handlers, and unknown schemes; keeps formatting + images (http(s)/data).
  *  Images are constrained to the container width via an inline max-width. */
 function sanitizeEmailHtml(html: string): string {
-  return sanitizeHtml(html, {
+  return sanitizeHtml(foldEmailQuotes(html), {
     allowedTags: sanitizeHtml.defaults.allowedTags.concat(["img", "h1", "h2", "span", "u", "font", "center"]),
     allowedAttributes: {
       "*": ["style", "align", "valign", "width", "height", "bgcolor", "color"],
@@ -434,8 +450,19 @@ function sanitizeEmailHtml(html: string): string {
       img: ["src", "alt", "width", "height", "style"],
       font: ["color", "face", "size"],
     },
+    // Email may format its own tables and type, but cannot position an overlay
+    // over app controls or inject active CSS. Media URLs are filtered separately.
+    allowedStyles: { '*': Object.fromEntries([
+      'width','min-width','max-width','height','min-height','max-height',
+      'padding','padding-top','padding-right','padding-bottom','padding-left',
+      'margin','margin-top','margin-right','margin-bottom','margin-left',
+      'border','border-top','border-right','border-bottom','border-left','border-color','border-width','border-style','border-radius','border-collapse','border-spacing',
+      'table-layout','vertical-align','text-align','text-decoration','text-transform','text-indent',
+      'font-family','font-size','font-weight','font-style','line-height','letter-spacing','white-space','word-break','overflow-wrap','color',
+      'background','background-color','background-image','background-size','background-repeat','background-position','display',
+    ].map(property=>[property,[/^(?!.*(?:expression|javascript:|@import|behavior|binding))[^{}]+$/i]])) },
     allowedSchemes: ["http", "https", "mailto", "tel"],
-    allowedSchemesByTag: { img: ["http", "https", "data"] },
+    allowedSchemesByTag: { img: ["http", "https", "data", "cid"] },
     transformTags: {
       a: (tagName, attribs) => ({
         tagName,
@@ -452,28 +479,94 @@ function sanitizeEmailHtml(html: string): string {
 /** Full sanitized HTML body of a thread's latest message, with cid: inline
  *  images resolved to data URIs. Returns "" when there's no HTML part. Resolved
  *  lazily (on thread open) so the inbox list fetch stays cheap. */
+// Short-lived payload + HTML caches, scoped to the actual mailbox credential.
+// List loads already have full payloads: seed them instead of refetching on open.
+const conversationCache = new Map<string, { at: number; data: Promise<gmail_v1.Schema$Thread> }>();
+const messageHtmlCache = new Map<string, { at: number; data: Promise<string> }>();
+function trimDetailCaches() {
+  for (const cache of [conversationCache, messageHtmlCache]) {
+    for (const [key, entry] of cache) if (Date.now()-entry.at >= 30_000) cache.delete(key);
+    while (cache.size >= 200) cache.delete(cache.keys().next().value!);
+  }
+}
+function detailKey(id: string): string { return JSON.stringify([activeRefreshToken(), id]); }
+function seedConversation(id: string, data: gmail_v1.Schema$Thread) {
+  trimDetailCaches();
+  conversationCache.set(detailKey(id), { at: Date.now(), data: Promise.resolve(data) });
+}
+function cachedThread(id: string): Promise<gmail_v1.Schema$Thread> {
+  const key = detailKey(id);
+  const hit = conversationCache.get(key);
+  if (hit && Date.now() - hit.at < 30_000) return hit.data;
+  trimDetailCaches();
+  const data = withGmailRetry("threads.get", () => gmail().users.threads.get({ userId: "me", id, format: "full" })).then(r => r.data);
+  conversationCache.set(key, { at: Date.now(), data });
+  data.catch(() => { if (conversationCache.get(key)?.data === data) conversationCache.delete(key); });
+  return data;
+}
+function conversationOf(id: string, data: gmail_v1.Schema$Thread, me: string): EmailConversation {
+  const sorted = [...(data.messages ?? [])].sort((a,b) => Number(a.internalDate ?? 0) - Number(b.internalDate ?? 0));
+  const ownAddresses = [...new Set([me, activeMailbox()?.email ?? '', ...sorted.filter(m => m.labelIds?.includes('SENT')).map(m => parseFrom(header(m,'From')).email)].filter(Boolean).map(s => s.toLowerCase()))];
+  const messages = sorted.map((m): ConversationMessage => {
+    const from = parseFrom(header(m,'From'));
+    return {
+      id: m.id ?? '', fromName: from.name, fromEmail: from.email,
+      to: splitAddresses(header(m,'To')), cc: splitAddresses(header(m,'Cc')),
+      date: Number(m.internalDate ?? 0), body: extractBody(m.payload), snippet: m.snippet ?? '',
+      outbound: Boolean(m.labelIds?.includes('SENT')) || ownAddresses.includes(from.email.toLowerCase()),
+      hasUnsubscribe:Boolean(header(m,'List-Unsubscribe')),
+      automated: isAutomatedSender(from.email, undefined, {
+        headers: Object.fromEntries((m.payload?.headers ?? []).map(h => [h.name ?? '', h.value ?? ''])),
+        labelIds: m.labelIds ?? [], body: extractBody(m.payload).join('\n') || m.snippet || '',
+        conversational: /^(?:re|fwd?|aw)\s*:/i.test(header(m,'Subject')) || Boolean(header(m,'In-Reply-To')),
+      }),
+      replyTo: header(m,'Reply-To'), messageId: header(m,'Message-ID'), references: header(m,'References'),
+      attachments: collectFileParts(m.payload).map(p => ({id:p.body?.attachmentId ?? p.partId ?? '', name:p.filename ?? '',size:p.body?.size ?? 0,type:p.mimeType ?? 'application/octet-stream'})),
+    };
+  });
+  return { id, subject: header(sorted.at(-1),'Subject') || '(no subject)', messages, ownAddresses, category:deriveCategory(sorted.flatMap(m=>m.labelIds ?? [])) };
+}
+export async function fetchConversation(threadId: string): Promise<EmailConversation> {
+  const [data, me] = await Promise.all([cachedThread(threadId), fetchProfileEmail()]);
+  return conversationOf(threadId, data, me);
+}
 export async function fetchThreadHtml(threadId: string): Promise<string> {
+  const data = await cachedThread(threadId);
+  const message = [...(data.messages ?? [])].sort((a,b) => Number(a.internalDate ?? 0) - Number(b.internalDate ?? 0)).at(-1);
+  if(!message?.id)throw new Error('Message content is unavailable.');
+  return fetchMessageHtml(threadId,message.id);
+}
+export async function fetchMessageHtml(threadId: string, messageId: string): Promise<string> {
+  const key = detailKey(threadId) + ':' + messageId;
+  const hit = messageHtmlCache.get(key);
+  if (hit && Date.now() - hit.at < 30_000) return hit.data;
+  trimDetailCaches();
+  const data = renderMessageHtml(threadId, messageId);
+  messageHtmlCache.set(key, {at:Date.now(),data});
+  data.catch(() => { if (messageHtmlCache.get(key)?.data === data) messageHtmlCache.delete(key); });
+  return data;
+}
+async function renderMessageHtml(threadId: string, messageId: string): Promise<string> {
   const api = gmail();
-  const { data } = await withGmailRetry("threads.get", () =>
-    api.users.threads.get({ userId: "me", id: threadId, format: "full" }),
-  );
-  const msgs = data.messages ?? [];
-  const latest = msgs[msgs.length - 1];
-  if (!latest?.payload) return "";
-
-  const htmlData = findPart(latest.payload, "text/html");
-  if (!htmlData) return "";
+  const data = await cachedThread(threadId);
+  const message = data.messages?.find(m => m.id === messageId);
+  if (!message?.payload) throw new Error('Message content is unavailable.');
+  const htmlData = findPart(message.payload, "text/html");
+  if (!htmlData) {
+    const hasHtmlPart=(part:gmail_v1.Schema$MessagePart):boolean=>part.mimeType==='text/html'||Boolean(part.parts?.some(hasHtmlPart));
+    if(hasHtmlPart(message.payload))throw new Error('Formatted message part is empty or unavailable.');
+    return '';
+  }
   let html = Buffer.from(htmlData, "base64url").toString("utf-8");
 
   // Inline cid: images (signature logos etc.) → data URIs so they render.
-  const inlines = collectInlineImages(latest.payload);
-  if (inlines.length && latest.id) {
-    await Promise.all(
-      inlines.map(async (img) => {
+  const inlines = collectInlineImages(message.payload);
+  if (inlines.length && message.id) {
+    await mapLimit(inlines, 4, async (img) => {
         try {
           const att = await api.users.messages.attachments.get({
             userId: "me",
-            messageId: latest.id!,
+            messageId: message.id!,
             id: img.attachmentId,
           });
           const b64 = (att.data.data ?? "").replace(/-/g, "+").replace(/_/g, "/");
@@ -484,11 +577,12 @@ export async function fetchThreadHtml(threadId: string): Promise<string> {
         } catch {
           /* leave the cid ref; it just won't render */
         }
-      }),
-    );
+    });
   }
 
-  return sanitizeEmailHtml(html);
+  const sanitized = sanitizeEmailHtml(html);
+  if (!hasEmailContent(sanitized)) throw new Error('Formatted message content is empty.');
+  return sanitized;
 }
 
 // ─── One message, for filing (Unsorted documents) ────────────────────────────
@@ -557,7 +651,7 @@ export async function fetchMessageForFiling(messageId: string): Promise<FilingMe
   }
   const plainData = payload ? findPart(payload, "text/plain") : null;
   const plain = plainData ? Buffer.from(plainData, "base64url").toString("utf-8") : "";
-  const text = plain && looksLikeText(plain) ? plain : html ? stripHtml(html) : plain;
+  const text = cleanEmailText(plain && looksLikeText(plain) ? plain : html ? stripHtml(html) : plain);
 
   const attachments: FilingAttachment[] = [];
   for (const part of collectFileParts(payload)) {
@@ -685,8 +779,9 @@ export async function fetchThreadPage(
   );
   const ids = (list.data.threads ?? []).map((t) => t.id!).filter(Boolean);
 
-  const threads = await Promise.all(
-    ids.map(async (id) => {
+  // Eight at a time: a 50-thread page fanned out at once tripped Gmail's per-user
+  // concurrency limit (shared with the live site's cron jobs).
+  const threads = await mapLimit(ids, 8, async (id) => {
       const { data } = await withGmailRetry("threads.get", () =>
         api.users.threads.get({
           userId: "me",
@@ -694,7 +789,9 @@ export async function fetchThreadPage(
           format: "full",
         }),
       );
-      const msgs = data.messages ?? [];
+      seedConversation(id, data);
+      const conversation = conversationOf(id, data, me);
+      const msgs = [...(data.messages ?? [])].sort((a,b) => Number(a.internalDate ?? 0)-Number(b.internalDate ?? 0));
       const latest = msgs[msgs.length - 1];
       // Union every label id across the thread so a single read/starred/snoozed
       // message colours the whole conversation (matches Gmail's own behaviour).
@@ -716,13 +813,14 @@ export async function fetchThreadPage(
         important: labelIds.includes("IMPORTANT"),
         inInbox: labelIds.includes("INBOX"),
         snoozed: labelIds.includes("SNOOZED"),
-        outbound: email.toLowerCase() === me,
+        outbound: conversation.messages.at(-1)?.outbound ?? email.toLowerCase() === me,
         category: deriveCategory(labelIds),
         labelIds,
         bodyParas: extractBody(latest?.payload),
+        messages: conversation.messages,
+        ownAddresses: conversation.ownAddresses,
       } satisfies RawGmailThread;
-    }),
-  );
+    });
   return {
     threads: threads.sort((a, b) => b.date - a.date),
     nextPageToken: list.data.nextPageToken ?? undefined,
@@ -841,6 +939,9 @@ function buildMime(
   // Renders the message body: a plain text/plain part, or — when an HTML
   // alternative is given (P2-5 newsletter open-pixel) — a multipart/alternative
   // wrapping text + HTML so clients that hide images still get the text.
+  for(const file of attachments ?? []){
+    if(/[\r\n"\\]/.test(file.filename)|| !/^[\w.+-]+\/[\w.+-]+$/.test(file.mimeType))throw Error('Invalid attachment headers.');
+  }
   const altBoundary = `sjcos_alt_${Math.random().toString(36).slice(2)}`;
   const bodyLines = bodyHtml
     ? [
@@ -888,38 +989,42 @@ function buildMime(
   return parts.join("\r\n");
 }
 
-/** buildMime, base64url-encoded for the JSON `raw` field. */
-function buildRaw(
-  to: string,
-  subject: string,
-  bodyText: string,
-  attachments?: MailAttachment[],
-  bodyHtml?: string,
-): string {
-  return Buffer.from(buildMime(to, subject, bodyText, attachments, bodyHtml)).toString("base64url");
-}
-
 /** Send a reply on an existing thread. Posts with the threadId so Gmail keeps
  *  it in the same conversation. */
 export async function sendReply(opts: {
   threadId: string;
-  toEmail: string;
-  subject: string;
+  toEmail?: string;
+  subject?: string;
   bodyText: string;
+  replyAll?: boolean;
+  attachments?: MailAttachment[];
 }): Promise<void> {
-  const subject = opts.subject.startsWith("Re:")
-    ? opts.subject
-    : `Re: ${opts.subject}`;
-  const api = gmail();
-  await withGmailRetry("messages.send", () =>
-    api.users.messages.send({
-      userId: "me",
-      requestBody: {
-        raw: buildRaw(opts.toEmail, subject, opts.bodyText),
-        threadId: opts.threadId,
-      },
-    }),
-  );
+  const conversation = await fetchConversation(opts.threadId);
+  const target = resolveReplyTarget(conversation.messages, conversation.ownAddresses);
+  const incoming = [...conversation.messages].reverse().find(m => !m.outbound);
+  if (!target) throw new Error("Automated message — no reply needed.");
+  const to = opts.toEmail?.trim() || target.toEmail;
+  if (isNoReplyAddress(to)) throw new Error("That address doesn't accept replies.");
+  if (!validRecipient(to)) throw new Error("Enter a valid recipient email.");
+  const subject = /^re:/i.test(conversation.subject) ? conversation.subject : `Re: ${conversation.subject}`;
+  const extra = [
+    ...(opts.replyAll && target.cc.length ? [`Cc: ${target.cc.join(', ')}`] : []),
+    ...(target.inReplyTo ? [`In-Reply-To: ${target.inReplyTo}`] : []),
+    ...(target.references ? [`References: ${target.references}`] : []),
+  ];
+  const mime = [...extra, buildMime(to, subject, opts.bodyText, opts.attachments)].join('\r\n');
+  await sendMime(mime, opts.threadId);
+  conversationCache.delete(detailKey(opts.threadId));
+}
+
+/** On opening a website inquiry, one address search discovers older mail too.
+ * Headers/bodies are not fetched: no per-thread fan-out or render polling. */
+export async function findCorrespondence(email:string):Promise<{id:string;subject:string}[]> {
+  if(!validRecipient(email))throw Error('Invalid inquiry address.');
+  const {data}=await withGmailRetry('threads.list(inquiry)',()=>gmail().users.threads.list({
+    userId:'me',maxResults:20,q:`-in:spam -in:trash {from:${email} to:${email}}`,
+  }));
+  return (data.threads ?? []).filter(t=>Boolean(t.id)).map(t=>({id:t.id!,subject:'Email conversation'}));
 }
 
 /** Compose and send a brand-new email (not part of an existing thread). */
@@ -932,31 +1037,28 @@ export interface MailAttachment {
 
 export async function sendNewEmail(opts: {
   to: string;
+  cc?: string;
   subject: string;
   bodyText: string;
   attachments?: MailAttachment[];
   bodyHtml?: string;
-}): Promise<void> {
-  const mime = buildMime(opts.to, opts.subject || "(no subject)", opts.bodyText, opts.attachments, opts.bodyHtml);
-  // The JSON endpoint rejects large payloads, so anything attachment-heavy
-  // (e.g. a bid packet with a multi-MB plan set) goes through the media-upload
-  // path instead — that one takes the raw RFC-2822 bytes, no base64 field.
+}): Promise<{threadId?:string}> {
+  if (!splitAddresses(opts.to).length || splitAddresses(opts.to).some(v=>!validRecipient(emailAddress(v))) || /[\r\n]/.test(opts.to)) throw Error("Enter a valid recipient email.");
+  if (opts.cc && (/[\r\n]/.test(opts.cc) || splitAddresses(opts.cc).some(v=>!validRecipient(emailAddress(v))))) throw Error("Enter valid Cc email addresses.");
+  if (/[\r\n]/.test(opts.subject)) throw Error("Invalid subject.");
+  const mime = (opts.cc ? `Cc: ${opts.cc}\r\n` : "") + buildMime(opts.to, opts.subject || "(no subject)", opts.bodyText, opts.attachments, opts.bodyHtml);
+  return sendMime(mime);
+}
+
+/** Both replies and new mail use the same upload/JSON transport. */
+async function sendMime(mime:string,threadId?:string):Promise<{threadId?:string}> {
   const api = gmail();
-  if (Buffer.byteLength(mime) > 4 * 1024 * 1024) {
-    await withGmailRetry("messages.send(media)", () =>
-      api.users.messages.send({
-        userId: "me",
-        media: { mimeType: "message/rfc822", body: mime },
-      }),
-    );
-  } else {
-    await withGmailRetry("messages.send", () =>
-      api.users.messages.send({
-        userId: "me",
-        requestBody: { raw: Buffer.from(mime).toString("base64url") },
-      }),
-    );
-  }
+  const response = await withGmailRetry("messages.send", () => api.users.messages.send(
+    Buffer.byteLength(mime)>4*1024*1024
+      ? {userId:"me",requestBody:threadId?{threadId}:undefined,media:{mimeType:"message/rfc822",body:mime}}
+      : {userId:"me",requestBody:{raw:Buffer.from(mime).toString("base64url"),...(threadId?{threadId}:{})}}
+  ));
+  return {threadId:response.data.threadId ?? undefined};
 }
 
 // ─── Mutations (require the gmail.modify scope) ──────────────────────────────
@@ -986,4 +1088,19 @@ export async function trashThread(threadId: string): Promise<void> {
 export async function gmailInboxUnread(): Promise<number> {
   const { data } = await gmail().users.labels.get({ userId: "me", id: "INBOX" });
   return data.threadsUnread ?? 0;
+}
+
+/** One authorized attachment requested on click, using the cached message envelope. */
+export async function fetchInboxAttachment(threadId: string, messageId: string, attachmentId: string): Promise<{bytes:Buffer;name:string;type:string}> {
+  const thread=await cachedThread(threadId);
+  const message=thread.messages?.find(m=>m.id===messageId);
+  const part=collectFileParts(message?.payload).find(p=>(p.body?.attachmentId??p.partId)===attachmentId);
+  if(!message||!part)throw Error('Attachment not found.');
+  let data=part.body?.data;
+  if(!data&&part.body?.attachmentId){
+    const result=await withGmailRetry('attachments.get',()=>gmail().users.messages.attachments.get({userId:'me',messageId,id:part.body!.attachmentId!}));
+    data=result.data.data??undefined;
+  }
+  if(!data)throw Error('Attachment unavailable.');
+  return {bytes:Buffer.from(data,'base64url'),name:part.filename||'attachment',type:part.mimeType||'application/octet-stream'};
 }

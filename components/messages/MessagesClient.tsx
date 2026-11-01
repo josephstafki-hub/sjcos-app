@@ -45,12 +45,12 @@ function threadTitle(t: SmsThreadSummary): string {
 }
 
 export function MessagesClient({
-  threads: initialThreads,
+  threads: initialThreads, initialThreadId,
   linkOptions,
   configured,
   voiceConfigured,
 }: {
-  threads: SmsThreadSummary[];
+  threads: SmsThreadSummary[];initialThreadId?:number;
   linkOptions: SmsLinkOptions;
   configured: boolean;
   problems: string[];
@@ -59,7 +59,7 @@ export function MessagesClient({
   // Follows the server: a new inbound text refreshes the page (LiveUpdates)
   // and the rail re-sorts / shows its unread dot.
   const [threads, setThreads] = useServerState(initialThreads);
-  const firstOpen = initialThreads.find((t) => !t.blockedAt) ?? null;
+  const firstOpen = initialThreads.find(t=>t.id===initialThreadId&&!t.blockedAt) ?? initialThreads.find((t) => !t.blockedAt) ?? null;
   const [selectedId, setSelectedId] = useState<number | null>(firstOpen?.id ?? null);
   const [messages, setMessages] = useState<SmsMessage[]>([]);
   const [loading, setLoading] = useState(firstOpen != null);
@@ -77,7 +77,7 @@ export function MessagesClient({
   // On phones the rail + conversation can't sit side by side; show one at a time
   // (opening a thread reveals the conversation, the back button returns to the
   // list). Desktop keeps both panes — this only toggles below `lg`.
-  const [mobileThread, setMobileThread] = useState(false);
+  const [mobileThread, setMobileThread] = useState(Boolean(initialThreadId&&firstOpen?.id===initialThreadId));
   const [, start] = useTransition();
 
   const selected = threads.find((t) => t.id === selectedId) ?? null;
@@ -105,6 +105,8 @@ export function MessagesClient({
       alive = false;
     };
   }, [selectedId, selectedLastAt, mobileThread]);
+
+  useEffect(()=>{if(!loading&&window.location.hash.startsWith('#sms-message-'))document.getElementById(window.location.hash.slice(1))?.scrollIntoView({block:'center'});},[loading,messages]);
 
   function openThread(id: number) {
     setMobileThread(true);
@@ -428,7 +430,7 @@ export function MessagesClient({
                 <div className="py-10 text-center text-meta text-ink-3">No messages in this thread yet.</div>
               ) : (
                 messages.map((m) => (
-                  <div key={m.id} className={`flex ${m.direction === "out" ? "justify-end" : "justify-start"}`}>
+                  <div key={m.id} id={`sms-message-${m.id}`} className={`flex ${m.direction === "out" ? "justify-end" : "justify-start"}`}>
                     <div
                       className={`max-w-[68%] rounded-lg px-3.5 py-2 text-body ${
                         m.direction === "out"

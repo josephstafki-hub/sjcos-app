@@ -143,7 +143,7 @@ function NavLink({ item, pathname, collapsed }: { item: NavItem; pathname: strin
   const active = isActive(pathname, item.href);
   const Icon = item.icon;
   const classes = `flex h-8 flex-none items-center rounded-md font-sans text-body font-medium transition-colors ${collapsed ? "justify-center" : "gap-2 px-2.5"}`;
-  const title = `${item.label}${item.badge ? ` · ${item.badge} unread` : ""}${item.tag ? ` · ${item.tag}` : ""}`;
+  const title = `${item.label}${item.badge ? ` · ${item.badge}${item.href==='/inbox'?' need me · loaded':' unread'}` : ""}${item.tag ? ` · ${item.tag}` : ""}`;
 
   if (item.disabled) return (
     <div title={title} aria-label={title} aria-disabled="true" className={`${classes} cursor-default text-sidebar-text-dim`}>
@@ -205,6 +205,12 @@ export function Sidebar({ user, collapsible = false }: { user: SidebarUser; coll
   const tools = visible(TOOLS);
   const external = perms ? [] : EXTERNAL;
   const [counts, setCounts] = useState<NavCounts | null>(null);
+  const [inboxNeeds,setInboxNeeds]=useState<number|null>(null);
+  useEffect(()=>{
+    const update=(event:Event)=>{const count=(event as CustomEvent<number>).detail;if(Number.isFinite(count))setInboxNeeds(count);};
+    window.addEventListener('sjc:inbox-needs-count',update);
+    return ()=>window.removeEventListener('sjc:inbox-needs-count',update);
+  },[]);
 
   // Live nav badges, fetched after mount so they never delay a navigation.
   // Re-fetched when:
@@ -263,7 +269,7 @@ export function Sidebar({ user, collapsible = false }: { user: SidebarUser; coll
     if (!counts) return undefined;
     const n =
       href === "/inbox"
-        ? counts.inbox
+        ? inboxNeeds ?? counts.inbox
         : href === "/messages"
           ? counts.messages
           : href === "/chat"

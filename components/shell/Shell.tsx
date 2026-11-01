@@ -64,7 +64,7 @@ export async function Shell({ children, breadcrumb, aiContext }: ShellProps) {
       <div className="hidden flex-none lg:flex">
         <Sidebar user={sidebarUser} collapsible />
       </div>
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="@container/shell flex min-w-0 flex-1 flex-col">
         <Topbar
           breadcrumb={breadcrumb}
           unread={unread}

@@ -53,7 +53,7 @@ export function Topbar({ breadcrumb = "TODAY", unread = 0, leading }: TopbarProp
       {/^\/inbox(?:\/|$)/.test(pathname) && <span id="inbox-approval-badge" className="order-last shrink-0 @min-[40rem]/shell:order-none" />}
       <CommandPalette />
       <Button className={inbox?"@max-[40rem]/shell:hidden":undefined} onClick={() => window.dispatchEvent(new Event(PALETTE_EVENT))} variant="ghost" size="sm" icon={Search} aria-label="Search" title="Search (⌘K)">
-        <span className="@max-[40rem]/shell:hidden">Search… <kbd className="ml-3 font-mono text-meta text-ink-3">⌘K</kbd></span>
+        <span className={inbox?"@max-[40rem]/shell:hidden":"@max-sm/shell:hidden"}>Search… <kbd className="ml-3 font-mono text-meta text-ink-3">⌘K</kbd></span>
       </Button>
       {inbox&&<Button className="hidden @max-[40rem]/shell:inline-flex size-11" variant="ghost" icon={Filter} iconOnly aria-label="Inbox views" title="Views" onClick={()=>window.dispatchEvent(new Event('inbox-views'))}/>}
       {inbox&&<Button className="hidden @max-[40rem]/shell:inline-flex size-11" variant="ghost" icon={Search} iconOnly aria-label="Search inbox" title="Search inbox" onClick={()=>window.dispatchEvent(new Event('inbox-search'))}/>}

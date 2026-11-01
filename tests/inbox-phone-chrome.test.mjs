@@ -30,7 +30,9 @@ test('phone inbox has one title, one bell, search and compose triggers with no d
  assert.equal(list.some(n=>n.type==='input'),false);
 });
 test('other pages retain their usual global controls',()=>{
- path='/schedule';const list=nodes(Topbar({breadcrumb:'Schedule'}));assert.equal(list.some(n=>n.props?.['aria-label']==='Compose email'),false);assert.equal(list.find(n=>n.props?.['aria-label']==='Search').props.className,undefined);
+ path='/schedule';const list=nodes(Topbar({breadcrumb:'Schedule'}));assert.equal(list.some(n=>n.props?.['aria-label']==='Compose email'),false);const search=list.find(n=>n.props?.['aria-label']==='Search');assert.equal(search.props.className,undefined);
+ assert.equal(search.props.children.props.className,'@max-sm/shell:hidden');
+ assert.equal(list.some(n=>n.props?.['aria-label']==='Inbox views'),false);
 });
 
 // Compile the actual utilities: @max-sm is only 384px, so class-name-only
@@ -44,5 +46,5 @@ test('phone chrome switches at 640px of available shell/page width, including 39
  const compiler=await compile('@import "tailwindcss";',{base:process.cwd(),onDependency(){}});
  const css=compiler.build(tokens);
  assert.match(css,/@container shell \(width < 40rem\)/);assert.match(css,/@container page \(width < 40rem\)/);
- assert.doesNotMatch(source+inbox,/@max-sm\/(?:shell|page)/);
+ assert.doesNotMatch(inbox,/@max-sm\/page/);
 });

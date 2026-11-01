@@ -108,7 +108,7 @@ registerHooks({
     if (u === url)
       return {
         format: "module",
-        source: ts.transpileModule(source + "\nexport {ReaderBody,ChannelReaderBody,EmailMessageCard,ThreadRow,sendWithReceipt};", {
+        source: ts.transpileModule(source + "\nexport {ReaderBody,ChannelReaderBody,EmailMessageCard,ThreadRow,sendWithReceipt,DraftBody};", {
           compilerOptions: {
             jsx: ts.JsxEmit.ReactJSX,
             module: ts.ModuleKind.ESNext,
@@ -122,7 +122,7 @@ registerHooks({
       : n(u, c);
   },
 });
-const { ReaderBody, ChannelReaderBody, InboxClient, EmailMessageCard, ThreadRow, sendWithReceipt } = await import(url);
+const { ReaderBody, ChannelReaderBody, InboxClient, EmailMessageCard, ThreadRow, sendWithReceipt, DraftBody } = await import(url);
 const reader = {
   channel:"email",
   messages: [{ id: "m1", fromEmail:"tom@example.test", body: ["Plans?"] }],
@@ -135,10 +135,11 @@ let readerExtra={};
 let tree,
   id = "t1",
   channel = null,
-  clientData = null, cardData = null, viewerOwner=false;
+  clientData = null, cardData = null, bodyData=null, viewerOwner=false;
 function render() {
   if(globalThis.window)Object.assign(window,{localStorage,setInterval:()=>1,clearInterval(){}});
   cursor = 0;
+  if(bodyData){tree=DraftBody(bodyData);return;}
   if(cardData){tree=EmailMessageCard(cardData);return;}
   if(clientData){tree=InboxClient({data:clientData,selfEmail:"joe@example.test",owner:viewerOwner});return;}
   const Component=channel?ChannelReaderBody:ReaderBody;
@@ -509,7 +510,7 @@ test('full draft review pins the incoming ask, opens source on one click and ret
   assert.match(find(n=>n.type?.name==='RequestExcerpt').props.text,/hallway painting/);
   assert.ok(find(n=>String(n.props?.children).includes('joe@example.test')));
   click('Expand review');assert.ok(find(n=>n.props?.className?.includes('absolute inset-0 z-[65]')));
-  click('Read full message');assert.equal(find(n=>n.props?.hidden===false&&n.props?.className?.includes('max-h-[40%]')).props.hidden,false);
+  click('Request · Sources');click('Read full message');assert.equal(find(n=>n.props?.hidden===false&&n.props?.className?.includes('max-h-[40%]')).props.hidden,false);
   click('Regenerate');await settle();assert.equal(draftCalls.at(-1)[1],'claude');assert.equal(sends.length,sendsBefore);
  }finally{viewerOwner=false;reader.messages=prior;__draftServer.suggestions=[];}
 });
@@ -535,7 +536,12 @@ test('unseen mail review keeps recipient and Expand above body, one Close, tools
   const expand=find(n=>n.props?.['aria-label']==='Expand review');assert.ok(expand);
   const tools=find(n=>n.props?.['data-draft-tools']!==undefined);assert.match(nodes(tools).find(n=>n.props?.className?.includes('flex-nowrap')).props.className,/flex-nowrap/);
   click('Expand review');assert.equal(nodes(tree).filter(n=>n.props?.children==='Close review').length,1);
+  assert.equal(find(n=>n.type?.name==='RequestExcerpt'),undefined);
+  assert.equal(find(n=>n.props?.['data-draft-sources']!==undefined),undefined);
+  assert.equal(find(n=>n.props?.['aria-label']==='Regenerate reply intent'),undefined);
+  click('Request · Sources');
   assert.equal(find(n=>n.type?.name==='RequestExcerpt').props.compact,true);
+  assert.ok(find(n=>n.props?.['data-draft-sources']!==undefined));
   const body=find(n=>n.props?.['aria-label']==='AI draft body');assert.equal(body.props.expanded,true);
   click('Read full message');assert.equal(find(n=>n.type?.name==='RequestExcerpt'),undefined);
   assert.equal(find(n=>n.props?.['aria-label']==='AI draft body').props.value,'I will send both railing options tomorrow.\n\nBuilder');
@@ -641,4 +647,19 @@ test('unseen exact sources open a message or record while preserving the draft a
   find(n=>n.props?.['aria-label']==='AI draft body').props.onChange({target:{value:original+' Edited.'}});render();flush();await footer().saved.synced.flush();await settle();
   assert.deepEqual(__draftServer.rows.get(key+':email').sources,sources);
  }finally{viewerOwner=false;__draftServer.suggestions=[];globalThis.document=previousDocument;}
+});
+
+test('focused answer uses remaining height and measures continuation on the actual scrolling textarea',()=>{
+ const oldObserver=globalThis.ResizeObserver;
+ globalThis.ResizeObserver=class {observe(){} disconnect(){}};
+ const input={style:{},clientWidth:342,clientHeight:440,scrollHeight:410,scrollTop:0,addEventListener(){},removeEventListener(){}};
+ try {
+  bodyData={inputRef:{current:input},expanded:true,fill:true,value:'A short reply with its sign-off.'};
+  mount('short-focused');
+  assert.equal(input.style.height,'100%');assert.equal(input.style.minHeight,'0px');
+  assert.match(find(n=>n.type==='textarea').props.className,/flex-1 overflow-y-auto/);
+  assert.equal(find(n=>n.props?.children==='More below ↓'),undefined);
+  input.scrollHeight=980;bodyData={...bodyData,value:'A much longer reply.'};render();flush();
+  assert.ok(find(n=>n.props?.children==='More below ↓'));
+ }finally{cleanups.forEach(fn=>fn?.());cleanups=[];bodyData=null;globalThis.ResizeObserver=oldObserver;}
 });

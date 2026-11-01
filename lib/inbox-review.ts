@@ -1,4 +1,4 @@
-import { splitQuotedText, substantiveSnippet, threadNeedsMe} from './inbox-rules.ts';
+import { splitQuotedText, threadNeedsMe} from './inbox-rules.ts';
 import {centralDay, matchesInboxTab} from './inbox-experience.ts';
 import type {InboxThread} from './inbox';
 
@@ -18,7 +18,15 @@ export function askExcerpt(paras:string[], subject=''):string {
   const sentences=text.split(/\n\s*\n|(?<=[.!?])\s+/).map(s=>s.replace(/\s+/g,' ').trim()).filter(Boolean);
   const request=REQUEST_SIGNAL;
   const selected=sentences.filter(s=>request.test(s)&&!/^thank/i.test(s));
-  return selected.join(' ').slice(0,700)||substantiveSnippet(paras,subject);
+  // Keep complete sentences, including a long first request. The UI labels this
+  // an excerpt and offers the full source; a character slice can hide a qualifier.
+  const whole:string[]=[];
+  for(const sentence of selected){
+    if(whole.length&&whole.join(' ').length+sentence.length>700)break;
+    whole.push(sentence);
+  }
+  return whole.join(' ')||reflowPlainText(text).trim()||subject;
+
 }
 type ActionThread=Partial<InboxThread> & Pick<InboxThread,'subject'|'fromName'>;
 export function cleanRowSummary(summary:string, sender:string):string {
@@ -61,4 +69,22 @@ export function regenerateModel(model?:string):'claude'|'hermes'|'qwen' {return 
 export function restoreForwardChoices<T extends {id:string}>(originals:T[], stored:string|null):T[] {
   if(stored===null)return originals;
   try{const ids:unknown=JSON.parse(stored);return Array.isArray(ids)?originals.filter(a=>ids.includes(a.id)):originals;}catch{return originals;}
+}
+
+/** Only soft prose wraps: short lines, structured blocks and signatures stay exact. */
+export function reflowPlainText(text:string):string {
+  const lines=text.split('\n'), result:string[]=[];
+  const structured=(line:string)=>/^\s*(?:>|[-*•]\s|\d+[.)]\s|--\s*$)|^\s{2,}|https?:\/\/|[\w.+-]+@[\w.-]+/.test(line);
+  let signature=false;
+  for(let i=0;i<lines.length;i++){
+    const line=lines[i], next=lines[i+1];
+    if(/^\s*(?:--\s*$|thanks(?:[,!]|$)|thank you[,!]?\s*$|regards\b|best(?: regards| wishes)?[,!]?\s*$|sincerely\b|cheers\b|sent from\b)/i.test(line))signature=true;
+    const wrap=!signature&&next!==undefined&&line.trim().length>=35&&line.length<=82&&
+      /[\p{L}\p{N},]$/u.test(line)&&/^\p{Ll}/u.test(next)&&!structured(line)&&!structured(next);
+    result.push(line+(wrap?' ':'\n'));
+  }
+  return result.join('').slice(0,-1);
+}
+export function draftRecipientName(toEmail:string,target?:{toName:string;toEmail:string}|null):string {
+  return toEmail.trim() ? target?.toEmail.toLowerCase()===toEmail.trim().toLowerCase()&&target.toName?.trim()?target.toName:toEmail.trim() : 'Choose recipient';
 }

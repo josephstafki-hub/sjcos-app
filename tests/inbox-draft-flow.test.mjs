@@ -506,10 +506,10 @@ test('full draft review pins the incoming ask, opens source on one click and ret
  __draftServer.suggestions=[autoSuggestion('review-focus')];const sendsBefore=sends.length;
  try{
   mount('review-focus');await settle();
-  assert.match(find(n=>n.props?.['aria-label']==='Incoming request').props.children,/hallway painting/);
+  assert.match(find(n=>n.type?.name==='RequestExcerpt').props.text,/hallway painting/);
   assert.ok(find(n=>String(n.props?.children).includes('joe@example.test')));
   click('Expand review');assert.ok(find(n=>n.props?.className?.includes('absolute inset-0 z-[65]')));
-  click('Read full message');assert.equal(find(n=>n.props?.hidden===false&&n.props?.className?.includes('max-h-[35dvh]')).props.hidden,false);
+  click('Read full message');assert.equal(find(n=>n.props?.hidden===false&&n.props?.className?.includes('max-h-[40%]')).props.hidden,false);
   click('Regenerate');await settle();assert.equal(draftCalls.at(-1)[1],'claude');assert.equal(sends.length,sendsBefore);
  }finally{viewerOwner=false;reader.messages=prior;__draftServer.suggestions=[];}
 });
@@ -520,4 +520,24 @@ test('new sender composer opens only after Reply anyway, with no hidden draft Se
   assert.equal(find(n=>n.props?.children==='Draft with AI'),undefined);assert.equal(find(n=>n.props?.children==='Send email'),undefined);
   click('Reply anyway');assert.ok(find(n=>n.props?.['aria-label']==='Reply body'));
  }finally{readerExtra={};}
+});
+
+test('unseen mail review keeps recipient and Expand above body, one Close, tools pinned, and source replaces excerpt',async()=>{
+ const prior={messages:reader.messages,replyTarget:reader.replyTarget};viewerOwner=true;
+ reader.messages=[{id:'m1',fromName:'Avery Chen',body:['Could you send two railing options for the terrace?']}];
+ reader.replyTarget={toName:'Avery Chen',toEmail:'avery@example.test',cc:[]};
+ __draftServer.suggestions=[{...autoSuggestion('terrace-review'),toEmail:'avery@example.test',body:'I will send both railing options tomorrow.\n\nBuilder'}];
+ try{
+  mount('terrace-review');await settle();
+  const summary=find(n=>n.type==='summary'&&n.props?.title==='To avery@example.test');assert.ok(summary);
+  assert.ok(nodes(summary).some(n=>[n.props?.children].flat().includes('Avery Chen')));
+  assert.ok(nodes(summary).every(n=>!n.props?.className?.includes('truncate')));
+  const expand=find(n=>n.props?.['aria-label']==='Expand review');assert.ok(expand);
+  const tools=find(n=>n.props?.['data-draft-tools']!==undefined);assert.match(nodes(tools).find(n=>n.props?.className?.includes('flex-nowrap')).props.className,/flex-nowrap/);
+  click('Expand review');assert.equal(nodes(tree).filter(n=>n.props?.children==='Close review').length,1);
+  assert.equal(find(n=>n.type?.name==='RequestExcerpt').props.compact,true);
+  const body=find(n=>n.props?.['aria-label']==='AI draft body');assert.equal(body.props.expanded,true);
+  click('Read full message');assert.equal(find(n=>n.type?.name==='RequestExcerpt'),undefined);
+  assert.equal(find(n=>n.props?.['aria-label']==='AI draft body').props.value,'I will send both railing options tomorrow.\n\nBuilder');
+ }finally{viewerOwner=false;reader.messages=prior.messages;reader.replyTarget=prior.replyTarget;__draftServer.suggestions=[];}
 });

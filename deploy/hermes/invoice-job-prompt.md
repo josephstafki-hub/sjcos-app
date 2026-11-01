@@ -69,10 +69,25 @@ Start: `get_skill file-invoice-receipt-rebate` and follow it (`record_skill_used
    pass `log_cost: false` so it never counts twice. A reminder for an invoice
    you already filed is not a new invoice — skip it.
 
-5. Gmail labels, as before: true invoices/payment requests keep `Invoices`
-   and their read/unread state (never mark them read). Receipts and payment
-   confirmations get `Receipts` (remove `Invoices`). Rebates get `Rebates` +
-   `Unclaimed Rebates` and may be marked read.
+5. Gmail labels and inbox cleanup:
+   - True invoices/payment requests keep `Invoices` and their read/unread state
+     (never mark them read).
+   - Receipts and payment confirmations get `Receipts` (remove `Invoices`).
+   - Menards is a special paired-email case. For each order, use the Menards
+     `Order Confirmation` from `order@orders.menards.com` only when that exact
+     message has both the receipt/order details in its body AND a real rebate
+     attachment (normally a PDF). That combined message gets `Receipts` +
+     `Rebates` + `Unclaimed Rebates`, is marked read, and has the `INBOX` label
+     removed so it leaves the inbox. Verify those labels and the absence of
+     `INBOX` on the exact message after modifying it.
+   - The separate Menards email that merely shows the rebate in the email body
+     and has no rebate attachment is not the filing copy. Archive it by removing
+     `INBOX`, but do not add `Receipts`, `Rebates`, or `Unclaimed Rebates`, and
+     do not file it in SJC OS. Verify that it is out of the inbox.
+   - For any other retailer's rebate, require the actual claimable rebate
+     document/form (attachment or explicit claim artifact) before applying
+     `Rebates` + `Unclaimed Rebates`; do not treat a rebate mention alone as a
+     claimable rebate.
 
 6. One-time backfill, until `/home/joe/.hermes/state/sjcos-filing-backfill-done`
    exists: the old run saved files under

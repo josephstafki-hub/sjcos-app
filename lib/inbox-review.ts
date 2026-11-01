@@ -1,5 +1,5 @@
 import {cleanEmailText} from './inbox-email-content.ts';
-import { automationDeadline, splitQuotedText, threadNeedsMe} from './inbox-rules.ts';
+import { splitQuotedText, threadNeedsMe} from './inbox-rules.ts';
 import {centralDay, matchesInboxTab} from './inbox-experience.ts';
 import type {InboxThread} from './inbox';
 
@@ -37,29 +37,12 @@ export function cleanRowSummary(summary:string, sender:string):string {
   return prefix>=0&&summary.slice(0,prefix).trim().toLowerCase()===sender.trim().toLowerCase()?summary.slice(prefix+1).trim():summary;
 }
 export function rowActionTitle(t:ActionThread):string {
-  // An AI headline (written by the same model that drafted the reply) wins.
+  const subject=cleanEmailText(t.subject??'').replace(/^(?:(?:re|fwd?|aw)\s*:\s*)+/i,'').replace(/\s+/g,' ').trim();
+  // A category cannot identify an event. Keep the actual subject, including
+  // reference numbers/amounts, and never instruct Joe to review a done row.
+  if(t.automated||t.view==='done')return subject||'(no subject)';
+  // Active human conversations retain the headline from their reply model.
   if(t.actionTitle?.trim())return t.actionTitle.trim().slice(0,160);
-  const text=`${t.subject} ${t.preview??''} ${t.attentionEvidence??''}`;
-  if(/information request/i.test(text)){
-    const days=/\b(?:within|in)(?: the next)? (\d+) (?:business )?days?\b/i.exec(text)?.[1];
-    return `Complete information request${days?` · ${days} days`:''}`;
-  }
-  const subject=(t.subject??'').replace(/^(?:(?:re|fwd?|aw)\s*:\s*)+/i,'').trim();
-  if(t.automated){
-    const evidence=`${t.attentionEvidence??''} ${t.preview??''} ${subject}`;
-    const deadline=automationDeadline(evidence,t.receivedAt) ?? (()=>{
-      const date=/\b(?:auto[- ]?complete[sd]?|complete[sd]? automatically)(?: on)?\s+([a-z]+ \d{1,2})/i.exec(evidence)?.[1];
-      if(!date)return '';
-      const parsed=new Date(`${date}, 2000`);
-      return Number.isFinite(parsed.getTime())?`Auto-completes ${parsed.toLocaleDateString('en-US',{month:'short',day:'numeric'})}`:'';
-    })();
-    const action=/\b(?:review|approve)\b.{0,35}\border\b|\border\b.{0,35}\b(?:ready|complete)/i.test(evidence)?'Review order':
-      /\b(?:payment failed|past due|overdue|payment due)\b/i.test(evidence)?'Review payment':
-      /\b(?:receipt|paid|payment received)\b/i.test(evidence)?'Review receipt':
-      /\b(?:invoice|billing)\b/i.test(evidence)?'Review invoice':
-      /\bstatement\b/i.test(evidence)?'Open statement':`Review ${(t.automationKind??'notification').toLowerCase()}`;
-    return [action,deadline?deadline.charAt(0).toLowerCase()+deadline.slice(1):''].filter(Boolean).join(' · ');
-  }
   const summary=completeRequestClause(cleanRowSummary(cleanEmailText(t.preview??''),t.fromName??''));
   if(/^(?:review|confirm|complete|send|schedule|approve|asks? to)\b/i.test(summary))return summary.slice(0,160);
   if(summary&&REQUEST_SIGNAL.test(summary))return `Asks: ${summary}`.slice(0,160);

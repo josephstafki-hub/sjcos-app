@@ -23,8 +23,8 @@ test('a horizontal one-record invoice is compact, but generic two-column prose i
 test('unseen model headlines carry into task defaults and automation uses evidence',()=>{
  const t={fromName:'Riley',subject:'Re: A question',actionTitle:'Include a covered bicycle shelter'};
  assert.equal(rowActionTitle(t),t.actionTitle);assert.equal(reminderTitle(t),t.actionTitle);
- assert.equal(rowActionTitle({fromName:'Order desk',subject:'An update',automated:true,automationKind:'Alert',attentionEvidence:'Review your order. It will auto-complete on November 9.'}),'Review order · auto-completes Nov 9');
- assert.equal(rowActionTitle({fromName:'Billing',subject:'Your receipt',automated:true,automationKind:'Receipt'}),'Review receipt');
+ assert.equal(rowActionTitle({fromName:'Order desk',subject:'An update',automated:true,automationKind:'Alert',attentionEvidence:'Review your order. It will auto-complete on November 9.'}),'An update');
+ assert.equal(rowActionTitle({fromName:'Billing',subject:'Your receipt',automated:true,automationKind:'Receipt'}),'Your receipt');
 });
 test('sources name only the actual bounded prompt inputs, including exact messages and record',()=>{
  const messages=Array.from({length:12},(_,i)=>({id:`message-${i}`,fromName:'Riley',body:['Please review the gate.'],outbound:false}));

@@ -1,4 +1,4 @@
-import {threadNeedsMe} from "./inbox-rules.ts";
+import {automationDeadline, threadNeedsMe} from "./inbox-rules.ts";
 import type { InboxThread, InboxTodo, ThreadReader } from "./inbox";
 
 export type InboxTab = "needs" | "clients" | "leads" | "subs" | "new" | "other";
@@ -350,14 +350,14 @@ export function threadTodoCue(thread: Pick<InboxThread,'todos'|'jobTodos'>): str
   const n=thread.jobTodos?.length ?? 0;
   return n?`${n} job to-do${n===1?'':'s'}`:'';
 }
-export function contextStripText(thread: Pick<InboxThread,'projectLabel'|'fromName'|'contactStage'|'todos'|'jobTodos'>, context?: {job?: {name: string; stage: string; money?: {outstanding: number} | null} | null; schedule?: {label: string; day: string} | null; todos?: InboxTodo[]} | null): string {
-  const job = context?.job;
-  const stage = (job?.stage || thread.contactStage || '').replaceAll('_', ' ');
-  const identity = shortJobLabel(job?.name || thread.projectLabel || thread.fromName || 'No linked job');
-  const cue = job?.money && job.money.outstanding>0 ? `${new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(job.money.outstanding/100)} outstanding`
-    : context?.schedule ? `Next: ${context.schedule.label} ${new Date(context.schedule.day+'T12:00:00Z').toLocaleDateString('en-US',{weekday:'short',timeZone:'UTC'})}` : '';
-  const tasks=context?.todos?{todos:context.todos.filter(t=>t.thread_linked===true),jobTodos:context.todos.filter(t=>t.thread_linked!==true)}:thread;
-  return ['Context', identity, stage === 'intake' ? 'New inquiry' : /^pre construction$/i.test(stage) ? 'Pre-construction' : stage ? stage[0].toUpperCase()+stage.slice(1) : '', cue, threadTodoCue(tasks)].filter(Boolean).join(' · ');
+export function contextStripText(thread: Pick<InboxThread,'projectLabel'|'fromName'|'contactStage'|'todos'|'jobTodos'> & Partial<Pick<InboxThread,'automated'|'subject'|'attentionEvidence'|'receivedAt'|'contactRole'|'actionTitle'>>, context?: {job?: {name: string; stage: string; kind?:string;scope?:string|null;source?:string|null;createdAt?:string|null; money?: {outstanding: number;lastPaidAt?:string|null} | null} | null; schedule?: {label: string; day: string} | null; todos?: InboxTodo[]} | null): string {
+  const job=context?.job;
+  const date=(value:string)=>new Date(value.length===10?value+'T12:00:00Z':value).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'America/Chicago'});
+  if(thread.automated)return ['Automated',thread.fromName,thread.actionTitle||thread.subject,automationDeadline(thread.attentionEvidence??'',thread.receivedAt)].filter(Boolean).join(' · ');
+  const stage=(job?.stage||thread.contactStage||'').replaceAll('_',' ');
+  if(job?.kind==='lead'||thread.contactRole==='lead')return ['Lead',job?.scope||job?.name||thread.fromName,[job?.source,job?.createdAt?date(job.createdAt):''].filter(Boolean).join(' '),stage==='intake'?'New inquiry':stage].filter(Boolean).join(' · ');
+  const tasks=context?.todos??[...(thread.todos??[]),...(thread.jobTodos??[])];
+  return [job||thread.projectLabel?'Job':'Contact',shortJobLabel(job?.name||thread.projectLabel||thread.fromName),job?.money&&job.money.outstanding>0?`${new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(job.money.outstanding/100)} outstanding`:'',job?.money?.lastPaidAt?`last paid ${date(job.money.lastPaidAt)}`:'',tasks.length?`${tasks.length} to-do${tasks.length===1?'':'s'}`:'',tasks.find(t=>t.thread_linked)?.title,!job&&!thread.projectLabel?(stage==='intake'?'New inquiry':stage):''].filter(Boolean).join(' · ');
 }
 /** Width of the inbox itself (the left app dock is outside this box). */
 export function contextLayout(width:number) {

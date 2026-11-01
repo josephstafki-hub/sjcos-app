@@ -15,7 +15,7 @@ globalThis.__compose={
  useRef(initial){const i=cursor++;return states[i]??(states[i]={current:initial});},
  useEffect(fn,deps){const i=cursor++;if(!states[i]||!deps||deps.some((d,j)=>d!==states[i][j])){states[i]=deps;effects.push(()=>{cleanups[i]?.();cleanups[i]=fn();});}},
  useTransition(){return [false,fn=>pending.push(Promise.resolve(fn()))]},
- send:async input=>{calls.push(input);return {ok:globalThis.__compose.success??false,error:'Offline — files kept'}},
+ send:async input=>{calls.push(input);if(globalThis.__compose.wait)await globalThis.__compose.wait;return {ok:globalThis.__compose.success??false,error:'Offline — files kept'}},
 };
 const stubs={
  '@/lib/actions/inbox-drafts':draftActionStub,
@@ -56,7 +56,7 @@ test('new mail syncs recipient, Cc, subject and body; cleanup runs after success
  const settle=async()=>{for(let i=0;i<8;i++){await Promise.all(pending);pending=[];const work=effects;effects=[];work.forEach(f=>f());await Promise.resolve();render();}};
  render();await settle();
  for(const [label,value]of [['To','client@example.test'],['Cc','review@example.test'],['Subject','Site visit'],['Message','See you Monday']]){find(n=>n.props?.['aria-label']===label).props.onChange({target:{value}});render();}
- const close=find(n=>n.props?.['aria-label']==='Close new message');close.props.onClick();assert.equal(closed,1);
+ const close=find(n=>n.props?.['aria-label']==='Close new message');close.props.onClick();await settle();assert.equal(closed,1);
  assert.equal(__draftServer.calls.filter(([type])=>type==='discarded').length,0);
  globalThis.__compose.success=true;
  const count=calls.length;find(n=>n.props?.children==='Send email').props.onClick();await settle();
@@ -82,4 +82,20 @@ test('forward choices restore after closing, and Saved explicitly covers text ra
   const text=nodes(footer.type({...footer.props,saved:{...footer.props.saved,synced:{...footer.props.saved.synced,status:'saved'}}})).flatMap(n=>[n.props?.children].flat()).filter(v=>typeof v==='string').join(' ');
   assert.match(text,/Text saved · files on this device/);
  }finally{cleanups.forEach(f=>f?.());cleanups=[];localStorage=prior;window.localStorage=prior;}
+});
+
+test('unseen new/forward cannot dismiss during send, and new mail begins with empty To',async()=>{
+ for(const forward of [undefined,{threadId:'gate-forward',subject:'Gate options',message:{id:'gate-message',fromName:'Avery',fromEmail:'avery@example.test',body:['Two finish options']}}]){
+  cleanups.forEach(f=>f?.());cleanups=[];states=[];effects=[];pending=[];globalThis.__draftServer.rows.clear();
+  let tree,closed=0,release;globalThis.__compose.success=true;globalThis.__compose.wait=new Promise(resolve=>release=resolve);
+  const render=()=>{cursor=0;tree=ComposeModal({selfEmail:'builder@example.test',forward,onClose(){closed++}});};const find=p=>nodes(tree).find(p);
+  const settleEffects=async()=>{for(let i=0;i<8;i++){const work=effects;effects=[];work.forEach(f=>f());await Promise.resolve();render();}};
+  try{
+   render();await settleEffects();assert.equal(find(n=>n.props?.['aria-label']==='To').props.value,'');
+   for(const [label,value] of [['To','inspector@example.test'],['Message','Please review the gate finishes']]){find(n=>n.props?.['aria-label']===label).props.onChange({target:{value}});render();}
+   find(n=>n.props?.children==='Send email').props.onClick();await settleEffects();
+   find(n=>n.props?.['aria-label']==='Close new message').props.onClick();tree.props.onClick();await Promise.resolve();assert.equal(closed,0);
+   release();await Promise.all(pending);pending=[];render();assert.equal(closed,1);
+  }finally{release();delete globalThis.__compose.wait;cleanups.forEach(f=>f?.());cleanups=[];}
+ }
 });

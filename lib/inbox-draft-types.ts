@@ -1,7 +1,14 @@
 import type { ThreadChannel } from './types';
 
-export type InboxDraftModel = 'claude' | 'hermes';
+export type InboxDraftModel = 'claude' | 'hermes' | 'qwen';
+export interface DraftProvenance {
+  model: InboxDraftModel | null;
+  basedOn: string;
+  acceptedSuggestionId: string | null;
+  humanEdited: boolean;
+}
 export interface DraftText {
+  provenance?: DraftProvenance;
   body: string;
   toEmail: string;
   cc: string[];
@@ -16,6 +23,8 @@ export interface InboxDraft extends DraftText {
   summary: string;
   model: InboxDraftModel | null;
   basedOn: string;
+  acceptedSuggestionId?: string | null;
+  humanEdited?: boolean;
   version: number;
   status: 'ready' | 'drafting' | 'failed' | 'discarded' | 'sent';
   updatedAt: string;

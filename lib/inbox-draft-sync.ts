@@ -32,8 +32,16 @@ interface SyncOptions {
 }
 const blank = (initial?: Partial<DraftText>): DraftText => ({ body: '', toEmail: '', cc: [], subject: '', ...initial });
 const textOf = (row: InboxDraft | null, initial?: Partial<DraftText>): DraftText => row?.status === 'ready'
-  ? { body: row.body, toEmail: row.toEmail, cc: row.cc, subject: row.subject } : blank(row ? { ...initial, body: '' } : initial);
-const same = (a: DraftText, b: DraftText) => a.body === b.body && a.toEmail === b.toEmail && a.subject === b.subject && JSON.stringify(a.cc) === JSON.stringify(b.cc);
+  ? { body: row.body, toEmail: row.toEmail, cc: row.cc, subject: row.subject,
+      ...(row.model||row.basedOn||row.acceptedSuggestionId||row.humanEdited?{provenance:{model:row.model??null,basedOn:row.basedOn??'',acceptedSuggestionId:row.acceptedSuggestionId??null,humanEdited:row.humanEdited??false}}:{}) } : blank(row ? { ...initial, body: '' } : initial);
+function canonicalDraft(draft:DraftText):DraftText {
+  const p=draft.provenance;
+  if(p&&!p.model&&!p.basedOn&&!p.acceptedSuggestionId&&!p.humanEdited){
+    const {provenance,...text}=draft;return text;
+  }
+  return draft;
+}
+const same = (a: DraftText, b: DraftText) => a.body === b.body && a.toEmail === b.toEmail && a.subject === b.subject && JSON.stringify(a.cc) === JSON.stringify(b.cc) && JSON.stringify(a.provenance) === JSON.stringify(b.provenance);
 
 export function createDraftSync(options: SyncOptions) {
   const schedule = options.schedule ?? ((fn, ms) => setTimeout(fn, ms));
@@ -47,6 +55,7 @@ export function createDraftSync(options: SyncOptions) {
   let loading = false;
   let pendingSave: Promise<void> | null = null;
   let disposed = false;
+  let detached = false;
   let timer: unknown;
   let revision = 0;
   try {
@@ -54,16 +63,30 @@ export function createDraftSync(options: SyncOptions) {
     if (local && typeof local.body === 'string' && typeof local.toEmail === 'string' &&
         Number.isSafeInteger(local.version) && local.version >= 0) {
       state = { ...state, version: local.version, draft: { body: local.body, toEmail: local.toEmail,
-        cc: Array.isArray(local.cc) ? local.cc : [], subject: typeof local.subject === 'string' ? local.subject : '' } };
+        cc: Array.isArray(local.cc) ? local.cc : [], subject: typeof local.subject === 'string' ? local.subject : '', ...(local.provenance?{provenance:local.provenance}:{}) } };
       dirty = local.dirty === true;
     } else if (options.importLegacy) {
       const legacy = readDraft(options.storage, legacyKey);
       if (legacy) { state.draft = { ...state.draft, body: legacy.body, toEmail: legacy.toEmail }; dirty = true; }
     }
   } catch { /* storage unavailable: server sync still works */ }
+  state.draft=canonicalDraft(state.draft);
+  // Upgrade the prior device-only authorship together with its existing text.
+  // Namespace and version still belong to this user; a newer remote version
+  // conflicts rather than adopting stale device metadata.
+  if(state.draft.body&&!state.draft.provenance){
+    try{
+      const prior=JSON.parse(options.storage.getItem(JSON.stringify(['sjc:inbox:draft-meta',options.mailbox,options.userId,options.threadKey,options.channel]))??'null');
+      const model=prior?.model?.toLowerCase();
+      if(prior?.ai&&['claude','hermes','qwen'].includes(model)){
+        state.draft={...state.draft,provenance:{model,basedOn:prior.basedOn??'',acceptedSuggestionId:prior.suggestionId??null,humanEdited:prior.humanEdited??false}};
+        dirty=true;
+      }
+    }catch{ /* metadata from unavailable storage cannot be migrated */ }
+  }
   if (!dirty && state.version === 0 && state.draft.body) dirty = true;
 
-  function publish() { if (!disposed) options.onChange?.(state); }
+  function publish() { if (!disposed&&!detached) options.onChange?.(state); }
   function persist() {
     // readDraft/writeDraft remain compatible with the old local fallback. Sync
     // metadata goes in this user/channel key, never another staff user's key.
@@ -88,7 +111,10 @@ export function createDraftSync(options: SyncOptions) {
       const result = await options.save({ ...draft, threadKey: options.threadKey, channel: options.channel, baseVersion: state.version });
       if (disposed) return;
       if (result.conflict) {
-        state = { ...state, status: 'conflict', conflict: { current: result.current } };
+        if(result.current?.status==='ready'&&same(textOf(result.current),draft)){
+          dirty=revision!==sentRevision;
+          state={...state,version:result.current.version,status:dirty?'saving':'saved'};
+        }else state = { ...state, status: 'conflict', conflict: { current: result.current } };
       } else {
         dirty = revision !== sentRevision;
         state = { ...state, version: result.current.version, status: dirty ? 'saving' : 'saved' };
@@ -141,7 +167,7 @@ export function createDraftSync(options: SyncOptions) {
   function setDraft(next: DraftText | ((draft: DraftText) => DraftText)) {
     if (disposed) return;
     revision++; dirty = true;
-    state = { ...state, draft: typeof next === 'function' ? next(state.draft) : next,
+    state = { ...state, draft: canonicalDraft(typeof next === 'function' ? next(state.draft) : next),
       status: state.conflict ? 'conflict' : initialized ? 'saving' : 'local only' };
     persist(); enqueue(); publish();
   }
@@ -161,7 +187,7 @@ export function createDraftSync(options: SyncOptions) {
     acceptSuggestion() {
       const suggestion = state.suggestion;
       if (!suggestion) return;
-      setDraft({ body: suggestion.body, toEmail: suggestion.toEmail, cc: suggestion.cc, subject: suggestion.subject });
+      setDraft({ body: suggestion.body, toEmail: suggestion.toEmail, cc: suggestion.cc, subject: suggestion.subject, provenance:{model:suggestion.model,basedOn:suggestion.basedOn,acceptedSuggestionId:suggestion.id,humanEdited:false} });
     },
     keepMine: () => resolve('mine'),
     resolve,
@@ -172,6 +198,14 @@ export function createDraftSync(options: SyncOptions) {
       if (dirty && !state.conflict && state.status !== 'local only') { stopTimer(); await startSave(); }
       return state;
     },
+    async flushForNavigation() {
+      if(!dirty&&!state.conflict)return true;
+      if(!initialized)await refresh();
+      stopTimer();await startSave();
+      if(dirty&&!state.conflict&&state.status!=='local only'){stopTimer();await startSave();}
+      return !dirty&&!state.conflict;
+    },
+    detach() { detached=true;stopTimer(); },
     dispose() { disposed = true; stopTimer(); },
   };
 }

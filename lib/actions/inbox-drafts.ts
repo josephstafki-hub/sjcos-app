@@ -22,7 +22,7 @@ async function scoped<T>(fn: (mailbox: string, userId: string, owner: boolean, c
 }
 
 const columns = `id, thread_key AS "threadKey", channel, source, source_message_id AS "sourceMessageId",
-  to_email AS "toEmail", cc, subject, body, summary, model, based_on AS "basedOn", version, status, updated_at::text AS "updatedAt"`;
+  to_email AS "toEmail", cc, subject, body, summary, model, based_on AS "basedOn", accepted_suggestion_id AS "acceptedSuggestionId", human_edited AS "humanEdited", version, status, updated_at::text AS "updatedAt"`;
 const channels = ['email', 'sms', 'client_portal', 'sub_portal', 'site_form'];
 function validateIdentity(input: DraftIdentity) {
   if (!input || typeof input.threadKey !== 'string' || !input.threadKey.trim() || input.threadKey.length > 500 ||
@@ -56,20 +56,26 @@ export async function saveDraft(input: SaveDraftInput): Promise<DraftWriteResult
       typeof input.toEmail !== 'string' || input.toEmail.length > 2000 ||
       typeof input.subject !== 'string' || input.subject.length > 2000 ||
       !Array.isArray(input.cc) || input.cc.length > 100 || input.cc.some(c => typeof c !== 'string' || c.length > 500)) throw new Error('Invalid draft text.');
+  const provenance=input.provenance;
+  if(provenance&&(typeof provenance.basedOn!=='string'||provenance.basedOn.length>20_000||
+    (provenance.model!==null&&!['claude','hermes','qwen'].includes(provenance.model))||
+    typeof provenance.humanEdited!=='boolean'||(provenance.acceptedSuggestionId!==null&&!/^[a-f\d-]{36}$/i.test(provenance.acceptedSuggestionId))))throw Error('Invalid draft provenance.');
   return scoped(async (mailbox, userId, _owner, connected) => {
     if (input.channel === 'email' && !connected) throw new Error('Connect your mailbox to sync email drafts.');
-    const params = [mailbox, userId, input.threadKey, input.channel, input.toEmail, input.cc, input.subject, input.body, input.baseVersion];
+    const params = [mailbox, userId, input.threadKey, input.channel, input.toEmail, input.cc, input.subject, input.body, input.baseVersion, provenance?.model??null, provenance?.basedOn??'',provenance?.acceptedSuggestionId??null,provenance?.humanEdited??false];
     // Initial saves race on the unique index; existing saves compare-and-swap.
     // A zero-version writer must never overwrite any existing row/tombstone.
     const { rows } = input.baseVersion === 0
       ? await query<InboxDraft>(`INSERT INTO inbox_drafts
-          (mailbox,user_id,thread_key,channel,to_email,cc,subject,body,source)
-          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'human')
-          ON CONFLICT (mailbox,user_id,thread_key,channel) WHERE source='human' DO NOTHING RETURNING ${columns}`, params.slice(0, 8))
+          (mailbox,user_id,thread_key,channel,to_email,cc,subject,body,source,model,based_on,accepted_suggestion_id,human_edited)
+          SELECT $1,$2,$3,$4,$5,$6,$7,$8,'human',$9,$10,$11::uuid,$12
+          WHERE $11::uuid IS NULL OR EXISTS (SELECT 1 FROM inbox_drafts WHERE id=$11::uuid AND mailbox=$1 AND thread_key=$3 AND channel=$4 AND source='ai')
+          ON CONFLICT (mailbox,user_id,thread_key,channel) WHERE source='human' DO NOTHING RETURNING ${columns}`, [...params.slice(0,8),...params.slice(9)])
       : await query<InboxDraft>(`UPDATE inbox_drafts SET to_email=$5,cc=$6,subject=$7,body=$8,
+          model=$10,based_on=$11,accepted_suggestion_id=$12::uuid,human_edited=$13,
           status='ready',version=version+1,error=NULL,updated_at=now()
           WHERE mailbox=$1 AND user_id=$2 AND thread_key=$3 AND channel=$4 AND source='human'
-          AND version=$9 RETURNING ${columns}`, params);
+          AND version=$9 AND ($12::uuid IS NULL OR EXISTS (SELECT 1 FROM inbox_drafts s WHERE s.id=$12::uuid AND s.mailbox=$1 AND s.thread_key=$3 AND s.channel=$4 AND s.source='ai')) RETURNING ${columns}`, params);
     return rows[0] ? { conflict: false, current: rows[0] } : { conflict: true, current: await currentDraft(mailbox, userId, input) };
   });
 }

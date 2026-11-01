@@ -6,9 +6,9 @@ import {
   useTransition,
   type ReactNode,
 } from "react";
-import { X, Search, Copy, Check, Clock, ChevronLeft, ChevronRight, Link as LinkIcon } from "lucide-react";
+import { X, Search, Copy, Check, Clock, ChevronLeft, ChevronRight, Link as LinkIcon, Mail, MessageSquare, UserRound, UserCheck, Globe } from "lucide-react";
 import { Button, Chip, Segmented, Avatar } from "@/components/ui";
-import { createWorkItem } from "@/lib/actions/engine";
+import { createWorkItem, setWorkItemStatus } from "@/lib/actions/engine";
 import { createLeadFromInbox } from "@/lib/actions/leads";
 import { createSubFromInbox } from "@/lib/actions/subs";
 import { createVendorFromInbox } from "@/lib/actions/vendors";
@@ -22,7 +22,7 @@ import {
   reminderDueAt, reminderAvailable, reminderPresetLabel, reminderCommitLabel, centralDay, type ReminderPreset,
   relatedConversations,
   SHORTCUTS,
-  formatContactPhone, todoDateLabel,
+  formatContactPhone, todoDateLabel, contextStripText,
 } from "@/lib/inbox-experience";
 import { searchInboxDirectoryAction } from "@/lib/actions/inbox-screening";
 import type { InboxDirectoryEntry } from "@/lib/inbox-directory";
@@ -507,6 +507,7 @@ export function ContextPanel({
   compact=false,
   panelWidth=300,
   refreshing=false,
+  onTaskDone,
 }: {
   thread: InboxThread;
   threads: InboxThread[];
@@ -521,11 +522,21 @@ export function ContextPanel({
   compact?:boolean;
   panelWidth?:number;
   refreshing?:boolean;
+  onTaskDone?:(id:string)=>void;
 }) {
   const data = initialData;
   const [error,setError]=useState('');
   const [copied,setCopied]=useState('');
   const [adding,setAdding]=useState<'lead'|'sub'|'vendor'|null>(null);
+  const [completed,setCompleted]=useState<Set<string>>(()=>new Set());
+  const [completing,startComplete]=useTransition();
+  function completeTask(id:string){
+    setError('');startComplete(async()=>{
+      const result=await runAction(()=>setWorkItemStatus(id,'done'),{fallback:'Could not complete the to-do.'});
+      if(result.ok){setCompleted(ids=>new Set([...ids,id]));onTaskDone?.(id);}else setError(result.error??'Could not complete the to-do.');
+    });
+  }
+  const channelIcons={email:Mail,sms:MessageSquare,client_portal:UserRound,sub_portal:UserCheck,site_form:Globe};
   const related = relatedConversations(threads, {
     threadId: thread.id,
     email: data?.person?.email ?? thread.fromEmail,
@@ -563,7 +574,7 @@ export function ContextPanel({
             className="size-11"
           />
         </div>
-        <div className="space-y-3 overflow-y-auto p-3">
+        <div className="min-h-0 space-y-3 overflow-y-auto p-3 pb-8">
           {(error||loadError) && (
             <div role="alert" className="text-meta text-flag">
               {error||loadError}
@@ -574,7 +585,7 @@ export function ContextPanel({
             <p className="text-meta text-ink-3">Loading context…</p>
           )}
           {data&&refreshing&&<p role="status" className="text-meta text-ink-3">Updating context… Showing the last saved context.</p>}
-          {data && (
+          {data && (thread.automated?<section className="space-y-2 text-body text-ink-2"><h3 className="font-semibold">Automated sender</h3><p>{contextStripText(thread,data)}</p><p className="break-all text-meta text-ink-3">{thread.fromEmail}</p></section>:
             <>
               {
                 <>
@@ -608,14 +619,6 @@ export function ContextPanel({
                               >
                                 {email ? value : formatContactPhone(value!)}
                               </a>
-                              {!email && (
-                                <a
-                                  href={`sms:${value!.replace(/[^+0-9]/g, "")}`}
-                                  className="inline-flex min-h-11 items-center px-2 text-meta text-accent-2"
-                                >
-                                  Text
-                                </a>
-                              )}
                               <button
                                 aria-label={`Copy ${value}`}
                                 onClick={() =>
@@ -699,6 +702,7 @@ export function ContextPanel({
 
                 </section>
               }
+              {data.job?.latestNote&&<section aria-label="Latest note" className="space-y-1 border-l-2 border-accent pl-2 text-body text-ink-2"><h3 className="text-meta font-semibold">Latest note</h3><p className="text-meta text-ink-3">{data.job.latestNoteAt?new Date(data.job.latestNoteAt.length===10?data.job.latestNoteAt+'T12:00:00Z':data.job.latestNoteAt).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'America/Chicago'}):'Date unavailable'} · {data.job.latestNoteSource||'Saved record'}</p><p className="whitespace-pre-line">{data.job.latestNote}</p>{data.job.latestNoteHref&&<a className="inline-flex min-h-9 items-center text-meta text-accent-2 underline" href={data.job.latestNoteHref}>Open source</a>}</section>}
               <section>
                 <h3 className="mb-2 text-meta font-semibold text-ink-3">
                   Next on the schedule
@@ -713,25 +717,15 @@ export function ContextPanel({
                 <h3 className="mb-2 text-meta font-semibold text-ink-3">
                   Open to-dos
                 </h3>
-                {data.todos.length ? (
-                  data.todos.map((t) => (
-                    <a
-                      key={t.id}
-                      href={`/engine?work=${t.id}`}
-                      className="block min-h-11 border-b border-rule-soft py-2 text-body text-accent-2"
-                    >
-                      {t.title}
-                      <span className="block text-meta text-ink-3">{t.assignees || "Joe"}</span>
-                      {t.due_at && (
-                        <span className="block text-meta text-ink-3">
-                          {todoDateLabel(t)}
-                        </span>
-                      )}
-                    </a>
-                  ))
-                ) : (
-                  <p className="text-body text-ink-3">No open to-dos.</p>
-                )}
+                {data.todos.filter(t=>!completed.has(t.id)).length ? (
+                  data.todos.filter(t=>!completed.has(t.id)).map(t=>{
+                    const overdue=Boolean(t.due_at&&centralDay(new Date(t.due_at.length===10?t.due_at+'T12:00:00Z':t.due_at))<centralDay(new Date()));
+                    return <div key={t.id} className="flex items-start gap-1 border-b border-rule-soft py-2">
+                      <label className="grid size-11 shrink-0 cursor-pointer place-items-center"><input type="checkbox" aria-label={`Complete: ${t.title}`} checked={false} disabled={completing} onChange={()=>completeTask(t.id)} className="size-4 accent-accent"/></label>
+                      <div className="min-w-0 flex-1"><a href={`/engine?work=${t.id}`} className="text-body text-accent-2">{t.title}</a><div className="mt-1 flex flex-wrap items-center gap-1 text-meta"><span title={t.assignees||'Joe'} aria-label={`Assigned to ${t.assignees||'Joe'}`} className="grid size-6 shrink-0 place-items-center rounded-full bg-paper-3 font-semibold">{(t.assignees||'Joe')[0]}</span>{t.due_at&&<span className={`rounded px-1 ${overdue?'bg-warn-soft text-warn':'bg-paper-3 text-ink-3'}`}>{overdue?'Overdue · ':''}{todoDateLabel(t)}</span>}</div></div>
+                    </div>;
+                  })
+                ) : <p className="text-body text-ink-3">No open to-dos.</p>}
               </section>
               <section>
                 <h3 className="mb-2 text-meta font-semibold text-ink-3">
@@ -744,11 +738,9 @@ export function ContextPanel({
                       onClick={() => onSelect(t.id)}
                       className="block min-h-11 w-full border-b border-rule-soft py-2 text-left"
                     >
-                      <p className="truncate text-body text-ink-2">
-                        {t.subject}
-                      </p>
+                      <div className="flex items-center gap-1"><span aria-label={t.channel.replaceAll('_',' ')}>{(()=>{const Icon=channelIcons[t.channel];return <Icon className="size-3.5 text-accent-2"/>;})()}</span><p className="min-w-0 flex-1 truncate text-body text-ink-2">{t.subject}</p>{t.unread&&t.view!=='done'&&t.inboundLast!==false&&<span aria-label="Unread" className="size-1.5 shrink-0 rounded-full bg-accent"/>}</div>
                       <span className="text-meta text-ink-3">
-                        {t.channel.replaceAll("_", " ")} · {t.when}
+                        Last contact · {t.receivedAt?new Date(t.receivedAt).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'America/Chicago'}):t.when}
                       </span>
                     </button>
                   ))
@@ -758,7 +750,6 @@ export function ContextPanel({
                   </p>
                 )}
               </section>
-              {data.job?.latestNote&&<details className="text-body text-ink-2"><summary className="min-h-11 cursor-pointer py-2 text-meta font-semibold">Latest note</summary><p className="whitespace-pre-line">{data.job.latestNote}</p></details>}
                   <Button
                     variant="ghost"
                     icon={LinkIcon}

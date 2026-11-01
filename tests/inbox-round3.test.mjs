@@ -28,8 +28,8 @@ test('screening is unresolved inbound only and excludes all own aliases and deci
  for(const patch of [{inbound:false},{done:true},{staff:true},{known:true},{decision:'other'},{email:'ALIAS@example.test'},{email:'Joe <joe@example.test>'}]) assert.equal(screeningEligible({...base,...patch}),false,JSON.stringify(patch));
 });
 test('context uses short identity, stage and ledger cents; narrative stays in panel',()=>{
- assert.equal(contextStripText({projectLabel:'Alcantara · Closet · Invoice narrative',contactStage:'construction'}, {job:{name:'Alcantara · Closet · Invoice narrative',stage:'Construction',money:{outstanding:204000}}}), 'Context · Alcantara · Closet · Construction · $2,040 outstanding');
- assert.equal(contextStripText({fromName:'Teresa',contactStage:'intake'}),'Context · Teresa · New inquiry');
+ assert.equal(contextStripText({projectLabel:'Alcantara · Closet · Invoice narrative',contactStage:'construction'}, {job:{name:'Alcantara · Closet · Invoice narrative',stage:'Construction',money:{outstanding:204000}}}), 'Job · Alcantara · Closet · $2,040 outstanding');
+ assert.equal(contextStripText({fromName:'Teresa',contactStage:'intake'}),'Contact · Teresa · New inquiry');
 });
 test('send failure never completes; completion retry never sends again',async()=>{
  const calls=[];

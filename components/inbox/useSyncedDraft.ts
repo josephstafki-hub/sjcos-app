@@ -1,6 +1,7 @@
 'use client';
 import { useEffect, useRef, useState } from 'react';
 import { loadDrafts, saveDraft } from '@/lib/actions/inbox-drafts';
+import {registerInboxDraft} from '@/lib/inbox-navigation';
 import { createDraftSync, type DraftSyncSnapshot } from '@/lib/inbox-draft-sync';
 import type { DraftText } from '@/lib/inbox-draft-types';
 import type { ThreadChannel } from '@/lib/types';
@@ -40,6 +41,7 @@ export function useSyncedDraft(options: {
       importLegacy: owner === true, latestMessageId, storage, load: () => loadDrafts([threadKey]), save: saveDraft, onChange: next => setEntry({ key, state: next }) });
     controller.current = sync; controllerKey.current = key;
     setEntry({ key, state: sync.getSnapshot() });
+    const unregister=registerInboxDraft(()=>sync.flushForNavigation());
     void sync.refresh();
     const refresh = () => { void sync.refresh(); };
     const timer = window.setInterval(refresh, 20_000);
@@ -47,7 +49,7 @@ export function useSyncedDraft(options: {
     window.addEventListener('online', refresh);
     window.addEventListener('storage', refresh);
     return () => {
-      sync.dispose(); controller.current = null; controllerKey.current = '';
+      unregister();sync.detach();void sync.flushForNavigation().finally(()=>sync.dispose()); controller.current = null; controllerKey.current = '';
       window.clearInterval(timer);
       window.removeEventListener('focus', refresh);
       window.removeEventListener('online', refresh);

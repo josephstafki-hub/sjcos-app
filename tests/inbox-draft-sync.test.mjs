@@ -82,3 +82,28 @@ test('checked flips only after the server has answered, so an early list suggest
  const g=fixture();g.offline=true;const s2=g.create();await s2.refresh();
  assert.equal(s2.getSnapshot().checked,false,'a failed load does not count as checked');s2.dispose();
 });
+
+test('unseen accepted draft carries author, basis and exact suggestion identity across devices and conflict resolution',async()=>{
+ const provenance={model:'claude',basedOn:'The terrace request and gate specification',acceptedSuggestionId:'11111111-1111-4111-8111-111111111111',humanEdited:true};
+ const written=[];const f=fixture({save:async input=>{written.push(input);return {conflict:false,current:row(input.body,input.baseVersion+1,{...input,version:input.baseVersion+1})}}});
+ const first=f.create();await first.refresh();first.setDraft({...text('Two gate finishes for review'),provenance});await first.flush();
+ assert.deepEqual(written.at(-1)?.provenance,provenance);
+ first.dispose();
+ const remote=row('Two gate finishes for review',3,{model:'claude',basedOn:provenance.basedOn,acceptedSuggestionId:provenance.acceptedSuggestionId,humanEdited:true});
+ const other=fixture({load:async()=>[remote]});const second=other.create();await second.refresh();
+ assert.deepEqual(second.getSnapshot().draft.provenance,provenance);second.dispose();
+});
+
+test('existing device metadata upgrades into the synced package instead of losing the reviewed author',async()=>{
+ const f=fixture();let sync=f.create();await sync.refresh();sync.setDraft(text('Existing gate answer'));await sync.flush();sync.dispose();
+ f.memory.set(JSON.stringify(['sjc:inbox:draft-meta','joe@example.test','joe','thread','email']),JSON.stringify({ai:true,model:'Claude',basedOn:'Earlier gate request',humanEdited:true}));
+ sync=f.create();assert.equal(sync.getSnapshot().draft.provenance.model,'claude');await sync.refresh();await sync.flush();
+ assert.equal(f.saves.at(-1).provenance.basedOn,'Earlier gate request');sync.dispose();
+});
+
+test('navigation flush waits for pending text, and an identical concurrent save is safe to acknowledge',async()=>{
+ const f=fixture();const sync=f.create();await sync.refresh();sync.setDraft(text('New railing answer'));
+ assert.equal(await sync.flushForNavigation(),true);assert.equal(f.saves.at(-1).body,'New railing answer');
+ sync.setDraft(text('Same words on both devices'));f.current=row('Same words on both devices',2);
+ assert.equal(await sync.flushForNavigation(),true);assert.equal(sync.getSnapshot().status,'saved');sync.dispose();
+});

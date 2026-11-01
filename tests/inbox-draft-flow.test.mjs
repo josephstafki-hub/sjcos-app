@@ -435,7 +435,7 @@ test('ready automatic suggestion opens an editable approval card without saving 
 });
 test('automatic suggestion never replaces human text; Dismiss retires only the suggestion; staff see none',async()=>{
  viewerOwner=true;const key='human-arrival';__draftServer.suggestions=[autoSuggestion(key)];
- __draftServer.rows.set(`${key}:email`,{...autoSuggestion(key),source:'human',body:'My exact words',version:3});
+ __draftServer.rows.set(`${key}:email`,{...autoSuggestion(key),source:'human',model:null,basedOn:'',body:'My exact words',version:3});
  try{
   mount(key);await settle();assert.equal(find(n=>n.props?.['aria-label']==='Reply body').props.value,'My exact words');
   assert.ok(find(n=>[n.props?.children].flat().join('')==='Claude drafted a reply'));assert.ok(find(n=>n.props?.children==='Compare'));
@@ -451,7 +451,7 @@ test('every reply channel exposes sync status, conflict choices and sends only t
   find(n=>n.props?.['aria-label']===label).props.onChange({target:{value:'Mine'}});render();flush();
   const saved=footer().saved;
   assert.ok(footer().nodes.some(n=>n.props?.children==='Saving…'));
-  const their={...autoSuggestion(key),source:'human',channel:kind??'email',body:'Theirs',version:7};__draftServer.rows.set(`${key}:${kind??'email'}`,their);
+  const their={...autoSuggestion(key),source:'human',model:null,basedOn:'',channel:kind??'email',body:'Theirs',version:7};__draftServer.rows.set(`${key}:${kind??'email'}`,their);
   await saved.synced.refresh();await settle();assert.ok(footer().nodes.some(n=>n.props?.children==='This draft changed on another device'));
   assert.equal(find(n=>n.props?.['aria-label']===label).props.value,'Mine');
   const before=sends.length;click('Send & Done');await settle();assert.equal(sends.length,before);
@@ -540,4 +540,39 @@ test('unseen mail review keeps recipient and Expand above body, one Close, tools
   click('Read full message');assert.equal(find(n=>n.type?.name==='RequestExcerpt'),undefined);
   assert.equal(find(n=>n.props?.['aria-label']==='AI draft body').props.value,'I will send both railing options tomorrow.\n\nBuilder');
  }finally{viewerOwner=false;reader.messages=prior.messages;reader.replyTarget=prior.replyTarget;__draftServer.suggestions=[];}
+});
+
+test('unseen cross-device draft restores provenance without local metadata and conflict compares actual envelopes and text',async()=>{
+ const key='gate-handoff';viewerOwner=true;
+ __draftServer.rows.set(`${key}:email`,{...autoSuggestion(key),source:'human',model:'hermes',body:'Please choose a gate finish',basedOn:'Gate request and specification',acceptedSuggestionId:'22222222-2222-4222-8222-222222222222',humanEdited:true,version:2});
+ try{
+  map.clear();mount(key);await settle();assert.equal(find(n=>n.props?.['aria-label']==='AI draft body').props.value,'Please choose a gate finish');
+  assert.equal(footer().saved.value.model,'Hermes');assert.equal(footer().saved.value.basedOn,'Gate request and specification');assert.equal(footer().saved.accepted.id,'22222222-2222-4222-8222-222222222222');
+  find(n=>n.props?.['aria-label']==='AI draft body').props.onChange({target:{value:'My gate answer'}});render();flush();
+  __draftServer.rows.set(`${key}:email`,{...__draftServer.rows.get(`${key}:email`),body:'Their gate answer',toEmail:'inspector@example.test',version:3});
+  await footer().saved.synced.refresh();await settle();
+  const compare=footer().nodes.find(n=>n.props?.['aria-label']==='Compare draft versions');assert.ok(compare);
+  assert.ok(nodes(compare).some(n=>n.props?.children==='My gate answer'));assert.ok(nodes(compare).some(n=>n.props?.children==='Their gate answer'));
+  assert.ok(nodes(compare).some(n=>[n.props?.children].flat().includes('inspector@example.test')));
+ }finally{viewerOwner=false;}
+});
+
+test('unseen legacy human draft can change recipient and send without a false provenance conflict',async()=>{
+ const key='legacy-gate-recipient';viewerOwner=false;
+ __draftServer.rows.set(`${key}:email`,{...autoSuggestion(key),source:'human',model:null,basedOn:'',body:'Please review the gate options',version:1});
+ mount(key);await settle();find(n=>n.props?.['aria-label']==='Reply recipient').props.onChange({target:{value:'inspector@example.test'}});render();flush();
+ await footer().saved.synced.flush();await settle();const before=sends.length;click('Send email');await settle();assert.equal(sends.length,before+1);assert.equal(sends.at(-1).toEmail,'inspector@example.test');
+});
+
+test('unseen Other view scopes the archive label and hides it at zero, with sent-only mail excluded',async()=>{
+ const previousFetch=globalThis.fetch;globalThis.fetch=async()=>({ok:true,json:async()=>null});globalThis.document={addEventListener(){},removeEventListener(){}};
+ const automated={id:'tool-reservation',channel:'email',fromName:'Tool Library',subject:'Tool reservation',preview:'Ready for pickup',when:'Earlier',view:'done',inInbox:true,inboundLast:true,automated:true,receivedAt:Date.now()-3*86400000};
+ try{
+  for(const inInbox of [true,false]){
+   clientData={threads:[{...automated,inInbox},{...automated,id:'owner-sent',inboundLast:false}],readers:{},selectedId:'tool-reservation',mailbox:{connected:true},smartViews:[],channels:[],labels:[],projects:[]};
+   mount('other-scope');await settle();find(n=>n.props?.['aria-label']==='Inbox splits · loaded conversations').props.onChange('other');render();flush();
+   const batch=find(n=>[n.props?.children].flat().join('')==='Archive older automated mail (1)');assert.equal(Boolean(batch),inInbox);
+   assert.equal(find(n=>n.type?.name==='ThreadRow'&&n.props.thread.id==='owner-sent'),undefined);
+  }
+ }finally{cleanups.forEach(f=>f?.());cleanups=[];clientData=null;globalThis.fetch=previousFetch;delete globalThis.document;}
 });

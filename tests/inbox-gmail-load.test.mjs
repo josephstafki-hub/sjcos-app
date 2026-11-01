@@ -297,7 +297,7 @@ test('round 5 row and strip distinguish thread tasks from job tasks in one batch
  assert.equal(michelle.hasOpenTodo,false);assert.equal(michelle.jobTodos.length,2);
  const {threadTodoCue,contextStripText}=await import('../lib/inbox-experience.ts');
  assert.equal(threadTodoCue(michelle),'2 job to-dos');
- assert.match(contextStripText(michelle,{todos:michelle.jobTodos}),/2 job to-dos/);
+ assert.match(contextStripText(michelle,{todos:michelle.jobTodos}),/2 to-dos/);
  assert.equal(sqls.filter(sql=>/SELECT DISTINCT w.id::text/.test(sql)).length,1);
  assert.match(sqls.find(sql=>/SELECT DISTINCT w.id::text/.test(sql)),/COALESCE\(.*requested.id.*false\) AS thread_linked/);
  const fiverr=data.threads.find(t=>t.id==='fiverr');assert.equal(fiverr.view,'needs_reply');assert.equal(fiverr.attentionEvidence,'Your order will be marked as complete automatically in 3 days');

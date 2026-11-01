@@ -28,12 +28,12 @@ beforeEach(()=>{
    if(/^INSERT/.test(sql)) {
     assert.match(sql,/ON CONFLICT .* WHERE source='human' DO NOTHING/);
     if(old)return {rows:[]};
-    const row={id:key,mailbox:p[0],userId:p[1],threadKey:p[2],channel:p[3],source:'human',body:p.length===8?p[7]:'',toEmail:p.length===8?p[4]:'',cc:p.length===8?p[5]:[],subject:p.length===8?p[6]:'',version:1,status:p.length===8?'ready':p[4]};rows.set(key,row);return {rows:[{...row}]};
+    const row={id:key,mailbox:p[0],userId:p[1],threadKey:p[2],channel:p[3],source:'human',body:p.length===12?p[7]:'',toEmail:p.length===12?p[4]:'',cc:p.length===12?p[5]:[],subject:p.length===12?p[6]:'',model:p.length===12?p[8]:null,basedOn:p.length===12?p[9]:'',acceptedSuggestionId:p.length===12?p[10]:null,humanEdited:p.length===12?p[11]:false,version:1,status:p.length===12?'ready':p[4]};rows.set(key,row);return {rows:[{...row}]};
    }
    if(/^UPDATE/.test(sql)) {
     assert.match(sql,/AND source='human'.*AND version=\$/s);
     const saving=/SET to_email/.test(sql);const base=saving?p[8]:p[5];if(!old||old.version!==base)return {rows:[]};
-    Object.assign(old,saving?{body:p[7],toEmail:p[4],cc:p[5],subject:p[6],status:'ready'}:{status:p[4],body:''});old.version++;return {rows:[{...old}]};
+    Object.assign(old,saving?{body:p[7],toEmail:p[4],cc:p[5],subject:p[6],model:p[9],basedOn:p[10],acceptedSuggestionId:p[11],humanEdited:p[12],status:'ready'}:{status:p[4],body:''});old.version++;return {rows:[{...old}]};
    }
    throw Error('Unexpected SQL '+sql);
   }
@@ -81,4 +81,13 @@ test('successful explicit send retires only the specified owner suggestion',asyn
  await saveDraft(input);const sent=await markDraftSent({...input,baseVersion:1,suggestionId});assert.equal(sent.conflict,false);
  assert.equal(rows.get('ai').status,'sent');assert.equal(rows.get('new-ai').status,'ready');
  assert.match(__draftActions.calls.at(-1).sql,/thread_key=\$3/);
+});
+
+test('unseen reviewed draft persists authorship and exact accepted suggestion with scoped SQL and no send',async()=>{
+ const provenance={model:'claude',basedOn:'Terrace request plus railing specification',acceptedSuggestionId:'12345678-1234-4123-8123-123456789012',humanEdited:true};
+ const result=await saveDraft({...input,body:'I will price the railing options',provenance});
+ assert.equal(result.current.model,'claude');assert.equal(result.current.basedOn,provenance.basedOn);assert.equal(result.current.acceptedSuggestionId,provenance.acceptedSuggestionId);
+ assert.match(__draftActions.calls.at(-1).sql,/mailbox=\$1 AND thread_key=\$3 AND channel=\$4 AND source='ai'/);
+ const updated=await saveDraft({...input,baseVersion:1,provenance:{...provenance,model:'hermes'}});assert.equal(updated.current.model,'hermes');
+ for(const bad of [{...provenance,model:'unknown'},{...provenance,acceptedSuggestionId:'invalid'},{...provenance,humanEdited:'yes'}])await assert.rejects(()=>saveDraft({...input,provenance:bad}),/Invalid draft provenance/);
 });

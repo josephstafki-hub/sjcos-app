@@ -17,7 +17,7 @@ const stubs={
  react:`const h=globalThis.__panels;export const useState=h.useState,useRef=h.useRef,useEffect=h.useEffect,useTransition=h.useTransition;`,
  '@/components/ui':`export const Button=()=>null,Chip=()=>null,Segmented=()=>null,Avatar=()=>null;`,
  '@/lib/actions/inbox-screening':`export const searchInboxDirectoryAction=async()=>{if(globalThis.__panels.directoryError)throw Error('offline');return globalThis.__panels.directory??[];};`,
- '@/lib/actions/engine':`export const createWorkItem=globalThis.__panels.create;`,
+ '@/lib/actions/engine':`export const createWorkItem=globalThis.__panels.create;export const setWorkItemStatus=async(...args)=>{globalThis.__panels.completed??=[];globalThis.__panels.completed.push(args);return {ok:!globalThis.__panels.completeFails,error:'Could not complete'};};`,
  '@/lib/actions/leads':`export const createLeadFromInbox=async()=>globalThis.__panels.contact('lead');`,
  '@/lib/actions/subs':`export const createSubFromInbox=async()=>globalThis.__panels.contact('sub');`,
  '@/lib/actions/vendors':`export const createVendorFromInbox=async()=>globalThis.__panels.contact('vendor');`,
@@ -25,7 +25,7 @@ const stubs={
  '@/lib/run-action':`export const runAction=async f=>f();`,
 };
 registerHooks({resolve(s,c,n){if(s in stubs&&(s!=='react'||c.parentURL===url))return {url:'stub:'+s,shortCircuit:true};if(s==='@/lib/inbox-review')return n(new URL('../lib/inbox-review.ts',import.meta.url).href,c);if(s==='@/lib/inbox-rules')return n(new URL('../lib/inbox-rules.ts',import.meta.url).href,c);if(s==='@/lib/inbox-experience')return n(new URL('../lib/inbox-experience.ts',import.meta.url).href,c);return n(s,c)},load(u,c,n){if(u===url)return {format:'module',source:ts.transpileModule(readFileSync(new URL(url),'utf8')+'\nexport {DuplicateNotice};',{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText,shortCircuit:true};return u.startsWith('stub:')?{format:'module',source:stubs[u.slice(5)],shortCircuit:true}:n(u,c)}});
-const {MessageTaskDialog,ThreadSummary,ContactCreateDialog,DuplicateNotice,SenderScreening,MiniCalendar,InboxDialog}=await import(url);
+const {MessageTaskDialog,ThreadSummary,ContactCreateDialog,DuplicateNotice,SenderScreening,MiniCalendar,InboxDialog,ContextPanel}=await import(url);
 const thread={id:'thread-1',channel:'email',subject:'Review tile',fromName:'Tom',fromEmail:'tom@example.test',preview:'Please review the tile'};
 const reader={messages:[{id:'message-1',fromName:'Tom',fromEmail:'tom@example.test',body:['Please review the tile'],date:1000}]};
 let tree;
@@ -129,4 +129,18 @@ test('unseen make-to-do title and assignee are visible before dates, reminder pr
  mount(MessageTaskDialog,{thread:unfamiliar,reader,remind:true,onClose(){},onCreated(){},options:{projects:[],leads:[]}});
  assert.equal(find(n=>n.props?.title==='To-do: Confirm gate latch finish · Joe').props.className,'truncate text-body text-ink-2');
  assert.ok(find(n=>n.props?.['data-preset']==='tomorrow').props.children.match(/Tomorrow · \w{3} \w{3} \d+ · 8:00 AM/));
+});
+
+test('unseen context shows dated inline note, actionable due task and cross-channel last contact',async()=>{
+ const task={id:'gate-task',title:'Confirm gate latch finish',due_at:'2020-01-02T14:00:00Z',assignees:'Avery'};
+ const data={person:{name:'Avery Chen',role:'client',email:'avery@example.test'},job:{kind:'project',name:'Chen · Terrace',slug:'terrace',stage:'Construction',latestNote:'Posts checked on site',latestNoteAt:'2026-10-21',latestNoteSource:'Daily log',latestNoteHref:'/projects/terrace?tab=Daily%20log'},todos:[task],schedule:null};
+ let completed;const render=mount(ContextPanel,{thread:{...thread,id:'gate-mail',fromEmail:'avery@example.test'},threads:[{...thread,id:'gate-sms',fromEmail:'avery@example.test',channel:'sms',subject:'Gate inspection',unread:true,view:'needs_reply',receivedAt:Date.parse('2026-10-22T18:00:00Z')}],initialData:data,onTaskDone:id=>completed=id,onClose(){},onSelect(){},onLink(){}});
+ assert.ok(find(n=>n.props?.children==='Posts checked on site'));assert.ok(find(n=>n.props?.children==='Open source'));
+ assert.ok(find(n=>n.props?.['aria-label']==='Assigned to Avery'));assert.ok(find(n=>n.props?.className?.includes('text-warn')&&[n.props.children].flat().includes('Overdue · ')));
+ assert.ok(find(n=>n.props?.['aria-label']==='Unread'));assert.ok(find(n=>n.props?.['aria-label']==='sms'));
+ globalThis.__panels.completeFails=true;find(n=>n.props?.['aria-label']==='Complete: Confirm gate latch finish').props.onChange();await settle();render();assert.equal(completed,undefined);assert.ok(find(n=>[n.props?.children].flat().includes('Could not complete')));
+ globalThis.__panels.completeFails=false;find(n=>n.props?.['aria-label']==='Complete: Confirm gate latch finish').props.onChange();await settle();render();assert.equal(completed,'gate-task');assert.equal(find(n=>n.props?.['aria-label']==='Complete: Confirm gate latch finish'),undefined);
+ assert.deepEqual(__panels.completed.at(-1),['gate-task','done']);
+ mount(ContextPanel,{thread:{...thread,automated:true,fromName:'Tool Library',subject:'Reservation ready'},threads:[],initialData:{person:null,job:null,todos:[],schedule:null},onClose(){},onSelect(){},onLink(){}});
+ assert.ok(find(n=>n.props?.children==='Automated sender'));assert.equal(find(n=>n.props?.children==='New contact?'),undefined);assert.equal(find(n=>n.props?.children==='No linked job or lead.'),undefined);
 });

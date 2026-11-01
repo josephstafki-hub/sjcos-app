@@ -64,6 +64,7 @@ import {
   composerExpanded,
   isNoReplyAddress,
 } from "@/lib/inbox-rules";
+import {guardInboxNavigation,registerInboxDraft} from '@/lib/inbox-navigation';
 import {completionKey,readCompletions,saveCompletion,clearCompletion,retryCompletion,type SentCompletion} from "@/lib/inbox-completion";
 import {attachInquiryContinuity} from "@/lib/inbox-continuity";
 import {MAIL_FILE_ACCEPT,validateMailFiles,fileSize} from "@/lib/inbox-files";
@@ -120,7 +121,7 @@ import {
 import {reflowPlainText, draftRecipientName, askExcerpt, rowActionTitle, automationState, composerMode, olderOtherMail, completeMailBatch, draftReviewSize, regenerateModel, restoreForwardChoices} from '@/lib/inbox-review';
 import {useComposerDraft, DraftSyncFooter} from './useComposerDraft';
 import {loadDrafts, dismissSuggestion} from '@/lib/actions/inbox-drafts';
-import {matchingSuggestion, draftRow, prepareDraftSend} from '@/lib/inbox-draft-ui';
+import {matchingSuggestion, draftRow} from '@/lib/inbox-draft-ui';
 import type {InboxDraft} from '@/lib/inbox-draft-types';
 import { setInboxPreferenceAction } from "@/lib/actions/inbox-screening";
 import type { InboxLinkKind } from "@/lib/inbox-directory";
@@ -227,7 +228,7 @@ export function InboxClient({
   userId?:string; owner?:boolean;
   data: InboxData;
   /** The signed-in person's own address — the connected mailbox when there is
-   *  one, else their login email. Used only to prefill Compose's To: field.
+   *  one, else their login email. Used to scope saved drafts.
    *  Was `ownerEmail`, which handed Joe's address to every staff login. */
   selfEmail: string;
 }) {
@@ -277,6 +278,19 @@ export function InboxClient({
   const [selectedId, setSelectedId] = useState(data.selectedId);
   // Mobile master/detail: below lg, show the thread list OR the reader, not both.
   const router = useRouter();
+  const leaveInbox=(navigate:()=>void)=>guardInboxNavigation(navigate,()=>setNotice('Draft not synced yet. Resolve its save or conflict before leaving.'));
+  useEffect(()=>{
+    const follow=(event:MouseEvent)=>{
+      if(event.defaultPrevented||event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;
+      const link=(event.target as Element|null)?.closest?.('a[href]') as HTMLAnchorElement|null;
+      if(!link||link.target==='_blank'||link.hasAttribute('download'))return;
+      const url=new URL(link.href,window.location.href);
+      if(url.origin!==window.location.origin||url.pathname.startsWith('/api/')||url.pathname===window.location.pathname&&url.search===window.location.search)return;
+      event.preventDefault();event.stopPropagation();void leaveInbox(()=>router.push(url.pathname+url.search+url.hash));
+    };
+    document.addEventListener('click',follow,true);return()=>document.removeEventListener('click',follow,true);
+  },[router]);
+
   const [mobileReader, setMobileReader] = useState(false);
   const [showSources, setShowSources] = useState(false);
   const [splitSheet,setSplitSheet]=useState(false);
@@ -519,7 +533,7 @@ export function InboxClient({
     attachInquiryContinuity([...threads,...(remoteData?.threads ?? [])].map(t=>({...t})),copy);return copy;
   },[readers,threads,remoteData]);
   const reader = selected ? continuityReaders[selected.id] : undefined;
-  function openConversation(id:string){setLens({kind:'all'});setTab(null);setQuery('');setSelectedId(id);setMobileReader(true);}
+  function openConversation(id:string){void leaveInbox(()=>{setLens({kind:'all'});setTab(null);setQuery('');setSelectedId(id);setMobileReader(true);});}
   const contextKey=`${selfEmail}:${selected?.id??''}`;
   const contextData=contextResult?.key===contextKey?contextResult.data:null;
   useEffect(()=>{
@@ -862,10 +876,10 @@ export function InboxClient({
     const i = visible.findIndex((t) => t.id === selected?.id);
     const t = visible[Math.max(0, Math.min(visible.length - 1, i + delta))];
     if (t) {
-      setSelectedId(t.id);
+      void leaveInbox(()=>{setSelectedId(t.id);
       rootRef.current
         ?.querySelector<HTMLElement>(`[data-thread-row="${CSS.escape(t.id)}"]`)
-        ?.scrollIntoView({ block: "nearest" });
+        ?.scrollIntoView({ block: "nearest" });});
     }
   }
   useEffect(() => {
@@ -1332,10 +1346,7 @@ export function InboxClient({
                   onScreen={t.newSender?()=>{setScreeningThread(t);setLinking(true);}:undefined}
                   onAdd={t.newSender?kind=>setAdding({thread:t,kind}):undefined}
                   onOther={t.newSender?()=>fileSender(t,true):undefined}
-                  onSelect={() => {
-                    setSelectedId(t.id);
-                    setMobileReader(true);
-                  }}
+                  onSelect={() => {void leaveInbox(()=>{setSelectedId(t.id);setMobileReader(true);});}}
                 />
                 </div>
               ))
@@ -1611,12 +1622,13 @@ export function InboxClient({
             panelWidth={contextWidths.panelWidth}
             onClose={closeContext}
             onLink={() => setLinking(true)}
-            onSelect={(id) => {
-              setLens({ kind: "all" });
-              setTab(null);
-              setQuery("");
-              setSelectedId(id);
-              setMobileReader(true);
+            onSelect={openConversation}
+            onTaskDone={id=>{
+              const remove=(c:InboxContext)=>({...c,todos:c.todos.filter(t=>t.id!==id)});
+              setContextResult(r=>r?.data?{...r,data:remove(r.data)}:r);
+              for(const [key,c]of contextCache.current)contextCache.current.set(key,remove(c));
+              const removeTasks=(t:InboxThread)=>({...t,todos:t.todos?.filter(todo=>todo.id!==id),jobTodos:t.jobTodos?.filter(todo=>todo.id!==id)});
+              setThreads(rows=>rows.map(removeTasks));setRemoteData(d=>d?{...d,threads:d.threads.map(removeTasks)}:d);
             }}
           />
         )}
@@ -1697,7 +1709,7 @@ function useMailFiles(originals: {name:string;size:number;type:string}[] = []) {
   const [files,setFiles]=useState<File[]>([]);
   const [error,setError]=useState('');
   const data=()=>{const form=new FormData();for(const file of files)form.append('files',file);return form;};
-  const picker=(disabled:boolean)=><div className="flex max-w-full flex-wrap items-center gap-1 text-meta">
+  const picker=(disabled:boolean,compact=false)=><div className={`flex max-w-full items-center gap-1 text-meta ${compact?"shrink-0 flex-nowrap":"flex-wrap"}`}>
     <label className={`inline-flex min-h-8 cursor-pointer items-center gap-1 rounded-md px-2 hover:bg-hover max-sm:min-h-11 ${disabled?'opacity-50':''}`}>
       <Paperclip className="size-4"/><span>{files.length?`${files.length} · ${fileSize(files.reduce((n,f)=>n+f.size,0))}`:""}</span><span className="sr-only">Attach files / photos</span>
       <input type="file" multiple accept={MAIL_FILE_ACCEPT} disabled={disabled} className="sr-only" aria-label="Attach files or photos" onChange={e=>{
@@ -1705,7 +1717,7 @@ function useMailFiles(originals: {name:string;size:number;type:string}[] = []) {
         try{validateMailFiles([...originals,...next]);setFiles(next);setError('');}catch(err){setError((err as Error).message);}e.target.value='';
       }}/>
     </label>
-    <ul aria-label="Files to send" className="flex flex-wrap gap-2">{files.map((file,i)=><li key={i} className="flex min-w-0 items-center gap-1 rounded-md border border-rule bg-card px-2"><span className="break-all">{file.name} · {fileSize(file.size)}</span><Button variant="ghost" disabled={disabled} aria-label={`Remove ${file.name}`} title={`Remove ${file.name}`} icon={X} iconOnly onClick={()=>setFiles(items=>items.filter((_,j)=>j!==i))}/></li>)}</ul>
+    <ul aria-label="Files to send" className={`flex gap-2 ${compact?"flex-nowrap":"flex-wrap"}`}>{files.map((file,i)=><li key={i} className="flex min-w-0 items-center gap-1 rounded-md border border-rule bg-card px-2"><span className={compact?"max-w-24 truncate":"break-all"} title={file.name}>{file.name} · {fileSize(file.size)}</span><Button variant="ghost" disabled={disabled} aria-label={`Remove ${file.name}`} title={`Remove ${file.name}`} icon={X} iconOnly onClick={()=>setFiles(items=>items.filter((_,j)=>j!==i))}/></li>)}</ul>
     {error&&<p role="alert" className="text-flag">{error}</p>}
   </div>;
   return {files,data,picker,clear:()=>setFiles([])};
@@ -1723,7 +1735,7 @@ function ComposeModal({
   forward?:ForwardMessage;
 }) {
   const saved=useComposerDraft({mailbox:selfEmail,userId,owner,channel:'email',threadKey:forward?`forward:${forward.threadId}:${forward.message.id}`:'compose:new',
-    initial:{toEmail:forward?'':selfEmail,cc:[],subject:forward?`Fwd: ${forward.subject.replace(/^fwd?:\s*/i,'')}`:'',
+    initial:{toEmail:'',cc:[],subject:forward?`Fwd: ${forward.subject.replace(/^fwd?:\s*/i,'')}`:'',
       body:forward?`\n\n---------- Forwarded message ----------\nFrom: ${forward.message.fromName} <${forward.message.fromEmail??''}>\nDate: ${forward.message.date?new Date(forward.message.date).toLocaleString('en-US'):forward.message.meta??''}\nSubject: ${forward.subject}\nTo: ${forward.message.to??''}\n\n${forward.message.body.join('\n\n')}`:''}});
   const {body,toEmail:to,subject}=saved.synced.draft;
   const cc=saved.synced.draft.cc.join(', ');
@@ -1743,10 +1755,20 @@ function ComposeModal({
   const [error, setError] = useState("");
   const [sent, setSent] = useState(false);
   const [sending, startSend] = useTransition();
+  const sendBusy=useRef(false);
+  useEffect(()=>registerInboxDraft(async()=>!sendBusy.current),[]);
+  function close() {
+    if(sendBusy.current||sending)return;
+    void guardInboxNavigation(onClose,()=>setError('Draft not synced yet. Resolve its save or conflict before closing.'));
+  }
+
 
   function send() {
+    if(sendBusy.current)return;
+    sendBusy.current=true;
     setError("");
     startSend(async () => {
+      try {
       let snapshot;
       try{snapshot=await saved.prepare();}catch(e){setError((e as Error).message);return;}
       const res = await runAction(
@@ -1757,15 +1779,16 @@ function ComposeModal({
         setSent(true);
         const warning=await saved.finish(snapshot.version);
         window.dispatchEvent(new Event('inbox-drafts-changed'));
-        if(warning)setError(warning);else setTimeout(onClose,900);
+        if(warning)setError(warning);else onClose();
       } else setError(res.error ?? "Send failed.");
+      } finally {sendBusy.current=false;}
     });
   }
 
   return (
     <div
       className="fixed inset-0 z-[80] flex items-center justify-center bg-ink/30 p-4"
-      onClick={onClose}
+      onClick={close}
     >
       <div
         role="dialog"
@@ -1779,7 +1802,8 @@ function ComposeModal({
             {forward?"Forward message":"New message"}
           </h3>
           <Button
-            onClick={onClose}
+            onClick={close}
+            disabled={sending}
             icon={X}
             iconOnly
             aria-label="Close new message"
@@ -2718,9 +2742,9 @@ function ReaderBody({
       try{
         if(preview)saved.acceptSuggestion();
         // Flush the exact accepted suggestion or the text currently displayed.
-        snapshot=await (preview
-          ? prepareDraftSend({body:draft,toEmail,cc:suggestion!.cc,subject:suggestion!.subject},saved.synced.flush)
-          : saved.prepare());
+        snapshot=await (preview ? saved.synced.flush() : saved.prepare());
+        if(!snapshot||snapshot.status!=='saved'||snapshot.conflict)throw Error('Resolve the draft save before sending.');
+        if(snapshot.draft.body!==draft||snapshot.draft.toEmail!==toEmail)throw Error('This draft changed while saving. Review it before sending.');
       }catch(e){setError((e as Error).message);return;}
       const r=await sendWithReceipt(mailbox,threadId,reader,snapshot.draft.toEmail,()=>runAction(
         ()=>sendReplyAction({threadId,toEmail:snapshot.draft.toEmail,replyAll:Boolean(snapshot.draft.cc.length),subject:snapshot.draft.subject,body:snapshot.draft.body,files:files.data()}),
@@ -3008,7 +3032,7 @@ function ReaderBody({
         </div>
         {reviewActive&&isAI&&<div data-draft-tools className="shrink-0 pt-1">
           <div className="flex flex-nowrap items-center gap-1 overflow-x-auto">
-            {files.picker(sending)}
+            {files.picker(sending,true)}
             <Button variant="ghost" size="sm" className="min-h-11 shrink-0 @4xl/page:min-h-8" onClick={()=>generate()} disabled={drafting||sending}>Regenerate</Button>
             <Button variant="ghost" size="sm" className="min-h-11 shrink-0 @4xl/page:min-h-8" onClick={discard} disabled={sending}>Discard</Button>
           </div>

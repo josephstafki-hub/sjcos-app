@@ -91,3 +91,18 @@ test("unknown sender returns explicit unknown context, never fabricated zeros", 
   assert.deepEqual(c.todos, []);
   globalThis.__contextRun = old;
 });
+
+test('unseen context sources a dated real note and last settled payment without substituting a stage label',async()=>{
+ const old=globalThis.__contextRun;
+ globalThis.__contextRun=async(sql,params)=>{
+  queries.push([sql,params]);
+  if(/FROM projects p/.test(sql))return [{slug:'terrace',name:'Chen · Terrace',stage:'construction',latest_note:'Railing posts checked on site',latest_note_at:'2026-10-21',last_paid_at:'2026-10-20T18:00:00Z',total_cents:'200000',collected_cents:'50000',person_name:'Avery Chen',email:'avery@example.test'}];
+  return [];
+ };
+ try{
+  const c=await loadInboxContext({threadId:'gate-mail',projectSlug:'terrace'});
+  assert.equal(c.job.latestNote,'Railing posts checked on site');assert.equal(c.job.latestNoteAt,'2026-10-21');assert.equal(c.job.latestNoteSource,'Daily log');assert.equal(c.job.money.lastPaidAt,'2026-10-20T18:00:00Z');
+  const sql=queries.findLast(([sql])=>/FROM projects p/.test(sql))?.[0]??'';
+  assert.match(sql,/invoice_payments/);assert.match(sql,/daily_logs/);assert.doesNotMatch(sql,/stage_label AS latest_note/);
+ }finally{globalThis.__contextRun=old;}
+});

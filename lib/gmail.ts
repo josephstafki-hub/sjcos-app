@@ -562,8 +562,7 @@ async function renderMessageHtml(threadId: string, messageId: string): Promise<s
   // Inline cid: images (signature logos etc.) → data URIs so they render.
   const inlines = collectInlineImages(message.payload);
   if (inlines.length && message.id) {
-    await Promise.all(
-      inlines.map(async (img) => {
+    await mapLimit(inlines, 4, async (img) => {
         try {
           const att = await api.users.messages.attachments.get({
             userId: "me",
@@ -578,8 +577,7 @@ async function renderMessageHtml(threadId: string, messageId: string): Promise<s
         } catch {
           /* leave the cid ref; it just won't render */
         }
-      }),
-    );
+    });
   }
 
   const sanitized = sanitizeEmailHtml(html);
@@ -781,8 +779,9 @@ export async function fetchThreadPage(
   );
   const ids = (list.data.threads ?? []).map((t) => t.id!).filter(Boolean);
 
-  const threads = await Promise.all(
-    ids.map(async (id) => {
+  // Eight at a time: a 50-thread page fanned out at once tripped Gmail's per-user
+  // concurrency limit (shared with the live site's cron jobs).
+  const threads = await mapLimit(ids, 8, async (id) => {
       const { data } = await withGmailRetry("threads.get", () =>
         api.users.threads.get({
           userId: "me",
@@ -821,8 +820,7 @@ export async function fetchThreadPage(
         messages: conversation.messages,
         ownAddresses: conversation.ownAddresses,
       } satisfies RawGmailThread;
-    }),
-  );
+    });
   return {
     threads: threads.sort((a, b) => b.date - a.date),
     nextPageToken: list.data.nextPageToken ?? undefined,

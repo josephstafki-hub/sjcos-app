@@ -107,6 +107,8 @@ export interface InboxThread {
   receivedAt?: number;
   attentionRequired?: boolean;
   attentionEvidence?: string;
+  /** Short AI-written headline of what the sender is asking (set from a ready auto-draft). */
+  actionTitle?: string;
   jobTodos?: InboxTodo[];
   attentionOverride?: boolean;
   senderDecision?: string;

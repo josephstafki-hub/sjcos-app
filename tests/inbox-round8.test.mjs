@@ -15,7 +15,7 @@ test('suggestions match latest inbound id, channel and owner only',()=>{
 test('draft-ready row uses summary and original reason, ranks before other human replies',()=>{
  const thread={id:'t',view:'needs_reply',needsMeReason:'Client replied',preview:'Plans?',receivedAt:Date.now()-86400000};
  const row=draftRow(thread,ai);
- assert.equal(row.needsMeReason,'Draft ready · Client replied');assert.equal(row.preview,ai.summary);
+ assert.equal(row.needsMeReason,'Draft ready · Client replied');assert.equal(row.actionTitle,ai.summary,'AI headline becomes the action line');assert.equal(row.preview,'Plans?','the sender\'s own words stay as the preview');
  const today={id:'new',view:'needs_reply',receivedAt:Date.now()};
  assert.equal(orderedInboxThreads([today,row],new Date(),new Set(['t']))[0].id,'t');
  assert.equal(draftRow({...thread,filedOther:true},ai).preview,'Plans?');

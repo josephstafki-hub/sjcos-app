@@ -10,7 +10,8 @@ export function matchingSuggestion(rows: InboxDraft[], threadKey: string, reader
 }
 export function draftRow(thread: InboxThread, suggestion?: InboxDraft | null): InboxThread {
   if (!suggestion || thread.automated || thread.filedOther || thread.newSender || thread.view === 'done') return thread;
-  return {...thread, needsMeReason: `Draft ready · ${thread.needsMeReason || 'Reply to review'}`, preview: cleanRowSummary(suggestion.summary || thread.preview,thread.fromName)};
+  const headline = suggestion.summary && !suggestion.summary.toLowerCase().startsWith(`${(thread.fromName ?? '').toLowerCase()}:`) ? suggestion.summary : undefined;
+  return {...thread, needsMeReason: `Draft ready · ${thread.needsMeReason || 'Reply to review'}`, preview: headline ? thread.preview : cleanRowSummary(suggestion.summary || thread.preview,thread.fromName), ...(headline ? {actionTitle: headline} : {})};
 }
 export function draftStatusLabel(status: DraftSyncStatus): string {
   return {saved:'Saved',saving:'Saving…','local only':'Saved on this device only',conflict:'This draft changed on another device'}[status];

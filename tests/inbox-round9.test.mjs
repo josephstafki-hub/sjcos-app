@@ -18,13 +18,25 @@ test('ask excerpt retains actual request sentences and antecedent, excludes gree
  assert.match(askExcerpt(basement,'Plans'),/basement|egress/);
  assert.doesNotMatch(askExcerpt(['Hi Builder,\nPlease review the window quote.\n\nOn Friday someone wrote:\nPlease cancel everything.'],'Plans'),/cancel/);
 });
-test('action titles describe hallway, basement, information request and delivered order work',()=>{
- assert.equal(rowActionTitle({fromName:'Michelle',subject:'Old invoice',preview:askExcerpt(hallway)}),'Asks to add hallway painting + popcorn estimate');
- assert.equal(rowActionTitle({fromName:'Teresa',subject:'Plans',preview:askExcerpt(basement)}),"Review Teresa’s basement details");
- assert.equal(rowActionTitle({fromName:'Square',subject:'Action required',preview:'Complete the information request within the next 5 days',automated:true}),'Complete Square information request · 5 days');
- assert.equal(rowActionTitle({fromName:'Fiverr',subject:'Delivery',attentionEvidence:'Your order will be automatically marked complete after 3 days',receivedAt:Date.parse('2026-10-31T15:00:00Z')}),'Review Fiverr order');
+test('action titles are general: AI headline first, then the actual ask, then the subject — nothing job- or sender-specific',()=>{
+ // An AI headline from the auto-draft wins.
+ assert.equal(rowActionTitle({fromName:'Michelle',subject:'Old invoice',preview:askExcerpt(hallway),actionTitle:'Price hallway painting and popcorn removal'}),'Price hallway painting and popcorn removal');
+ // Without one, the row shows the sender's actual request.
+ assert.match(rowActionTitle({fromName:'Michelle',subject:'Old invoice',preview:askExcerpt(hallway)}),/^Asks: .*(?:popcorn|painting)/);
+ // Mail no fixture has seen: still a real ask, not a canned title.
+ assert.equal(rowActionTitle({fromName:'Dana Ruiz',subject:'Deck',preview:'Could you come look at the rotten deck boards next week?'}),'Asks: Could you come look at the rotten deck boards next week?');
+ assert.equal(rowActionTitle({fromName:'Lee',subject:'Re: Cabinet hinges',preview:'They arrived and look great.'}),'Cabinet hinges');
+ // Generic information-request rule, no sender name baked in.
+ assert.equal(rowActionTitle({fromName:'Square',subject:'Action required',preview:'Complete the information request within the next 5 days',automated:true}),'Complete information request · 5 days');
+ assert.equal(rowActionTitle({fromName:'Any Bank',subject:'Account review',preview:'Please complete the information request in 10 days',automated:true}),'Complete information request · 10 days');
+ // Automated mail uses its own subject (the deadline chip carries the evidence).
+ assert.equal(rowActionTitle({fromName:'Fiverr',subject:'Great news: Your order is ready',automated:true,attentionEvidence:'Your order will be automatically marked complete after 3 days'}),'Great news: Your order is ready');
  assert.equal(cleanRowSummary('Michelle: Please review the plans','Michelle'),'Please review the plans');
- assert.equal(reminderTitle({fromName:'Teresa',subject:'Plans',preview:askExcerpt(basement)}),"Review Teresa’s basement details");
+ assert.match(reminderTitle({fromName:'Dana Ruiz',subject:'Deck',preview:'Could you come look at the deck?'}),/^Review /);
+});
+test('ask excerpts use general request signals only',()=>{
+ assert.match(askExcerpt(['Hi Joe,\n\nWe moved in last month. Could you quote a new fence along the back yard?\n\nThanks,\nAl'],'Fence'),/quote a new fence/);
+ assert.doesNotMatch(askExcerpt(['Hi Joe,\n\nWe moved in last month. Could you quote a new fence?\n\nThanks'],'Fence'),/moved in last month/);
 });
 test('automation row/reader status agrees on done, current attention and owner overrides',()=>{
  assert.deepEqual(automationState({automated:true,automationKind:'Payment',view:'done',inInbox:false,attentionRequired:true}),{attention:false,label:'Payment · done'});

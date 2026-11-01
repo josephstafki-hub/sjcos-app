@@ -133,3 +133,10 @@ test('an AI draft never opens with envelope lines — the composer shows To/Subj
   assert.equal(stripDraftHeaders('To: teresa@example.test\nSubject: Re: Basement project details\n\nHi Teresa,\nThanks!'), 'Hi Teresa,\nThanks!');
   assert.equal(stripDraftHeaders('Hi Teresa,\nSubject: the basement is great'), 'Hi Teresa,\nSubject: the basement is great');
 });
+
+test('Claude writes a short headline line that becomes the row action, never part of the reply body', async () => {
+  const { splitHeadline } = await import('../lib/inbox-autodraft.ts');
+  assert.deepEqual(splitHeadline('HEADLINE: Price hallway painting and popcorn removal\n\nHi Michelle,\nThanks!'), { headline: 'Price hallway painting and popcorn removal', body: 'Hi Michelle,\nThanks!' });
+  assert.deepEqual(splitHeadline('Hi Michelle,\nThanks!'), { headline: '', body: 'Hi Michelle,\nThanks!' });
+  assert.equal(splitHeadline('Headline: "Confirm deck visit"\nTo: x@y.test\n\nHi,').body, 'Hi,');
+});

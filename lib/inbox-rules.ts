@@ -191,7 +191,7 @@ export function substantiveSnippet(paras: string[], subject = ''): string {
     meaningful.push(sentence);
   }
   // A question alone is weak evidence (quotes/marketing slogans often contain one).
-  const strong = /\b(?:can you|could you|would you|please (?!visit|verify the accuracy)|we (?:need|want|hope|would like)|we[’']d (?:like|hope)|I (?:need|want)|estimate|quote|\d[\d,]* (?:square feet|sq\.? ft)|bedroom|egress|review and (?:accept|approve)|payment .{0,30}received)\b/i;
+  const strong = /\b(?:can you|could you|would you|please (?!visit|verify the accuracy)|we (?:need|want|hope|would like)|we[’']d (?:like|hope)|I (?:need|want)|estimate|quote|price|cost|\d[\d,]* (?:square feet|sq\.? ft)|review and (?:accept|approve)|payment .{0,30}received)\b/i;
   const requestIndex=meaningful.findIndex(s=>/\b(?:can you|could you|would you|please (?!visit|verify the accuracy)|we (?:need|want|hope|would like)|we[’']d (?:like|hope)|I (?:need|want))\b/i.test(s));
   const index = requestIndex>=0?requestIndex:meaningful.findIndex(s=>strong.test(s));
   if (index < 0) return (subject || '').slice(0,280);
@@ -203,9 +203,12 @@ export function substantiveSnippet(paras: string[], subject = ''): string {
   else if (meaningful[index+1] && strong.test(meaningful[index+1]) && (refers.test(ask) || refers.test(meaningful[index+1]))) ask = meaningful[index+1] + ' ' + ask;
   // Lead with measured scope rather than a long setup sentence on phone rows.
   const area=ask.match(/\b[\d,]+(?:\.\d+)? (?:square feet|sq\.? ft\.?)/i);
-  if(area){const scope=['bedroom','egress window','laundry'].filter(word=>new RegExp(`\\b${word}\\b`,'i').test(ask));if(scope.length)return `${area[0]} · ${scope.join(' + ')}`;}
+  if(area){const scope=SCOPE_WORDS.filter(word=>new RegExp(`\\b${word}s?\\b`,'i').test(ask)).slice(0,3);if(scope.length)return `${area[0]} · ${scope.join(' + ')}`;}
   return ask.slice(0,280);
 }
+
+/** General remodeling scope vocabulary (rooms/elements), used only to summarise a measured ask. */
+const SCOPE_WORDS=['kitchen','bathroom','bedroom','basement','laundry','closet','deck','porch','garage','attic','stair','hallway','egress window','window','door','cabinet','floor'];
 
 export function conversationDraftContext(messages: {fromName?:string; outbound?:boolean; body:string[]}[], focalIndex=messages.length): {text:string; count:number} {
   // Every message predates this draft, including Joe’s answer after the latest inbound.

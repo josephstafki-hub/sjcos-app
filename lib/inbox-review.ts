@@ -8,13 +8,15 @@ export function draftReviewSize(contentHeight:number, viewportHeight:number, lin
   const height=Math.min(cap,Math.max(lineHeight*8,contentHeight));
   return {height,more:contentHeight>height+1};
 }
+/** General ask signals — never words specific to one job or sender. */
+const REQUEST_SIGNAL=/\?|\b(?:can you|could you|would you|will you|please|let me know|we(?:'d| would)? (?:like|need|want|hope)|i(?:'d| would)? (?:like|need|want)|we are looking|estimate|quote|price|pricing|cost|schedule|available|availability|information request)\b/i;
 export function askExcerpt(paras:string[], subject=''):string {
   const text=splitQuotedText(paras).text
     .replace(/^\s*(?:hi|hello|hey|dear|good morning|good afternoon)(?:[ \t]+[^,\n!]{1,50})?[,!][ \t]*/i,'')
     .split(/\n\s*(?:thanks(?:[,!]|$)|regards\b|best\b|sincerely\b)/i)[0]
     .replace(/https?:\/\/\S+/g,'');
   const sentences=text.split(/\n\s*\n|(?<=[.!?])\s+/).map(s=>s.replace(/\s+/g,' ').trim()).filter(Boolean);
-  const request=/\b(?:can you|could you|would you|please|we (?:need|want|would like)|estimate|quote|review|painting|popcorn|basement|egress|square feet|information request)\b/i;
+  const request=REQUEST_SIGNAL;
   const selected=sentences.filter(s=>request.test(s)&&!/^thank/i.test(s));
   return selected.join(' ').slice(0,700)||substantiveSnippet(paras,subject);
 }
@@ -24,17 +26,19 @@ export function cleanRowSummary(summary:string, sender:string):string {
   return prefix>=0&&summary.slice(0,prefix).trim().toLowerCase()===sender.trim().toLowerCase()?summary.slice(prefix+1).trim():summary;
 }
 export function rowActionTitle(t:ActionThread):string {
+  // An AI headline (written by the same model that drafted the reply) wins.
+  if(t.actionTitle?.trim())return t.actionTitle.trim().slice(0,160);
   const text=`${t.subject} ${t.preview??''} ${t.attentionEvidence??''}`;
   if(/information request/i.test(text)){
     const days=/\b(?:within|in)(?: the next)? (\d+) (?:business )?days?\b/i.exec(text)?.[1];
-    return `Complete ${/square/i.test(t.fromName)?'Square ':''}information request${days?` · ${days} days`:''}`;
+    return `Complete information request${days?` · ${days} days`:''}`;
   }
-  if(/fiverr/i.test(t.fromName)&&/order|deliver|complete/i.test(text))return 'Review Fiverr order';
-  if(/hallway|stair/i.test(text)&&/paint|popcorn/i.test(text))return `Asks to add hallway ${/paint/i.test(text)?'painting':''}${/paint/i.test(text)&&/popcorn/i.test(text)?' + ':''}${/popcorn/i.test(text)?'popcorn ':''}estimate`.replace(/\s+/g,' ');
-  if(/basement|bedroom|egress/i.test(text))return `Review ${t.fromName.split(' ')[0]}’s basement details`;
-  if(t.automated)return t.subject.replace(/^(?:re:\s*)+/i,'')||automationState(t).label;
-  const summary=cleanRowSummary(t.preview??'',t.fromName);
-  return /^(?:review|confirm|complete|send|schedule|approve|asks? to)\b/i.test(summary)?summary.slice(0,160):`Review ${summary||t.subject}`.slice(0,160);
+  const subject=(t.subject??'').replace(/^(?:(?:re|fwd?|aw)\s*:\s*)+/i,'').trim();
+  if(t.automated)return subject||automationState(t).label;
+  const summary=cleanRowSummary(t.preview??'',t.fromName??'').replace(/\s+/g,' ').trim();
+  if(/^(?:review|confirm|complete|send|schedule|approve|asks? to)\b/i.test(summary))return summary.slice(0,160);
+  if(summary&&REQUEST_SIGNAL.test(summary))return `Asks: ${summary}`.slice(0,160);
+  return (subject||summary).slice(0,160);
 }
 export function reminderTitle(t:ActionThread):string {const action=rowActionTitle(t).replace(/^Asks to /,'Review request to ');return (/^(?:review|complete|confirm|send|schedule|approve)\b/i.test(action)?action:`Review ${action}`).slice(0,160);}
 export function automationState(t:Partial<InboxThread>) {

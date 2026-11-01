@@ -848,7 +848,7 @@ export function InboxClient({
           restored.completed.forEach(t=>remaining.delete(t.id));
           setThreads(ts=>ts.map(t=>originals.get(t.id)??t));setRemoteData(d=>d?{...d,threads:d.threads.map(t=>originals.get(t.id)??t)}:d);
           setPassCompleted(prev=>new Set([...prev].filter(id=>!originals.has(id))));
-          setNotice(restored.failed.length?`${restored.completed.length} restored. Undo failed for ${restored.failed.length}; try Undo again.`:'Mark all as done undone.');
+          setNotice(restored.failed.length?`${restored.completed.length} restored. Undo failed for ${restored.failed.length}; try Undo again.`:'Archive older automated mail undone.');
           if(!remaining.size)setUndo(null);router.refresh();
         }});
       }
@@ -1283,7 +1283,7 @@ export function InboxClient({
               </Button>
             </div>
           )}
-          {tab==='other'&&<div className="border-b border-rule-soft p-2"><Button variant="secondary" size="sm" disabled={pending||!olderOtherMail(visible).length} onClick={markOtherDone}>Mark all as done</Button><p className="mt-1 text-meta text-ink-3">Older automated mail in this view · {olderOtherMail(visible).length} to archive</p></div>}
+          {tab==='other'&&olderOtherMail(visible).length>0&&<div className="border-b border-rule-soft p-2"><Button variant="secondary" size="sm" disabled={pending} onClick={markOtherDone}>Archive older automated mail ({olderOtherMail(visible).length})</Button></div>}
           {tab==="new"&&<p className="border-b border-rule-soft px-3 py-2 text-meta text-ink-3">{counts.new} new {counts.new===1?"sender":"senders"}</p>}
           <div className="min-h-0 flex-1 overflow-y-auto">
             {remoteLoading && visible.length === 0 ? (
@@ -2344,7 +2344,8 @@ function ThreadRow({
   const Icon = CHANNEL_ICON[thread.channel];
   const [rowMenu, setRowMenu] = useState(false);
   const attention=automationState(thread).attention;
-  const needs = Boolean(thread.needsMeReason) || thread.view === "needs_reply";
+  const needs = thread.view!=="done"&&(Boolean(thread.needsMeReason) || thread.view === "needs_reply");
+  const unread=thread.unread&&thread.view!=="done"&&thread.inboundLast!==false;
   return (
     <div
       className={`group relative border-b border-rule-soft ${selected ? "bg-selected" : "hover:bg-hover"}`}
@@ -2369,11 +2370,11 @@ function ThreadRow({
           <span className="flex min-h-7 items-center gap-1.5">
             {compact&&<Icon className="size-3 shrink-0 text-accent-2" aria-label={thread.channel.replaceAll('_',' ')}/>}
             <span
-              className={`min-w-0 flex-1 truncate text-label ${thread.unread ? "font-bold text-ink" : needs ? "font-semibold text-ink" : "text-ink-2"}`}
+              className={`min-w-0 flex-1 truncate text-label ${unread ? "font-bold text-ink" : needs ? "font-semibold text-ink" : "text-ink-2"}`}
             >
               {thread.fromName}
             </span>
-            {thread.unread && (
+            {unread && (
               <span
                 aria-label="Unread"
                 className="size-1.5 shrink-0 rounded-full bg-accent"
@@ -2386,19 +2387,13 @@ function ThreadRow({
           </span>
           <span className="flex min-w-0 items-center gap-1.5">
             {thread.needsMeReason?.startsWith('Draft ready')&&<span className="shrink-0 rounded bg-ai-soft px-1 text-meta font-semibold text-ai">Draft</span>}
-            <span className={`min-w-0 truncate text-meta ${attention?'text-warn':needs?'text-accent-2':'text-ink-3'}`} title={thread.automated?automationState(thread).label:thread.needsMeReason}>{thread.automated?automationState(thread).label:thread.needsMeReason?.replace(/^Draft ready(?: · )?/, '')|| (thread.view==='awaiting_them'?'Waiting for their reply':thread.view==='done'?'Done':'Unread')}</span>
-            {thread.projectLabel && (
-              <span
-                title={thread.projectLabel}
-                className="min-w-0 truncate text-meta text-ink-3"
-              >
-                · {shortJobLabel(thread.projectLabel)}
-              </span>
-            )}
-            <span title="Outstanding" className="ml-auto shrink-0 text-meta text-warn">
-              {Boolean(thread.outstandingCents)&&new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(thread.outstandingCents!/100)}{Boolean(thread.outstandingCents)&&' outstanding'}
-            </span>
+            <span className={`${thread.projectLabel?"hidden":"min-w-0 truncate"} text-meta ${attention?'text-warn':needs?'text-accent-2':'text-ink-3'}`} title={thread.automated?automationState(thread).label:thread.needsMeReason}>{thread.automated?automationState(thread).label:thread.needsMeReason?.replace(/^Draft ready(?: · )?/, '')|| (thread.view==='awaiting_them'?'Waiting for their reply':thread.view==='done'?'Done':'Unread')}</span>
           </span>
+          {(thread.projectLabel||Boolean(thread.outstandingCents))&&<span data-row-job title={thread.projectLabel} className="flex min-w-0 items-baseline gap-2 text-meta">
+            <span className="min-w-0 flex-1 break-words text-ink-2">{thread.projectLabel&&shortJobLabel(thread.projectLabel)}</span>
+            {Boolean(thread.outstandingCents)&&<span title="Outstanding" className="shrink-0 tabular-nums text-warn">{new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(thread.outstandingCents!/100)}<span className={compact?"sr-only":""}> outstanding</span></span>}
+          </span>}
+
           {threadTodoCue(thread)&&<span title={threadTodoCue(thread)} aria-label="Open to-do" className="block truncate text-meta text-accent-2">{threadTodoCue(thread)}</span>}
           {thread.newSender&&!compact&&<span title={thread.fromEmail} className="block truncate text-meta text-ink-3">{thread.fromEmail}</span>}
 

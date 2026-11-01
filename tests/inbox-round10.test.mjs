@@ -25,3 +25,20 @@ test('recipient name is truthful after editing To and never repeats a stale repl
  assert.equal(draftRecipientName('dispatch@example.test',target),'dispatch@example.test');
  assert.equal(draftRecipientName('',target),'Choose recipient');
 });
+
+test('unseen sent-only mail stays out of Other, including automated flags and explicit filing',async()=>{
+ const {matchesInboxTab,tabCounts}=await import('../lib/inbox-experience.ts');
+ const sent={id:'sent-archive',fromName:'Owner',subject:'Tool reservation',channel:'email',inboundLast:false,view:'done',automated:true,filedOther:true};
+ assert.equal(matchesInboxTab(sent,'other'),false);
+ assert.equal(tabCounts([sent]).other,0);
+ assert.equal(matchesInboxTab({...sent,inboundLast:true},'other'),true);
+});
+
+test('task presets show the actual Central date and time across DST for unfamiliar work',async()=>{
+ const {reminderPresetLabel,reminderCommitLabel}=await import('../lib/inbox-experience.ts');
+ const now=new Date('2026-10-31T18:00:00Z');
+ assert.equal(reminderPresetLabel('tomorrow',now),'Tomorrow · Sun Nov 1 · 8:00 AM');
+ assert.equal(reminderPresetLabel('today',now),'Later today · Sat Oct 31 · 3:00 PM');
+ assert.equal(reminderCommitLabel('tomorrow',now),'Remind me Tomorrow 8 AM');
+ assert.equal(reminderPresetLabel('pick',now,'2026-11-04'),'Wed Nov 4 · 8:00 AM');
+});

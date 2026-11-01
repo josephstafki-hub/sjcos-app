@@ -42,7 +42,7 @@ export function matchesInboxTab(
 ): boolean {
   return tab === "needs"
     ? threadNeedsMe(t, draftReady)
-    : inboxBucket(t) === tab && !(tab === "other" && t.automated && matchesInboxTab(t, "needs", draftReady));
+    : inboxBucket(t) === tab && !(tab === "other" && t.inboundLast === false) && !(tab === "other" && t.automated && matchesInboxTab(t, "needs", draftReady));
 }
 export function tabCounts(
   threads: InboxThread[],
@@ -107,7 +107,7 @@ export function centralDay(now: Date) {
 }
 /** Calendar arithmetic first, then resolve 08:00 Central; never add 24h over DST. */
 export type ReminderPreset = "today" | "tomorrow" | "monday" | "week" | "pick";
-export function reminderDueAt(
+function reminderTime(
   preset: ReminderPreset,
   now = new Date(),
   pick?: string,
@@ -135,9 +135,30 @@ export function reminderDueAt(
     }).format(utc),
   );
   utc.setUTCHours(utc.getUTCHours() + ((preset==='today'?15:8) - hour));
-  if (utc.getTime() <= now.getTime())
-    throw Error("Choose a future reminder time.");
   return utc.toISOString();
+}
+export function reminderDueAt(preset:ReminderPreset,now=new Date(),pick?:string) {
+  const iso=reminderTime(preset,now,pick);
+  if(Date.parse(iso)<=now.getTime())throw Error('Choose a future reminder time.');
+  return iso;
+}
+export function reminderAvailable(preset:ReminderPreset,now=new Date(),pick=''):boolean {
+  if(preset==='pick'&&!pick)return true;
+  try{reminderDueAt(preset,now,pick);return true;}catch{return false;}
+}
+export function reminderPresetLabel(preset:ReminderPreset,now=new Date(),pick=''):string {
+  if(preset==='pick'&&!pick)return 'Pick a date…';
+  const date=new Date(reminderTime(preset,now,pick));
+  const day=date.toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',timeZone:'America/Chicago'}).replace(',','');
+  const time=date.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:'America/Chicago'});
+  const name={today:'Later today',tomorrow:'Tomorrow',monday:'Monday',week:'Next week',pick:''}[preset];
+  return [name,day,time].filter(Boolean).join(' · ');
+}
+export function reminderCommitLabel(preset:ReminderPreset|null,now=new Date(),pick=''):string {
+  if(!preset||preset==='pick'&&!pick)return 'Choose reminder day';
+  const date=new Date(reminderTime(preset,now,pick));
+  const name={today:'Today',tomorrow:'Tomorrow',monday:'Monday',week:'Next week',pick:date.toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'America/Chicago'})}[preset];
+  return `Remind me ${name} ${date.toLocaleTimeString('en-US',{hour:'numeric',timeZone:'America/Chicago'})}`;
 }
 export function messageWorkItem(
   t: InboxThread,

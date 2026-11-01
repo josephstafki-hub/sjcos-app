@@ -149,3 +149,10 @@ test('SMS media uses only stored authorised file ids, with exact original messag
  const html=render(ChannelReaderBody,{reader:{...reader,channel:'sms',messages:[sms]},threadId:'sms:7'});
  assert.match(html,/src="\/api\/files\/photo-1\?w=600"/);assert.match(html,/href="\/api\/files\/photo-1"/);assert.match(html,/href="\/messages\?thread=7#sms-message-71"/);assert.match(html,/Open original message/);assert.doesNotMatch(html,/No text or stored media/);
 });
+
+test('unseen job row reserves a separate legible job line, and done mail has no unread dot or bold name',()=>{
+ const html=render(ThreadRow,{thread:{id:'terrace',fromName:'Avery Chen',initials:'AC',channel:'email',subject:'Railings',preview:'Please send two options',view:'done',unread:true,inboundLast:true,projectLabel:'Chen · Terrace',outstandingCents:123400,needsMeReason:'Client replied',when:'Yesterday'},onSelect(){}});
+ assert.doesNotMatch(html,/aria-label="Unread"|font-bold|font-semibold text-ink"/);
+ assert.match(html,/Chen · Terrace/);assert.match(html,/\$1,234/);
+ assert.match(html,/data-row-job/);
+});

@@ -19,7 +19,7 @@ import {
 } from "@/lib/actions/inbox-experience";
 import {
   messageWorkItem,
-  reminderDueAt, centralDay, type ReminderPreset,
+  reminderDueAt, reminderAvailable, reminderPresetLabel, reminderCommitLabel, centralDay, type ReminderPreset,
   relatedConversations,
   SHORTCUTS,
   formatContactPhone, todoDateLabel,
@@ -267,6 +267,7 @@ export function MessageTaskDialog({
   onClose: () => void;
   onCreated: (todo: InboxTodo) => void;
 }) {
+  const [now]=useState(()=>new Date());
   const [title, setTitle] = useState(
     () => reminderTitle({...thread,preview:askExcerpt(reader.messages.findLast(m=>!m.outbound)?.body??[],thread.preview||thread.subject)}),
   );
@@ -301,7 +302,7 @@ export function MessageTaskDialog({
     setError("");
     let dueAt = due;
     try {
-      if (selectedPreset) dueAt = reminderDueAt(selectedPreset, new Date(), due);
+      if (selectedPreset) dueAt = reminderDueAt(selectedPreset, now, due);
     } catch (e) {
       setError((e as Error).message);
       return;
@@ -367,18 +368,33 @@ export function MessageTaskDialog({
       onClose={onClose}
       bottom
     >
-      <p className="text-body text-ink-2">Creates a to-do; the email stays in your inbox. Future work appears in Today from midnight Central on the chosen day.</p>
+      {remind?<p title={`To-do: ${title} · ${assigned.length?people.filter(p=>assigned.includes(p.id)).map(p=>p.name).join(', '):'Joe'}`} className="truncate text-body text-ink-2">To-do: {title} · {assigned.length?people.filter(p=>assigned.includes(p.id)).map(p=>p.name).join(', '):'Joe'}</p>:<>
+      <label className="block text-meta text-ink-3">Title
+        <input value={title} onChange={e=>setTitle(e.target.value)} className="mt-1 min-h-11 w-full rounded-md border border-rule bg-paper px-3 text-body text-ink"/>
+      </label>
+      <fieldset><legend className="mb-1 text-meta text-ink-3">Assignee</legend><div className="flex flex-wrap gap-1">
+        <Button size="sm" className="min-h-11" variant={assigned.length===0?'primary':'secondary'} aria-pressed={assigned.length===0} onClick={()=>setAssigned([])}>Joe</Button>
+        {people.filter(p=>!/^Joe(?:\s|$)/i.test(p.name)).map(p=><Button key={p.id} size="sm" className="min-h-11" variant={assigned.includes(p.id)?'primary':'secondary'} aria-pressed={assigned.includes(p.id)} onClick={()=>setAssigned(ids=>ids.includes(p.id)?ids.filter(id=>id!==p.id):[...ids,p.id])}>{p.name}</Button>)}
+      </div></fieldset>
+      </>}
+      <p className="text-meta text-ink-3">Email stays in your inbox. Future to-dos enter Today at midnight Central.</p>
       <fieldset><legend className="mb-1 text-meta text-ink-3">Work on · Central time</legend>
-        <div className="flex flex-wrap gap-1">{([['today','Later today · 3pm'],['tomorrow','Tomorrow · 8am'],['monday','Monday · 8am'],['week','Next week'],['pick','Pick a date…']] as const).map(([value,label])=><Button key={value} variant={preset===value?'primary':'secondary'} size="sm" className="min-h-11" aria-pressed={preset===value} disabled={pending} onClick={()=>setPreset(value)}>{label}</Button>)}
+        <div className="flex flex-wrap gap-1">{(['today','tomorrow','monday','week','pick'] as const).map(value=><Button key={value} data-preset={value} variant={preset===value?'primary':'secondary'} size="sm" className="min-h-11" aria-pressed={preset===value} disabled={pending||!reminderAvailable(value,now,due)} onClick={()=>setPreset(value)}>{reminderPresetLabel(value,now,due)}</Button>)}
           {!remind&&<Button size="sm" variant={preset===null?'primary':'ghost'} className="min-h-11" onClick={()=>{setPreset(null);setDue('');}}>No due day</Button>}
         </div>
         {preset==='pick'&&<MiniCalendar value={due} onChange={setDue}/>}
         {preset==='pick'&&due&&<p className="mt-1 text-meta text-ink-2">{due} · 8am Central</p>}
       </fieldset>
       <details><summary className="min-h-9 cursor-pointer py-2 text-meta font-semibold text-accent-2">More options</summary><div className="space-y-3 pt-2">
+      {remind&&<>
       <label className="block text-meta text-ink-3">Title
         <input value={title} onChange={e=>setTitle(e.target.value)} className="mt-1 min-h-11 w-full rounded-md border border-rule bg-paper px-3 text-body text-ink"/>
       </label>
+      <fieldset><legend className="mb-1 text-meta text-ink-3">Assignee</legend><div className="flex flex-wrap gap-1">
+        <Button size="sm" className="min-h-11" variant={assigned.length===0?'primary':'secondary'} aria-pressed={assigned.length===0} onClick={()=>setAssigned([])}>Joe</Button>
+        {people.filter(p=>!/^Joe(?:\s|$)/i.test(p.name)).map(p=><Button key={p.id} size="sm" className="min-h-11" variant={assigned.includes(p.id)?'primary':'secondary'} aria-pressed={assigned.includes(p.id)} onClick={()=>setAssigned(ids=>ids.includes(p.id)?ids.filter(id=>id!==p.id):[...ids,p.id])}>{p.name}</Button>)}
+      </div></fieldset>
+      </>}
       <div className="relative">
         <label className="block text-meta text-ink-3">Job or lead
           <input role="combobox" aria-label="Job or lead" aria-expanded={jobOpen} aria-controls="inbox-job-options" aria-autocomplete="list" aria-activedescendant={jobOpen?`inbox-job-${jobCursor}`:undefined}
@@ -391,10 +407,6 @@ export function MessageTaskDialog({
         </label>
         {jobOpen&&<div id="inbox-job-options" role="listbox" aria-label="Jobs and leads" className="absolute inset-x-0 top-full z-10 max-h-48 overflow-y-auto rounded-md border border-rule bg-card p-1 shadow-pop">{filteredJobs.map((p,i)=><button key={p.value} id={`inbox-job-${i}`} role="option" aria-selected={job===p.value} onMouseDown={e=>e.preventDefault()} onClick={()=>{setJob(p.value);setJobOpen(false);}} className={`block min-h-11 w-full rounded px-2 text-left text-body hover:bg-hover ${i===jobCursor?'bg-selected':''}`}>{p.name}{p.value===matchJob?' · Thread match':''}</button>)}{!filteredJobs.length&&<p className="p-2 text-meta text-ink-3">No matching jobs or leads.</p>}</div>}
       </div>
-      <fieldset><legend className="mb-1 text-meta text-ink-3">Assignee</legend><div className="flex flex-wrap gap-1">
-        <Button size="sm" className="min-h-11" variant={assigned.length===0?'primary':'secondary'} aria-pressed={assigned.length===0} onClick={()=>setAssigned([])}>Joe</Button>
-        {people.filter(p=>!/^Joe(?:\s|$)/i.test(p.name)).map(p=><Button key={p.id} size="sm" className="min-h-11" variant={assigned.includes(p.id)?'primary':'secondary'} aria-pressed={assigned.includes(p.id)} onClick={()=>setAssigned(ids=>ids.includes(p.id)?ids.filter(id=>id!==p.id):[...ids,p.id])}>{p.name}</Button>)}
-      </div></fieldset>
       <details><summary className="cursor-pointer text-meta text-ink-3">Email evidence</summary><blockquote className="mt-2 max-h-28 overflow-y-auto border-l-2 border-rule pl-3 text-meta text-ink-2">{[...reader.messages].reverse().find(m=>!m.outbound)?.body.join('\n').slice(0,1200)??thread.preview}</blockquote></details>
       </div></details>
       {error && (
@@ -406,7 +418,7 @@ export function MessageTaskDialog({
         onClick={() => create()}
         disabled={pending || !title.trim() || (preset==="pick" && !due)}
       >
-        {pending ? "Saving…" : remind ? "Set" : "Create to-do"}
+        {pending ? "Saving…" : remind ? reminderCommitLabel(preset,now,due) : "Create to-do"}
       </Button>
     </InboxDialog>
   );

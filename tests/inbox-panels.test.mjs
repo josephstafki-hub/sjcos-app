@@ -35,9 +35,9 @@ function mount(component,props){globalThis.__panels.effects=[];states=[];cursor=
 async function settle(){await Promise.all(pending);pending=[];}
 test('reminder presets select without saving, then one confirmation captures source, chosen day and job',async()=>{
  creates=[];const render=mount(MessageTaskDialog,{thread,reader,remind:true,onClose(){},onCreated(){},options:{projects:[{slug:'kitchen',name:'Kitchen'}],leads:[]}});
- find(n=>n.props?.children==='Monday · 8am').props.onClick();render();assert.equal(creates.length,0);
+ find(n=>n.props?.['data-preset']==='monday').props.onClick();render();assert.equal(creates.length,0);
  find(n=>n.props?.role==='combobox').props.onFocus();render();find(n=>n.props?.role==='option'&&n.props.id==='inbox-job-0').props.onClick();render();
- find(n=>n.props?.children==='Set').props.onClick();await settle();assert.equal(creates.length,1);
+ find(n=>typeof n.props?.children==='string'&&n.props.children.startsWith('Remind me Monday')).props.onClick();await settle();assert.equal(creates.length,1);
  assert.equal(creates[0].get('job'),'project:kitchen');assert.deepEqual(JSON.parse(creates[0].get('email')).message_id,'message-1');assert.ok(creates[0].get('due_at'));
  assert.ok(find(n=>n.type==='blockquote').props.children.includes('Please review'));
 });
@@ -83,7 +83,7 @@ test('screener gives evidence and one recommended remembered filing action for a
 test('task controls use presets, an inline calendar and chips instead of browser date/select fields',()=>{
  const render=mount(MessageTaskDialog,{thread,reader,remind:false,onClose(){},onCreated(){},options:{projects:[],leads:[]}});
  assert.equal(find(n=>n.type==='select'||n.props?.type==='date'),undefined);
- assert.ok(find(n=>n.props?.children==='Later today · 3pm'));
+ assert.ok(find(n=>n.props?.['data-preset']==='today'));
  find(n=>n.props?.children==='Pick a date…').props.onClick();render();
  assert.ok(find(n=>typeof n.type==='function'&&n.type.name==='MiniCalendar'));
  assert.equal(find(n=>n.props?.children==='Create to-do').props.disabled,true);
@@ -117,4 +117,16 @@ test('desktop task popover anchors without a modal backdrop, phone remains a bot
   cleanup.forEach(f=>f?.());window.matchMedia=()=>({matches:true});render=mount(InboxDialog,props);cleanup=__panels.effects.splice(0).map(fn=>fn());render();
   assert.match(tree.props.className,/items-end/);assert.equal(find(n=>n.props?.role==='dialog').props['aria-modal'],true);
  }finally{cleanup.forEach(f=>f?.());delete globalThis.window;delete globalThis.document;}
+});
+
+test('unseen make-to-do title and assignee are visible before dates, reminder previews the proposed task',()=>{
+ const unfamiliar={...thread,subject:'Dock gate',actionTitle:'Confirm gate latch finish',fromName:'Avery'};
+ mount(MessageTaskDialog,{thread:unfamiliar,reader,remind:false,onClose(){},onCreated(){},options:{projects:[],leads:[]}});
+ const title=find(n=>n.type==='input'&&n.props.value==='Confirm gate latch finish');assert.ok(title);
+ const all=nodes(tree);assert.ok(all.indexOf(title)<all.findIndex(n=>n.props?.['data-preset']==='today'));
+ const details=all.filter(n=>n.type==='details');assert.equal(details.some(n=>nodes(n).includes(title)),false);
+ assert.ok(all.find(n=>n.props?.children==='Joe'));
+ mount(MessageTaskDialog,{thread:unfamiliar,reader,remind:true,onClose(){},onCreated(){},options:{projects:[],leads:[]}});
+ assert.equal(find(n=>n.props?.title==='To-do: Confirm gate latch finish · Joe').props.className,'truncate text-body text-ink-2');
+ assert.ok(find(n=>n.props?.['data-preset']==='tomorrow').props.children.match(/Tomorrow · \w{3} \w{3} \d+ · 8:00 AM/));
 });

@@ -32,6 +32,20 @@ Send the same `clientEventId` on retry. Conflicts (a timer already running,
 a discarded prompt, a job not among the choices) come back as `409` with the
 reason.
 
+### `GET /api/mobile/time/sites`
+
+`{ "jobs": [ { "projectId", "slug", "name", "address", "site": { "lat", "lng", "radiusM", "dwellS", "cooldownS", "enabled" } | null } ] }`
+— jobs in construction. The phone watches a region of `radiusM` around each
+enabled site (iOS allows 20 regions) and uses `projectId` for the timer's
+job picker.
+
+### `POST /api/mobile/time/sites`
+
+`{ "projectId", "lat", "lng" }` — a job with an address and no site yet gets
+one at the point the phone's address lookup found (default radius/dwell/
+cooldown). An existing site is never moved from the phone; `409` for a job
+not in construction or with no address.
+
 ### `GET /api/mobile/time/review?from=ISO&to=ISO`
 
 Intervals with flags (`overlap`, `long`, `missing_exit`, `inferred`,

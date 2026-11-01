@@ -29,8 +29,8 @@ test('action titles are general: AI headline first, then the actual ask, then th
  // Generic information-request rule, no sender name baked in.
  assert.equal(rowActionTitle({fromName:'Square',subject:'Action required',preview:'Complete the information request within the next 5 days',automated:true}),'Complete information request · 5 days');
  assert.equal(rowActionTitle({fromName:'Any Bank',subject:'Account review',preview:'Please complete the information request in 10 days',automated:true}),'Complete information request · 10 days');
- // Automated mail uses its own subject (the deadline chip carries the evidence).
- assert.equal(rowActionTitle({fromName:'Fiverr',subject:'Great news: Your order is ready',automated:true,attentionEvidence:'Your order will be automatically marked complete after 3 days'}),'Great news: Your order is ready');
+ // Automated mail promotes its evidenced action; the subject remains in the reader.
+ assert.equal(rowActionTitle({fromName:'Fiverr',subject:'Great news: Your order is ready',automated:true,attentionEvidence:'Your order will be automatically marked complete after 3 days'}),'Review order');
  assert.equal(cleanRowSummary('Michelle: Please review the plans','Michelle'),'Please review the plans');
  assert.match(reminderTitle({fromName:'Dana Ruiz',subject:'Deck',preview:'Could you come look at the deck?'}),/^Review /);
 });

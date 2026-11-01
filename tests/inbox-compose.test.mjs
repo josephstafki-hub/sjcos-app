@@ -99,3 +99,16 @@ test('unseen new/forward cannot dismiss during send, and new mail begins with em
   }finally{release();delete globalThis.__compose.wait;cleanups.forEach(f=>f?.());cleanups=[];}
  }
 });
+
+test('closing an unsent package warns with its file count and declining keeps the files',async()=>{
+ cleanups.forEach(f=>f?.());cleanups=[];states=[];effects=[];pending=[];__draftServer.rows.clear();
+ let tree,closed=0,prompt='';const render=()=>{cursor=0;tree=ComposeModal({selfEmail:'builder@example.test',onClose(){closed++}});};const find=p=>nodes(tree).find(p);
+ const settle=async()=>{for(let i=0;i<8;i++){const work=effects;effects=[];work.forEach(f=>f());await Promise.resolve();render();}};
+ window.confirm=message=>(prompt=message,false);
+ try{
+  render();await settle();find(n=>n.props?.type==='file').props.onChange({target:{files:[new File(['a'],'sketch.png',{type:'image/png'}),new File(['b'],'survey.pdf',{type:'application/pdf'})],value:''}});render();await settle();
+  find(n=>n.props?.['aria-label']==='Close new message').props.onClick();await settle();
+  assert.equal(prompt,'2 files will be lost. Leave this draft?');assert.equal(closed,0);assert.ok(find(n=>n.props?.['aria-label']==='Remove sketch.png'));
+  window.confirm=()=>true;find(n=>n.props?.['aria-label']==='Close new message').props.onClick();await settle();assert.equal(closed,1);
+ }finally{cleanups.forEach(f=>f?.());cleanups=[];delete window.confirm;}
+});

@@ -36,7 +36,7 @@ export function useSyncedDraft(options: {
   useEffect(() => {
     let storage: Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>;
     try { storage = window.localStorage; }
-    catch { storage = { getItem: () => null, setItem: () => {}, removeItem: () => {} }; }
+    catch { storage = { getItem: () => null, setItem: () => {throw Error('Device storage unavailable.');}, removeItem: () => {} }; }
     const sync = createDraftSync({ mailbox, userId, threadKey, channel, initial: initial.current,
       importLegacy: owner === true, latestMessageId, storage, load: () => loadDrafts([threadKey]), save: saveDraft, onChange: next => setEntry({ key, state: next }) });
     controller.current = sync; controllerKey.current = key;

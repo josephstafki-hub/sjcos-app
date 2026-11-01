@@ -20,3 +20,12 @@ test('conflict, offline save and an in-flight send block leaving instead of hidi
  }
  assert.equal(navigated,0);assert.equal(blocked,2);assert.equal(await flushInboxDrafts(),true);
 });
+
+test('selected device files warn with the total count and can keep the draft open',async()=>{
+ const {registerInboxFiles,confirmInboxFileLoss}=await import('../lib/inbox-navigation.ts');
+ let count=2,seen='';const remove=registerInboxFiles(()=>count);
+ try{
+  assert.equal(confirmInboxFileLoss(message=>(seen=message,false)),false);assert.equal(seen,'2 files will be lost. Leave this draft?');
+  assert.equal(confirmInboxFileLoss(()=>true),true);count=0;assert.equal(confirmInboxFileLoss(()=>{throw Error('Should not ask')}),true);
+ }finally{remove();}
+});

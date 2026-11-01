@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { type ReactNode } from "react";
-import { Search } from "lucide-react";
+import { Search, PenSquare } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { CommandPalette, PALETTE_EVENT } from "@/components/panel/CommandPalette";
 import { NotificationBell } from "./NotificationBell";
@@ -28,6 +28,7 @@ const BREADCRUMB_ROUTES: Record<string, string> = {
 
 export function Topbar({ breadcrumb = "TODAY", unread = 0, leading }: TopbarProps) {
   const pathname = usePathname();
+  const inbox=/^\/inbox(?:\/|$)/.test(pathname);
   const segments = breadcrumb.split(/\s*[·›/]\s*/).filter(Boolean);
   const pathParts = pathname.split("/").filter(Boolean);
 
@@ -35,7 +36,8 @@ export function Topbar({ breadcrumb = "TODAY", unread = 0, leading }: TopbarProp
     <div className="flex h-[calc(3rem_+_env(safe-area-inset-top))] flex-none items-center gap-3 border-b border-rule bg-paper pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[env(safe-area-inset-top)]">
       {leading}
       <nav aria-label="Breadcrumb" className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none]">
-        <ol className="flex items-center gap-2 whitespace-nowrap font-mono text-micro uppercase text-ink-3">
+        {inbox&&<span className="hidden @max-sm/shell:block text-body font-semibold text-ink">Inbox</span>}
+        <ol className={`flex items-center gap-2 whitespace-nowrap font-mono text-micro uppercase text-ink-3 ${inbox?"@max-sm/shell:hidden":""}`}>
           {segments.map((segment, index) => {
             // The last crumb is this page; middle crumbs follow the path.
             const href = BREADCRUMB_ROUTES[segment.toLowerCase()]
@@ -43,17 +45,19 @@ export function Topbar({ breadcrumb = "TODAY", unread = 0, leading }: TopbarProp
             return <li key={`${index}-${segment}`} className="flex items-center gap-2">
               {index > 0 && <span aria-hidden className="text-ink-4">/</span>}
               <Link href={href} aria-current={index === segments.length - 1 && href === pathname ? "page" : undefined}
-                className="rounded hover:text-ink focus-visible:outline-2 focus-visible:outline-focus">{segment}</Link>
+                className="rounded hover:text-ink focus-visible:outline-2 focus-visible:outline-focus">{inbox&&segment.toLowerCase()==='inbox'?'Inbox':segment}</Link>
             </li>;
           })}
         </ol>
       </nav>
-      {/^\/inbox(?:\/|$)/.test(pathname) && <span id="inbox-approval-badge" className="shrink-0" />}
+      {/^\/inbox(?:\/|$)/.test(pathname) && <span id="inbox-approval-badge" className="shrink-0 @max-sm/shell:hidden" />}
       <CommandPalette />
-      <Button onClick={() => window.dispatchEvent(new Event(PALETTE_EVENT))} variant="ghost" size="sm" icon={Search} aria-label="Search" title="Search (⌘K)">
-        <span className="max-sm:hidden">Search… <kbd className="ml-3 font-mono text-meta text-ink-3">⌘K</kbd></span>
+      <Button className={inbox?"@max-sm/shell:hidden":undefined} onClick={() => window.dispatchEvent(new Event(PALETTE_EVENT))} variant="ghost" size="sm" icon={Search} aria-label="Search" title="Search (⌘K)">
+        <span className="@max-sm/shell:hidden">Search… <kbd className="ml-3 font-mono text-meta text-ink-3">⌘K</kbd></span>
       </Button>
+      {inbox&&<Button className="hidden @max-sm/shell:inline-flex size-11" variant="ghost" icon={Search} iconOnly aria-label="Search inbox" title="Search inbox" onClick={()=>window.dispatchEvent(new Event('inbox-search'))}/>}
       <NotificationBell initial={unread} />
+      {inbox&&<Button className="hidden @max-sm/shell:inline-flex size-11" variant="ghost" icon={PenSquare} iconOnly aria-label="Compose email" title="Compose email" onClick={()=>window.dispatchEvent(new Event('inbox-compose'))}/>}
     </div>
   );
 }

@@ -1,9 +1,10 @@
 import {parseDocument, DomUtils} from 'htmlparser2';
+import {htmlToEmailText} from './inbox-email-content.ts';
 import {isTag, type Element} from 'domhandler';
 
 export interface ReceiptField {label:string; value:string}
 const fields=[
-  /^(?:(?:total|amount)(?: paid| due)?|payment amount|balance due|total payment)$/i,
+  /^(?:(?:total|amount)(?: paid| due| amount)?|(?:payment|invoice|receipt|transaction) amount|balance due|total payment)$/i,
   /^(?:paid to|payee|merchant|vendor|supplier|business)$/i,
   /^(?:(?:payment|paid|invoice|transaction|receipt) date|date(?: paid)?)$/i,
   /^(?:(?:invoice|receipt|reference|transaction|confirmation)(?:\s*(?:no\.?|number|#|id))?)$/i,
@@ -17,7 +18,7 @@ export function receiptFields(html:string):ReceiptField[] {
   const text=(node:Element)=>DomUtils.textContent(node).replace(/\s+/g,' ').trim();
   for(const table of DomUtils.findAll(e=>e.name==='table',doc.children)){
     if(DomUtils.findOne(e=>e.name==='table',table.children,true))continue;
-    const rows=DomUtils.findAll(e=>e.name==='tr',table.children).map(row=>row.children.filter(isTag).filter(c=>/^(td|th)$/.test(c.name)).map(text)).filter(r=>r.length);
+    const rows=DomUtils.findAll(e=>e.name==='tr',table.children).map(row=>row.children.filter(isTag).filter(c=>/^(td|th)$/.test(c.name)).map(text).filter(Boolean)).filter(r=>r.length);
     const header=rows[0];
     if(!header)continue;
     if(header.length>=3&&header.filter(c=>fieldIndex(c)>=0).length>=2){
@@ -27,6 +28,12 @@ export function receiptFields(html:string):ReceiptField[] {
       pairs.push(...rows.filter(row=>row.length===2&&fieldIndex(row[0])>=0).map(([label,value])=>({label,value})));
     }
   }
+  // Receipt summaries often put the payee and paid date above the details table.
+  // Extract only explicitly labelled facts or a payment sentence, never guess a merchant.
+  const prose=htmlToEmailText(html).replace(/\s+/g,' ');
+  const date='(?:\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4}|[A-Z][a-z]+ \\d{1,2},? \\d{4})';
+  const payment=new RegExp(`\\b(?:paid to|payee[: ]|to)\\s+(.{2,100}?)\\s+on\\s+(${date})`,'i').exec(prose);
+  if(payment){pairs.push({label:'Payee',value:payment[1]},{label:'Payment date',value:payment[2]});}
   const recognized=pairs.filter(p=>p.value&&p.value.length<600&&fieldIndex(p.label)>=0);
   const kinds=new Set(recognized.map(p=>fieldIndex(p.label)));
   // Need monetary identity plus another receipt field, not an arbitrary layout.

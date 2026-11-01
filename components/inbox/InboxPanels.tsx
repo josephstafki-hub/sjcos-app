@@ -26,7 +26,7 @@ import {
 } from "@/lib/inbox-experience";
 import { searchInboxDirectoryAction } from "@/lib/actions/inbox-screening";
 import type { InboxDirectoryEntry } from "@/lib/inbox-directory";
-import {reminderTitle, askExcerpt} from '@/lib/inbox-review';
+import {reminderTitle, rowActionTitle, askExcerpt} from '@/lib/inbox-review';
 import {summaryEligible} from "@/lib/inbox-rules";
 import { runAction } from "@/lib/run-action";
 import type {
@@ -585,7 +585,7 @@ export function ContextPanel({
             <p className="text-meta text-ink-3">Loading context…</p>
           )}
           {data&&refreshing&&<p role="status" className="text-meta text-ink-3">Updating context… Showing the last saved context.</p>}
-          {data && (thread.automated?<section className="space-y-2 text-body text-ink-2"><h3 className="font-semibold">Automated sender</h3><p>{contextStripText(thread,data)}</p><p className="break-all text-meta text-ink-3">{thread.fromEmail}</p></section>:
+          {data && (thread.automated?<section className="space-y-2 text-body text-ink-2"><h3 className="font-semibold">Automated sender</h3><p>{rowActionTitle(thread)}</p><p className="break-all text-meta text-ink-3">{thread.fromEmail}</p></section>:
             <>
               {
                 <>

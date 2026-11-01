@@ -107,3 +107,9 @@ test('navigation flush waits for pending text, and an identical concurrent save 
  sync.setDraft(text('Same words on both devices'));f.current=row('Same words on both devices',2);
  assert.equal(await sync.flushForNavigation(),true);assert.equal(sync.getSnapshot().status,'saved');sync.dispose();
 });
+
+test('an unavailable device store never claims the unsynced gate reply was saved locally',async()=>{
+ const f=fixture({storage:{getItem(){throw Error('blocked')},setItem(){throw Error('blocked')},removeItem(){}}});
+ f.offline=true;const sync=f.create();await sync.refresh();sync.setDraft(text('Please choose the gate finish.'));
+ assert.equal(sync.getSnapshot().localSaved,false);assert.equal(sync.getSnapshot().status,'local only');assert.equal(sync.getSnapshot().draft.body,'Please choose the gate finish.');sync.dispose();
+});

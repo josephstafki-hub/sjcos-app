@@ -7,6 +7,7 @@ import type { ThreadChannel } from './types';
 export type DraftSyncStatus = 'saved' | 'saving' | 'local only' | 'conflict';
 export interface DraftSyncSnapshot {
   draft: DraftText;
+  localSaved?:boolean;
   status: DraftSyncStatus;
   suggestion: InboxDraft | null;
   conflict: { current: InboxDraft | null } | null;
@@ -62,7 +63,7 @@ export function createDraftSync(options: SyncOptions) {
     const local = JSON.parse(options.storage.getItem(key) ?? 'null');
     if (local && typeof local.body === 'string' && typeof local.toEmail === 'string' &&
         Number.isSafeInteger(local.version) && local.version >= 0) {
-      state = { ...state, version: local.version, draft: { body: local.body, toEmail: local.toEmail,
+      state = { ...state, localSaved:true, version: local.version, draft: { body: local.body, toEmail: local.toEmail,
         cc: Array.isArray(local.cc) ? local.cc : [], subject: typeof local.subject === 'string' ? local.subject : '', ...(local.provenance?{provenance:local.provenance}:{}) } };
       dirty = local.dirty === true;
     } else if (options.importLegacy) {
@@ -90,8 +91,9 @@ export function createDraftSync(options: SyncOptions) {
   function persist() {
     // readDraft/writeDraft remain compatible with the old local fallback. Sync
     // metadata goes in this user/channel key, never another staff user's key.
-    writeDraft(options.storage, key, { ...state.draft, model: '', ai: false,
+    const localSaved=writeDraft(options.storage, key, { ...state.draft, model: '', ai: false,
       version: state.version, dirty } as Parameters<typeof writeDraft>[2]);
+    state={...state,localSaved};
   }
   function stopTimer() { if (timer !== undefined) { cancel(timer); timer = undefined; } }
   function enqueue() {

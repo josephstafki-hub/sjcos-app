@@ -120,7 +120,11 @@ import {
   type SavedInboxDraft,
 } from "@/lib/inbox-experience";
 import {reflowPlainText, draftInputSources, draftRecipientName, askExcerpt, excerptLinks, rowActionTitle, automationState, composerMode, olderOtherMail, completeMailBatch, draftReviewSize, regenerateModel, restoreForwardChoices} from '@/lib/inbox-review';
+import {quickInboxReminder,undoInboxReminder} from '@/lib/actions/inbox-reminders';
+import {reminderTitle} from '@/lib/inbox-review';
+import {messageWorkItem,reminderDueAt} from '@/lib/inbox-experience';
 import {receiptFields, useCompactReceipt} from '@/lib/inbox-receipt';
+import {registerInboxFiles,confirmInboxFileLoss,flushInboxDrafts} from '@/lib/inbox-navigation';
 import {swipeIntent, fileLossWarning, sourceHref} from '@/lib/inbox-round12';
 import {useComposerDraft, DraftSyncFooter} from './useComposerDraft';
 import {loadDrafts, dismissSuggestion} from '@/lib/actions/inbox-drafts';
@@ -238,6 +242,7 @@ export function InboxClient({
   const [lens, setLens] = useState<Lens>({ kind: "all" });
   const [tab, setTab] = useState<InboxTab | null>("needs");
   const [query, setQuery] = useState("");
+  const [phoneSearch,setPhoneSearch]=useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const [context, setContext] = useState<"person" | "job" | null>(null);
@@ -296,6 +301,12 @@ export function InboxClient({
 
   const [mobileReader, setMobileReader] = useState(false);
   const [showSources, setShowSources] = useState(false);
+  useEffect(()=>{
+    const search=()=>{setPhoneSearch(true);setMobileReader(false);requestAnimationFrame(()=>searchRef.current?.focus());};
+    const compose=()=>{if(data.mailbox.connected)setComposing(true);else setNotice('Connect your email before composing.');};
+    window.addEventListener('inbox-search',search);window.addEventListener('inbox-compose',compose);
+    return()=>{window.removeEventListener('inbox-search',search);window.removeEventListener('inbox-compose',compose);};
+  },[data.mailbox.connected]);
   const [splitSheet,setSplitSheet]=useState(false);
   const [composing, setComposing] = useState(false);
   useEffect(() => {
@@ -656,15 +667,15 @@ export function InboxClient({
     });
   };
 
-  const selectLabel = (id: string, name: string) => {
-    setLens({ kind: "label", id, name });
+  const selectLabel = (id: string, name: string) => {void leaveInbox(()=>{
+    setLens({ kind: "label", id, name });setTab(null);
     fetchRemote(`label:${id}`, () => loadLabelInboxAction(id));
-  };
+  });};
 
-  const selectSystem = (view: SystemViewKey) => {
-    setLens({ kind: "system", view });
+  const selectSystem = (view: SystemViewKey) => {void leaveInbox(()=>{
+    setLens({ kind: "system", view });setTab(null);
     fetchRemote(`system:${view}`, () => loadSystemViewAction(view));
-  };
+  });};
 
   const remoteKey = remoteKeyOf(lens);
   const onRemote = remoteKey !== null && remoteData?.key === remoteKey;
@@ -825,6 +836,7 @@ export function InboxClient({
 
   // Confirm the existing archive/handled path before updating the visible list.
   async function doneThread(t: InboxThread, sent=false) {
+    if(!sent){if(!await flushInboxDrafts()){setNotice('Save or resolve the draft before marking done.');return {ok:false,error:'Draft not saved.'};}if(!confirmInboxFileLoss())return {ok:false,error:'Kept the draft open.'};}
     const previousView={lens,tab,query,selectedId,mobileReader};
     const r=await runAction(()=>t.channel==='email'?archiveThreadAction(t.id):markChannelDoneAction(t.id,readers[t.id]?.messages.at(-1)?.date??0),{fallback:'Could not mark done.'});
     if(!r.ok){setNotice(sent?"Sent — couldn't mark done":r.error??'Could not mark done.');return r;}
@@ -840,6 +852,19 @@ export function InboxClient({
       if(result.ok){setThreads(ts=>ts.map(v=>v.id===t.id?t:v));setRemoteData(d=>d?{...d,threads:d.threads.map(v=>v.id===t.id?t:v)}:d);setNotice('Done undone.');setPassCompleted(ids=>new Set([...ids].filter(id=>id!==t.id)));setPassFinished(false);setUndo(null);setLens(previousView.lens);setTab(previousView.tab);setQuery(previousView.query);setSelectedId(previousView.selectedId||t.id);setMobileReader(previousView.mobileReader);router.refresh();}else setNotice(result.error??'Could not undo Done.');
     }});
     router.refresh();return {ok:true};
+  }
+  function remindTomorrow(t:InboxThread){
+    const r=readers[t.id];if(!r||pending)return;
+    startTransition(async()=>{
+      const result=await runAction(()=>quickInboxReminder(messageWorkItem(t,r,{title:reminderTitle(t),dueAt:reminderDueAt('tomorrow')})),{fallback:'Could not set the reminder.'});
+      if(!result.ok){setNotice(result.error??'Could not set the reminder.');return;}
+      setNotice('To-do set for tomorrow 8 AM Central. It enters Today at midnight; the conversation stays in your inbox.');
+      if('undo' in result&&result.undo){const receipt=result.undo;setUndo({label:'Undo reminder',run:async()=>{
+        const undone=await runAction(()=>undoInboxReminder(receipt),{fallback:'Could not undo the reminder.'});
+        if(undone.ok){setNotice('Reminder undone.');setUndo(null);router.refresh();}else setNotice(undone.error??'Could not undo the reminder.');
+      }});}
+      contextCache.current.clear();setContextRefresh(n=>n+1);router.refresh();
+    });
   }
   function markOtherDone(){
     const candidates=olderOtherMail(visible);
@@ -889,6 +914,7 @@ export function InboxClient({
         closeContext();
         return;
       }
+      if(e.key==='H'&&!e.metaKey&&!e.ctrlKey&&!e.altKey&&!el.isContentEditable&&!el.closest('input,textarea,select,[role="dialog"],[role="menu"]')&&!task&&!composing&&!pending&&selected){e.preventDefault();remindTomorrow(selected);return;}
       const action = shortcutFor({
         key: e.key,
         ctrlKey: e.ctrlKey,
@@ -919,7 +945,7 @@ export function InboxClient({
       else if (action === "link") setLinking(true);
       else if (action === "search") {
         setMobileReader(false);
-        searchRef.current?.focus();
+        setPhoneSearch(true);requestAnimationFrame(()=>searchRef.current?.focus());
       } else if (action === "help") setHelp(true);
       else if (action === "reply") {
         setMobileReader(true);
@@ -938,14 +964,14 @@ export function InboxClient({
       className="relative flex h-full min-h-0 flex-col [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-focus [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-focus"
     >
       <div
-        className={`${mobileReader ? "hidden @4xl/page:flex" : "flex"} min-h-12 flex-none flex-wrap items-center gap-2 border-b border-rule bg-paper px-3 py-1 @4xl/page:flex-nowrap`}
+        className={`${mobileReader ? "hidden @4xl/page:flex" : "flex"} ${phoneSearch?"":"@max-sm/page:!hidden"} min-h-12 flex-none flex-wrap items-center gap-2 border-b border-rule bg-paper px-3 py-1 @4xl/page:flex-nowrap`}
       >
         <Button
           onClick={() => setShowSources((v) => !v)}
           variant="ghost"
           icon={Filter}
           aria-expanded={showSources}
-          className="min-h-11 @4xl/page:min-h-8"
+          className="@max-sm/page:hidden min-h-11 @4xl/page:min-h-8"
         >
           Views
         </Button>
@@ -953,10 +979,9 @@ export function InboxClient({
           <Segmented
             aria-label="Inbox splits · loaded conversations"
             value={tab ?? ""}
-            onChange={(v) => {
-              setTab(v as InboxTab);
-              setMobileReader(false);
-            }}
+            onChange={(v) => {void leaveInbox(()=>{
+              setTab(v as InboxTab);setMobileReader(false);
+            });}}
             options={INBOX_TABS.map((t) => ({
               ...t,
               count: emailPaused ? "—" : counts[t.value],
@@ -970,7 +995,7 @@ export function InboxClient({
           <input
             ref={searchRef}
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {const value=e.target.value;void leaveInbox(()=>setQuery(value));}}
             aria-label="Search inbox"
             placeholder="Search"
             className="w-full min-w-0 bg-transparent text-body outline-none"
@@ -984,11 +1009,12 @@ export function InboxClient({
           title="Keyboard shortcuts (?)"
           className="hidden @5xl/page:inline-flex"
         />
+        {phoneSearch&&<Button className="@sm/page:hidden" variant="ghost" onClick={()=>{setPhoneSearch(false);setQuery('');}}>Cancel</Button>}
         {data.mailbox.connected && (
           <Button
             onClick={() => setComposing(true)}
             icon={PenSquare}
-            className="min-h-11 @4xl/page:min-h-8"
+            className="@max-sm/page:hidden min-h-11 @4xl/page:min-h-8"
           >
             Compose
           </Button>
@@ -1092,13 +1118,12 @@ export function InboxClient({
           onClick={(e) => {
             if ((e.target as HTMLElement).closest("button")) {
               setShowSources(false);
-              setTab(null);
             }
           }}
           className={`flex-none flex-col overflow-y-auto bg-paper-2 p-3 ${showSources ? "absolute left-2 top-2 z-30 flex max-h-[calc(100%-1rem)] w-72 max-w-[calc(100%-1rem)] rounded-lg border border-rule shadow-pop" : "hidden"}`}
         >
           <button
-            onClick={() => setLens({ kind: "inbox" })}
+            onClick={() => {void leaveInbox(()=>{setLens({ kind: "inbox" });setTab(null);});}}
             className={[
               "mb-2 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left max-sm:min-h-11 focus-visible:outline-2 focus-visible:outline-focus text-meta",
               isInbox
@@ -1119,7 +1144,7 @@ export function InboxClient({
             {data.smartViews.map((v) => (
               <button
                 key={v.key}
-                onClick={() => setLens({ kind: "view", view: v.key })}
+                onClick={() => {void leaveInbox(()=>{setLens({ kind: "view", view: v.key });setTab(null);});}}
                 className={[
                   "flex items-center gap-2 rounded-md px-2 py-1.5 text-left max-sm:min-h-11 focus-visible:outline-2 focus-visible:outline-focus text-meta",
                   isView(v.key)
@@ -1178,7 +1203,7 @@ export function InboxClient({
               return (
                 <button
                   key={c.key}
-                  onClick={() => setLens({ kind: "channel", channel: c.key })}
+                  onClick={() => {void leaveInbox(()=>{setLens({ kind: "channel", channel: c.key });setTab(null);});}}
                   className={[
                     "flex items-center gap-2 rounded-md px-2 py-1 text-left max-sm:min-h-11 focus-visible:outline-2 focus-visible:outline-focus text-meta",
                     isChannel(c.key)
@@ -1240,9 +1265,7 @@ export function InboxClient({
                   return (
                     <button
                       key={slug}
-                      onClick={() =>
-                        setLens({ kind: "project", slug, label: p.label })
-                      }
+                      onClick={() => {void leaveInbox(()=>{setLens({ kind: "project", slug, label: p.label });setTab(null);});}}
                       className={[
                         "flex items-center gap-2 rounded-md px-2 py-1 text-left max-sm:min-h-11 focus-visible:outline-2 focus-visible:outline-focus text-meta",
                         isProject(slug)
@@ -1288,7 +1311,7 @@ export function InboxClient({
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => setLens({ kind: "all" })}
+                onClick={() => {void leaveInbox(()=>{setLens({ kind: "all" });setTab(null);});}}
               >
                 Clear view
               </Button>
@@ -1336,8 +1359,9 @@ export function InboxClient({
                 {(i===0||(tab==='needs'?attentionGroup(t,readyIds)!==attentionGroup(visible[i-1],readyIds):rowDay(t)!==rowDay(visible[i-1])))&&<p className="border-b border-rule-soft bg-paper-2 px-3 py-1.5 text-meta font-semibold text-ink-3">{tab==='needs'?`${attentionGroup(t,readyIds)} · ${visible.filter(row=>attentionGroup(row,readyIds)===attentionGroup(t,readyIds)).length}`:rowDay(t)}</p>}
                 <ThreadRow
                   thread={draftRow(t,suggestions.get(t.id))}
-                  selected={selected?.id === t.id}
+                  selected={selected?.id === t.id && (mobileReader||wideContext)}
                   onDone={() => startTransition(async()=>{await doneThread(t);})}
+                  onTomorrow={()=>remindTomorrow(draftRow(t,suggestions.get(t.id)))}
                   onRemind={anchor => openTask(draftRow(t,suggestions.get(t.id)),true,anchor)}
                   compact={compactList && Boolean(context || contextPreference)}
                   onScreen={t.newSender?()=>{setScreeningThread(t);setLinking(true);}:undefined}
@@ -1361,7 +1385,7 @@ export function InboxClient({
           </div>
           {!composing&&<div className="relative border-t border-rule-soft px-3 py-1 @4xl/page:hidden">
             <Button variant="ghost" className="min-h-11" aria-expanded={splitSheet} onClick={()=>setSplitSheet(v=>!v)}>{INBOX_TABS.find(t=>t.value===tab)?.label??headerLabel} {tab?counts[tab]:visible.length} ▾</Button>
-            {splitSheet&&<div role="dialog" aria-label="Inbox splits" className="absolute inset-x-0 bottom-full z-[75] rounded-t-xl border border-rule bg-card p-3 shadow-pop"><div className="flex items-center"><h2 className="flex-1 text-subheading font-semibold">Inbox splits</h2><Button variant="ghost" icon={X} iconOnly aria-label="Close splits" title="Close splits" onClick={()=>setSplitSheet(false)}/></div>{INBOX_TABS.map(split=><button key={split.value} aria-pressed={tab===split.value} className="flex min-h-11 w-full items-center justify-between rounded-md px-3 text-body aria-pressed:bg-selected" onClick={()=>{setTab(split.value);setMobileReader(false);setSplitSheet(false);}}><span>{split.label}</span><span>{counts[split.value]}</span></button>)}</div>}
+            {splitSheet&&<div role="dialog" aria-label="Inbox splits" className="absolute inset-x-0 bottom-full z-[75] rounded-t-xl border border-rule bg-card p-3 shadow-pop"><div className="flex items-center"><h2 className="flex-1 text-subheading font-semibold">Inbox splits</h2><Button variant="ghost" onClick={()=>{setSplitSheet(false);setShowSources(true);}}>Views</Button><Button variant="ghost" icon={X} iconOnly aria-label="Close splits" title="Close splits" onClick={()=>setSplitSheet(false)}/></div>{INBOX_TABS.map(split=><button key={split.value} aria-pressed={tab===split.value} className="flex min-h-11 w-full items-center justify-between rounded-md px-3 text-body aria-pressed:bg-selected" onClick={()=>{void leaveInbox(()=>{setTab(split.value);setMobileReader(false);setSplitSheet(false);});}}><span>{split.label}</span><span>{counts[split.value]}</span></button>)}</div>}
           </div>}
         </section>
 
@@ -1483,6 +1507,7 @@ export function InboxClient({
                           >
                             Remind me
                           </MenuItem>
+                          <MenuItem icon={Clock} onClick={()=>{setMenuOpen(false);remindTomorrow(selected);}}>Tomorrow 8 AM · Shift H</MenuItem>
                           <MenuItem
                             icon={ListPlus}
                             onClick={() => {
@@ -1544,7 +1569,7 @@ export function InboxClient({
                   <h1 className="line-clamp-2 font-serif text-heading font-medium leading-tight text-accent-2 group-has-[[data-reply-active=true]]/reader:text-body">{rowActionTitle(selected)}</h1>
                   {rowActionTitle(selected)!==reader.subject&&<p className="truncate text-meta text-ink-3" title={reader.subject}>{reader.subject}</p>}
                   <button onClick={openContext} title="Open contact, job, money and to-dos" aria-label="Open person and job context" aria-expanded={Boolean(context || wideContext && contextPreference)} className="mt-2 flex min-h-11 w-full items-center gap-2 rounded-md border border-rule bg-card px-3 text-left text-meta text-ink-2 @4xl/page:min-h-8 group-has-[[data-reply-active=true]]/reader:mt-1 group-has-[[data-reply-active=true]]/reader:min-h-7">
-                    <span className="min-w-0 flex-1 truncate">{contextStripText(selected,contextData)}</span><ChevronRight className="size-3.5 shrink-0"/>
+                    <span className="min-w-0 flex-1 truncate">{selected.automated?`Automated · ${selected.fromName} · ${rowActionTitle(selected)}`:contextStripText(selected,contextData)}</span><ChevronRight className="size-3.5 shrink-0"/>
                   </button>
                   {selected.automated&&<div className="mt-1 flex flex-wrap items-center gap-2 text-meta text-ink-3"><span>{automationState(selected).label}</span><Button variant="secondary" size="sm" disabled={pending} onClick={()=>startTransition(async()=>{await savePreference(selected,'thread',(selected.attentionOverride??selected.attentionRequired)?'other':'attention');})}>{(selected.attentionOverride??selected.attentionRequired)?'Keep in Other':'Mark as needs my attention'}</Button></div>}
                   {(selected.newSender||selected.senderDecision)&&selected.fromEmail&&!selected.automated&&<div className="mt-1 flex flex-wrap items-center gap-1 text-meta text-ink-3">
@@ -1688,6 +1713,14 @@ async function sendWithReceipt(mailbox:string,threadId:string,reader:ThreadReade
 
 function useMailFiles(originals: {name:string;size:number;type:string}[] = []) {
   const [files,setFiles]=useState<File[]>([]);
+  const latest=useRef(files);latest.current=files;
+  useEffect(()=>{
+    const unregister=registerInboxFiles(()=>latest.current.length);
+    const beforeUnload=(event:BeforeUnloadEvent)=>{if(latest.current.length){event.preventDefault();event.returnValue=fileLossWarning(latest.current.length);}};
+    window.addEventListener('beforeunload',beforeUnload);
+    return()=>{unregister();window.removeEventListener('beforeunload',beforeUnload);};
+  },[]);
+  const confirmLoss=()=>!latest.current.length||window.confirm(fileLossWarning(latest.current.length));
   const [error,setError]=useState('');
   const data=()=>{const form=new FormData();for(const file of files)form.append('files',file);return form;};
   const picker=(disabled:boolean,compact=false)=><div className={`flex max-w-full items-center gap-1 text-meta ${compact?"shrink-0 flex-nowrap":"flex-wrap"}`}>
@@ -1701,7 +1734,7 @@ function useMailFiles(originals: {name:string;size:number;type:string}[] = []) {
     <ul aria-label="Files to send" className={`flex gap-2 ${compact?"flex-nowrap":"flex-wrap"}`}>{files.map((file,i)=><li key={i} className="flex min-w-0 items-center gap-1 rounded-md border border-rule bg-card px-2"><span className={compact?"max-w-24 truncate":"break-all"} title={file.name}>{file.name} · {fileSize(file.size)}</span><Button variant="ghost" disabled={disabled} aria-label={`Remove ${file.name}`} title={`Remove ${file.name}`} icon={X} iconOnly onClick={()=>setFiles(items=>items.filter((_,j)=>j!==i))}/></li>)}</ul>
     {error&&<p role="alert" className="text-flag">{error}</p>}
   </div>;
-  return {files,data,picker,clear:()=>setFiles([])};
+  return {files,data,picker,confirmLoss,clear:()=>{latest.current=[];setFiles([]);}};
 }
 
 type ForwardMessage = {threadId:string;subject:string;message:ThreadReader['messages'][number]};
@@ -1820,7 +1853,7 @@ function ComposeModal({
           {files.picker(sending||sent)}
           <DraftSyncFooter saved={saved} disabled={sending||sent} localFiles={files.files.length>0||originals.length>0}/>
           <p className="text-meta text-ink-3">New files stay on this device. Forwarded file choices restore on this device; review them before sending.</p>
-          <Button variant="ghost" disabled={sending||sent} onClick={()=>startSend(async()=>{try{await saved.clear();try{localStorage.removeItem(forwardChoiceKey);}catch{}onClose();}catch(e){setError((e as Error).message);}})}>Discard</Button>
+          <Button variant="ghost" disabled={sending||sent} onClick={()=>{if(!files.confirmLoss())return;startSend(async()=>{try{await saved.clear();files.clear();try{localStorage.removeItem(forwardChoiceKey);}catch{}onClose();}catch(e){setError((e as Error).message);}});}}>Discard</Button>
           {error && <p className="text-meta text-flag">{error}</p>}
           <div className="mt-1 flex flex-wrap items-center gap-2">
             <Button
@@ -1846,13 +1879,13 @@ function ComposeModal({
 const FORM_FIELD = /^([^\n]{1,40})\n([\s\S]+)$/;
 
 /** Wide mail tables scroll at their natural text size; quoted history folds. */
-function EmailHtml({ html }: { html: string }) {
+function EmailHtml({ html,receiptChoice='auto',onCompactReceipt }: { html: string;receiptChoice?:'auto'|'compact'|'formatted';onCompactReceipt?:(compact:boolean)=>void }) {
   const inner = useRef<HTMLDivElement>(null);
   const scroller=useRef<HTMLDivElement>(null);
   const [overflowing,setOverflowing]=useState(false);
   const fields=useMemo(()=>receiptFields(html),[html]);
-  const [receiptChoice,setReceiptChoice]=useState<'compact'|'formatted'|null>(null);
-  const compactReceipt=useCompactReceipt(fields,overflowing,receiptChoice);
+  const compactReceipt=useCompactReceipt(fields,overflowing,receiptChoice==='auto'?null:receiptChoice);
+  useLayoutEffect(()=>{onCompactReceipt?.(compactReceipt);},[compactReceipt,onCompactReceipt]);
   const [hasQuote, setHasQuote] = useState(false);
   const [showQuote, setShowQuote] = useState(false);
   useLayoutEffect(() => {
@@ -1873,7 +1906,6 @@ function EmailHtml({ html }: { html: string }) {
   }, [html]);
   return (
     <div className="relative min-w-0">
-      {fields.length>0&&<div className="mb-2 flex items-center gap-1" aria-label="Receipt view"><Button size="sm" variant={compactReceipt?'secondary':'ghost'} aria-pressed={compactReceipt} onClick={()=>setReceiptChoice('compact')}>Compact receipt</Button><Button size="sm" variant={!compactReceipt?'secondary':'ghost'} aria-pressed={!compactReceipt} onClick={()=>setReceiptChoice('formatted')}>Formatted</Button></div>}
       {compactReceipt&&<dl aria-label="Receipt details" className="space-y-2">{fields.map((field,i)=><div key={i} className="grid grid-cols-[minmax(80px,1fr)_minmax(0,2fr)] gap-3 border-b border-rule-soft pb-2"><dt className="text-meta text-ink-3">{field.label}</dt><dd className="break-words text-body font-semibold text-ink">{field.value}</dd></div>)}</dl>}
       {compactReceipt&&<details className="mt-2"><summary className="min-h-11 cursor-pointer text-meta text-accent-2">Full receipt text and links</summary><div dangerouslySetInnerHTML={{__html:readableEmailHtml(html)}}/></details>}
       {overflowing&&!compactReceipt&&<p className="sticky left-0 mb-1 text-meta font-semibold text-accent-2">Scroll sideways to see the full table →</p>}
@@ -1939,7 +1971,7 @@ function useSafeDraft(saved:ReturnType<typeof useComposerDraft>, threadId:string
       const r=await runAction(()=>draftReplyAction(threadId,regenerateModel(model),intent),{fallback:'Could not draft a reply.'});
       if(!alive.current)return;
       if(!r.ok){onError(r.error??'Could not draft a reply.');return;}
-      const candidate:SavedInboxDraft={...snapshot,body:r.body??'',toEmail:snapshot.toEmail||r.toEmail||'',humanEdited:false,ai:true,model:r.model??'Hermes',basedOn:r.basedOn};
+      const candidate:SavedInboxDraft={...snapshot,body:r.body??'',toEmail:snapshot.toEmail||r.toEmail||'',humanEdited:false,ai:true,model:r.model??'Hermes',basedOn:r.basedOn,sources:r.sources};
       const result=draftGenerationResult(snapshot,saved.latest.current,candidate,saved.revision.current!==revision);
       setPrevious(result.previous);setSuggestion(result.suggestion);
       if(!result.suggestion)saved.set(result.value);
@@ -1948,7 +1980,7 @@ function useSafeDraft(saved:ReturnType<typeof useComposerDraft>, threadId:string
   return {pending,generate,controls:<>
     {suggestion&&<div className="rounded border border-ai/30 bg-ai-soft p-2 text-meta">
       <p>Your reply is safe. Review the suggestion before replacing it.</p><details><summary className="cursor-pointer py-1">Compare</summary><p className="mb-2 whitespace-pre-line border-b border-rule pb-2">Your reply: {saved.value.body}</p><p className="whitespace-pre-line">{suggestion.body}</p></details>
-      <div className="flex gap-2"><Button size="sm" onClick={()=>{setPrevious({...saved.latest.current});saved.set({...saved.latest.current,body:suggestion.body,ai:suggestion.ai,model:suggestion.model,basedOn:suggestion.basedOn,humanEdited:false});setSuggestion(null);}}>Use suggestion</Button><Button size="sm" variant="ghost" onClick={()=>setSuggestion(null)}>Keep mine</Button></div>
+      <div className="flex gap-2"><Button size="sm" onClick={()=>{setPrevious({...saved.latest.current});saved.set({...saved.latest.current,body:suggestion.body,ai:suggestion.ai,model:suggestion.model,basedOn:suggestion.basedOn,sources:suggestion.sources,humanEdited:false});setSuggestion(null);}}>Use suggestion</Button><Button size="sm" variant="ghost" onClick={()=>setSuggestion(null)}>Keep mine</Button></div>
     </div>}
     {previous&&<Button variant="ghost" size="sm" onClick={()=>{saved.set(previous);setPrevious(null);setSuggestion(null);}}>Restore previous</Button>}
   </>};
@@ -1964,33 +1996,33 @@ function RequestExcerpt({text,compact,links=[]}:{text:string;compact:boolean;lin
     const observer=new ResizeObserver(measure);observer.observe(el);measure();return()=>observer.disconnect();
   },[text,compact,open]);
   return <div className="flex min-h-0 flex-col">
-    <div className="flex shrink-0 items-center gap-2 text-meta text-ink-3"><span>Request excerpt</span><button type="button" aria-expanded={open} className="min-h-8 text-accent-2 underline" onClick={()=>setOpen(v=>!v)}>{open?'less':'more'}</button></div>
+    <div className="flex shrink-0 items-center gap-2 text-meta text-ink-3"><span>Request excerpt</span><button type="button" aria-expanded={open} className="min-h-11 text-accent-2 underline" onClick={()=>setOpen(v=>!v)}>{open?'less':'more'}</button></div>
     <div className="relative min-h-0 overflow-hidden">
       <blockquote ref={ref} aria-label="Incoming request" className={`max-h-[35dvh] overflow-y-auto whitespace-pre-line border-l-2 border-accent pl-2 pr-1 text-body text-ink-2 ${compact&&!open?'line-clamp-2':open?'':'max-h-[24dvh]'}`}>{links.reduce((value,link)=>value.replace(`\n\n${link.label}`,''),text)}{links.length>0&&<span className="mt-2 flex flex-wrap gap-2">{links.map(link=><a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer" className="text-accent-2 underline">{link.label}</a>)}</span>}</blockquote>
-      {overflow&&!open&&<div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-5 bg-gradient-to-t from-paper-2 to-transparent"/>}
+      {overflow&&!open&&<button type="button" className="absolute inset-x-0 bottom-0 flex min-h-11 items-end justify-end bg-gradient-to-t from-paper-2 via-paper-2/90 to-transparent text-meta font-semibold text-accent-2" onClick={()=>setOpen(true)}>Read more ↓</button>}
     </div>
   </div>;
 }
 /** Text height follows wrapped content; resize and keyboard changes re-measure. */
-function DraftBody({inputRef,expanded=false,...props}:TextareaHTMLAttributes<HTMLTextAreaElement>&{inputRef:RefObject<HTMLTextAreaElement|null>;expanded?:boolean}) {
+function DraftBody({inputRef,expanded=false,fill=false,...props}:TextareaHTMLAttributes<HTMLTextAreaElement>&{inputRef:RefObject<HTMLTextAreaElement|null>;expanded?:boolean;fill?:boolean}) {
   const [more,setMore]=useState(false);
   useLayoutEffect(()=>{
     const input=inputRef.current;if(!input)return;
     const remaining=()=>setMore(input.scrollHeight-input.scrollTop>input.clientHeight+2);
     const measure=()=>{
-      if(!expanded){
-        input.style.height='0px';
-        const size=draftReviewSize(input.scrollHeight,window.visualViewport?.height??window.innerHeight,parseFloat(getComputedStyle(input).lineHeight)||24);
-        input.style.height=`${size.height}px`;
-      }else input.style.height='100%';
+      if(expanded){
+        input.style.height='0px';input.style.minHeight='0px';
+        const fullHeight=input.scrollHeight;
+        input.style.height=`${fullHeight}px`;input.style.minHeight=`${fullHeight}px`;
+      }else if(fill){input.style.height='100%';input.style.minHeight='0px';}else{input.style.height='0px';input.style.minHeight='0px';const size=draftReviewSize(input.scrollHeight,window.visualViewport?.height??window.innerHeight,parseFloat(getComputedStyle(input).lineHeight)||24);input.style.height=`${size.height}px`;}
       remaining();
     };
     measure();let width=input.clientWidth;
     const observer=new ResizeObserver(()=>{if(input.clientWidth!==width){width=input.clientWidth;measure();}else remaining();});
     observer.observe(input);input.addEventListener('scroll',remaining);window.addEventListener('resize',measure);window.visualViewport?.addEventListener('resize',measure);
     return ()=>{observer.disconnect();input.removeEventListener('scroll',remaining);window.removeEventListener('resize',measure);window.visualViewport?.removeEventListener('resize',measure);};
-  },[props.value,expanded,inputRef]);
-  return <div className={`relative flex min-h-0 flex-col ${expanded?'flex-1':'shrink'}`}><textarea {...props} ref={inputRef} rows={8} className={`${props.className??''} block min-h-0 max-h-full shrink overflow-y-auto pb-6 ${expanded?'flex-1':''}`}/>{more&&<div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-card via-card/90 to-transparent pt-5 text-right text-meta text-accent-2">More below ↓</div>}</div>;
+  },[props.value,expanded,fill,inputRef]);
+  return <div className={`relative flex min-h-0 flex-col ${expanded?'shrink-0':fill?'flex-1':'shrink'}`}><textarea {...props} ref={inputRef} rows={8} className={`${props.className??''} block min-h-0 pb-1 ${expanded?'shrink-0 overflow-hidden':fill?'flex-1 overflow-y-auto':'shrink max-h-full overflow-y-auto'}`}/>{more&&<div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-card via-card/90 to-transparent pt-5 text-right text-meta text-accent-2">More below ↓</div>}</div>;
 }
 function useComposerViewport() {
   const [viewportSize,setViewportSize]=useState<{height:number;inset:number}|null>(null);
@@ -2118,12 +2150,13 @@ function ChannelReaderBody({
     });
   }
   function retryMessage(message:ThreadReader['messages'][number]) {
-    if(!message.id || !message.outbound || !/failed|undelivered|expired/i.test(message.deliveryState??'') || retried.has(message.id))return;
+    if(!message.id || !message.outbound || !/failed|undelivered|expired/i.test(message.deliveryState??'') || message.retry || retried.has(message.id))return;
     setError('');
     start(async()=>{
-      const result=await runAction(()=>sendChannelReplyAction({threadId,body:message.body.join('\n\n')}),{fallback:'Could not retry your message.'});
-      if(result.ok){setRetried(ids=>new Set([...ids,message.id!]));router.refresh();}
+      const result=await runAction(()=>sendChannelReplyAction({threadId,body:message.body.join('\n\n'),retryOfId:message.id}),{fallback:'Could not retry your message.'});
+      if(result.ok)setRetried(ids=>new Set([...ids,message.id!]));
       else setError(result.error??'Could not retry your message.');
+      router.refresh();
     });
   }
   return (
@@ -2252,9 +2285,9 @@ function ChannelReaderBody({
                     </>}
                   </div>
                   {chat&&m.outbound&&m.deliveryState&&<div className="mt-1 flex max-w-[90%] flex-wrap items-center justify-end gap-1 text-meta text-ink-3">
-                    <span className={/failed|undelivered|expired/i.test(m.deliveryState)?'text-flag':''}>{retried.has(m.id??'')?'Retry submitted · see newest message':/failed|undelivered|expired/i.test(m.deliveryState)?'Failed':m.deliveryState==='sent'?'Sent':m.deliveryState==='delivered'?'Delivered':m.deliveryState==='queued'?'Queued':m.deliveryState==='sending'?'Sending':m.deliveryState}</span>
-                    {m.deliveryError&&<span className="break-words text-flag">{m.deliveryError}</span>}
-                    {m.id&&/failed|undelivered|expired/i.test(m.deliveryState)&&<Button size="sm" variant="secondary" disabled={pending||retried.has(m.id)} onClick={()=>retryMessage(m)}>Retry</Button>}
+                    <span className={!m.retry&&/failed|undelivered|expired/i.test(m.deliveryState)?'text-flag':''}>{m.retry?`Retried · ${m.retry.status} ${new Date(m.retry.at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'})}`:retried.has(m.id??'')?'Retry submitted · see newest message':/failed|undelivered|expired/i.test(m.deliveryState)?'Failed':m.deliveryState==='sent'?'Sent':m.deliveryState==='delivered'?'Delivered':m.deliveryState==='queued'?'Queued':m.deliveryState==='sending'?'Sending':m.deliveryState}</span>
+                    {m.deliveryError&&!m.retry&&<span className="break-words text-flag">{m.deliveryError}</span>}
+                    {m.id&&!m.retry&&/failed|undelivered|expired/i.test(m.deliveryState)&&<Button size="sm" variant="secondary" disabled={pending||retried.has(m.id)} onClick={()=>retryMessage(m)}>Retry</Button>}
                   </div>}
                 </div>
               </div>
@@ -2286,7 +2319,7 @@ function ChannelReaderBody({
               <div className="order-last col-span-2 flex flex-wrap items-center gap-1">
                   {reader.channel==='site_form'&&files.picker(pending)}
               <Button variant="ai" size="sm" onClick={()=>generate()} disabled={safety.pending||pending}>Draft with AI</Button>
-              <Button variant="ghost" size="sm" onClick={()=>start(async()=>{try{await saved.clear();setReplying(false);}catch(e){setError((e as Error).message);}})} disabled={pending}>Discard</Button>
+              <Button variant="ghost" size="sm" onClick={()=>{if(!files.confirmLoss())return;start(async()=>{try{await saved.clear();files.clear();setReplying(false);}catch(e){setError((e as Error).message);}});}} disabled={pending}>Discard</Button>
               </div>
 
             </div>
@@ -2340,7 +2373,7 @@ function ThreadRow({
   onSelect,
   onDone,
   onRemind,
-  onScreen, compact=false,
+  onScreen, onTomorrow, compact=false,
 }: {
   thread: InboxThread;
   selected: boolean;
@@ -2348,10 +2381,14 @@ function ThreadRow({
   onDone?: () => void;
   onRemind?: (anchor?:HTMLElement) => void;
   onScreen?:()=>void;
+  onTomorrow?:()=>void;
   compact?:boolean;
   onAdd?:(kind:"lead"|"sub"|"vendor")=>void;
   onOther?:()=>void;
 }) {
+  const touch=useRef<{x:number;y:number}|null>(null);
+  const swiped=useRef(false);
+  const [drag,setDrag]=useState(0);
   const Icon = CHANNEL_ICON[thread.channel];
   const [rowMenu, setRowMenu] = useState(false);
   const attention=automationState(thread).attention;
@@ -2361,10 +2398,16 @@ function ThreadRow({
     <div
       className={`group relative border-b border-rule-soft ${selected ? "bg-selected" : "hover:bg-hover"}`}
     >
+      {Math.abs(drag)>=20&&<span aria-hidden className="absolute inset-y-0 flex items-center px-3 text-meta font-semibold text-accent-2" style={drag>0?{left:0}:{right:0}}>{drag>0?'Done':'Tomorrow 8 AM'}</span>}
       {(selected||attention) && <span className={`absolute inset-y-0 left-0 w-[3px] ${attention?"bg-warn":"bg-accent"}`} />}
       <button
         data-thread-row={thread.id}
-        onClick={onSelect}
+        onClick={e=>{if(swiped.current){e.preventDefault();swiped.current=false;return;}onSelect();}}
+        style={{touchAction:'pan-y',transform:drag?`translateX(${drag}px)`:undefined}}
+        onTouchStart={e=>{if(e.touches.length!==1){touch.current=null;return;}const p=e.touches[0];touch.current={x:p.clientX,y:p.clientY};swiped.current=false;}}
+        onTouchMove={e=>{if(!touch.current)return;const p=e.touches[0],dx=p.clientX-touch.current.x,dy=p.clientY-touch.current.y;if(Math.abs(dy)>Math.abs(dx)){touch.current=null;setDrag(0);}else setDrag(Math.max(-110,Math.min(110,dx)));}}
+        onTouchCancel={()=>{touch.current=null;setDrag(0);}}
+        onTouchEnd={e=>{const from=touch.current;touch.current=null;setDrag(0);if(!from||!e.changedTouches[0])return;const p=e.changedTouches[0],intent=swipeIntent(p.clientX-from.x,p.clientY-from.y);if(intent){swiped.current=true;if(intent==='done')onDone?.();else onTomorrow?.();}}}
         aria-current={selected ? "true" : undefined}
         className="flex min-h-16 w-full items-start gap-2 px-3 py-2 text-left [@media(hover:none)]:pr-14"
       >
@@ -2472,6 +2515,7 @@ function ThreadRow({
           >
             Remind me
           </Button>
+          <Button variant="ghost" icon={Clock} className="min-h-11" onClick={()=>{setRowMenu(false);onTomorrow?.();}}>Tomorrow 8 AM</Button>
         </div>
       )}
     </div>
@@ -2494,6 +2538,8 @@ function EmailMessageCard({
   const [forwarding,setForwarding]=useState(false);
   const [content,setContent]=useState<EmailHtmlResult|{status:'loading';html:''}>({status:'loading',html:''});
   const [readingMode,setReadingMode]=useState<"readable"|"original">("original");
+  const [receiptChoice,setReceiptChoice]=useState<'auto'|'compact'|'formatted'>('auto');
+  const [compactReceipt,setCompactReceipt]=useState(false);
   const imageKey=`sjc:inbox:images:v1:${mailbox.toLowerCase()}:${message.fromEmail?.toLowerCase()??''}`;
   const [allowedImages,setAllowedImages]=useState(false);
   useEffect(()=>{try{setAllowedImages(localStorage.getItem(imageKey)==='show');}catch{}},[imageKey]);
@@ -2516,8 +2562,9 @@ function EmailMessageCard({
   },[expanded,threadId,message.id,attempt]);
   const html=content.html;
   const imagePolicy=useMemo(()=>applyRemoteImagePolicy(html,!blockImages||allowedImages),[html,blockImages,allowedImages]);
+  const receiptAvailable=useMemo(()=>receiptFields(imagePolicy.html).length>0,[imagePolicy.html]);
   return (
-    <article className="overflow-hidden rounded-lg border border-rule bg-card">
+    <article id={`inbox-message-${encodeURIComponent(message.id??'')}`} className="overflow-hidden rounded-lg border border-rule bg-card">
       <button
         onClick={onToggle}
         aria-expanded={expanded}
@@ -2553,9 +2600,9 @@ function EmailMessageCard({
           </details>
           {html ? (
             <>
-              <div className="mb-2 flex items-center gap-1" aria-label="Reading mode"><Button size="sm" variant={readingMode==='readable'?'secondary':'ghost'} aria-pressed={readingMode==='readable'} onClick={()=>setReadingMode('readable')}>Readable</Button><Button size="sm" variant={readingMode==='original'?'secondary':'ghost'} aria-pressed={readingMode==='original'} onClick={()=>setReadingMode('original')}>Formatted</Button></div>
+              <div className="mb-2 flex items-center gap-1" aria-label="Reading mode"><Button size="sm" variant={readingMode==='readable'?'secondary':'ghost'} aria-pressed={readingMode==='readable'} onClick={()=>setReadingMode('readable')}>Readable</Button>{receiptAvailable&&<Button size="sm" variant={readingMode==='original'&&compactReceipt?'secondary':'ghost'} aria-pressed={readingMode==='original'&&compactReceipt} onClick={()=>{setReceiptChoice('compact');setReadingMode('original');}}>Compact receipt</Button>}<Button size="sm" variant={readingMode==='original'&&!compactReceipt?'secondary':'ghost'} aria-pressed={readingMode==='original'&&!compactReceipt} onClick={()=>{setReceiptChoice('formatted');setReadingMode('original');}}>Formatted</Button></div>
               {readingMode==='original'&&imagePolicy.blocked>0&&<div className="mb-2 flex flex-wrap items-center gap-2 text-meta text-ink-3"><span>{imagePolicy.blocked} remote {imagePolicy.blocked===1?"resource":"resources"} blocked ·</span><Button variant="secondary" size="sm" onClick={()=>{setAllowedImages(true);try{localStorage.setItem(imageKey,'show');}catch{}}}>Show images</Button></div>}
-              <EmailHtml key={`${imageKey}:${allowedImages}:${readingMode}`} html={readingMode==='readable'?readableEmailHtml(imagePolicy.html):imagePolicy.html} />
+              <EmailHtml receiptChoice={readingMode==='original'?receiptChoice:'formatted'} onCompactReceipt={setCompactReceipt} key={`${imageKey}:${allowedImages}:${readingMode}`} html={readingMode==='readable'?readableEmailHtml(imagePolicy.html):imagePolicy.html} />
             </>
           ) : <>
             {content.status==='loading'&&<p role="status" className="mb-2 text-meta text-ink-3">Loading formatted email… Text preview below.</p>}
@@ -2631,7 +2678,7 @@ function ReaderBody({
   // A pristine composer previews the suggestion as an approval card. It is
   // still separate from Joe's synced draft until he edits or clicks Send.
   const preview=Boolean(suggestion&&!saved.value.body&&!saved.accepted&&!sentPreviewHidden.current);
-  const display=preview&&suggestion?{...saved.value,body:suggestion.body,toEmail:suggestion.toEmail,ai:true,model:suggestion.model==='claude'?'Claude':'Hermes',basedOn:suggestion.basedOn}:saved.value;
+  const display=preview&&suggestion?{...saved.value,body:suggestion.body,toEmail:suggestion.toEmail,ai:true,model:suggestion.model==='claude'?'Claude':'Hermes',basedOn:suggestion.basedOn,sources:suggestion.sources}:saved.value;
   const {body:draft,toEmail,ai:isAI,model}=display;
   const replyAll=Boolean(saved.synced.draft.cc.length);
   const update=(patch:Partial<SavedInboxDraft>)=>{
@@ -2646,6 +2693,15 @@ function ReaderBody({
   const screeningFirst=mode==='screen';
   const [reviewExpanded,setReviewExpanded]=useState(false);
   const [showSource,setShowSource]=useState(false);
+  const [sourceMessage,setSourceMessage]=useState<string|null>(null);
+  function openDraftSource(id:string){
+    setSourceMessage(id);setShowSource(true);setExpanded(prev=>new Set([...prev,id]));
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{
+      const target=document.getElementById(`inbox-message-${encodeURIComponent(id)}`);
+      const history=target?.closest('details');if(history)history.open=true;
+      target?.scrollIntoView({block:'nearest',behavior:'smooth'});
+    }));
+  }
   const [draftOpen, setDraftOpen] = useState(false);
   const [error, setError] = useState("");
   const [sent, setSent] = useState(false);
@@ -2658,6 +2714,7 @@ function ReaderBody({
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const latestPassage=useRef<HTMLDivElement>(null);
   const approvalRef = useRef<HTMLTextAreaElement>(null);
+  const recipientsRef=useRef<HTMLDetailsElement>(null);
   const regionRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const hasDraft = Boolean(draft.trim());
@@ -2717,6 +2774,7 @@ function ReaderBody({
   }
 
   function discard() {
+    if(!files.confirmLoss())return;
     startSend(async()=>{
       try{
         if(preview&&suggestion){await dismissSuggestion(suggestion.id);setDismissed(suggestion.id);await saved.synced.refresh();}
@@ -2750,30 +2808,31 @@ function ReaderBody({
     });
   }
   const approval = (
-    <div data-draft-card className={`flex min-h-0 max-h-full flex-col rounded-lg border border-ai/35 bg-card p-2 ${reviewExpanded?"flex-1":"shrink"}`}>
+    <div data-draft-card className={`flex flex-col rounded-lg border border-ai/35 bg-card p-2 ${reviewExpanded?'min-h-fit shrink-0':'min-h-0 flex-1'}`}>
       <div className="flex shrink-0 items-start gap-1 text-meta text-ink-3">
-        <details className="min-w-0 flex-1">
+        <details ref={recipientsRef} className="min-w-0 flex-1">
           <summary className="min-h-11 cursor-pointer list-none py-1" title={`To ${toEmail}`}>
-            <span className="break-words"><span className="font-semibold text-ai">Draft by {model || "AI"}</span> · <span className="font-semibold text-ink">To {draftRecipientName(toEmail,reader.replyTarget)}</span> · not sent</span>
-            <span className="ml-2 inline-block text-accent-2 underline">Recipients ▾</span>
+            <span className="block truncate font-semibold text-ink">To {draftRecipientName(toEmail,reader.replyTarget)} ▾</span>
+            <span className="block truncate text-ai">Draft by {model || 'AI'} · not sent</span>
           </summary>
           <div className="max-h-40 space-y-1 overflow-y-auto border-t border-rule-soft py-2">
             <p className="break-all">From {mailbox}</p>
             <label>To <input aria-label="AI reply recipient" type="email" value={toEmail} disabled={sending} onChange={e=>update({toEmail:e.target.value})} className="min-h-9 w-full bg-paper p-1"/></label>
-            <label className="flex min-h-9 items-center gap-1"><input type="checkbox" checked={replyAll} disabled={sending} onChange={e=>{if(preview)saved.acceptSuggestion();saved.synced.setDraft(d=>({...d,cc:e.target.checked?reader.replyTarget?.cc??[]:[]}));}}/>Reply all{replyAll&&` · ${saved.synced.draft.cc.join(', ')}`}</label>
+            <label className="flex min-h-9 items-center gap-1"><input type="checkbox" checked={replyAll} disabled={sending||!reader.replyTarget?.cc.length} onChange={e=>{if(preview)saved.acceptSuggestion();saved.synced.setDraft(d=>({...d,cc:e.target.checked?reader.replyTarget?.cc??[]:[]}));}}/>Reply all{replyAll&&` · ${saved.synced.draft.cc.join(', ')}`}</label>{!reader.replyTarget?.cc.length&&<p className="text-meta text-ink-3">No other recipients on this email.</p>}
           </div>
         </details>
+        <Button size="sm" variant={replyAll?'secondary':'ghost'} disabled={sending} aria-label="Cc and reply-all options" onClick={()=>{if(recipientsRef.current)recipientsRef.current.open=!recipientsRef.current.open;}}>{replyAll?'Reply-all':'Cc / Reply-all'}</Button>
         {!reviewExpanded&&<Button variant="ghost" icon={Maximize2} iconOnly aria-label="Expand review" title="Expand review" className="size-11 shrink-0" onClick={()=>setReviewExpanded(true)}/>}
       </div>
       {display.basedOn&&<details data-draft-sources title={`Based on: ${display.basedOn.replace(/^Based on:\s*/i,'')}`} className="shrink-0 text-meta text-ink-3">
-        <summary className="min-h-8 cursor-pointer py-1 text-accent-2">Based on</summary>
-        <ul className="list-disc space-y-1 pb-2 pl-4">{draftInputSources(display.basedOn).map(source=><li key={source} className="break-words">{source}</li>)}</ul>
+        <summary className="min-h-8 cursor-pointer py-1 text-accent-2">Based on{display.sources?.length?` · ${display.sources.length} sources`:''}</summary>
+        {display.sources?.length?<ul className="max-h-40 space-y-1 overflow-y-auto pb-2">{display.sources.map((source,i)=><li key={i}>{source.kind==='message'?<button type="button" className="min-h-11 break-words text-left text-accent-2 underline" onClick={()=>openDraftSource(source.messageId)}>{source.label}</button>:<a className="inline-flex min-h-11 items-center text-accent-2 underline" href={sourceHref(source)} target="_blank" rel="noopener noreferrer">{source.label} ↗</a>}</li>)}</ul>:<><p className="text-meta">Exact references were not saved for this older draft.</p><ul className="list-disc space-y-1 pb-2 pl-4">{draftInputSources(display.basedOn).map(source=><li key={source} className="break-words">{source}</li>)}</ul></>}
         <button type="button" className="mb-1 min-h-9 text-accent-2 underline" onClick={()=>setShowSource(true)}>Read full message</button>
       </details>}
       <DraftBody
         onFocus={() => window.dispatchEvent(new CustomEvent("sjc:inbox-surface", { detail: true }))}
         inputRef={approvalRef}
-        expanded={reviewExpanded}
+        expanded={reviewExpanded} fill={reviewActive}
         aria-label="AI draft body"
         value={draft}
         disabled={sending}
@@ -2789,10 +2848,10 @@ function ReaderBody({
       <div ref={regionRef} hidden={reviewActive&&!showSource} className={`min-h-0 overflow-y-auto px-4 py-2 ${reviewActive?"max-h-[40%] shrink-0":"flex-1"}`}>
         <div className="mx-auto flex max-w-[720px] flex-col gap-2">
           {reader.websiteInquiry&&<p className="text-meta text-accent-2">From website inquiry</p>}
-          {reviewActive&&display.basedOn&&<p className="text-meta text-ink-3">{display.basedOn}</p>}
+          {sourceMessage&&!reader.messages.some(m=>m.id===sourceMessage)&&<EmailMessageCard threadId={threadId} mailbox={mailbox} userId={userId} owner={owner} subject={reader.subject} blockImages={blockImages} expanded onToggle={()=>setSourceMessage(null)} message={{id:sourceMessage,fromName:'Saved draft source',initials:'S',meta:'',to:'',body:[]}}/>}
           {!reviewActive&&<ThreadSummary reader={reader} />}
           {latestInboundIndex(reader.messages) > 0 && (
-            <details>
+            <details open={sourceMessage&&reader.messages.slice(0,latestInboundIndex(reader.messages)).some(m=>m.id===sourceMessage)?true:undefined}>
               <summary className="min-h-8 cursor-pointer truncate py-1 text-meta font-semibold text-accent-2">
                 {latestInboundIndex(reader.messages)} earlier {reader.automated?`${reader.automationKind?.toLowerCase()??"notification"}${latestInboundIndex(reader.messages)===1?"":"s"}`:latestInboundIndex(reader.messages)===1?"message":"messages"}
                 <span className="ml-2 font-normal text-ink-3">{reader.messages[latestInboundIndex(reader.messages)-1]?.fromName} · {substantiveSnippet(reader.messages[latestInboundIndex(reader.messages)-1]?.body??[])}</span>
@@ -2860,7 +2919,7 @@ function ReaderBody({
             setReplying(false);
         }}
       >
-        <div className={`min-h-0 flex-1 ${reviewActive?"flex flex-col overflow-hidden":"overflow-y-auto max-sm:overflow-y-auto"}`}>
+        <div className={`min-h-0 flex-1 ${reviewActive?`flex flex-col ${reviewExpanded?'overflow-y-auto':'overflow-hidden'}`:"overflow-y-auto max-sm:overflow-y-auto"}`}>
         {screeningFirst ? <div data-screen-first>{screening}<details className="mt-2"><summary className="min-h-9 cursor-pointer text-meta text-ink-3">Reply options</summary><Button variant="secondary" onClick={()=>{setReplyAnyway(true);setReplying(true);}}>Reply anyway</Button></details></div> : automated ? (
           <div className="flex items-center gap-2">
             <p className="flex-1 text-meta text-ink-3">
@@ -2924,11 +2983,12 @@ function ReaderBody({
               <details><summary className="min-h-8 cursor-pointer px-2 py-1">Compare</summary><p className="whitespace-pre-line">Your reply: {draft}</p><p className="mt-2 whitespace-pre-line">{suggestion.body}</p><p className="text-ink-3">Based on: {suggestion.basedOn.replace(/^Based on:\s*/i,'')}</p></details>
               <Button size="sm" variant="ghost" disabled={sending} onClick={()=>startSend(async()=>{try{await dismissSuggestion(suggestion.id);setDismissed(suggestion.id);await saved.synced.refresh();window.dispatchEvent(new Event('inbox-drafts-changed'));}catch{setError('Could not dismiss the suggestion.');}})}>Dismiss</Button></div>
             </div>}
+            {hasDraft&&<div aria-label="Regenerate reply intent" className="mb-1 flex shrink-0 flex-wrap gap-1">{['Yes, works','Need more info','Schedule a visit'].map(intent=><Button key={intent} size="sm" variant="ghost" className="min-h-9 @4xl/page:min-h-7" disabled={drafting||sending} onClick={()=>generate(intent)}>{intent}</Button>)}</div>}
             {isAI && hasDraft ? approval : composerExpanded(replying, draft) ? (
-              <div className={`flex min-h-0 flex-col rounded-lg border border-rule bg-card p-2 ${reviewExpanded?"flex-1":"shrink"}`}>
+              <div className={`flex flex-col rounded-lg border border-rule bg-card p-2 ${reviewExpanded?'min-h-fit shrink-0':reviewActive?'min-h-0 flex-1':'min-h-0 shrink'}`}>
                 <DraftBody
                   inputRef={composerRef}
-                  expanded={reviewExpanded}
+                  expanded={reviewExpanded} fill={reviewActive}
                   aria-label="Reply body"
                   value={draft}
                   disabled={sending}

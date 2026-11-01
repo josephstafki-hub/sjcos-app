@@ -38,3 +38,10 @@ test('swipes require deliberate horizontal travel and exclude scrolls; loss warn
  assert.equal(swipeIntent(25,1),null);assert.equal(swipeIntent(90,80),null);
  assert.equal(fileLossWarning(2),'2 files will be lost. Leave this draft?');assert.equal(fileLossWarning(0),'');
 });
+
+test('a receipt with prose identity and spacer cells keeps whole amounts and reference values',()=>{
+ const html='<h1>Payment confirmation</h1><p>You paid $372.18</p><p>to <b>Maple Equipment Rental</b> on<br>10/22/2026</p><table width="950"><tr><td>Invoice no.</td><td></td><td>MX-581</td></tr><tr><td>Invoice amount</td><td></td><td>$372.18</td></tr><tr><td>Total amount</td><td></td><td>$372.18</td></tr><tr><td>Status</td><td></td><td>Paid</td></tr></table>';
+ const fields=receiptFields(html);assert.ok(fields.some(f=>f.value==='$372.18'));
+ assert.ok(fields.some(f=>f.value==='Maple Equipment Rental'));assert.ok(fields.some(f=>f.value==='10/22/2026'));
+ assert.ok(fields.some(f=>f.value==='MX-581'));assert.equal(useCompactReceipt(fields,true,null),true);
+});

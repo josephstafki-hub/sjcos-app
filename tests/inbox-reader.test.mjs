@@ -64,9 +64,9 @@ test('default composer is one reply/AI bar; recipient and reply-all are inspecta
   const inboundLast={...reader,messages:[...messages,{...messages.at(-1),id:'3',outbound:false}]};
   assert.match(render(ReaderBody,{reader:inboundLast,threadId:'thread'}),/plan.pdf/);
 });
-test('automated mail has Done and no composer or AI draft button',()=>{
+test('automated mail leaves Done to the reader header and has no composer or AI draft button',()=>{
   const html=render(ReaderBody,{reader:{...reader,automated:true},threadId:'thread'});
-  assert.match(html,/Automated message/); assert.match(html,/>Done</);
+  assert.match(html,/Automated message/); assert.doesNotMatch(html,/>Done</);
   assert.doesNotMatch(html,/Reply to Tom|Draft with|textarea/);
 });
 test('chat uses left/right bubbles with days, scrolls newest, and has the inline channel composer',()=>{

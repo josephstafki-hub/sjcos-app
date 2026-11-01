@@ -16,7 +16,7 @@ export function useComposerDraft(options: {mailbox:string;userId:string;owner:bo
   const synced = useSyncedDraft(options);
   const meta=synced.draft.provenance;
   const accepted=meta?.acceptedSuggestionId?{id:meta.acceptedSuggestionId}:null;
-  const value:SavedInboxDraft = {...synced.draft,model:meta?.model?meta.model[0].toUpperCase()+meta.model.slice(1):'',ai:Boolean(meta?.model),basedOn:meta?.basedOn,humanEdited:meta?.humanEdited};
+  const value:SavedInboxDraft = {...synced.draft,model:meta?.model?meta.model[0].toUpperCase()+meta.model.slice(1):'',ai:Boolean(meta?.model),basedOn:meta?.basedOn,sources:meta?.sources,humanEdited:meta?.humanEdited};
   const latest=useRef(value);latest.current=value;
   const revision=useRef(0);
   const textKey=JSON.stringify(synced.draft);
@@ -26,7 +26,7 @@ export function useComposerDraft(options: {mailbox:string;userId:string;owner:bo
     revision.current++;latest.current=next;
     const model=next.model?.toLowerCase();
     synced.setDraft(current=>({...current,body:next.body,toEmail:next.toEmail,
-      provenance:{model:next.ai&&(model==='claude'||model==='hermes'||model==='qwen')?model:null,basedOn:next.basedOn??'',acceptedSuggestionId:suggestionId??null,humanEdited:next.humanEdited??false}}));
+      provenance:{...(next.sources?.length?{sources:next.sources}:{}),model:next.ai&&(model==='claude'||model==='hermes'||model==='qwen')?model:null,basedOn:next.basedOn??'',acceptedSuggestionId:suggestionId??null,humanEdited:next.humanEdited??false}}));
   }
   const matches=(s?:InboxDraft|null)=>Boolean(options.owner&&options.channel==='email'&&options.latestMessageId&&s?.sourceMessageId===options.latestMessageId&&s.channel===options.channel);
   const own=matches(synced.suggestion)?synced.suggestion:null;
@@ -37,7 +37,7 @@ export function useComposerDraft(options: {mailbox:string;userId:string;owner:bo
   function acceptSuggestion(){
     if(!suggestion)return;
     synced.setDraft(current=>({...current,body:suggestion.body,toEmail:suggestion.toEmail||current.toEmail,cc:suggestion.cc,subject:suggestion.subject,
-      provenance:{model:suggestion.model,basedOn:suggestion.basedOn,acceptedSuggestionId:suggestion.id,humanEdited:false}}));
+      provenance:{...(suggestion.sources?.length?{sources:suggestion.sources}:{}),model:suggestion.model,basedOn:suggestion.basedOn,acceptedSuggestionId:suggestion.id,humanEdited:false}}));
   }
   async function clear(){
     const snapshot=await prepareDraftSend(synced.draft,synced.flush);
@@ -54,10 +54,11 @@ export function useComposerDraft(options: {mailbox:string;userId:string;owner:bo
   return {value,set,clear,latest,revision,loaded:true,synced,suggestion,accepted,acceptSuggestion,prepare,finish};
 }
 export function DraftSyncFooter({saved,disabled=false,localFiles=false}:{saved:ReturnType<typeof useComposerDraft>;disabled?:boolean;localFiles?:boolean}) {
+  if(!saved.synced.draft.body.trim()&&!localFiles&&saved.synced.status!=='conflict')return null;
   return <div className="flex flex-wrap items-center gap-1 py-1 text-meta text-ink-3" role="status">
-    <span>{localFiles&&saved.synced.status==='saved'?'Text saved · files on this device':draftStatusLabel(saved.synced.status)}</span>
+    <span>{localFiles&&saved.synced.status==='saved'?'Text saved · files on this device only':saved.synced.status==='local only'&&saved.synced.localSaved===false?'Not saved · keep this draft open':draftStatusLabel(saved.synced.status)}</span>
     {saved.synced.status==='conflict'&&<div className="w-full">
-      <div className="grid max-h-56 grid-cols-2 gap-2 overflow-y-auto rounded border border-rule bg-card p-2" aria-label="Compare draft versions">
+      <div className="grid max-h-56 grid-cols-1 @lg/page:grid-cols-2 gap-2 overflow-y-auto rounded border border-rule bg-card p-2" aria-label="Compare draft versions">
         {[{label:'Your version',draft:saved.synced.draft},{label:'Other device',draft:saved.synced.conflict?.current}].map(({label,draft})=><section key={label} className="min-w-0 break-words"><p className="font-semibold text-ink">{label}</p><p>To: {draft?.toEmail||'No recipient'}</p>{Boolean(draft?.cc?.length)&&<p>Cc: {draft!.cc.join(', ')}</p>}<p>{draft?.subject}</p><p className="whitespace-pre-wrap">{draft?.body||'No draft text'}</p>{label==='Other device'&&saved.synced.conflict?.current?.status!=='ready'&&<p>{saved.synced.conflict?.current?.status??'No saved draft'}</p>}</section>)}
       </div>
       <Button size="sm" variant="ghost" disabled={disabled} onClick={()=>saved.synced.keepMine()}>Keep mine</Button><Button size="sm" variant="ghost" disabled={disabled} onClick={()=>saved.synced.resolve('server')}>Use theirs</Button>

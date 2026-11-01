@@ -108,7 +108,7 @@ registerHooks({
     if (u === url)
       return {
         format: "module",
-        source: ts.transpileModule(source + "\nexport {ReaderBody,ChannelReaderBody,EmailMessageCard,sendWithReceipt};", {
+        source: ts.transpileModule(source + "\nexport {ReaderBody,ChannelReaderBody,EmailMessageCard,ThreadRow,sendWithReceipt};", {
           compilerOptions: {
             jsx: ts.JsxEmit.ReactJSX,
             module: ts.ModuleKind.ESNext,
@@ -122,7 +122,7 @@ registerHooks({
       : n(u, c);
   },
 });
-const { ReaderBody, ChannelReaderBody, InboxClient, EmailMessageCard, sendWithReceipt } = await import(url);
+const { ReaderBody, ChannelReaderBody, InboxClient, EmailMessageCard, ThreadRow, sendWithReceipt } = await import(url);
 const reader = {
   channel:"email",
   messages: [{ id: "m1", fromEmail:"tom@example.test", body: ["Plans?"] }],
@@ -348,8 +348,8 @@ test('plain Done retains the current split/search and offers Needs me when the p
   let panel=find(n=>n.props?.initialData);assert.deepEqual(panel.props.initialData,cached);assert.equal(panel.props.docked,false,'phone strip opens the context sheet');assert.equal(find(n=>n.props?.['aria-label']==='Open person and job context').props['aria-expanded'],true);
   panel.props.onRetry();render();flush();panel=find(n=>n.props?.initialData);assert.deepEqual(panel.props.initialData,cached);
   for(const fn of timers.values())fn();render();flush();panel=find(n=>n.props?.initialData);assert.match(panel.props.loadError,/taking too long/);assert.ok(panel.props.onRetry);
-  find(n=>n.props?.['aria-label']==='Inbox splits · loaded conversations'&&n.props?.onChange).props.onChange('clients');render();flush();
-  find(n=>n.props?.['aria-label']==='Search inbox').props.onChange({target:{value:'a@example.test'}});render();flush();
+  find(n=>n.props?.['aria-label']==='Inbox splits · loaded conversations'&&n.props?.onChange).props.onChange('clients');await settle();
+  find(n=>n.props?.['aria-label']==='Search inbox').props.onChange({target:{value:'a@example.test'}});await settle();
   click('Done');await settle();
   assert.equal(find(n=>n.type===ReaderBody),undefined);
   assert.equal(find(n=>n.props?.['aria-label']==='Search inbox').props.value,'a@example.test');
@@ -531,7 +531,7 @@ test('unseen mail review keeps recipient and Expand above body, one Close, tools
   mount('terrace-review');await settle();
   const summary=find(n=>n.type==='summary'&&n.props?.title==='To avery@example.test');assert.ok(summary);
   assert.ok(nodes(summary).some(n=>[n.props?.children].flat().includes('Avery Chen')));
-  assert.ok(nodes(summary).every(n=>!n.props?.className?.includes('truncate')));
+  assert.equal(summary.props.title,'To avery@example.test','full recipient stays inspectable in the compact header');
   const expand=find(n=>n.props?.['aria-label']==='Expand review');assert.ok(expand);
   const tools=find(n=>n.props?.['data-draft-tools']!==undefined);assert.match(nodes(tools).find(n=>n.props?.className?.includes('flex-nowrap')).props.className,/flex-nowrap/);
   click('Expand review');assert.equal(nodes(tree).filter(n=>n.props?.children==='Close review').length,1);
@@ -570,7 +570,7 @@ test('unseen Other view scopes the archive label and hides it at zero, with sent
  try{
   for(const inInbox of [true,false]){
    clientData={threads:[{...automated,inInbox},{...automated,id:'owner-sent',inboundLast:false}],readers:{},selectedId:'tool-reservation',mailbox:{connected:true},smartViews:[],channels:[],labels:[],projects:[]};
-   mount('other-scope');await settle();find(n=>n.props?.['aria-label']==='Inbox splits · loaded conversations').props.onChange('other');render();flush();
+   mount('other-scope');await settle();find(n=>n.props?.['aria-label']==='Inbox splits · loaded conversations').props.onChange('other');await settle();
    const batch=find(n=>[n.props?.children].flat().join('')==='Archive older automated mail (1)');assert.equal(Boolean(batch),inInbox);
    assert.equal(find(n=>n.type?.name==='ThreadRow'&&n.props.thread.id==='owner-sent'),undefined);
   }
@@ -611,4 +611,34 @@ test('unseen approval card discloses actual saved inputs separately from its rec
   assert.ok(!nodes(recipient).includes(disclosure));
   const card=find(n=>n.props?.['data-draft-card']!==undefined);assert.doesNotMatch(card.props.className,/mt-auto/,'spare space follows the card');
  }finally{viewerOwner=false;__draftServer.suggestions=[];}
+});
+
+test('unseen row touch gestures invoke Done or tomorrow, cancel vertical scrolling, and suppress the following click',()=>{
+ cleanups.forEach(f=>f?.());cleanups=[];states=[];cursor=0;effects=[];
+ let done=0,tomorrow=0,opened=0;
+ const row=ThreadRow({thread:{id:'gate-arrival',channel:'sms',fromName:'Riley',subject:'The gate hardware is ready',view:'needs_reply'},onDone:()=>done++,onTomorrow:()=>tomorrow++,onSelect:()=>opened++});
+ const button=nodes(row).find(n=>n.props?.['data-thread-row']);
+ const start=(x,y)=>button.props.onTouchStart({touches:[{clientX:x,clientY:y}]});
+ const end=(x,y)=>button.props.onTouchEnd({changedTouches:[{clientX:x,clientY:y}]});
+ start(0,0);end(100,10);assert.equal(done,1);button.props.onClick({preventDefault(){}});assert.equal(opened,0);
+ start(100,0);end(0,10);assert.equal(tomorrow,1);
+ start(0,0);button.props.onTouchMove({touches:[{clientX:40,clientY:100}]});end(100,120);assert.equal(done,1);assert.equal(tomorrow,1);
+ start(0,0);button.props.onTouchCancel();end(100,0);assert.equal(done,1);
+});
+
+test('unseen exact sources open a message or record while preserving the draft and its sync provenance',async()=>{
+ viewerOwner=true;const key='garden-evidence';
+ const sources=[{kind:'message',threadId:key,messageId:'m1',label:'Inbound message'},{kind:'message',threadId:key,messageId:'older-garden',label:'Earlier message · Riley'},{kind:'lead',slug:'garden-gate',label:'Garden gate'}];
+ __draftServer.suggestions=[autoSuggestion(key,{basedOn:'Based on: lead Garden gate, 1 earlier message',sources})];
+ const previousDocument=globalThis.document;let opened='';globalThis.document={getElementById:id=>({closest:()=>({open:false}),scrollIntoView:()=>{opened=id;}})};
+ try{
+  mount(key);await settle();const original=find(n=>n.props?.['aria-label']==='AI draft body').props.value;
+  let disclosure=find(n=>n.props?.['data-draft-sources']!==undefined);
+  assert.equal(nodes(disclosure).filter(n=>n.type==='li').length,3);
+  const record=nodes(disclosure).find(n=>n.type==='a');assert.equal(record.props.href,'/leads/garden-gate');assert.equal(record.props.target,'_blank');
+  nodes(disclosure).find(n=>n.props?.children==='Earlier message · Riley').props.onClick();render();flush();
+  assert.equal(opened,'inbox-message-older-garden');assert.equal(find(n=>n.props?.['aria-label']==='AI draft body').props.value,original);
+  find(n=>n.props?.['aria-label']==='AI draft body').props.onChange({target:{value:original+' Edited.'}});render();flush();await footer().saved.synced.flush();await settle();
+  assert.deepEqual(__draftServer.rows.get(key+':email').sources,sources);
+ }finally{viewerOwner=false;__draftServer.suggestions=[];globalThis.document=previousDocument;}
 });

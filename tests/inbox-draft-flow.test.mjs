@@ -17,6 +17,12 @@ let states = [],
   cleanups = [];
 const map = new Map();
 const testWindow={localStorage:null,innerHeight:1000,setInterval:()=>1,clearInterval(){},addEventListener(){},removeEventListener(){},dispatchEvent(){},matchMedia:()=>({matches:false})};
+globalThis.fetch=async(url,options)=>{
+ if(!String(url).startsWith('/api/inbox/html?'))throw Error('Unexpected fetch '+url);
+ globalThis.__htmlFetch={url,options};
+ const result=globalThis.__htmlRequest?await globalThis.__htmlRequest():{status:globalThis.__imageHtml?'formatted':'text-only',html:globalThis.__imageHtml??''};
+ return {ok:result.status!=='failed',json:async()=>result};
+};
 globalThis.window=testWindow;
 globalThis.localStorage = {
   getItem: (k) => map.get(k) ?? null,
@@ -590,6 +596,8 @@ test('unseen rich reader defaults to formatted, exposes failures and allows only
  try {
   let finish;globalThis.__htmlRequest=()=>{calls++;return new Promise(resolve=>{finish=resolve;});};
   cardData=base;mount('comparison-notice');assert.ok(find(n=>n.props?.children==='Loading formatted email… Text preview below.'));assert.equal(calls,1);
+  assert.equal(__htmlFetch.url,'/api/inbox/html?thread=comparison-notice&message=comparison-1');assert.equal(__htmlFetch.options.cache,'no-store');assert.ok(__htmlFetch.options.signal);
+  assert.doesNotMatch(source,/getThreadHtmlAction/);
   finish({status:'failed',html:'',error:'Could not load formatted email. Showing text below.'});await settle();
   const retry=()=>find(n=>Array.isArray(n.props?.children)&&n.props.children[0]==='Retry formatted email (');
   assert.ok(retry());

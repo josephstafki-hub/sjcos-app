@@ -74,7 +74,6 @@ import { applyRemoteImagePolicy } from "@/lib/inbox-image-policy";
 import { mergeTranscript } from "@/lib/append-transcript";
 import {
   draftReplyAction,
-  getThreadHtmlAction,
   sendReplyAction,
   sendChannelReplyAction,
   findInquiryConversationsAction,
@@ -2553,13 +2552,20 @@ function EmailMessageCard({
     let alive=true;
     setContent({status:'loading',html:''});
     const failed={status:'failed',html:'',error:'Could not load formatted email. Showing text below.'} as const;
-    const timer=setTimeout(()=>{if(alive){alive=false;loaded.current=key;setContent(failed);}},20_000);
+    const controller=new AbortController();
+    const timer=setTimeout(()=>{if(alive){alive=false;controller.abort();loaded.current=key;setContent(failed);}},20_000);
     if(!message.id){clearTimeout(timer);loaded.current=key;setContent(failed);return;}
-    getThreadHtmlAction(threadId,message.id).then(result=>{
+    // This effect runs on selection, even while review hides the source card.
+    // A GET is independent of draft/save/mark-read Server Actions in the queue.
+    fetch(`/api/inbox/html?${new URLSearchParams({thread:threadId,message:message.id})}`,{cache:'no-store',signal:controller.signal}).then(async response=>{
+      const result=await response.json() as EmailHtmlResult;
+      if(!response.ok&&result.status!=='failed')throw Error('Formatted email unavailable');
+      return result;
+    }).then(result=>{
       if(!alive)return;
       clearTimeout(timer);loaded.current=key;setContent(result);
     }).catch(()=>{if(alive){clearTimeout(timer);loaded.current=key;setContent(failed);}});
-    return ()=>{alive=false;clearTimeout(timer);};
+    return ()=>{alive=false;controller.abort();clearTimeout(timer);};
   },[expanded,threadId,message.id,attempt]);
   const html=content.html;
   const imagePolicy=useMemo(()=>applyRemoteImagePolicy(html,!blockImages||allowedImages),[html,blockImages,allowedImages]);

@@ -8,7 +8,7 @@ const stubs = {
   './db': `export const query = async (sql,p=[]) => globalThis.__auto.query(sql,p);
     export const queryOne = async (sql,p) => (await query(sql,p)).rows[0] ?? null;`,
   './inbox': `export const getInboxData=async owner=>{globalThis.__auto.loads++;globalThis.__auto.owner=owner;return globalThis.__auto.data};
-    export const gatherReplyContext=async()=>({knowledge:[{kind:'scope',content:'Approved closet plan'}],matchLabel:'project Closet'});
+    export const gatherReplyContext=async()=>({knowledge:[{kind:'scope',content:'Approved closet plan'}],matchLabel:'project Closet',record:{kind:'project',slug:'closet',label:'Closet'}});
     export const draftReplyForThread=async (id,model)=>{globalThis.__auto.models.push(model);if(globalThis.__auto.fail)throw globalThis.__auto.fail;return {body:'Hermes reply',toEmail:'client@example.test',subject:'Plans',basedOn:'project Closet'}};`,
   './gmail': `export const fetchConversation=async id=>{globalThis.__auto.fetches++;if(globalThis.__auto.fail)throw globalThis.__auto.fail;return globalThis.__auto.conversation(id)};
     export const isGmailRateLimit=e=>e?.code===429;`,
@@ -56,7 +56,7 @@ beforeEach(()=>{
       const row=claims.get(p[0]);if(!row||row.version!==p[1]||row.status!=='drafting')return {rows:[]};
       if(/status='failed'/.test(sql)) {row.status='failed';row.error=p[2];return {rows:[]};}
       assert.match(sql,/THEN 'discarded' ELSE 'ready'/);
-      row.status=a.human.has(p[9])?'discarded':'ready';row.body=p[2];row.summary=p[3];row.at=clock;return {rows:[{status:row.status}]};
+      row.status=a.human.has(p[9])?'discarded':'ready';row.body=p[2];row.summary=p[3];row.sources=JSON.parse(p[10]??'[]');row.at=clock;return {rows:[{status:row.status}]};
     }
     throw Error('Unexpected SQL: '+sql);
    }
@@ -160,4 +160,9 @@ test('existing useful headlines are left alone, even with Hermes configured',asy
  __auto.existing=[{id:'ready',thread_key:'1',source_message_id:'m-1',summary:'Confirm the fence visit',version:1}];
  __auto.settings=[{key:'ai.inboxDraftModel',value:'hermes'}];
  assert.equal((await sweepInboxDrafts()).attempted,0);assert.equal(__auto.models.length,0);assert.equal(__auto.fetches,0);
+});
+
+test('the sweep stores exact input references alongside the generated body',async()=>{
+ await sweepInboxDrafts();
+ assert.deepEqual(__auto.claims.get('1:m-1').sources,[{kind:'message',threadId:'1',messageId:'m-1',label:'Inbound message'},{kind:'message',threadId:'1',messageId:'old',label:'Earlier message · Joe'},{kind:'project',slug:'closet',label:'Closet'}]);
 });

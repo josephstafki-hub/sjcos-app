@@ -33,10 +33,10 @@ interface SyncOptions {
 const blank = (initial?: Partial<DraftText>): DraftText => ({ body: '', toEmail: '', cc: [], subject: '', ...initial });
 const textOf = (row: InboxDraft | null, initial?: Partial<DraftText>): DraftText => row?.status === 'ready'
   ? { body: row.body, toEmail: row.toEmail, cc: row.cc, subject: row.subject,
-      ...(row.model||row.basedOn||row.acceptedSuggestionId||row.humanEdited?{provenance:{model:row.model??null,basedOn:row.basedOn??'',acceptedSuggestionId:row.acceptedSuggestionId??null,humanEdited:row.humanEdited??false}}:{}) } : blank(row ? { ...initial, body: '' } : initial);
+      ...(row.model||row.basedOn||row.acceptedSuggestionId||row.humanEdited||row.sources?.length?{provenance:{...(row.sources?.length?{sources:row.sources}:{}),model:row.model??null,basedOn:row.basedOn??'',acceptedSuggestionId:row.acceptedSuggestionId??null,humanEdited:row.humanEdited??false}}:{}) } : blank(row ? { ...initial, body: '' } : initial);
 function canonicalDraft(draft:DraftText):DraftText {
   const p=draft.provenance;
-  if(p&&!p.model&&!p.basedOn&&!p.acceptedSuggestionId&&!p.humanEdited){
+  if(p&&!p.model&&!p.basedOn&&!p.acceptedSuggestionId&&!p.humanEdited&&!p.sources?.length){
     const {provenance,...text}=draft;return text;
   }
   return draft;
@@ -187,7 +187,7 @@ export function createDraftSync(options: SyncOptions) {
     acceptSuggestion() {
       const suggestion = state.suggestion;
       if (!suggestion) return;
-      setDraft({ body: suggestion.body, toEmail: suggestion.toEmail, cc: suggestion.cc, subject: suggestion.subject, provenance:{model:suggestion.model,basedOn:suggestion.basedOn,acceptedSuggestionId:suggestion.id,humanEdited:false} });
+      setDraft({ body: suggestion.body, toEmail: suggestion.toEmail, cc: suggestion.cc, subject: suggestion.subject, provenance:{...(suggestion.sources?.length?{sources:suggestion.sources}:{}),model:suggestion.model,basedOn:suggestion.basedOn,acceptedSuggestionId:suggestion.id,humanEdited:false} });
     },
     keepMine: () => resolve('mine'),
     resolve,

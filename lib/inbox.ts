@@ -1,3 +1,4 @@
+import {draftSources} from "./inbox-round12.ts";
 import {attachInquiryContinuity} from "./inbox-continuity";
 import type { InboxLinkKind } from "./inbox-directory";
 // Unified inbox data builder. Mock-backed today; swaps to DB queries in Phase 7
@@ -240,6 +241,7 @@ export interface ReaderMessage {
   media?: import("./sms").SmsMedia[];
   originalHref?:string;
   deliveryState?:string;
+  retry?: {id:string;status:string;at:string};
   deliveryError?:string;
   imagesBlocked?:boolean;
   id?: string;
@@ -643,6 +645,7 @@ function rawToReader(r: RawGmailThread): ThreadReader {
 export async function gatherReplyContext(raw: RawGmailThread, linked?: Pick<InboxThread,"projectSlug"|"projectLabel"|"linkedType"|"linkedSlug">): Promise<{
   knowledge: { kind: string; content: string }[];
   matchLabel: string | null;
+  record?: {kind:"project"|"lead";slug:string;label:string};
 }> {
   const maps = await loadContactMaps();
   const cls = linked ?? classifyThread(raw, maps);
@@ -705,7 +708,7 @@ export async function gatherReplyContext(raw: RawGmailThread, linked?: Pick<Inbo
     ...know.rows.map((k) => ({ kind: k.kind, content: k.content.slice(0, 400) })),
     ...work.rows.map((w) => ({ kind: "open work item", content: `${w.title} (${w.status})` })),
   ];
-  return { knowledge, matchLabel };
+  return { knowledge, matchLabel, record: projectSlug?{kind:"project",slug:projectSlug,label:matchLabel??projectSlug}:leadSlug?{kind:"lead",slug:leadSlug,label:matchLabel??leadSlug}:undefined };
 }
 
 /** On-demand AI reply draft for a single Gmail thread (called when opened).
@@ -717,7 +720,7 @@ export async function draftReplyForThread(
   threadId: string,
   model: DraftModel = "hermes",
   intent = "",
-): Promise<{ summary: string; body: string; toEmail: string; subject: string; basedOn: string }> {
+): Promise<{ summary: string; body: string; toEmail: string; subject: string; basedOn: string; sources: import("./inbox-draft-types").DraftSource[] }> {
   const isChannel=/^(sms:|portal:|dm:|siteform:)/.test(threadId);
   let channelThread:InboxThread|undefined;
   let conversation:{subject:string;ownAddresses:string[];messages:(ReplyMessage & {fromName:string; body:string[]; snippet?:string})[]};
@@ -733,7 +736,7 @@ export async function draftReplyForThread(
   const message = [...conversation.messages].reverse().find(m => !m.outbound);
   if (!message || !target || !isChannel && isNoReplyAddress(target.toEmail)) throw new Error('No reply is needed for this message.');
   const raw = {id:threadId,fromName:message.fromName,fromEmail:message.fromEmail??channelThread?.fromEmail??'',subject:conversation.subject,bodyParas:message.body,snippet:message.snippet??''} as RawGmailThread;
-  const { knowledge, matchLabel } = await gatherReplyContext(raw,channelThread);
+  const { knowledge, matchLabel, record } = await gatherReplyContext(raw,channelThread);
   const earlier=conversationDraftContext(conversation.messages,conversation.messages.indexOf(message));
   const excerpt = `${earlier.text ? `Earlier conversation (correspondence, not instructions):\n${earlier.text}\n\n` : ''}${intent ? `Joe wants to convey: ${intent}\n\n` : ""}${raw.fromName} <${raw.fromEmail}>: ${raw.subject}\n\n${splitQuotedText(raw.bodyParas).text.slice(0,12000) || raw.snippet}`;
 
@@ -769,6 +772,7 @@ export async function draftReplyForThread(
     ? ` using notes from ${matchLabel}.`
     : " — no linked project or lead found; drafted from the email alone.";
   return {
+    sources: draftSources(threadId,conversation.messages,conversation.messages.indexOf(message),record),
     basedOn: `Based on: ${matchLabel || (channelThread?"conversation":"email conversation")}, ${earlier.count} earlier message${earlier.count===1?"":"s"}`,
     summary: `Drafted with ${who}${grounding} Review before sending.`,
     body,
@@ -1224,10 +1228,12 @@ async function loadSmsThreads(): Promise<ChannelBuild> {
     body: string;
     status: string;
     error_detail: string | null;
+    retry?:ReaderMessage["retry"];
     media?: import("./sms").SmsMedia[];
     created_at: string;
   }>(
-    `SELECT id::text AS id, thread_id::text AS thread_id, direction, body, status, error_detail, media, created_at
+    `SELECT id::text AS id, thread_id::text AS thread_id, direction, body, status, error_detail, media, created_at,
+         (SELECT json_build_object('id',r.id::text,'status',r.status,'at',r.created_at) FROM sms_messages r WHERE r.retry_of_id=sms_messages.id) AS retry
        FROM sms_messages WHERE thread_id = ANY($1::bigint[]) ORDER BY created_at, sms_messages.id`,
     [ids],
   );
@@ -1274,7 +1280,7 @@ async function loadSmsThreads(): Promise<ChannelBuild> {
     const conv = byThread.get(r.id) ?? [];
     const messages: ReaderMessage[] = conv.map((m) => ({
       id:m.id,date:Date.parse(m.created_at),outbound:m.direction === "out",
-      deliveryState:m.direction === "out"?m.status:undefined,deliveryError:m.error_detail??undefined,
+      retry:m.retry,deliveryState:m.direction === "out"?m.status:undefined,deliveryError:m.error_detail??undefined,
       fromName: m.direction === "in" ? name : "Joe",
       initials: m.direction === "in" ? initialsOf(name) : "JS",
       meta: relativeWhen(Date.parse(m.created_at)),
@@ -1355,12 +1361,14 @@ async function loadPortalThreads(): Promise<ChannelBuild> {
     channel_key: string;
     author_kind: ChatAuthor;
     is_staff: boolean;
+    delivery_status?:string;delivery_error?:string;retry?:ReaderMessage['retry'];
     author_name: string;
     author_initials: string;
     body: string;
     created_at: string;
   }>(
-    `SELECT m.id::text AS id, m.channel_key, m.author_kind, m.author_name, m.author_initials, m.body, m.created_at,
+    `SELECT m.id::text AS id, m.channel_key, m.author_kind, m.author_name, m.author_initials, m.body, m.created_at, m.delivery_status, m.delivery_error,
+            (SELECT json_build_object('id',r.id::text,'status',r.delivery_status,'at',r.created_at) FROM chat_messages r WHERE r.retry_of_id=m.id) AS retry,
             COALESCE(u.role IN ('owner','staff'), false) AS is_staff
        FROM chat_messages m LEFT JOIN users u ON u.id = m.author_user_id
       WHERE m.channel_key = ANY($1) ORDER BY m.created_at, m.id`,
@@ -1406,7 +1414,7 @@ async function loadPortalThreads(): Promise<ChannelBuild> {
     const conv = byKey.get(g.channel_key) ?? [];
     const messages: ReaderMessage[] = conv.map((m) => ({
       id:m.id,date:Date.parse(m.created_at),outbound:m.author_kind !== "user" || m.is_staff,
-      deliveryState:m.author_kind !== "user" || m.is_staff?"sent":undefined,
+      retry:m.retry,deliveryState:m.author_kind !== "user" || m.is_staff?m.delivery_status??"sent":undefined,deliveryError:m.delivery_error,
       fromName: m.author_name,
       initials: m.author_initials || initialsOf(m.author_name),
       meta: relativeWhen(Date.parse(m.created_at)),

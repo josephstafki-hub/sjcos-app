@@ -325,7 +325,7 @@ export async function draftReplyAction(
   threadId: string,
   model?: DraftModel | "claude",
   intent?: string,
-): Promise<{ ok: boolean; summary?: string; body?: string; toEmail?: string; subject?: string; model?:string; basedOn?:string; error?: string }> {
+): Promise<{ ok: boolean; summary?: string; body?: string; toEmail?: string; subject?: string; model?:string; basedOn?:string; sources?:import("@/lib/inbox-draft-types").DraftSource[]; error?: string }> {
   // Keep regeneration with the displayed author; Claude reuses the owner-only
   // automatic draft writer and never enters a send path.
   const m = model === "claude" ? "claude" : model === "qwen" ? "qwen" : "hermes";
@@ -340,7 +340,7 @@ export async function draftReplyAction(
         const data=await getInboxData(user),thread=data.threads.find(t=>t.id===threadId);
         const message=data.readers[threadId]?.messages.at(-1);
         if(data.emailPaused||data.loadError||!thread||thread.channel!=='email'||!message?.id||message.outbound)return {ok:false,error:'Reopen the latest incoming email before regenerating.'};
-        const d=await draftAutoReply({thread,messageId:message.id,toEmail:data.readers[threadId]?.replyTarget?.toEmail??'',receivedAt:message.date??0},'claude');
+        const d=await draftAutoReply({thread,messageId:message.id,toEmail:data.readers[threadId]?.replyTarget?.toEmail??'',receivedAt:message.date??0},'claude',typeof intent==='string'?intent.slice(0,200):'');
         return {ok:true,...d,model:'Claude'};
       }
       const d = await draftReplyForThread(threadId, m, typeof intent === "string" ? intent.slice(0,200) : "");
@@ -395,16 +395,29 @@ export async function sendChannelReplyAction(input: {
   threadId: string;
   body: string;
   files?:FormData;
+  retryOfId?:string;
 }): Promise<ActionResult & {warning?:string;threadId?:string}> {
   await requireAccess("inbox");
   if (!input.body.trim()) return { ok: false, error: "Enter a message." };
   const id = input.threadId;
   try {
     let result: ActionResult & {warning?:string;threadId?:string} = { ok: true };
+    if(input.retryOfId){
+      if(!/^[1-9]\d*$/.test(input.retryOfId)||! /^(sms:[1-9]\d*|portal:(?:lead:)?[^:]+|dm:(?!team$|client$)[^:]+)$/.test(id))return {ok:false,error:'Failed message not found.'};
+      const sms=id.startsWith('sms:');
+      const {rows}=await query<{body:string;status:string;media?:unknown[];replacement_id?:string}>(sms?
+        `SELECT body, status, media, (SELECT id FROM sms_messages r WHERE r.retry_of_id=m.id) AS replacement_id FROM sms_messages m WHERE id=$1 AND thread_id=$2 AND direction='out'`:
+        `SELECT body, delivery_status AS status, (SELECT id FROM chat_messages r WHERE r.retry_of_id=m.id) AS replacement_id FROM chat_messages m WHERE id=$1 AND channel_key=$2 AND (author_kind='owner' OR author_user_id IN (SELECT id FROM users WHERE role IN ('owner','staff')))`,
+        [input.retryOfId,sms?Number(id.slice(4)):id]);
+      const failed=rows[0];
+      if(!failed||! /^(failed|undelivered|expired)$/.test(failed.status)||failed.replacement_id)return {ok:false,error:'This message was already retried or is not a confirmed failure. Reopen the conversation.'};
+      if(failed.media?.length)return {ok:false,error:'This message includes files. Open the original message to recover them before retrying.'};
+      if(input.body!==failed.body)return {ok:false,error:'The failed text changed. Reopen the conversation before retrying.'};
+    }
     if (/^sms:[1-9]\d*$/.test(id)) {
       const number = Number(id.slice(4));
       if (!Number.isSafeInteger(number)) return { ok: false, error: "Conversation not found." };
-      result = await sendSmsReply(number, input.body);
+      result = input.retryOfId?await sendSmsReply(number,input.body,input.retryOfId):await sendSmsReply(number, input.body);
     } else if (/^portal:(?:lead:)?[^:]+$/.test(id)) {
       const lead = id.startsWith("portal:lead:");
       const slug = id.slice(lead ? 12 : 7);
@@ -415,12 +428,12 @@ export async function sendChannelReplyAction(input: {
       if (!rows.length) return { ok: false, error: "Conversation not found." };
       const form = new FormData();
       form.set("body", input.body);
-      if (lead) await sendLeadPortalMessage(slug, form);
-      else await sendProjectMessage(slug, form);
+      if (lead) await sendLeadPortalMessage(slug, form, input.retryOfId);
+      else await sendProjectMessage(slug, form, input.retryOfId);
     } else if (/^dm:(?!team$|client$)[^:]+$/.test(id)) {
       const { rows } = await query("SELECT slug FROM subs WHERE slug = $1", [id.slice(3)]);
       if (!rows.length) return { ok: false, error: "Conversation not found." };
-      result = await sendChatMessage(id, input.body);
+      result = input.retryOfId?await sendChatMessage(id,input.body,input.retryOfId):await sendChatMessage(id, input.body);
     } else if (/^siteform:[^:]+$/.test(id)) {
       const { rows } = await query<{ email: string | null; name: string; scope: string }>(
         `SELECT email, name, scope FROM leads WHERE slug = $1 AND source ILIKE '%website%'`,
@@ -444,7 +457,7 @@ export async function sendChannelReplyAction(input: {
     }
     return result;
   } catch (err) {
-    return { ok: false, error: (err as Error).message };
+    return { ok: false, error: (err as {code?:string}).code==='23505'?'This message was already retried. Reopen the conversation.':(err as Error).message };
   }
 }
 

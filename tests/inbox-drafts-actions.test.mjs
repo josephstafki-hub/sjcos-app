@@ -28,12 +28,12 @@ beforeEach(()=>{
    if(/^INSERT/.test(sql)) {
     assert.match(sql,/ON CONFLICT .* WHERE source='human' DO NOTHING/);
     if(old)return {rows:[]};
-    const row={id:key,mailbox:p[0],userId:p[1],threadKey:p[2],channel:p[3],source:'human',body:p.length===12?p[7]:'',toEmail:p.length===12?p[4]:'',cc:p.length===12?p[5]:[],subject:p.length===12?p[6]:'',model:p.length===12?p[8]:null,basedOn:p.length===12?p[9]:'',acceptedSuggestionId:p.length===12?p[10]:null,humanEdited:p.length===12?p[11]:false,version:1,status:p.length===12?'ready':p[4]};rows.set(key,row);return {rows:[{...row}]};
+    const row={id:key,mailbox:p[0],userId:p[1],threadKey:p[2],channel:p[3],source:'human',body:p.length>=12?p[7]:'',toEmail:p.length>=12?p[4]:'',cc:p.length>=12?p[5]:[],subject:p.length>=12?p[6]:'',model:p.length>=12?p[8]:null,basedOn:p.length>=12?p[9]:'',acceptedSuggestionId:p.length>=12?p[10]:null,humanEdited:p.length>=12?p[11]:false,sources:p.length>12?JSON.parse(p[12]):[],version:1,status:p.length>=12?'ready':p[4]};rows.set(key,row);return {rows:[{...row}]};
    }
    if(/^UPDATE/.test(sql)) {
     assert.match(sql,/AND source='human'.*AND version=\$/s);
     const saving=/SET to_email/.test(sql);const base=saving?p[8]:p[5];if(!old||old.version!==base)return {rows:[]};
-    Object.assign(old,saving?{body:p[7],toEmail:p[4],cc:p[5],subject:p[6],model:p[9],basedOn:p[10],acceptedSuggestionId:p[11],humanEdited:p[12],status:'ready'}:{status:p[4],body:''});old.version++;return {rows:[{...old}]};
+    Object.assign(old,saving?{body:p[7],toEmail:p[4],cc:p[5],subject:p[6],model:p[9],basedOn:p[10],acceptedSuggestionId:p[11],humanEdited:p[12],sources:JSON.parse(p[13]??'[]'),status:'ready'}:{status:p[4],body:''});old.version++;return {rows:[{...old}]};
    }
    throw Error('Unexpected SQL '+sql);
   }
@@ -91,3 +91,13 @@ test('unseen reviewed draft persists authorship and exact accepted suggestion wi
  const updated=await saveDraft({...input,baseVersion:1,provenance:{...provenance,model:'hermes'}});assert.equal(updated.current.model,'hermes');
  for(const bad of [{...provenance,model:'unknown'},{...provenance,acceptedSuggestionId:'invalid'},{...provenance,humanEdited:'yes'}])await assert.rejects(()=>saveDraft({...input,provenance:bad}),/Invalid draft provenance/);
 });
+
+ test('exact source references persist through initial save, edit and reload',async()=>{
+ const sources=[{kind:'message',messageId:'gate-82',threadId:input.threadKey,label:'Inbound message'},{kind:'lead',slug:'garden-gate',label:'Garden gate'}];
+ const provenance={model:'claude',basedOn:'Gate request',acceptedSuggestionId:null,humanEdited:false,sources};
+ const first=await saveDraft({...input,provenance});assert.deepEqual(first.current.sources,sources);
+ assert.match(__draftActions.calls.at(-1).sql,/sources/);
+ await saveDraft({...input,baseVersion:1,body:'Updated gate answer',provenance:{...provenance,humanEdited:true}});
+ assert.deepEqual((await loadDrafts([input.threadKey]))[0].sources,sources);
+ await assert.rejects(()=>saveDraft({...input,provenance:{...provenance,sources:[{...sources[0],threadId:'foreign-thread'}]}}),/Invalid draft sources/);
+ });

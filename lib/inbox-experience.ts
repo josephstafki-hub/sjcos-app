@@ -209,6 +209,7 @@ export function messageWorkItem(
   return fd;
 }
 export interface SavedInboxDraft {
+  sources?: import("./inbox-draft-types").DraftSource[];
   body: string;
   toEmail: string;
   model: string;

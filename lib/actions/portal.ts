@@ -79,16 +79,16 @@ export async function uploadClientFile(formData: FormData) {
 /** Owner-side composer for the project Client portal tab (Messages). Posts into the project's
  *  client portal thread (portal:<slug>) so owner ⇄ client talk in one place —
  *  the client sees it on their dashboard. Owner-gated. */
-export async function sendProjectMessage(slug: string, formData: FormData) {
+export async function sendProjectMessage(slug: string, formData: FormData, retryOfId?:string) {
   const body = String(formData.get("body") ?? "").trim();
   if (!body) return;
   const user = await requireAccess("projects");
   const channelKey = portalChannel("client", slug);
 
   await query(
-    `INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body, author_user_id)
-     VALUES ($1, 'owner', $2, $3, $4, $5)`,
-    [channelKey, user.name || "Joe", user.initials || "JS", body, user.id],
+    `INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body, author_user_id, retry_of_id)
+     VALUES ($1, 'owner', $2, $3, $4, $5, $6)`,
+    [channelKey, user.name || "Joe", user.initials || "JS", body, user.id, retryOfId??null],
   );
 
   revalidatePath(`/projects/${slug}`);
@@ -97,16 +97,16 @@ export async function sendProjectMessage(slug: string, formData: FormData) {
 
 /** Owner-side composer for a LEAD's client-portal thread (portal:lead:<slug>)
  *  — the lead-stage mirror of sendProjectMessage. Owner-gated. */
-export async function sendLeadPortalMessage(slug: string, formData: FormData) {
+export async function sendLeadPortalMessage(slug: string, formData: FormData, retryOfId?:string) {
   const body = String(formData.get("body") ?? "").trim();
   if (!body) return;
   const user = await requireAccess("projects");
   const channelKey = portalChannel("client", `lead:${slug}`);
 
   await query(
-    `INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body, author_user_id)
-     VALUES ($1, 'owner', $2, $3, $4, $5)`,
-    [channelKey, user.name || "Joe", user.initials || "JS", body, user.id],
+    `INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body, author_user_id, retry_of_id)
+     VALUES ($1, 'owner', $2, $3, $4, $5, $6)`,
+    [channelKey, user.name || "Joe", user.initials || "JS", body, user.id, retryOfId??null],
   );
 
   revalidatePath(`/leads/${slug}`);

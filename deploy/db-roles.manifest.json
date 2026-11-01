@@ -568,7 +568,8 @@
       ],
       "sjcos_readonly": [
         "SELECT"
-      ]
+      ],
+      "note": "Portal retry lineage and delivery state use existing website writes; no new login privileges."
     },
     "chat_reads": {
       "sjcos_agent": [
@@ -2611,7 +2612,8 @@
       ],
       "sjcos_readonly": [
         "SELECT"
-      ]
+      ],
+      "note": "Retry lineage is supplied by website sends; no new login write path or privileges."
     },
     "sms_threads": {
       "sjcos_agent": [
@@ -2883,7 +2885,7 @@
       "note": "staff Gmail refresh tokens; only the website's own mailbox code reads them"
     },
     "users": {
-      "note": "logins and passwords: Joe's Settings › Team (website) or his own panel run only",
+      "note": "logins and passwords: Joe's Settings \u203a Team (website) or his own panel run only",
       "sjcos_agent": [
         "SELECT(id,email,name,role,initials,link_slug,active,permissions,created_at,portal_claimed_at,ai_scope,last_permission_change_at)"
       ],
@@ -3014,7 +3016,7 @@
       ]
     },
     "inbox_drafts": {
-      "note": "Mailbox/user scoped synced drafts and AI suggestions. Website only; no agent/worker write path.",
+      "note": "Mailbox/user scoped synced drafts and AI suggestions, including exact source references. Website only; no agent/worker write path.",
       "sjcos_readonly": [
         "SELECT"
       ]

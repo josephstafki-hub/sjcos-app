@@ -26,6 +26,7 @@ export function receiptFields(html:string):ReceiptField[] {
     }).map(row=>row.children.filter(isTag).filter(c=>/^(td|th)$/.test(c.name)).map(text).filter(Boolean)).filter(r=>r.length);
     const header=rows[0];
     if(!header)continue;
+    if(header.length>=3&&header.filter(c=>fieldIndex(c)>=0).length<2&&rows.length>1&&DomUtils.findOne(e=>e.name==='th',table.children,true))return [];
     if(header.length>=3&&header.filter(c=>fieldIndex(c)>=0).length>=2){
       if(rows.length!==2)return []; // several records: retain the columns
       pairs.push(...header.map((label,i)=>({label,value:rows[1][i]??''})));
@@ -39,10 +40,8 @@ export function receiptFields(html:string):ReceiptField[] {
   const date='(?:\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4}|[A-Z][a-z]+ \\d{1,2},? \\d{4})';
   const payment=new RegExp(`\\b(?:paid to|payee[: ]|to)\\s+(.{2,100}?)\\s+on\\s+(${date})`,'i').exec(prose);
   if(payment){pairs.push({label:'Payee',value:payment[1]},{label:'Payment date',value:payment[2]});}
-  if(!pairs.some(p=>fieldIndex(p.label)===0)){
-    const total=/\byou paid\s+((?:[A-Z]{3}\s*)?[$€£][\d,]+(?:\.\d{2})?)/i.exec(prose);
-    if(total)pairs.push({label:'Amount paid',value:total[1]});
-  }
+  const total=/\byou paid\s+((?:[A-Z]{3}\s*)?[$€£][\d,]+(?:\.\d{2})?)/i.exec(prose);
+  if(total&&!pairs.some(p=>fieldIndex(p.label)===0&&/total|amount paid|payment amount/i.test(p.label)))pairs.push({label:'Amount paid',value:total[1]});
   const recognized=pairs.filter(p=>p.value&&p.value.length<600&&fieldIndex(p.label)>=0);
   const unique=new Map<string,ReceiptField>();
   for(const pair of recognized){
@@ -54,7 +53,10 @@ export function receiptFields(html:string):ReceiptField[] {
   const kinds=new Set(recognized.map(p=>fieldIndex(p.label)));
   // Need monetary identity plus another receipt field, not an arbitrary layout.
   if(!kinds.has(0)||kinds.size<2||!/(?:receipt|invoice|payment|paid|transaction)/i.test(DomUtils.textContent(doc)))return [];
-  return [...unique.values()].sort((a,b)=>fieldIndex(a.label)-fieldIndex(b.label));
+  const values=[...unique.values()];
+  const hasTotal=values.some(p=>fieldIndex(p.label)===0&&/total|amount paid|payment amount/i.test(p.label));
+  const priority=(p:ReceiptField)=>hasTotal&&fieldIndex(p.label)===0&&!/total|amount paid|payment amount/i.test(p.label)?6:fieldIndex(p.label);
+  return values.sort((a,b)=>priority(a)-priority(b));
 }
 export function useCompactReceipt(fields:ReceiptField[],overflow:boolean,choice:'compact'|'formatted'|null) {
   return fields.length>0&&(choice==='compact'||choice===null&&overflow);

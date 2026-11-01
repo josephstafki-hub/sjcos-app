@@ -91,6 +91,7 @@ test("inbox renders only a compact badge until deliberately opened; active inbox
   ]) {
     const html = render(path, false, surface);
     assert.match(html, /1 waiting on you/);
+    assert.match(html, /Decisions 1/);
     assert.match(html, /aria-expanded="false"/);
     assert.doesNotMatch(html, /data-approval-card|Decision details|bottom-\[/);
   }

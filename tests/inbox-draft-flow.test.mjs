@@ -71,7 +71,7 @@ globalThis.__draftActions = {
   },
   send: async (args) => {
     sends.push(args);
-    return { ok: !globalThis.__sendFails, error: "Try again" };
+    return { ok: !globalThis.__sendFails, error: "Try again",...globalThis.__inquirySent };
   },
 };
 const actionNames = source
@@ -91,7 +91,7 @@ const stubs = {
   "@/lib/actions/inbox": actionNames
     .map(
       (n) =>
-        `export const ${n}=${n === "getThreadHtmlAction" ? "async()=>{if(globalThis.__htmlRequest)return globalThis.__htmlRequest();return {status:globalThis.__imageHtml?'formatted':'text-only',html:globalThis.__imageHtml??''};}" : n === "archiveThreadAction" ? "async(...args)=>globalThis.__archive(...args)" : n === "draftReplyAction" ? "globalThis.__draftActions.draft" : (n === "sendReplyAction" || n === "sendChannelReplyAction") ? "globalThis.__draftActions.send" : "async()=>({ok:true})"};`,
+        `export const ${n}=${n === "getThreadHtmlAction" ? "async()=>{if(globalThis.__htmlRequest)return globalThis.__htmlRequest();return {status:globalThis.__imageHtml?'formatted':'text-only',html:globalThis.__imageHtml??''};}" : n === "retryInquiryLinkAction" ? "async(...args)=>{globalThis.__linkRepairs??=[];globalThis.__linkRepairs.push(args);return {ok:!globalThis.__linkRepairFails};}" : n === "archiveThreadAction" ? "async(...args)=>globalThis.__archive(...args)" : n === "draftReplyAction" ? "globalThis.__draftActions.draft" : (n === "sendReplyAction" || n === "sendChannelReplyAction") ? "globalThis.__draftActions.send" : "async()=>({ok:true})"};`,
     )
     .join("\n"),
   "@/lib/actions/inbox-experience":
@@ -114,7 +114,7 @@ registerHooks({
     if (u === url)
       return {
         format: "module",
-        source: ts.transpileModule(source + "\nexport {ReaderBody,ChannelReaderBody,EmailMessageCard,ThreadRow,sendWithReceipt,DraftBody};", {
+        source: ts.transpileModule(source + "\nexport {ReaderBody,ChannelReaderBody,EmailMessageCard,ThreadRow,sendWithReceipt,DraftBody,EmailHtml};", {
           compilerOptions: {
             jsx: ts.JsxEmit.ReactJSX,
             module: ts.ModuleKind.ESNext,
@@ -128,7 +128,7 @@ registerHooks({
       : n(u, c);
   },
 });
-const { ReaderBody, ChannelReaderBody, InboxClient, EmailMessageCard, ThreadRow, sendWithReceipt, DraftBody } = await import(url);
+const { ReaderBody, ChannelReaderBody, InboxClient, EmailMessageCard, ThreadRow, sendWithReceipt, DraftBody, EmailHtml } = await import(url);
 const reader = {
   channel:"email",
   messages: [{ id: "m1", fromEmail:"tom@example.test", body: ["Plans?"] }],
@@ -141,10 +141,11 @@ let readerExtra={};
 let tree,
   id = "t1",
   channel = null,
-  clientData = null, cardData = null, bodyData=null, viewerOwner=false;
+  clientData = null, cardData = null, bodyData=null, htmlData=null, viewerOwner=false;
 function render() {
   if(globalThis.window)Object.assign(window,{localStorage,setInterval:()=>1,clearInterval(){}});
   cursor = 0;
+  if(htmlData){tree=EmailHtml(htmlData);return;}
   if(bodyData){tree=DraftBody(bodyData);return;}
   if(cardData){tree=EmailMessageCard(cardData);return;}
   if(clientData){tree=InboxClient({data:clientData,selfEmail:"joe@example.test",owner:viewerOwner});return;}
@@ -693,6 +694,16 @@ test('desktop review keeps the incoming request above a content-sized card, with
   assert.match(find(n=>n.props?.['data-draft-card']!==undefined).props.className,/@4xl\/page:flex-none/);
  }finally{viewerOwner=false;__draftServer.suggestions=[];}
 });
+
+test('reply intents are bordered chip buttons with phone-sized targets',async()=>{
+ viewerOwner=true;__draftServer.suggestions=[autoSuggestion('awning-intents')];
+ try{
+  mount('awning-intents');await settle();
+  const intents=find(n=>n.props?.['aria-label']==='Regenerate reply intent');
+  const buttons=nodes(intents).filter(n=>typeof n.props?.onClick==='function');assert.equal(buttons.length,3);
+  for(const button of buttons){assert.equal(button.props.variant,'secondary');assert.match(button.props.className,/min-h-11/);assert.match(button.props.className,/rounded-full border/);}
+ }finally{viewerOwner=false;__draftServer.suggestions=[];}
+});
 test('desktop draft body measures its text while phone review retains remaining-height behavior',()=>{
  const oldObserver=globalThis.ResizeObserver;
  globalThis.ResizeObserver=class{observe(){}disconnect(){}};
@@ -702,4 +713,59 @@ test('desktop draft body measures its text while phone review retains remaining-
   assert.equal(input.style.height,'126px');assert.doesNotMatch(find(n=>n.type==='textarea').props.className,/flex-1/);
   assert.equal(find(n=>n.props?.children==='More below ↓'),undefined);
  }finally{cleanups.forEach(fn=>fn?.());cleanups=[];bodyData=null;globalThis.ResizeObserver=oldObserver;}
+});
+
+test('returning after browser Back shows a re-attach manifest and prevents silently sending without those files',async()=>{
+ const oldStorage=globalThis.sessionStorage;globalThis.sessionStorage=localStorage;
+ try{
+  mount('awning-files-return');click('Draft with AI');await settle();
+  const picker=()=>find(n=>n.type==='input'&&n.props.type==='file');
+  const file=new File(['drawing'],'awning-sketch.pdf',{type:'application/pdf',lastModified:514});
+  picker().props.onChange({target:{files:[file],value:'x'}});render();flush();
+  assert.ok(find(n=>n.props?.title==='awning-sketch.pdf'));
+  mount('awning-files-return');await settle();
+  assert.ok(find(n=>n.props?.children==='Re-attach these files before sending. Only their names were saved on this device:'));
+  const before=sends.length;click('Send email');await settle();assert.equal(sends.length,before);
+  picker().props.onChange({target:{files:[file],value:'x'}});render();flush();
+  assert.equal(find(n=>n.props?.children==='Re-attach these files before sending. Only their names were saved on this device:'),undefined);
+  click('Send email');await settle();assert.equal(sends.length,before+1);
+  mount('awning-files-return');await settle();assert.equal(find(n=>n.props?.children==='Re-attach these files before sending. Only their names were saved on this device:'),undefined);
+ }finally{globalThis.sessionStorage=oldStorage;}
+});
+
+test('sent-but-unlinked inquiry survives reload and Retry linking never repeats the send',async()=>{
+ channel='site_form';globalThis.__inquirySent={threadId:'sent-awning-thread',warning:'Email sent but link failed. Do not send again.'};
+ const oldForm=reader.form;reader.form={name:'Eden',email:'eden@example.test',outgoingSubject:'Awning request'};
+ try{
+  mount('siteform:awning-repair');click('Draft with AI');await settle();const before=sends.length;
+  find(n=>n.props?.['aria-label']==='Send email').props.onClick();render();flush();await settle();assert.equal(sends.length,before+1);
+  assert.ok(find(n=>n.props?.children==='Retry linking'));
+  mount('siteform:awning-repair');await settle();assert.ok(find(n=>n.props?.children==='Retry linking'));
+  assert.equal(find(n=>n.props?.['aria-label']==='Send email'),undefined);
+  globalThis.__linkRepairFails=true;click('Retry linking');await settle();assert.ok(find(n=>n.props?.children==='Retry linking'));assert.equal(sends.length,before+1);
+  globalThis.__linkRepairFails=false;click('Retry linking');await settle();assert.equal(sends.length,before+1);assert.equal(find(n=>n.props?.children==='Retry linking'),undefined);
+  assert.deepEqual(globalThis.__linkRepairs.at(-1),['siteform:awning-repair','sent-awning-thread']);
+ }finally{channel=null;reader.form=oldForm;delete globalThis.__inquirySent;delete globalThis.__linkRepairFails;}
+});
+
+test('formatted HTML measures a loaded wide receipt, auto-compacts it and keeps Formatted and comparison grids intact',()=>{
+ const oldObserver=globalThis.ResizeObserver;
+ globalThis.ResizeObserver=class{observe(){}disconnect(){}};
+ const receipt='<h1>Payment receipt</h1><table width="960"><tr><td><table><tr><td>Amount paid</td><td>$483.27</td></tr><tr><td>Invoice</td><td>JC-782</td></tr><tr><td>Payment method</td><td>Card ending 6402</td></tr></table></td></tr></table>';
+ const compare='<table width="960"><tr><th>Invoice</th><th>Amount</th><th>Status</th></tr><tr><td>A-7</td><td>$94</td><td>Paid</td></tr><tr><td>A-8</td><td>$31</td><td>Due</td></tr></table>';
+ const start=choice=>{
+  cleanups.forEach(f=>f?.());cleanups=[];states=[];effects=[];htmlData=choice;render();
+  const content=find(n=>n.props?.dangerouslySetInnerHTML!==undefined&&n.props.ref);
+  content.props.ref.current={querySelector:()=>null,querySelectorAll:()=>[]};
+  find(n=>n.props?.ref&&n!==content).props.ref.current={clientWidth:320,scrollWidth:960};
+  flush();
+ };
+ try{
+  start({html:receipt});assert.ok(find(n=>n.type==='dl'&&n.props['aria-label']==='Receipt details'));
+  assert.ok(find(n=>n.type==='dd'&&n.props.children==='$483.27'));assert.ok(find(n=>n.type==='dd'&&n.props.children==='Card ending 6402'));
+  htmlData={html:receipt,receiptChoice:'formatted'};render();flush();assert.equal(find(n=>n.type==='dl'),undefined);
+  assert.ok(find(n=>n.props?.children==='Scroll sideways to see the full table →'));
+  start({html:compare});assert.equal(find(n=>n.type==='dl'),undefined);
+  assert.ok(find(n=>n.props?.dangerouslySetInnerHTML?.__html===compare));
+ }finally{cleanups.forEach(f=>f?.());cleanups=[];htmlData=null;globalThis.ResizeObserver=oldObserver;}
 });

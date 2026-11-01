@@ -88,6 +88,16 @@ test('a sent form reply remains successful if linking fails, so Joe is never off
  const r=await actions.sendChannelReplyAction({threadId:'siteform:alex',body:'Hello'});assert.equal(r.ok,true);assert.match(r.warning,/Email sent.*Do not send again/);assert.equal(r.threadId,'sent-thread');globalThis.__replyAction.failLink=false;
 });
 
+test('retrying a sent inquiry association repairs only the link, without Gmail or sending',async()=>{
+ globalThis.__replyAction.row={slug:'awning',email:'eden@example.test'};calls.length=0;
+ assert.equal((await actions.retryInquiryLinkAction('siteform:awning','sent-awning')).ok,true);
+ assert.equal(calls.length,0);
+ assert.ok(globalThis.__replyAction.queries.some(([sql,p])=>sql.includes('INSERT INTO thread_links')&&p[0]==='sent-awning'&&p[1]==='awning'));
+ globalThis.__replyAction.failLink=true;assert.equal((await actions.retryInquiryLinkAction('siteform:awning','sent-awning')).ok,false);globalThis.__replyAction.failLink=false;
+ globalThis.__replyAction.row=null;assert.equal((await actions.retryInquiryLinkAction('siteform:gone','sent-awning')).ok,false);
+ globalThis.__replyAction.allowed=false;await assert.rejects(()=>actions.retryInquiryLinkAction('siteform:awning','sent-awning'),/Forbidden/);globalThis.__replyAction.allowed=true;
+});
+
 test('Report spam uses the existing Gmail modify helper; Undo restores inbox, access stays required',async()=>{
  calls.length=0;
  assert.equal((await actions.setThreadSpamAction('thread',true)).ok,true);

@@ -3,17 +3,20 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {registerHooks} from 'node:module';
 import ts from 'typescript';
+import React from 'react';
+import {renderToStaticMarkup} from 'react-dom/server';
 const url=new URL('../components/shell/Topbar.tsx',import.meta.url).href;
+const bellUrl=new URL('../components/shell/NotificationBell.tsx',import.meta.url).href;
 let path='/inbox',events=[];globalThis.__phonePath=()=>path;
 globalThis.window={dispatchEvent:event=>events.push(event.type)};
 const stubs={
  'next/navigation':'export const usePathname=()=>globalThis.__phonePath();',
- 'next/link':'export default function Link(){}',
+ 'next/link':'export default function Link({children}){return children;}',
  '@/components/ui/Button':'export function Button(){}',
  '@/components/panel/CommandPalette':'export const PALETTE_EVENT="palette";export function CommandPalette(){}',
  './NotificationBell':'export function NotificationBell(){}',
 };
-registerHooks({resolve(s,c,n){return c.parentURL===url&&s in stubs?{url:'phone:'+s,shortCircuit:true}:n(s,c)},load(u,c,n){if(u===url)return {format:'module',source:ts.transpileModule(readFileSync(new URL(url),'utf8'),{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext}}).outputText,shortCircuit:true};return u.startsWith('phone:')?{format:'module',source:stubs[u.slice(6)],shortCircuit:true}:n(u,c)}});
+registerHooks({resolve(s,c,n){return (c.parentURL===url||c.parentURL===bellUrl&&s==='next/link')&&s in stubs?{url:'phone:'+s,shortCircuit:true}:n(s,c)},load(u,c,n){if(u===url||u===bellUrl)return {format:'module',source:ts.transpileModule(readFileSync(new URL(u),'utf8'),{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext}}).outputText,shortCircuit:true};return u.startsWith('phone:')?{format:'module',source:stubs[u.slice(6)],shortCircuit:true}:n(u,c)}});
 const {Topbar}=await import(url);
 const nodes=n=>!n||typeof n!=='object'?[]:[n,...[n.props?.children].flat(Infinity).flatMap(nodes)];
 test('phone inbox has one title, one bell, search and compose triggers with no duplicate field',()=>{
@@ -33,6 +36,14 @@ test('other pages retain their usual global controls',()=>{
  path='/schedule';const list=nodes(Topbar({breadcrumb:'Schedule'}));assert.equal(list.some(n=>n.props?.['aria-label']==='Compose email'),false);const search=list.find(n=>n.props?.['aria-label']==='Search');assert.equal(search.props.className,undefined);
  assert.equal(search.props.children.props.className,'@max-sm/shell:hidden');
  assert.equal(list.some(n=>n.props?.['aria-label']==='Inbox views'),false);
+});
+
+test('phone notification destination visibly names its purpose and count, with a full-height target',async()=>{
+ const {NotificationBell}=await import(bellUrl);
+ assert.match(renderToStaticMarkup(React.createElement(NotificationBell,{initial:7,labelled:true})),/Notifications 7/);
+ path='/inbox';const list=nodes(Topbar({breadcrumb:'Inbox'}));
+ const bell=list.find(n=>n.type?.name==='NotificationBell');assert.equal(bell.props.labelled,true);
+ assert.match(list.find(n=>n.type==='span'&&nodes(n).includes(bell)).props.className,/min-h-11/);
 });
 
 // Compile the actual utilities: @max-sm is only 384px, so class-name-only

@@ -58,3 +58,19 @@ test('HTML GET has honest disconnected, failed and text-only outcomes without pr
  fail=false;payload.messages[0].payload={mimeType:'text/plain',body:{data:Buffer.from('Plain notice').toString('base64url')}};
  response=await GET(request('thread=text-only&message=msg-71'));assert.equal(response.status,200);assert.deepEqual(await response.json(),{status:'text-only',html:''});
 });
+
+test('identical GETs share one read and abandoned queued GETs never reach the provider',async()=>{
+ const {withReadGate}=await import('../lib/inbox-read-gate.ts');
+ user=owner;const before=calls;
+ await Promise.all([GET(request('thread=unseen-awning&message=msg-71')),GET(request('thread=unseen-awning&message=msg-71'))]);
+ assert.equal(calls,before+1);
+ const releases=[];
+ const blockers=[0,1].map(()=>withReadGate('html:owner',()=>new Promise(resolve=>releases.push(resolve))));
+ const controller=new AbortController();
+ const stale=GET(new Request('https://local.test/api/inbox/html?thread=departed-awning&message=msg-71',{signal:controller.signal}));
+ // Allow auth and shared-read subscription to run while both slots are held.
+ await new Promise(resolve=>setImmediate(resolve));controller.abort();
+ assert.equal((await stale).status,503);
+ releases.forEach(resolve=>resolve('done'));await Promise.all(blockers);
+ assert.equal(calls,before+1,'superseded work does not spend a Gmail read');
+});

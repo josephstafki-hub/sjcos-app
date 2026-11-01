@@ -280,7 +280,7 @@ export interface ThreadReader {
   replyTarget?: ReplyTarget | null;
   automated?: boolean;
   replyLabel?: string;
-  form?: {name:string;town:string;phone:string;email:string;outgoingSubject:string;contactedAt?:string;contacted?:boolean;conversations?:{id:string;subject:string}[]};
+  form?: {name:string;town:string;phone:string;email:string;outgoingSubject:string;createdAt?:string;linkedThreadIds?:string[];contactedAt?:string;contacted?:boolean;conversations?:{id:string;subject:string}[]};
 }
 
 /** Curated reader content keyed by thread id. Threads not listed get a generic
@@ -1263,7 +1263,7 @@ async function loadSmsThreads(): Promise<ChannelBuild> {
       initials: initialsOf(name),
       fromName: name,
       channel: "sms",
-      subject: r.last_body?.slice(0, 80) || "Text message",
+      subject: r.last_body?.slice(0, 80) || "Content unavailable · Open original",
       preview: r.last_body || "",
       when: r.last_message_at ? relativeWhen(Date.parse(r.last_message_at)) : "",
       view,
@@ -1306,7 +1306,7 @@ async function loadSmsThreads(): Promise<ChannelBuild> {
       channelReader({
         tag: `SMS · ${name}`,
         channel: "sms",
-        subject: `Text — ${name}`,
+        subject: name,
         replyLabel:`To ${formatPhone(r.phone)} · ` + (process.env.SMS_FROM_NUMBER ? `Text from the SJC number ${formatPhone(process.env.SMS_FROM_NUMBER)}` : "Text from the SJC number"),
         messages,
         actionHref: href,
@@ -1426,7 +1426,7 @@ async function loadPortalThreads(): Promise<ChannelBuild> {
       channelReader({
         tag: isSub ? `Sub portal · ${name}` : `Client portal · ${name}`,
         channel,
-        subject: isSub ? `Sub portal — ${name}` : `Client portal — ${name}`,
+        subject: name,
         messages,
         replyLabel: `Visible to ${name} in their portal`,
         actionHref: isSub ? `/subs/${slug}` : isLead ? `/leads/${slug}` : `/projects/${slug}`,
@@ -1520,7 +1520,7 @@ async function loadSiteFormThreads(): Promise<ChannelBuild> {
         ],
         actionHref: `/leads/${r.slug}`,
         actionLabel: "Open lead",
-      }), form: {name:r.name,town:r.scope_city ?? "",phone:r.phone ?? "",email:r.email ?? "",contactedAt:r.last_contact_at,conversations:(r.email_thread_ids ?? []).map(id=>({id,subject:"Email conversation"})),outgoingSubject:inquiryReplySubject(r.scope,r.name)} },
+      }), form: {createdAt:r.created_at,linkedThreadIds:r.email_thread_ids??[],name:r.name,town:r.scope_city ?? "",phone:r.phone ?? "",email:r.email ?? "",contactedAt:r.last_contact_at,conversations:(r.email_thread_ids ?? []).map(id=>({id,subject:"Email conversation"})),outgoingSubject:inquiryReplySubject(r.scope,r.name)} },
     ]);
   }
   return { threads, readerEntries };

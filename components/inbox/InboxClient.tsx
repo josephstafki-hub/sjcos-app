@@ -78,6 +78,7 @@ import {
   sendChannelReplyAction,
   findInquiryConversationsAction,
   sendNewEmailAction,
+  retryInquiryLinkAction,
   setThreadStarredAction,
   setThreadReadAction,
   setThreadImportantAction,
@@ -124,6 +125,8 @@ import {reminderTitle} from '@/lib/inbox-review';
 import {messageWorkItem,reminderDueAt} from '@/lib/inbox-experience';
 import {receiptFields, useCompactReceipt} from '@/lib/inbox-receipt';
 import {inboxTitle,channelThreadTitle,splitCount} from '@/lib/inbox-display';
+import {fileManifestKey,readFileManifest,saveFileManifest,missingFiles,type FileManifestEntry} from '@/lib/inbox-file-manifest';
+import {inquiryLinkKey,readInquiryLink,saveInquiryLinkReceipt,type InquiryLinkReceipt} from '@/lib/inbox-inquiry-recovery';
 import {automatedActionLine} from '@/lib/inbox-rules';
 import {registerInboxFiles,confirmInboxFileLoss,flushInboxDrafts} from '@/lib/inbox-navigation';
 import {swipeIntent, fileLossWarning, sourceHref} from '@/lib/inbox-round12';
@@ -1719,8 +1722,10 @@ async function sendWithReceipt(mailbox:string,threadId:string,reader:ThreadReade
  }:undefined);
 }
 
-function useMailFiles(originals: {name:string;size:number;type:string}[] = []) {
+function useMailFiles(originals: {name:string;size:number;type:string}[] = [],manifestKey='') {
   const [files,setFiles]=useState<File[]>([]);
+  const [missing,setMissing]=useState<FileManifestEntry[]>([]);
+  useEffect(()=>{try{setMissing(readFileManifest(sessionStorage,manifestKey));}catch{}},[manifestKey]);
   const latest=useRef(files);latest.current=files;
   useEffect(()=>{
     const unregister=registerInboxFiles(()=>latest.current.length);
@@ -1730,19 +1735,27 @@ function useMailFiles(originals: {name:string;size:number;type:string}[] = []) {
   },[]);
   const confirmLoss=()=>!latest.current.length||window.confirm(fileLossWarning(latest.current.length));
   const [error,setError]=useState('');
+  function remember(next:File[],unattached=missing){
+    latest.current=next;setFiles(next);setMissing(unattached);
+    try{
+      if(!saveFileManifest(sessionStorage,manifestKey,[...next,...unattached]))throw Error('Storage unavailable');
+      setError('');
+    }catch{setError('File names could not be saved on this device. Re-attach your files if you leave this draft.');}
+  }
   const data=()=>{const form=new FormData();for(const file of files)form.append('files',file);return form;};
-  const picker=(disabled:boolean,compact=false)=><div className={`flex max-w-full items-center gap-1 text-meta ${compact?"shrink-0 flex-nowrap":"flex-wrap"}`}>
+  const picker=(disabled:boolean,compact=false)=><div className={`flex max-w-full items-center gap-1 text-meta ${compact&&!missing.length?"shrink-0 flex-nowrap":"min-w-0 flex-wrap"}`}>
     <label className={`inline-flex min-h-8 cursor-pointer items-center gap-1 rounded-md px-2 hover:bg-hover max-sm:min-h-11 ${disabled?'opacity-50':''}`}>
       <Paperclip className="size-4"/><span>{files.length?`${files.length} · ${fileSize(files.reduce((n,f)=>n+f.size,0))}`:""}</span><span className="sr-only">Attach files / photos</span>
       <input type="file" multiple accept={MAIL_FILE_ACCEPT} disabled={disabled} className="sr-only" aria-label="Attach files or photos" onChange={e=>{
         const next=[...files,...Array.from(e.target.files ?? [])];
-        try{validateMailFiles([...originals,...next]);setFiles(next);setError('');}catch(err){setError((err as Error).message);}e.target.value='';
+        try{validateMailFiles([...originals,...next]);remember(next,missingFiles(missing,next));}catch(err){setError((err as Error).message);}e.target.value='';
       }}/>
     </label>
-    <ul aria-label="Files to send" className={`flex gap-2 ${compact?"flex-nowrap":"flex-wrap"}`}>{files.map((file,i)=><li key={i} className="flex min-w-0 items-center gap-1 rounded-md border border-rule bg-card px-2"><span className={compact?"max-w-24 truncate":"break-all"} title={file.name}>{file.name} · {fileSize(file.size)}</span><Button variant="ghost" disabled={disabled} aria-label={`Remove ${file.name}`} title={`Remove ${file.name}`} icon={X} iconOnly onClick={()=>setFiles(items=>items.filter((_,j)=>j!==i))}/></li>)}</ul>
+    <ul aria-label="Files to send" className={`flex gap-2 ${compact?"flex-nowrap":"flex-wrap"}`}>{files.map((file,i)=><li key={i} className="flex min-w-0 items-center gap-1 rounded-md border border-rule bg-card px-2"><span className={compact?"max-w-24 truncate":"break-all"} title={file.name}>{file.name} · {fileSize(file.size)}</span><Button variant="ghost" disabled={disabled} aria-label={`Remove ${file.name}`} title={`Remove ${file.name}`} icon={X} iconOnly onClick={()=>remember(files.filter((_,j)=>j!==i))}/></li>)}</ul>
+    {missing.length>0&&<div role="status" className="w-full whitespace-normal text-warn"><p>Re-attach these files before sending. Only their names were saved on this device:</p><ul>{missing.map((file,i)=><li key={i} className="break-words">{file.name} · {fileSize(file.size)} <Button size="sm" variant="ghost" disabled={disabled} onClick={()=>remember(files,missing.filter((_,j)=>i!==j))}>Remove missing file</Button></li>)}</ul></div>}
     {error&&<p role="alert" className="text-flag">{error}</p>}
   </div>;
-  return {files,data,picker,confirmLoss,clear:()=>{latest.current=[];setFiles([]);}};
+  return {files,data,picker,confirmLoss,missing:missing.length>0,clear:()=>remember([],[])};
 }
 
 type ForwardMessage = {threadId:string;subject:string;message:ThreadReader['messages'][number]};
@@ -1773,7 +1786,7 @@ function ComposeModal({
     setChoicesLoaded(true);
   },[forwardChoiceKey,forward]);
   useEffect(()=>{if(choicesLoaded&&forward)try{localStorage.setItem(forwardChoiceKey,JSON.stringify(originals.map(a=>a.id)));}catch{}},[choicesLoaded,forward,forwardChoiceKey,originals]);
-  const files=useMailFiles(originals);
+  const files=useMailFiles(originals,fileManifestKey(selfEmail,userId,forward?`forward:${forward.threadId}:${forward.message.id}`:'compose:new'));
   const [error, setError] = useState("");
   const [sent, setSent] = useState(false);
   const [sending, startSend] = useTransition();
@@ -1786,6 +1799,7 @@ function ComposeModal({
 
 
   function send() {
+    if(files.missing){setError('Re-attach or remove the missing files before sending.');return;}
     if(sendBusy.current)return;
     sendBusy.current=true;
     setError("");
@@ -1798,6 +1812,7 @@ function ComposeModal({
         { fallback: "Send failed." },
       );
       if (res.ok) {
+        files.clear();
         setSent(true);
         const warning=await saved.finish(snapshot.version);
         window.dispatchEvent(new Event('inbox-drafts-changed'));
@@ -1867,7 +1882,7 @@ function ComposeModal({
             <Button
               onClick={()=>send()}
               icon={Send}
-              disabled={!to.trim() || !body.trim() || sending || sent || !choicesLoaded}
+              disabled={!to.trim() || !body.trim() || sending || sent || !choicesLoaded || files.missing}
             >
               {sent ? "Sent ✓" : sending ? "Sending…" : "Send email"}
             </Button>
@@ -2121,13 +2136,14 @@ function ChannelReaderBody({
   },[threadId,reader.channel,reader.form?.email,searchAttempt]);
   const conversations=[...new Map([...(reader.form?.conversations ?? []),...earlierEmail].map(c=>[c.id,c])).values()];
   const scroller = useRef<HTMLDivElement>(null);
-  const files=useMailFiles();
+  const files=useMailFiles([],fileManifestKey(mailbox,userId,threadId));
   const saved = useComposerDraft({mailbox,userId,owner,threadKey:threadId,channel:reader.channel,
     initial:{toEmail:reader.form?.email??'',subject:reader.form?.outgoingSubject??reader.subject}});
   const body = saved.value.body;
   const setBody = (body: string) => saved.set({ ...saved.value, body, humanEdited:true });
   const replyRef = useRef<HTMLTextAreaElement>(null);
   const [replying,setReplying]=useState(false);
+  useEffect(()=>{if(files.missing)setReplying(true);},[files.missing]);
   useReplyShortcut(replyRef,()=>setReplying(true));
   const [error, setError] = useState("");
   const [sent, setSent] = useState(false);
@@ -2135,6 +2151,10 @@ function ChannelReaderBody({
   const [pending, start] = useTransition();
   const router = useRouter();
   const chat = reader.channel !== "site_form";
+  const linkKey=inquiryLinkKey(mailbox,userId,threadId);
+  const [pendingLink,setPendingLink]=useState<InquiryLinkReceipt|null>(null);
+  useEffect(()=>{try{setPendingLink(readInquiryLink(localStorage,linkKey));}catch{}},[linkKey]);
+  const persistLinkReceipt=(receipt:InquiryLinkReceipt|null)=>{try{return saveInquiryLinkReceipt(localStorage,linkKey,receipt);}catch{return false;}};
   const safety=useSafeDraft(saved,threadId,setError);
   const composerStyle=useComposerViewport();
   const [retried,setRetried]=useState<Set<string>>(new Set());
@@ -2144,15 +2164,26 @@ function ChannelReaderBody({
     if (chat && scroller.current)
       scroller.current.scrollTop = scroller.current.scrollHeight;
   }, [chat, threadId, reader.messages, visible]);
-  const canReply = chat || Boolean(reader.messages[0]?.fromEmail);
+  const canReply = !pendingLink&&(chat || Boolean(reader.messages[0]?.fromEmail));
   function send(andDone=false) {
+    if(pendingLink){setError('This email was already sent. Retry linking instead.');return;}
+    if(files.missing){setError('Re-attach or remove the missing files before sending.');return;}
     setError("");
     start(async () => {
       let snapshot;
       try{snapshot=await saved.prepare();}catch(e){setError((e as Error).message);return;}
       let sendWarning:string|undefined;
       const r = await sendWithReceipt(mailbox,threadId,reader,reader.form?.email ?? reader.replyLabel ?? reader.channel,()=>runAction(
-        async () => {const result=await sendChannelReplyAction({ threadId, body:snapshot.draft.body, ...(reader.channel==='site_form'?{files:files.data()}:{}) });sendWarning=result.warning;return result;},
+        async () => {
+          const result=await sendChannelReplyAction({ threadId, body:snapshot.draft.body, ...(reader.channel==='site_form'?{files:files.data()}:{}) });
+          sendWarning=result.warning;
+          if(result.ok&&result.warning&&reader.channel==='site_form'&&result.threadId){
+            const receipt={inquiryId:threadId,threadId:result.threadId,sentAt:Date.now()};
+            setPendingLink(receipt);
+            if(!persistLinkReceipt(receipt))sendWarning=`Email sent. Link recovery could not be saved on this device. Keep this page open and retry linking. Email thread: ${result.threadId}`;
+          }
+          return result;
+        },
         { fallback: "Could not send your reply." },
       ),andDone?onSendDone:undefined,()=>{files.clear();setSent(true);});
       if (r.sent) {
@@ -2323,6 +2354,13 @@ function ChannelReaderBody({
         }
       >
         <div className="min-h-0 max-sm:overflow-y-auto">
+        {pendingLink&&<div role="status" className="mb-2 text-body text-warn"><p>Email sent · inquiry link not saved. Retry linking without sending again.</p><Button variant="secondary" disabled={pending} onClick={()=>start(async()=>{
+          const result=await runAction(()=>retryInquiryLinkAction(pendingLink.inquiryId,pendingLink.threadId),{fallback:'Email already sent. Could not repair the inquiry link.'});
+          if(result.ok){
+            if(!persistLinkReceipt(null)){setError('Link saved. This device could not clear its recovery reminder; retrying linking is safe.');return;}
+            setPendingLink(null);setSent(true);setError('');router.refresh();
+          }else setError(result.error??'Email already sent. Could not repair the inquiry link.');
+        })}>Retry linking</Button></div>}
         {canReply && <>
           <p title={reader.replyLabel} className="truncate text-meta font-semibold text-ink-2">{reader.replyLabel}</p>
           {reader.form&&<p className="truncate text-meta text-ink-3">Subject: {reader.form.outgoingSubject}</p>}
@@ -2374,8 +2412,8 @@ function ChannelReaderBody({
         )}
         </div>
         {canReply&&expanded&&<div className="grid shrink-0 grid-cols-2 gap-1 bg-paper-2 pt-2">
-          <Button aria-label={channelCommitLabel(reader.channel)} className="min-h-11 min-w-0 @4xl/page:min-h-8" icon={Send} disabled={!body.trim()||pending||safety.pending||sent} onClick={()=>send()}>{pending?'Sending…':<><span className="@4xl/page:hidden">Send</span><span className="hidden @4xl/page:inline">{channelCommitLabel(reader.channel)}</span></>}</Button>
-          {onSendDone&&<Button variant="secondary" className="min-h-11 min-w-0 @4xl/page:min-h-8" disabled={!body.trim()||pending||safety.pending||sent} onClick={()=>send(true)}>Send &amp; Done</Button>}
+          <Button aria-label={channelCommitLabel(reader.channel)} className="min-h-11 min-w-0 @4xl/page:min-h-8" icon={Send} disabled={!body.trim()||pending||safety.pending||sent||files.missing} onClick={()=>send()}>{pending?'Sending…':<><span className="@4xl/page:hidden">Send</span><span className="hidden @4xl/page:inline">{channelCommitLabel(reader.channel)}</span></>}</Button>
+          {onSendDone&&<Button variant="secondary" className="min-h-11 min-w-0 @4xl/page:min-h-8" disabled={!body.trim()||pending||safety.pending||sent||files.missing} onClick={()=>send(true)}>Send &amp; Done</Button>}
         </div>}
 
       </div>
@@ -2726,8 +2764,9 @@ function ReaderBody({
   const drafting=safety.pending;
   const composerStyle=useComposerViewport();
   const [sending, startSend] = useTransition();
-  const files=useMailFiles();
+  const files=useMailFiles([],fileManifestKey(mailbox,userId,threadId));
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(()=>{if(files.missing)setReplying(true);},[files.missing]);
   const latestPassage=useRef<HTMLDivElement>(null);
   const approvalRef = useRef<HTMLTextAreaElement>(null);
   const recipientsRef=useRef<HTMLDetailsElement>(null);
@@ -2801,6 +2840,7 @@ function ReaderBody({
     });
   }
   function send(andDone=false) {
+    if(files.missing){setError('Re-attach or remove the missing files before sending.');return;}
     setError('');
     startSend(async()=>{
       let snapshot;
@@ -3122,8 +3162,8 @@ function ReaderBody({
           <div className="flex flex-wrap items-center gap-x-2 text-meta text-ink-3"><span>Your Send click approves this draft.</span><DraftSyncFooter saved={saved} disabled={sending} localFiles={files.files.length>0}/></div>
         </div>}
         {!automated&&!screeningFirst&&reader.replyTarget&&(composerExpanded(replying,draft)||draftOpen)&&<div className="grid shrink-0 grid-cols-2 gap-1 bg-paper-2 pt-2">
-          <Button data-draft-send={isAI||undefined} className="min-h-11 min-w-0 @4xl/page:min-h-8" icon={Send} disabled={!hasDraft||!toEmail.trim()||sending||drafting||sent} onClick={()=>send()}>{sending?'Sending…':'Send email'}</Button>
-          {onSendDone&&<Button variant="secondary" className="min-h-11 min-w-0 @4xl/page:min-h-8" disabled={!hasDraft||!toEmail.trim()||sending||drafting||sent} onClick={()=>send(true)}>Send &amp; Done</Button>}
+          <Button data-draft-send={isAI||undefined} className="min-h-11 min-w-0 @4xl/page:min-h-8" icon={Send} disabled={!hasDraft||!toEmail.trim()||sending||drafting||sent||files.missing} onClick={()=>send()}>{sending?'Sending…':'Send email'}</Button>
+          {onSendDone&&<Button variant="secondary" className="min-h-11 min-w-0 @4xl/page:min-h-8" disabled={!hasDraft||!toEmail.trim()||sending||drafting||sent||files.missing} onClick={()=>send(true)}>Send &amp; Done</Button>}
         </div>}
 
       </div>

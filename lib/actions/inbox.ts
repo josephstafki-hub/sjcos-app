@@ -281,6 +281,25 @@ async function outgoingAttachments(input:{files?:FormData;attachments?:import("@
   return attachments.length?attachments:undefined;
 }
 
+/** Idempotent association repair. No provider call or send path belongs here. */
+export async function retryInquiryLinkAction(inquiryId:string,threadId:string):Promise<{ok:boolean;error?:string}> {
+  await requireAccess('inbox');
+  const slug=inquiryId.startsWith('siteform:')?inquiryId.slice(9):'';
+  if(!slug||!/^[-\w]+$/.test(threadId)||threadId.length>512)return {ok:false,error:'Invalid inquiry link.'};
+  try{
+    const {rows}=await query("SELECT slug FROM leads WHERE slug=$1 AND source ILIKE '%website%'",[slug]);
+    if(!rows.length)return {ok:false,error:'That website inquiry is no longer available.'};
+    await saveInquiryLink(threadId,slug);
+    invalidateInboxCache();revalidatePath('/inbox');
+    return {ok:true};
+  }catch{return {ok:false,error:'Email was already sent. Could not save the inquiry link; retry linking.'};}
+}
+async function saveInquiryLink(threadId:string,slug:string) {
+  await query(`WITH linked AS (INSERT INTO thread_links (gmail_thread_id,link_type,link_slug) VALUES ($1,'lead',$2)
+    ON CONFLICT (gmail_thread_id) DO UPDATE SET link_type='lead',link_slug=EXCLUDED.link_slug RETURNING gmail_thread_id)
+    UPDATE leads SET last_contact_at=now(),updated_at=now() WHERE slug=$2 AND EXISTS(SELECT 1 FROM linked)`,[threadId,slug]);
+}
+
 export async function sendNewEmailAction(input: {
   to: string; cc?:string; subject: string; body: string;
   attachments?: import("@/lib/gmail").MailAttachment[];
@@ -304,9 +323,7 @@ export async function sendNewEmailAction(input: {
       if(input.inquirySlug){
         try{
           if(!sent?.threadId)throw Error('Missing Gmail thread id');
-          await query(`WITH linked AS (INSERT INTO thread_links (gmail_thread_id,link_type,link_slug) VALUES ($1,'lead',$2)
-            ON CONFLICT (gmail_thread_id) DO UPDATE SET link_type='lead',link_slug=EXCLUDED.link_slug RETURNING gmail_thread_id)
-            UPDATE leads SET last_contact_at=now(),updated_at=now() WHERE slug=$2 AND EXISTS(SELECT 1 FROM linked)`,[sent.threadId,input.inquirySlug]);
+          await saveInquiryLink(sent.threadId,input.inquirySlug);
         }catch{warning='Email sent, but the inquiry link could not be saved. Do not send again.';}
       }
       invalidateInboxCache();

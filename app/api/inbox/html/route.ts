@@ -2,7 +2,7 @@ import {can, getCurrentUser} from '@/lib/dal';
 import {withMailboxFor} from '@/lib/mailbox';
 import {fetchMessageHtml, gmailConfigured} from '@/lib/gmail';
 import {loadEmailHtml} from '@/lib/inbox-email-content';
-import {withReadGate} from '@/lib/inbox-read-gate';
+import {withReadGate,coalesceInboxRead} from '@/lib/inbox-read-gate';
 
 /** Read outside the browser's serialized Server Actions. The connector keeps
  * its existing per-mailbox payload/HTML caches; no second Gmail read path. */
@@ -17,9 +17,9 @@ export async function GET(request: Request) {
   if ([thread,message].some(id=>!id || id.length>512 || !/^[-\w]+$/.test(id)))
     return Response.json({error:'Invalid message'}, {status:400,headers});
   // At most two Gmail reads in flight per signed-in mailbox; fast thread switching queues.
-  const result = await loadEmailHtml(()=>withReadGate(`html:${user.id}`,()=>withMailboxFor(user,async()=>{
+  const result = await loadEmailHtml(()=>coalesceInboxRead(JSON.stringify([user.id,thread,message]),signal=>withReadGate(`html:${user.id}`,()=>withMailboxFor(user,async()=>{
     if (!gmailConfigured()) throw Error('Gmail is not connected.');
     return fetchMessageHtml(thread,message);
-  })));
+  }),2,signal),request.signal));
   return Response.json(result, {status:result.status==='failed'?503:200,headers});
 }

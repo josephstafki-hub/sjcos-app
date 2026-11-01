@@ -1,6 +1,6 @@
 import {cleanEmailText} from './inbox-email-content.ts';
-import { splitQuotedText, threadNeedsMe} from './inbox-rules.ts';
-import {centralDay, matchesInboxTab} from './inbox-experience.ts';
+import { automationDeadline, splitQuotedText, threadNeedsMe} from './inbox-rules.ts';
+import {centralDay, matchesInboxTab, threadTodoCue} from './inbox-experience.ts';
 import type {InboxThread} from './inbox';
 
 /** Uses measured scrollHeight (including wrapped lines), not character counts. */
@@ -112,4 +112,14 @@ export function draftInputSources(basedOn:string):string[] {
   if(!match)return value?[value]:[];
   const record=/^(?:email )?conversation$/i.test(match[1])?'':match[1];
   return ['Latest message when drafted',`${match[2]} earlier message${match[2]==='1'?'':'s'}`,record].filter(Boolean);
+}
+
+/** A row gets one state cue; unread weight and job context stay independent. */
+export function rowStatus(t:Partial<InboxThread>):{label:string;kind:'ai'|'attention'|'work'|'muted';todo:boolean} {
+  const state=automationState(t);
+  if(t.automated)return {label:state.attention?(automationDeadline(t.attentionEvidence??'',t.receivedAt)||state.label):state.label,kind:state.attention?'attention':'muted',todo:false};
+  if(t.view!=='done'&&t.needsMeReason?.startsWith('Draft ready'))return {label:'Draft',kind:'ai',todo:false};
+  const work=threadTodoCue(t);
+  if(work)return {label:work,kind:'work',todo:true};
+  return {label:t.view==='done'?'Done':t.needsMeReason||(t.view==='awaiting_them'?'Waiting for their reply':t.unread?'Unread':''),kind:t.view==='needs_reply'?'work':'muted',todo:false};
 }

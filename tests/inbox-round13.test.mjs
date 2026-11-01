@@ -24,3 +24,12 @@ test('done rows use the subject while active human requests retain their model h
  assert.equal(rowActionTitle(t),t.actionTitle);assert.equal(rowActionTitle({...t,view:'done'}),'Roof lantern options');
  assert.equal(rowActionTitle({subject:'Invoice &amp; receipt #88',fromName:'Billing',automated:true}),'Invoice & receipt #88');
 });
+
+test('rows expose one status even when unread, draft, done and task information overlap',async()=>{
+ const {rowStatus}=await import('../lib/inbox-review.ts');
+ const base={subject:'Patio roof',fromName:'Devon',unread:true,needsMeReason:'Client replied',todos:[{id:'task',title:'Check roof clearance'}]};
+ assert.deepEqual(rowStatus({...base,needsMeReason:'Draft ready · Client replied'}),{label:'Draft',kind:'ai',todo:false});
+ assert.deepEqual(rowStatus({...base,view:'done'}),{label:'To-do · Check roof clearance',kind:'work',todo:true});
+ assert.deepEqual(rowStatus({...base,automated:true,automationKind:'Receipt',view:'done',inInbox:false}),{label:'Receipt · done',kind:'muted',todo:false});
+ assert.equal(rowStatus({...base,todos:[]}).label,'Client replied');
+});

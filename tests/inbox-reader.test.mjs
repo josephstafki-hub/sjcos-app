@@ -115,7 +115,7 @@ test('saved tasks return to the reader and mark the row; unread names get their 
  const html=render(ReaderBody,{reader,threadId:'thread',todos:[todo]});
  assert.match(html,/To-do: Send revised estimate/);assert.match(html,/Joe/);assert.match(html,/Fri/);assert.match(html,/engine\?work=w1/);
  const row=render(ThreadRow,{thread:{id:'1',fromName:'Michelle Alcantara',channel:'email',initials:'MA',when:'2h',view:'needs_reply',preview:'Please revise the closet estimate',needsMeReason:'Client replied',projectLabel:'Closet',unread:true,hasOpenTodo:true,todos:[todo]},onSelect(){}});
- assert.equal((row.match(/>2h</g) ?? []).length,1);assert.match(row,/Open to-do/);assert.match(row,/aria-label="Unread"/);assert.match(row,/Michelle Alcantara/);
+ assert.equal((row.match(/>2h</g) ?? []).length,1);assert.match(row,/Open to-do/);assert.doesNotMatch(row,/aria-label="Unread"/);assert.equal((row.match(/data-row-status/g)??[]).length,1);assert.match(row,/Michelle Alcantara/);
 });
 
 test('plain-text attribution and quote fold together, compact rows expose ledger and task cues',()=>{

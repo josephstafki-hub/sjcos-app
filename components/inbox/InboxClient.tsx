@@ -55,7 +55,7 @@ import {
   VoiceButton,
 } from "@/components/ui";
 import {
-  automationDeadline, rememberNeedsCount,
+  rememberNeedsCount,
   splitQuotedText,
   substantiveSnippet,
   channelCommitLabel,
@@ -108,7 +108,7 @@ import {
   INBOX_TABS,
   orderedInboxThreads, orderedAttentionThreads, attentionGroup, rowDay, canLoadMore, completionPass, attentionTaskTitle, draftGenerationResult,
   applyInboxPreferences,
-  contextStripText, threadTodoCue, todoDateLabel, contextLayout,
+  contextStripText, todoDateLabel, contextLayout,
   completeAfterSend,
   shortJobLabel,
   formatContactPhone,
@@ -118,7 +118,7 @@ import {
   type InboxTab,
   type SavedInboxDraft,
 } from "@/lib/inbox-experience";
-import {reflowPlainText, draftInputSources, draftRecipientName, askExcerpt, excerptLinks, rowActionTitle, automationState, composerMode, olderOtherMail, completeMailBatch, draftReviewSize, regenerateModel, restoreForwardChoices} from '@/lib/inbox-review';
+import {reflowPlainText, draftInputSources, draftRecipientName, askExcerpt, excerptLinks, rowActionTitle, rowStatus, automationState, composerMode, olderOtherMail, completeMailBatch, draftReviewSize, regenerateModel, restoreForwardChoices} from '@/lib/inbox-review';
 import {quickInboxReminder,undoInboxReminder} from '@/lib/actions/inbox-reminders';
 import {reminderTitle} from '@/lib/inbox-review';
 import {messageWorkItem,reminderDueAt} from '@/lib/inbox-experience';
@@ -242,6 +242,11 @@ export function InboxClient({
   const [tab, setTab] = useState<InboxTab | null>("needs");
   const [query, setQuery] = useState("");
   const [phoneSearch,setPhoneSearch]=useState(false);
+  const [swipeHint,setSwipeHint]=useState(false);
+  const swipeHintKey=`sjc:inbox:swipe-hint:v1:${userId}`;
+  useEffect(()=>{try{setSwipeHint(localStorage.getItem(swipeHintKey)!=='dismissed');}catch{setSwipeHint(true);}},[swipeHintKey]);
+  function dismissSwipeHint(){setSwipeHint(false);try{localStorage.setItem(swipeHintKey,'dismissed');}catch{}}
+
   const searchRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const [context, setContext] = useState<"person" | "job" | null>(null);
@@ -1302,6 +1307,7 @@ export function InboxClient({
             mobileReader ? "hidden @4xl/page:flex" : "flex",
           ].join(" ")}
         >
+          {swipeHint&&<div data-swipe-hint className="hidden @max-[40rem]/page:flex shrink-0 items-center gap-2 border-b border-rule-soft px-3 text-meta text-ink-3"><span className="flex-1">Swipe right for Done · left to remind tomorrow.</span><Button variant="ghost" className="min-h-11" onClick={dismissSwipeHint}>Got it</Button></div>}
           {passFinished&&<div className="border-b border-rule-soft p-3"><p className="mb-2 text-body">This pass is finished.</p><Button variant="secondary" onClick={()=>{setLens({kind:'all'});setTab('needs');setQuery('');setPassFinished(false);}}>Back to Needs me ({globalNeedsCount})</Button></div>}
           {lens.kind !== "all" && (
             <div className="flex min-h-11 items-center gap-2 border-b border-rule-soft px-3">
@@ -2392,6 +2398,7 @@ function ThreadRow({
   const Icon = CHANNEL_ICON[thread.channel];
   const [rowMenu, setRowMenu] = useState(false);
   const attention=automationState(thread).attention;
+  const status=rowStatus(thread);
   const needs = thread.view!=="done"&&(Boolean(thread.needsMeReason) || thread.view === "needs_reply");
   const unread=thread.unread&&thread.view!=="done"&&thread.inboundLast!==false;
   return (
@@ -2421,37 +2428,28 @@ function ThreadRow({
           </span>
         </span>
         <span className="min-w-0 flex-1">
-          <span className="flex min-h-7 items-center gap-1.5">
+          <span className="flex min-h-7 items-center gap-1.5 @max-[40rem]/page:flex-wrap">
             {compact&&<Icon className="size-3 shrink-0 text-accent-2" aria-label={thread.channel.replaceAll('_',' ')}/>}
             <span
-              className={`min-w-0 flex-1 truncate text-label ${unread ? "font-bold text-ink" : needs ? "font-semibold text-ink" : "text-ink-2"}`}
+              className={`min-w-0 flex-1 truncate @max-[40rem]/page:min-w-[18ch] @max-[40rem]/page:whitespace-normal @max-[40rem]/page:break-words text-label ${unread ? "font-bold text-ink" : needs ? "font-semibold text-ink" : "text-ink-2"}`}
             >
               {thread.fromName}
             </span>
-            {unread && !attention && (
-              <span
-                aria-label="Unread"
-                className="size-1.5 shrink-0 rounded-full bg-accent"
-              />
-            )}
-            <span className="w-16 shrink-0 text-right text-meta text-ink-3 group-hover:invisible group-focus-within:invisible [@media(hover:none)]:!visible">{thread.when}</span>
+            <span className="max-w-16 shrink-0 text-right text-meta text-ink-3 group-hover:invisible group-focus-within:invisible [@media(hover:none)]:!visible">{thread.when}</span>
           </span>
           <span className="line-clamp-2 text-body leading-snug text-ink-2">
             {rowActionTitle(thread)}
           </span>
-          <span className="flex min-w-0 items-center gap-1.5">
-            {thread.needsMeReason?.startsWith('Draft ready')&&<span className="shrink-0 rounded bg-ai-soft px-1 text-meta font-semibold text-ai">Draft</span>}
-            <span className={`${thread.projectLabel?"hidden":"min-w-0 truncate"} text-meta ${attention?'text-warn':needs?'text-accent-2':'text-ink-3'}`} title={thread.automated?automationState(thread).label:thread.needsMeReason}>{thread.automated?(attention?'':automationState(thread).label):thread.needsMeReason?.replace(/^Draft ready(?: · )?/, '')|| (thread.view==='awaiting_them'?'Waiting for their reply':thread.view==='done'?'Done':'Unread')}</span>
-          </span>
+          {status.label&&<span data-row-status aria-label={status.todo?'Open to-do':undefined} title={status.label} className={`block truncate text-meta ${status.kind==='ai'?'text-ai':status.kind==='attention'?'text-warn':status.kind==='work'?'text-accent-2':'text-ink-3'}`}>{status.label}</span>}
           {(thread.projectLabel||Boolean(thread.outstandingCents))&&<span data-row-job title={thread.projectLabel} className="flex min-w-0 items-baseline gap-2 text-meta">
             <span className="min-w-0 flex-1 break-words text-ink-2">{thread.projectLabel&&shortJobLabel(thread.projectLabel)}</span>
             {Boolean(thread.outstandingCents)&&<span title="Outstanding" className="shrink-0 tabular-nums text-warn">{new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(thread.outstandingCents!/100)}<span className={compact?"sr-only":""}> outstanding</span></span>}
           </span>}
 
-          {threadTodoCue(thread)&&<span title={threadTodoCue(thread)} aria-label="Open to-do" className="block truncate text-meta text-accent-2">{threadTodoCue(thread)}</span>}
+
           {thread.newSender&&!compact&&<span title={thread.fromEmail} className="block truncate text-meta text-ink-3">{thread.fromEmail}</span>}
 
-          {automationDeadline(thread.attentionEvidence??'',thread.receivedAt)&&<span className="my-0.5 inline-block rounded bg-warn-soft px-1 text-meta font-semibold text-warn">{automationDeadline(thread.attentionEvidence??'',thread.receivedAt)}</span>}
+
 
         </span>
       </button>

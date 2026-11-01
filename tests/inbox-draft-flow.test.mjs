@@ -671,3 +671,13 @@ test('focused answer uses remaining height and measures continuation on the actu
   assert.ok(find(n=>n.props?.children==='More below ↓'));
  }finally{cleanups.forEach(fn=>fn?.());cleanups=[];bodyData=null;globalThis.ResizeObserver=oldObserver;}
 });
+
+test('unseen phone swipe hint can be dismissed once and stays dismissed on reopen',async()=>{
+ const oldDocument=globalThis.document;globalThis.document={addEventListener(){},removeEventListener(){}};
+ clientData={threads:[],readers:{},selectedId:'',mailbox:{connected:true},smartViews:[],channels:[],labels:[],projects:[]};
+ try{
+  mount('hint-first');await settle();assert.ok(find(n=>n.props?.['data-swipe-hint']!==undefined));
+  click('Got it');assert.equal(find(n=>n.props?.['data-swipe-hint']!==undefined),undefined);
+  mount('hint-reopen');await settle();assert.equal(find(n=>n.props?.['data-swipe-hint']!==undefined),undefined);
+ }finally{cleanups.forEach(f=>f?.());cleanups=[];clientData=null;globalThis.document=oldDocument;}
+});

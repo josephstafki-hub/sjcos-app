@@ -1,7 +1,9 @@
 import type { ThreadChannel } from './types';
 
 export type InboxDraftModel = 'claude' | 'hermes' | 'qwen';
+export type DraftSource = {kind:'message'; threadId:string; messageId:string; label:string} | {kind:'project'|'lead'; slug:string; label:string};
 export interface DraftProvenance {
+  sources?: DraftSource[];
   model: InboxDraftModel | null;
   basedOn: string;
   acceptedSuggestionId: string | null;
@@ -15,6 +17,7 @@ export interface DraftText {
   subject: string;
 }
 export interface InboxDraft extends DraftText {
+  sources?: DraftSource[];
   id: string;
   threadKey: string;
   channel: ThreadChannel;

@@ -120,6 +120,8 @@ import {
   type SavedInboxDraft,
 } from "@/lib/inbox-experience";
 import {reflowPlainText, draftInputSources, draftRecipientName, askExcerpt, excerptLinks, rowActionTitle, automationState, composerMode, olderOtherMail, completeMailBatch, draftReviewSize, regenerateModel, restoreForwardChoices} from '@/lib/inbox-review';
+import {receiptFields, useCompactReceipt} from '@/lib/inbox-receipt';
+import {swipeIntent, fileLossWarning, sourceHref} from '@/lib/inbox-round12';
 import {useComposerDraft, DraftSyncFooter} from './useComposerDraft';
 import {loadDrafts, dismissSuggestion} from '@/lib/actions/inbox-drafts';
 import {matchingSuggestion, draftRow} from '@/lib/inbox-draft-ui';
@@ -521,8 +523,8 @@ export function InboxClient({
   },[selfEmail,globalNeedsCount]);
   useEffect(()=>{setPassFinished(false);setPassCompleted(new Set());},[lens,tab,query]);
   // Keep the selection valid as the lens narrows the list.
-  const selected =
-    passFinished ? null : visible.find((t) => t.id === selectedId) ?? visible[0] ?? null;
+  const selectedRaw = passFinished ? null : visible.find((t) => t.id === selectedId) ?? visible[0] ?? null;
+  const selected=selectedRaw?draftRow(selectedRaw,suggestions.get(selectedRaw.id)):null;
   const continuityReaders=useMemo(()=>{
     const copy=Object.fromEntries(Object.entries(readers).map(([id,r])=>[id,{...r,...(r.form?{form:{...r.form}}:{})}]));
     attachInquiryContinuity([...threads,...(remoteData?.threads ?? [])].map(t=>({...t})),copy);return copy;
@@ -1336,7 +1338,7 @@ export function InboxClient({
                   thread={draftRow(t,suggestions.get(t.id))}
                   selected={selected?.id === t.id}
                   onDone={() => startTransition(async()=>{await doneThread(t);})}
-                  onRemind={anchor => openTask(t,true,anchor)}
+                  onRemind={anchor => openTask(draftRow(t,suggestions.get(t.id)),true,anchor)}
                   compact={compactList && Boolean(context || contextPreference)}
                   onScreen={t.newSender?()=>{setScreeningThread(t);setLinking(true);}:undefined}
                   onAdd={t.newSender?kind=>setAdding({thread:t,kind}):undefined}
@@ -1398,10 +1400,10 @@ export function InboxClient({
                     onClick={archiveSelected}
                     icon={Check}
                     variant="ghost"
-                    disabled={pending}
+                    disabled={pending||selected.view==='done'}
                     className="min-h-11 @4xl/page:min-h-8"
                   >
-                    Done
+                    {selected.view==='done'?'Done ✓':'Done'}
                   </Button>
                   <Button
                     onClick={() => openTask(selected,true)}
@@ -1506,18 +1508,7 @@ export function InboxClient({
                               <MenuItem icon={Star} onClick={toggleStar}>
                                 {selectedStarred ? "Unstar" : "Star"}
                               </MenuItem>
-                              <MenuItem
-                                icon={MailOpen}
-                                onClick={() => setReadSelected(true)}
-                              >
-                                Mark as read
-                              </MenuItem>
-                              <MenuItem
-                                icon={Mail}
-                                onClick={() => setReadSelected(false)}
-                              >
-                                Mark as unread
-                              </MenuItem>
+                              <MenuItem icon={selected.unread?MailOpen:Mail} onClick={()=>setReadSelected(Boolean(selected.unread))}>{selected.unread?'Mark as read':'Mark as unread'}</MenuItem>
                               <MenuItem
                                 icon={Flag}
                                 onClick={() =>
@@ -1528,12 +1519,7 @@ export function InboxClient({
                               >
                                 Mark important
                               </MenuItem>
-                              <MenuItem
-                                icon={Archive}
-                                onClick={archiveSelected}
-                              >
-                                Archive
-                              </MenuItem>
+
                               <div className="my-1 h-px bg-rule" />
                               <MenuItem
                                 icon={Trash2}
@@ -1554,9 +1540,9 @@ export function InboxClient({
                   </div>
                 </div>
                 <div className="px-4 pb-3 group-has-[[data-reply-active=true]]/reader:pb-1">
-                  <h1 className="line-clamp-2 font-serif text-title font-medium leading-tight text-accent-2 group-has-[[data-reply-active=true]]/reader:truncate group-has-[[data-reply-active=true]]/reader:text-body">
-                    {reader.subject}
-                  </h1>
+                  <p className="truncate text-meta text-ink-3">{selected.fromName}</p>
+                  <h1 className="line-clamp-2 font-serif text-heading font-medium leading-tight text-accent-2 group-has-[[data-reply-active=true]]/reader:text-body">{rowActionTitle(selected)}</h1>
+                  {rowActionTitle(selected)!==reader.subject&&<p className="truncate text-meta text-ink-3" title={reader.subject}>{reader.subject}</p>}
                   <button onClick={openContext} title="Open contact, job, money and to-dos" aria-label="Open person and job context" aria-expanded={Boolean(context || wideContext && contextPreference)} className="mt-2 flex min-h-11 w-full items-center gap-2 rounded-md border border-rule bg-card px-3 text-left text-meta text-ink-2 @4xl/page:min-h-8 group-has-[[data-reply-active=true]]/reader:mt-1 group-has-[[data-reply-active=true]]/reader:min-h-7">
                     <span className="min-w-0 flex-1 truncate">{contextStripText(selected,contextData)}</span><ChevronRight className="size-3.5 shrink-0"/>
                   </button>
@@ -1646,7 +1632,7 @@ export function InboxClient({
       {help && <ShortcutHelp onClose={() => setHelp(false)} />}
       {task && readers[task.thread.id] && (
         <MessageTaskDialog
-          thread={task.thread}
+          thread={draftRow(task.thread,suggestions.get(task.thread.id))}
           reader={readers[task.thread.id]}
           remind={task.remind} anchor={task.anchor}
           options={linkOptions}
@@ -1864,6 +1850,9 @@ function EmailHtml({ html }: { html: string }) {
   const inner = useRef<HTMLDivElement>(null);
   const scroller=useRef<HTMLDivElement>(null);
   const [overflowing,setOverflowing]=useState(false);
+  const fields=useMemo(()=>receiptFields(html),[html]);
+  const [receiptChoice,setReceiptChoice]=useState<'compact'|'formatted'|null>(null);
+  const compactReceipt=useCompactReceipt(fields,overflowing,receiptChoice);
   const [hasQuote, setHasQuote] = useState(false);
   const [showQuote, setShowQuote] = useState(false);
   useLayoutEffect(() => {
@@ -1884,8 +1873,11 @@ function EmailHtml({ html }: { html: string }) {
   }, [html]);
   return (
     <div className="relative min-w-0">
-      {overflowing&&<p className="sticky left-0 mb-1 text-meta font-semibold text-accent-2">Scroll sideways to see the full table →</p>}
-      <div ref={scroller} tabIndex={overflowing?0:undefined} role={overflowing?'region':undefined} aria-label={overflowing?'Scrollable email content':undefined} className="min-w-0 overflow-x-auto" style={overflowing?{background:'linear-gradient(to left, var(--paper-3), transparent) right / 18px 100% no-repeat',boxShadow:'inset -12px 0 12px -12px var(--ink-3)'}:undefined}>
+      {fields.length>0&&<div className="mb-2 flex items-center gap-1" aria-label="Receipt view"><Button size="sm" variant={compactReceipt?'secondary':'ghost'} aria-pressed={compactReceipt} onClick={()=>setReceiptChoice('compact')}>Compact receipt</Button><Button size="sm" variant={!compactReceipt?'secondary':'ghost'} aria-pressed={!compactReceipt} onClick={()=>setReceiptChoice('formatted')}>Formatted</Button></div>}
+      {compactReceipt&&<dl aria-label="Receipt details" className="space-y-2">{fields.map((field,i)=><div key={i} className="grid grid-cols-[minmax(80px,1fr)_minmax(0,2fr)] gap-3 border-b border-rule-soft pb-2"><dt className="text-meta text-ink-3">{field.label}</dt><dd className="break-words text-body font-semibold text-ink">{field.value}</dd></div>)}</dl>}
+      {compactReceipt&&<details className="mt-2"><summary className="min-h-11 cursor-pointer text-meta text-accent-2">Full receipt text and links</summary><div dangerouslySetInnerHTML={{__html:readableEmailHtml(html)}}/></details>}
+      {overflowing&&!compactReceipt&&<p className="sticky left-0 mb-1 text-meta font-semibold text-accent-2">Scroll sideways to see the full table →</p>}
+      <div aria-hidden={compactReceipt||undefined} ref={scroller} tabIndex={overflowing&&!compactReceipt?0:undefined} role={overflowing?'region':undefined} aria-label={overflowing?'Scrollable email content':undefined} className={`min-w-0 overflow-x-auto ${compactReceipt?"invisible absolute inset-x-0 top-0 -z-10 h-0 overflow-hidden":""}`} style={overflowing?{background:'linear-gradient(to left, var(--paper-3), transparent) right / 18px 100% no-repeat',boxShadow:'inset -12px 0 12px -12px var(--ink-3)'}:undefined}>
       <div
         ref={inner}
         className={`email-html text-body leading-relaxed text-ink [&_a]:text-accent [&_a]:underline [&_img]:my-1 [&_img]:rounded ${showQuote ? "" : "[&_blockquote]:hidden"}`}
@@ -2393,7 +2385,7 @@ function ThreadRow({
             >
               {thread.fromName}
             </span>
-            {unread && (
+            {unread && !attention && (
               <span
                 aria-label="Unread"
                 className="size-1.5 shrink-0 rounded-full bg-accent"
@@ -2406,7 +2398,7 @@ function ThreadRow({
           </span>
           <span className="flex min-w-0 items-center gap-1.5">
             {thread.needsMeReason?.startsWith('Draft ready')&&<span className="shrink-0 rounded bg-ai-soft px-1 text-meta font-semibold text-ai">Draft</span>}
-            <span className={`${thread.projectLabel?"hidden":"min-w-0 truncate"} text-meta ${attention?'text-warn':needs?'text-accent-2':'text-ink-3'}`} title={thread.automated?automationState(thread).label:thread.needsMeReason}>{thread.automated?automationState(thread).label:thread.needsMeReason?.replace(/^Draft ready(?: · )?/, '')|| (thread.view==='awaiting_them'?'Waiting for their reply':thread.view==='done'?'Done':'Unread')}</span>
+            <span className={`${thread.projectLabel?"hidden":"min-w-0 truncate"} text-meta ${attention?'text-warn':needs?'text-accent-2':'text-ink-3'}`} title={thread.automated?automationState(thread).label:thread.needsMeReason}>{thread.automated?(attention?'':automationState(thread).label):thread.needsMeReason?.replace(/^Draft ready(?: · )?/, '')|| (thread.view==='awaiting_them'?'Waiting for their reply':thread.view==='done'?'Done':'Unread')}</span>
           </span>
           {(thread.projectLabel||Boolean(thread.outstandingCents))&&<span data-row-job title={thread.projectLabel} className="flex min-w-0 items-baseline gap-2 text-meta">
             <span className="min-w-0 flex-1 break-words text-ink-2">{thread.projectLabel&&shortJobLabel(thread.projectLabel)}</span>
@@ -2878,7 +2870,7 @@ function ReaderBody({
               <Button variant="ghost" onClick={() => { setReplyAnyway(true); setReplying(true); }}>Reply anyway</Button>
             )}
             {needsAttention&&<Button variant="secondary" onClick={onMakeTodo}>Make to-do</Button>}
-            <Button onClick={onDone}>Done</Button>
+
           </div>
         ) : !reader.replyTarget ? (
           <p className="text-meta text-ink-3">

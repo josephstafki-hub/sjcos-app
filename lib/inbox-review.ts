@@ -1,5 +1,5 @@
 import {cleanEmailText} from './inbox-email-content.ts';
-import { splitQuotedText, threadNeedsMe} from './inbox-rules.ts';
+import { automationDeadline, splitQuotedText, threadNeedsMe} from './inbox-rules.ts';
 import {centralDay, matchesInboxTab} from './inbox-experience.ts';
 import type {InboxThread} from './inbox';
 
@@ -45,13 +45,27 @@ export function rowActionTitle(t:ActionThread):string {
     return `Complete information request${days?` · ${days} days`:''}`;
   }
   const subject=(t.subject??'').replace(/^(?:(?:re|fwd?|aw)\s*:\s*)+/i,'').trim();
-  if(t.automated)return subject||automationState(t).label;
+  if(t.automated){
+    const evidence=`${t.attentionEvidence??''} ${t.preview??''} ${subject}`;
+    const deadline=automationDeadline(evidence,t.receivedAt) ?? (()=>{
+      const date=/\b(?:auto[- ]?complete[sd]?|complete[sd]? automatically)(?: on)?\s+([a-z]+ \d{1,2})/i.exec(evidence)?.[1];
+      if(!date)return '';
+      const parsed=new Date(`${date}, 2000`);
+      return Number.isFinite(parsed.getTime())?`Auto-completes ${parsed.toLocaleDateString('en-US',{month:'short',day:'numeric'})}`:'';
+    })();
+    const action=/\b(?:review|approve)\b.{0,35}\border\b|\border\b.{0,35}\b(?:ready|complete)/i.test(evidence)?'Review order':
+      /\b(?:payment failed|past due|overdue|payment due)\b/i.test(evidence)?'Review payment':
+      /\b(?:receipt|paid|payment received)\b/i.test(evidence)?'Review receipt':
+      /\b(?:invoice|billing)\b/i.test(evidence)?'Review invoice':
+      /\bstatement\b/i.test(evidence)?'Open statement':`Review ${(t.automationKind??'notification').toLowerCase()}`;
+    return [action,deadline?deadline.charAt(0).toLowerCase()+deadline.slice(1):''].filter(Boolean).join(' · ');
+  }
   const summary=completeRequestClause(cleanRowSummary(cleanEmailText(t.preview??''),t.fromName??''));
   if(/^(?:review|confirm|complete|send|schedule|approve|asks? to)\b/i.test(summary))return summary.slice(0,160);
   if(summary&&REQUEST_SIGNAL.test(summary))return `Asks: ${summary}`.slice(0,160);
   return (subject||summary).slice(0,160);
 }
-export function reminderTitle(t:ActionThread):string {const action=rowActionTitle(t).replace(/^Asks to /,'Review request to ');return (/^(?:review|complete|confirm|send|schedule|approve)\b/i.test(action)?action:`Review ${action}`).slice(0,160);}
+export function reminderTitle(t:ActionThread):string {if(t.actionTitle?.trim())return t.actionTitle.trim().slice(0,160);const action=rowActionTitle(t).replace(/^Asks to /,'Review request to ');return (/^(?:review|complete|confirm|send|schedule|approve)\b/i.test(action)?action:`Review ${action}`).slice(0,160);}
 export function automationState(t:Partial<InboxThread>) {
   const attention=Boolean(t.automated&&threadNeedsMe(t));
   return {attention,label:`${t.automationKind??'Notification'}${attention?' · Needs your attention':t.inInbox===false||t.view==='done'?' · done':''}`};

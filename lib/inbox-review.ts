@@ -1,5 +1,6 @@
 import {cleanEmailText} from './inbox-email-content.ts';
-import { automationDeadline, splitQuotedText, threadNeedsMe} from './inbox-rules.ts';
+import { automatedActionLine, automationDeadline, splitQuotedText, threadNeedsMe} from './inbox-rules.ts';
+import {inboxTitle} from './inbox-display.ts';
 import {centralDay, matchesInboxTab, threadTodoCue} from './inbox-experience.ts';
 import type {InboxThread} from './inbox';
 
@@ -37,18 +38,18 @@ export function cleanRowSummary(summary:string, sender:string):string {
   return prefix>=0&&summary.slice(0,prefix).trim().toLowerCase()===sender.trim().toLowerCase()?summary.slice(prefix+1).trim():summary;
 }
 export function rowActionTitle(t:ActionThread):string {
-  const subject=cleanEmailText(t.subject??'').replace(/^(?:(?:re|fwd?|aw)\s*:\s*)+/i,'').replace(/\s+/g,' ').trim();
+  const subject=inboxTitle(cleanEmailText(t.subject??'').replace(/^(?:(?:re|fwd?|aw)\s*:\s*)+/i,'').replace(/\s+/g,' ').trim());
   // A category cannot identify an event. Keep the actual subject, including
   // reference numbers/amounts, and never instruct Joe to review a done row.
   if(t.automated||t.view==='done')return subject||'(no subject)';
   // Active human conversations retain the headline from their reply model.
-  if(t.actionTitle?.trim())return t.actionTitle.trim().slice(0,160);
+  if(t.actionTitle?.trim())return inboxTitle(t.actionTitle).slice(0,160);
   const summary=completeRequestClause(cleanRowSummary(cleanEmailText(t.preview??''),t.fromName??''));
   if(/^(?:review|confirm|complete|send|schedule|approve|asks? to)\b/i.test(summary))return summary.slice(0,160);
   if(summary&&REQUEST_SIGNAL.test(summary))return `Asks: ${summary}`.slice(0,160);
   return (subject||summary).slice(0,160);
 }
-export function reminderTitle(t:ActionThread):string {if(t.actionTitle?.trim())return t.actionTitle.trim().slice(0,160);const action=rowActionTitle(t).replace(/^Asks to /,'Review request to ');return (/^(?:review|complete|confirm|send|schedule|approve)\b/i.test(action)?action:`Review ${action}`).slice(0,160);}
+export function reminderTitle(t:ActionThread):string {if(t.actionTitle?.trim())return inboxTitle(t.actionTitle).slice(0,160);const action=rowActionTitle(t).replace(/^Asks to /,'Review request to ');return (/^(?:review|complete|confirm|send|schedule|approve)\b/i.test(action)?action:`Review ${action}`).slice(0,160);}
 export function automationState(t:Partial<InboxThread>) {
   const attention=Boolean(t.automated&&threadNeedsMe(t));
   return {attention,label:`${t.automationKind??'Notification'}${attention?' · Needs your attention':t.inInbox===false||t.view==='done'?' · done':''}`};
@@ -117,7 +118,7 @@ export function draftInputSources(basedOn:string):string[] {
 /** A row gets one state cue; unread weight and job context stay independent. */
 export function rowStatus(t:Partial<InboxThread>):{label:string;kind:'ai'|'attention'|'work'|'muted';todo:boolean} {
   const state=automationState(t);
-  if(t.automated)return {label:state.attention?(automationDeadline(t.attentionEvidence??'',t.receivedAt)||state.label):state.label,kind:state.attention?'attention':'muted',todo:false};
+  if(t.automated)return {label:state.attention?(automatedActionLine(t.attentionEvidence??'',t.receivedAt)||automationDeadline(t.attentionEvidence??'',t.receivedAt)||state.label):state.label,kind:state.attention?'attention':'muted',todo:false};
   if(t.view!=='done'&&t.needsMeReason?.startsWith('Draft ready'))return {label:'Draft',kind:'ai',todo:false};
   const work=threadTodoCue(t);
   if(work)return {label:work,kind:'work',todo:true};

@@ -123,6 +123,8 @@ import {quickInboxReminder,undoInboxReminder} from '@/lib/actions/inbox-reminder
 import {reminderTitle} from '@/lib/inbox-review';
 import {messageWorkItem,reminderDueAt} from '@/lib/inbox-experience';
 import {receiptFields, useCompactReceipt} from '@/lib/inbox-receipt';
+import {inboxTitle,channelThreadTitle,splitCount} from '@/lib/inbox-display';
+import {automatedActionLine} from '@/lib/inbox-rules';
 import {registerInboxFiles,confirmInboxFileLoss,flushInboxDrafts} from '@/lib/inbox-navigation';
 import {swipeIntent, fileLossWarning, sourceHref} from '@/lib/inbox-round12';
 import {useComposerDraft, DraftSyncFooter} from './useComposerDraft';
@@ -989,7 +991,7 @@ export function InboxClient({
             });}}
             options={INBOX_TABS.map((t) => ({
               ...t,
-              count: emailPaused ? "—" : counts[t.value],
+              count: emailPaused ? "—" : splitCount(counts[t.value],lens.kind==='channel'),
             }))}
             className="w-max !max-w-none !overflow-visible h-11 [&_button]:shrink-0 [&_button]:h-11 @4xl/page:h-8 @4xl/page:[&_button]:h-7"
           />
@@ -1390,8 +1392,8 @@ export function InboxClient({
             )}
           </div>
           {!composing&&<div className="relative border-t border-rule-soft px-3 py-1 @4xl/page:hidden">
-            <Button variant="ghost" className="min-h-11" aria-expanded={splitSheet} onClick={()=>setSplitSheet(v=>!v)}>{INBOX_TABS.find(t=>t.value===tab)?.label??headerLabel} {tab?counts[tab]:visible.length} ▾</Button>
-            {splitSheet&&<div role="dialog" aria-label="Inbox splits" className="absolute inset-x-0 bottom-full z-[75] rounded-t-xl border border-rule bg-card p-3 shadow-pop"><div className="flex items-center"><h2 className="flex-1 text-subheading font-semibold">Inbox splits</h2><Button variant="ghost" onClick={()=>{setSplitSheet(false);setShowSources(true);}}>Views</Button><Button variant="ghost" icon={X} iconOnly aria-label="Close splits" title="Close splits" onClick={()=>setSplitSheet(false)}/></div>{INBOX_TABS.map(split=><button key={split.value} aria-pressed={tab===split.value} className="flex min-h-11 w-full items-center justify-between rounded-md px-3 text-body aria-pressed:bg-selected" onClick={()=>{void leaveInbox(()=>{setTab(split.value);setMobileReader(false);setSplitSheet(false);});}}><span>{split.label}</span><span>{counts[split.value]}</span></button>)}</div>}
+            <Button variant="ghost" className="min-h-11" aria-expanded={splitSheet} onClick={()=>setSplitSheet(v=>!v)}>{INBOX_TABS.find(t=>t.value===tab)?.label??headerLabel} {splitCount(tab?counts[tab]:visible.length,lens.kind==='channel')} ▾</Button>
+            {splitSheet&&<div role="dialog" aria-label="Inbox splits" className="absolute inset-x-0 bottom-full z-[75] rounded-t-xl border border-rule bg-card p-3 shadow-pop"><div className="flex items-center"><h2 className="flex-1 text-subheading font-semibold">Inbox splits</h2><Button variant="ghost" onClick={()=>{setSplitSheet(false);setShowSources(true);}}>Views</Button><Button variant="ghost" icon={X} iconOnly aria-label="Close splits" title="Close splits" onClick={()=>setSplitSheet(false)}/></div>{INBOX_TABS.map(split=><button key={split.value} aria-pressed={tab===split.value} className="flex min-h-11 w-full items-center justify-between rounded-md px-3 text-body aria-pressed:bg-selected" onClick={()=>{void leaveInbox(()=>{setTab(split.value);setMobileReader(false);setSplitSheet(false);});}}><span>{split.label}</span><span>{splitCount(counts[split.value],lens.kind==='channel')}</span></button>)}</div>}
           </div>}
         </section>
 
@@ -1572,10 +1574,10 @@ export function InboxClient({
                 </div>
                 <div className="px-4 pb-3 group-has-[[data-reply-active=true]]/reader:pb-1">
                   <p className="truncate text-meta text-ink-3">{selected.fromName}</p>
-                  <h1 className="line-clamp-2 font-serif text-heading font-medium leading-tight text-accent-2 group-has-[[data-reply-active=true]]/reader:text-body">{rowActionTitle(selected)}</h1>
-                  {rowActionTitle(selected)!==reader.subject&&<p className="truncate text-meta text-ink-3" title={reader.subject}>{reader.subject}</p>}
+                  <h1 className="line-clamp-2 font-serif text-heading font-medium leading-tight text-accent-2 group-has-[[data-reply-active=true]]/reader:text-body">{channelThreadTitle({...selected,subject:rowActionTitle(selected)})}</h1>
+                  {selected.automated?automatedActionLine(selected.attentionEvidence??'',selected.receivedAt)&&<p className="text-meta text-ink-3">{automatedActionLine(selected.attentionEvidence??'',selected.receivedAt)}</p>:selected.channel==='email'&&rowActionTitle(selected)!==reader.subject&&<p className="truncate text-meta text-ink-3" title={reader.subject}>{reader.subject}</p>}
                   <button onClick={openContext} title="Open contact, job, money and to-dos" aria-label="Open person and job context" aria-expanded={Boolean(context || wideContext && contextPreference)} className="mt-2 flex min-h-11 w-full items-center gap-2 rounded-md border border-rule bg-card px-3 text-left text-meta text-ink-2 @4xl/page:min-h-8 group-has-[[data-reply-active=true]]/reader:mt-1 group-has-[[data-reply-active=true]]/reader:min-h-7">
-                    <span className="min-w-0 flex-1 truncate">{selected.automated?`Automated · ${selected.fromName} · ${rowActionTitle(selected)}`:contextStripText(selected,contextData)}</span><ChevronRight className="size-3.5 shrink-0"/>
+                    <span className="min-w-0 flex-1 truncate">{contextStripText(selected,contextData)}</span><ChevronRight className="size-3.5 shrink-0"/>
                   </button>
                   {selected.automated&&<div className="mt-1 flex flex-wrap items-center gap-2 text-meta text-ink-3"><span>{automationState(selected).label}</span><Button variant="secondary" size="sm" disabled={pending} onClick={()=>startTransition(async()=>{await savePreference(selected,'thread',(selected.attentionOverride??selected.attentionRequired)?'other':'attention');})}>{(selected.attentionOverride??selected.attentionRequired)?'Keep in Other':'Mark as needs my attention'}</Button></div>}
                   {(selected.newSender||selected.senderDecision)&&selected.fromEmail&&!selected.automated&&<div className="mt-1 flex flex-wrap items-center gap-1 text-meta text-ink-3">
@@ -2004,7 +2006,7 @@ function RequestExcerpt({text,compact,links=[]}:{text:string;compact:boolean;lin
   return <div className="flex min-h-0 flex-col">
     <div className="flex shrink-0 items-center gap-2 text-meta text-ink-3"><span>Request excerpt</span><button type="button" aria-expanded={open} className="min-h-11 text-accent-2 underline" onClick={()=>setOpen(v=>!v)}>{open?'less':'more'}</button></div>
     <div className="relative min-h-0 overflow-hidden">
-      <blockquote ref={ref} aria-label="Incoming request" className={`max-h-[35dvh] overflow-y-auto whitespace-pre-line border-l-2 border-accent pl-2 pr-1 text-body text-ink-2 ${compact&&!open?'line-clamp-2':open?'':'max-h-[24dvh]'}`}>{links.reduce((value,link)=>value.replace(`\n\n${link.label}`,''),text)}{links.length>0&&<span className="mt-2 flex flex-wrap gap-2">{links.map(link=><a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer" className="text-accent-2 underline">{link.label}</a>)}</span>}</blockquote>
+      <blockquote ref={ref} aria-label="Incoming request" className={`max-h-[35dvh] overflow-y-auto whitespace-pre-line border-l-2 border-accent pl-2 pr-1 text-body text-ink-2 ${compact&&!open?'line-clamp-2 @4xl/page:line-clamp-none':open?'':'max-h-[24dvh]'}`}>{links.reduce((value,link)=>value.replace(`\n\n${link.label}`,''),text)}{links.length>0&&<span className="mt-2 flex flex-wrap gap-2">{links.map(link=><a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer" className="text-accent-2 underline">{link.label}</a>)}</span>}</blockquote>
       {overflow&&!open&&<button type="button" className="absolute inset-x-0 bottom-0 flex min-h-11 items-end justify-end bg-gradient-to-t from-paper-2 via-paper-2/90 to-transparent text-meta font-semibold text-accent-2" onClick={()=>setOpen(true)}>Read more ↓</button>}
     </div>
   </div>;
@@ -2012,11 +2014,18 @@ function RequestExcerpt({text,compact,links=[]}:{text:string;compact:boolean;lin
 /** Text height follows wrapped content; resize and keyboard changes re-measure. */
 function DraftBody({inputRef,expanded=false,fill=false,...props}:TextareaHTMLAttributes<HTMLTextAreaElement>&{inputRef:RefObject<HTMLTextAreaElement|null>;expanded?:boolean;fill?:boolean}) {
   const [more,setMore]=useState(false);
+  const [desktop,setDesktop]=useState(false);
   useLayoutEffect(()=>{
     const input=inputRef.current;if(!input)return;
+    const page=input.closest?.('[data-inbox-root]');
     const remaining=()=>setMore(input.scrollHeight-input.scrollTop>input.clientHeight+2);
     const measure=()=>{
-      if(expanded&&!fill){
+      const contentFit=(page?.clientWidth??0)>=896;
+      setDesktop(contentFit);
+      if(fill&&contentFit){
+        input.style.height='0px';input.style.minHeight='0px';
+        input.style.height=`${Math.min(input.scrollHeight,(window.visualViewport?.height??window.innerHeight)*.45)}px`;
+      }else if(expanded&&!fill){
         input.style.height='0px';input.style.minHeight='0px';
         const fullHeight=input.scrollHeight;
         input.style.height=`${fullHeight}px`;input.style.minHeight=`${fullHeight}px`;
@@ -2025,10 +2034,11 @@ function DraftBody({inputRef,expanded=false,fill=false,...props}:TextareaHTMLAtt
     };
     measure();let width=input.clientWidth;
     const observer=new ResizeObserver(()=>{if(input.clientWidth!==width){width=input.clientWidth;measure();}else remaining();});
-    observer.observe(input);input.addEventListener('scroll',remaining);window.addEventListener('resize',measure);window.visualViewport?.addEventListener('resize',measure);
-    return ()=>{observer.disconnect();input.removeEventListener('scroll',remaining);window.removeEventListener('resize',measure);window.visualViewport?.removeEventListener('resize',measure);};
+    const pageObserver=new ResizeObserver(measure);
+    observer.observe(input);if(page)pageObserver.observe(page);input.addEventListener('scroll',remaining);window.addEventListener('resize',measure);window.visualViewport?.addEventListener('resize',measure);
+    return ()=>{observer.disconnect();pageObserver.disconnect();input.removeEventListener('scroll',remaining);window.removeEventListener('resize',measure);window.visualViewport?.removeEventListener('resize',measure);};
   },[props.value,expanded,fill,inputRef]);
-  return <div className={`relative flex min-h-0 flex-col ${fill?'flex-1':expanded?'shrink-0':'shrink'}`}><textarea {...props} ref={inputRef} rows={8} className={`${props.className??''} block min-h-0 pb-1 ${fill?'flex-1 overflow-y-auto':expanded?'shrink-0 overflow-hidden':'shrink max-h-full overflow-y-auto'}`}/>{more&&<div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-card via-card/90 to-transparent pt-5 text-right text-meta text-accent-2">More below ↓</div>}</div>;
+  return <div className={`relative flex min-h-0 flex-col ${fill&&!desktop?'flex-1':expanded&&!fill?'shrink-0':'shrink'}`}><textarea {...props} ref={inputRef} rows={8} className={`${props.className??''} block min-h-0 pb-1 ${fill&&!desktop?'flex-1 overflow-y-auto':expanded&&!fill?'shrink-0 overflow-hidden':'shrink max-h-full overflow-y-auto'}`}/>{more&&<div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-card via-card/90 to-transparent pt-5 text-right text-meta text-accent-2">More below ↓</div>}</div>;
 }
 function useComposerViewport() {
   const [viewportSize,setViewportSize]=useState<{height:number;inset:number}|null>(null);
@@ -2068,7 +2078,7 @@ function ThreadTasks({ todos = [] }: { todos?: InboxTodo[] }) {
         >
           <ListPlus className="mt-1 size-4 shrink-0" />
           <span>
-            To-do: {todo.title}
+            To-do: {inboxTitle(todo.title)}
             <span className="block text-meta text-ink-3">
               {todo.assignees ?? "Open to-do"} {todoDateLabel(todo).startsWith("Scheduled")?" · Scheduled":""}
               {todo.due_at
@@ -2818,13 +2828,13 @@ function ReaderBody({
         {display.sources?.length?<ul className="max-h-40 space-y-1 overflow-y-auto pb-2">{display.sources.map((source,i)=><li key={i}>{source.kind==='message'?<button type="button" className="min-h-11 break-words text-left text-accent-2 underline" onClick={()=>openDraftSource(source.messageId)}>{source.label}</button>:<a className="inline-flex min-h-11 items-center text-accent-2 underline" href={sourceHref(source)} target="_blank" rel="noopener noreferrer">{source.label} ↗</a>}</li>)}</ul>:<><p className="text-meta">Exact references were not saved for this older draft.</p><ul className="list-disc space-y-1 pb-2 pl-4">{draftInputSources(display.basedOn).map(source=><li key={source} className="break-words">{source}</li>)}</ul></>}
         <button type="button" className="mb-1 min-h-9 text-accent-2 underline" onClick={()=>setShowSource(true)}>Read full message</button>
       </details>);
-  const replyIntents = (<div aria-label="Regenerate reply intent" className="mb-1 flex shrink-0 flex-wrap gap-1">{['Yes, works','Need more info','Schedule a visit'].map(intent=><Button key={intent} size="sm" variant="ghost" className="min-h-9 @4xl/page:min-h-7" disabled={drafting||sending} onClick={()=>generate(intent)}>{intent}</Button>)}</div>);
+  const replyIntents = (<div aria-label="Regenerate reply intent" className="mb-2 flex shrink-0 flex-wrap gap-2">{['Yes, works','Need more info','Schedule a visit'].map(intent=><Button key={intent} size="sm" variant="secondary" className="min-h-11 rounded-full border border-rule bg-card px-3 @4xl/page:min-h-8" disabled={drafting||sending} onClick={()=>generate(intent)}>{intent}</Button>)}</div>);
   const requestReview = (<div className="mb-2 flex max-h-[40%] min-h-0 shrink-0 flex-col">
               <div className="flex shrink-0 flex-wrap items-center gap-2 text-meta text-ink-3"><span>{reader.messages.length} {reader.messages.length===1?'message':'messages'}{latestInboundIndex(reader.messages)>0?` · ${latestInboundIndex(reader.messages)} earlier`:''}</span><button type="button" aria-expanded={showSource} className="min-h-8 text-accent-2 underline" onClick={()=>setShowSource(v=>!v)}>{showSource?'Hide full message':'Read full message'}</button>{!isAI&&!reviewExpanded&&<Button size="sm" variant="ghost" onClick={()=>{setShowSource(false);setReviewDetails(false);setReviewExpanded(true);}}>Expand review</Button>}</div>
               {!showSource&&<RequestExcerpt text={askExcerpt(incoming?.body??[],reader.subject)} compact={reviewExpanded} links={excerptLinks(splitQuotedText(incoming?.body??[]).text)}/>}
             </div>);
   const approval = (
-    <div data-draft-card className={`flex flex-col rounded-lg border border-ai/35 bg-card p-2 min-h-0 flex-1`}>
+    <div data-draft-card className="flex min-h-0 flex-1 flex-col rounded-lg border border-ai/35 bg-card p-2 @4xl/page:flex-none @4xl/page:shrink-0">
       <div className="flex shrink-0 items-start gap-1 text-meta text-ink-3">
         <details ref={recipientsRef} className="min-w-0 flex-1">
           <summary className="min-h-11 cursor-pointer list-none py-1" title={`To ${toEmail}`}>
@@ -2857,12 +2867,12 @@ function ReaderBody({
     <div className={reviewExpanded?"absolute inset-0 z-[65] flex min-h-0 flex-col bg-paper":"flex min-h-0 flex-1 flex-col"}>
       {reviewExpanded&&<>
         <div className="flex h-12 shrink-0 items-center justify-between border-b border-rule px-4">
-          <Button variant="ghost" className="min-h-11" aria-expanded={reviewDetails} aria-controls="inbox-review-details" onClick={()=>setReviewDetails(v=>!v)}>Request · Sources</Button>
+          <Button variant="ghost" icon={ChevronRight} className="min-h-11" aria-expanded={reviewDetails} aria-controls="inbox-review-details" onClick={()=>setReviewDetails(v=>!v)}>Request · Sources</Button>
           <Button variant="ghost" className="min-h-11" onClick={()=>{setReviewExpanded(false);setReviewDetails(false);}}>Close review</Button>
         </div>
-        {reviewDetails&&<div id="inbox-review-details" className="max-h-[40%] shrink-0 overflow-y-auto border-b border-rule px-4 py-2">
-          {requestReview}{draftSourcesDisclosure}{replyIntents}
-        </div>}
+        <div id="inbox-review-details" className={`${reviewDetails?'block':'hidden @4xl/page:block'} max-h-[40%] shrink-0 overflow-y-auto border-b border-rule px-4 py-2`}>
+          {requestReview}{reviewDetails&&<>{draftSourcesDisclosure}{replyIntents}</>}
+        </div>
       </>}
 
       <div ref={regionRef} hidden={reviewActive&&!showSource} className={`min-h-0 overflow-y-auto px-4 py-2 ${reviewActive?"max-h-[40%] shrink-0":"flex-1"}`}>
@@ -2939,7 +2949,7 @@ function ReaderBody({
             setReplying(false);
         }}
       >
-        <div className={`min-h-0 flex-1 ${reviewActive?`flex flex-col overflow-hidden`:"overflow-y-auto max-sm:overflow-y-auto"}`}>
+        <div className={`min-h-0 flex-1 ${reviewActive?`flex flex-col overflow-hidden @4xl/page:overflow-y-auto`:"overflow-y-auto max-sm:overflow-y-auto"}`}>
         {screeningFirst ? <div data-screen-first>{screening}<details className="mt-2"><summary className="min-h-9 cursor-pointer text-meta text-ink-3">Reply options</summary><Button variant="secondary" onClick={()=>{setReplyAnyway(true);setReplying(true);}}>Reply anyway</Button></details></div> : automated ? (
           <div className="flex items-center gap-2">
             <p className="flex-1 text-meta text-ink-3">
@@ -3002,7 +3012,7 @@ function ReaderBody({
             </div>}
             {hasDraft&&!reviewExpanded&&replyIntents}
             {isAI && hasDraft ? approval : composerExpanded(replying, draft) ? (
-              <div className={`flex flex-col rounded-lg border border-rule bg-card p-2 ${reviewActive?'min-h-0 flex-1':'min-h-0 shrink'}`}>
+              <div className={`flex flex-col rounded-lg border border-rule bg-card p-2 ${reviewActive?'min-h-0 flex-1 @4xl/page:flex-none @4xl/page:shrink-0':'min-h-0 shrink'}`}>
                 <DraftBody
                   inputRef={composerRef}
                   expanded={reviewExpanded} fill={reviewActive}

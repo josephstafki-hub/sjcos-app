@@ -542,7 +542,8 @@ test('unseen mail review keeps recipient and Expand above body, one Close, tools
   const expand=find(n=>n.props?.['aria-label']==='Expand review');assert.ok(expand);
   const tools=find(n=>n.props?.['data-draft-tools']!==undefined);assert.match(nodes(tools).find(n=>n.props?.className?.includes('flex-nowrap')).props.className,/flex-nowrap/);
   click('Expand review');assert.equal(nodes(tree).filter(n=>n.props?.children==='Close review').length,1);
-  assert.equal(find(n=>n.type?.name==='RequestExcerpt'),undefined);
+  assert.ok(find(n=>n.type?.name==='RequestExcerpt'));
+  assert.match(find(n=>n.props?.id==='inbox-review-details').props.className,/hidden @4xl\/page:block/);
   assert.equal(find(n=>n.props?.['data-draft-sources']!==undefined),undefined);
   assert.equal(find(n=>n.props?.['aria-label']==='Regenerate reply intent'),undefined);
   click('Request · Sources');
@@ -680,4 +681,25 @@ test('unseen phone swipe hint can be dismissed once and stays dismissed on reope
   click('Got it');assert.equal(find(n=>n.props?.['data-swipe-hint']!==undefined),undefined);
   mount('hint-reopen');await settle();assert.equal(find(n=>n.props?.['data-swipe-hint']!==undefined),undefined);
  }finally{cleanups.forEach(f=>f?.());cleanups=[];clientData=null;globalThis.document=oldDocument;}
+});
+
+test('desktop review keeps the incoming request above a content-sized card, with room below',async()=>{
+ viewerOwner=true;__draftServer.suggestions=[autoSuggestion('awning-review')];
+ try{
+  mount('awning-review');await settle();click('Expand review');
+  const request=find(n=>n.props?.id==='inbox-review-details');
+  assert.match(request.props.className,/@4xl\/page:block/);
+  assert.ok(nodes(request).some(n=>n.props?.text?.includes('Plans?')));
+  assert.match(find(n=>n.props?.['data-draft-card']!==undefined).props.className,/@4xl\/page:flex-none/);
+ }finally{viewerOwner=false;__draftServer.suggestions=[];}
+});
+test('desktop draft body measures its text while phone review retains remaining-height behavior',()=>{
+ const oldObserver=globalThis.ResizeObserver;
+ globalThis.ResizeObserver=class{observe(){}disconnect(){}};
+ const input={style:{},closest:()=>({clientWidth:954}),clientWidth:400,clientHeight:126,scrollHeight:126,scrollTop:0,addEventListener(){},removeEventListener(){}};
+ try{
+  bodyData={inputRef:{current:input},expanded:true,fill:true,value:'Confirm the awning measurements.'};mount('desktop-fit');
+  assert.equal(input.style.height,'126px');assert.doesNotMatch(find(n=>n.type==='textarea').props.className,/flex-1/);
+  assert.equal(find(n=>n.props?.children==='More below ↓'),undefined);
+ }finally{cleanups.forEach(fn=>fn?.());cleanups=[];bodyData=null;globalThis.ResizeObserver=oldObserver;}
 });

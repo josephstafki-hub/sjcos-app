@@ -47,5 +47,5 @@ test('unseen context distinguishes job ledger evidence, lead provenance and auto
  const {contextStripText}=await import('../lib/inbox-experience.ts');
  assert.equal(contextStripText({fromName:'Avery',projectLabel:'Chen · Terrace'}, {job:{name:'Chen · Terrace',kind:'project',stage:'Construction',money:{outstanding:123400,lastPaidAt:'2026-10-20T18:00:00Z'}},todos:[{title:'Confirm railing'}]}),'Job · Chen · Terrace · $1,234 outstanding · last paid Oct 20 · 1 to-do');
  assert.equal(contextStripText({fromName:'Morgan',contactRole:'lead'}, {job:{name:'Morgan',kind:'lead',stage:'Qualified',scope:'Garden studio',source:'Referral',createdAt:'2026-10-19T18:00:00Z'},todos:[]}), 'Lead · Garden studio · Referral Oct 19 · Qualified');
- assert.equal(contextStripText({fromName:'Tool Library',automated:true,subject:'Reservation ready for pickup'},null),'Automated · Tool Library · Reservation ready for pickup');
+ assert.equal(contextStripText({fromName:'Tool Library',automated:true,subject:'Reservation ready for pickup'},null),'Automated · Tool Library');
 });

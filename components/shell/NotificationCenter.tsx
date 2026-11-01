@@ -179,8 +179,8 @@ export function NotificationCenter() {
     const badge = <button ref={badgeRef} type="button" onClick={() => setOpened(v => !v)}
       aria-label={`${approvals.length} waiting on you — ${opened ? "hide" : "show"} decisions`}
       aria-expanded={opened} aria-controls="inbox-decisions"
-      className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 rounded-full border border-rule bg-paper text-meta text-ink-2 hover:bg-paper-2">
-      <BellRing className="size-3.5 text-flag" />{approvals.length}
+      className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 whitespace-nowrap rounded-full border border-rule bg-paper px-2 text-meta text-ink-2 hover:bg-paper-2">
+      <span>Decisions {approvals.length}</span>
     </button>;
     return <>
       {badgeSlot ? createPortal(badge, badgeSlot) : <div className="fixed right-28 top-[env(safe-area-inset-top)] z-[35]">{badge}</div>}

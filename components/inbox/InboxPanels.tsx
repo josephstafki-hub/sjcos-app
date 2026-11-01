@@ -1,4 +1,5 @@
 "use client";
+import {inboxTitle} from '@/lib/inbox-display';
 import {
   useEffect,
   useRef,
@@ -721,8 +722,8 @@ export function ContextPanel({
                   data.todos.filter(t=>!completed.has(t.id)).map(t=>{
                     const overdue=Boolean(t.due_at&&centralDay(new Date(t.due_at.length===10?t.due_at+'T12:00:00Z':t.due_at))<centralDay(new Date()));
                     return <div key={t.id} className="flex items-start gap-1 border-b border-rule-soft py-2">
-                      <label className="grid size-11 shrink-0 cursor-pointer place-items-center"><input type="checkbox" aria-label={`Complete: ${t.title}`} checked={false} disabled={completing} onChange={()=>completeTask(t.id)} className="size-4 accent-accent"/></label>
-                      <div className="min-w-0 flex-1"><a href={`/engine?work=${t.id}`} className="text-body text-accent-2">{t.title}</a><div className="mt-1 flex flex-wrap items-center gap-1 text-meta"><span title={t.assignees||'Joe'} aria-label={`Assigned to ${t.assignees||'Joe'}`} className="grid size-6 shrink-0 place-items-center rounded-full bg-paper-3 font-semibold">{(t.assignees||'Joe')[0]}</span>{t.due_at&&<span className={`rounded px-1 ${overdue?'bg-warn-soft text-warn':'bg-paper-3 text-ink-3'}`}>{overdue?'Overdue · ':''}{todoDateLabel(t)}</span>}</div></div>
+                      <label className="grid size-11 shrink-0 cursor-pointer place-items-center"><input type="checkbox" aria-label={`Complete: ${inboxTitle(t.title)}`} checked={false} disabled={completing} onChange={()=>completeTask(t.id)} className="size-4 accent-accent"/></label>
+                      <div className="min-w-0 flex-1"><a href={`/engine?work=${t.id}`} className="text-body text-accent-2">{inboxTitle(t.title)}</a><div className="mt-1 flex flex-wrap items-center gap-1 text-meta"><span title={t.assignees||'Joe'} aria-label={`Assigned to ${t.assignees||'Joe'}`} className="grid size-6 shrink-0 place-items-center rounded-full bg-paper-3 font-semibold">{(t.assignees||'Joe')[0]}</span>{t.due_at&&<span className={`rounded px-1 ${overdue?'bg-warn-soft text-warn':'bg-paper-3 text-ink-3'}`}>{overdue?'Overdue · ':''}{todoDateLabel(t)}</span>}</div></div>
                     </div>;
                   })
                 ) : <p className="text-body text-ink-3">No open to-dos.</p>}

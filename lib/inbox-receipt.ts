@@ -9,16 +9,21 @@ const fields=[
   /^(?:(?:payment|paid|invoice|transaction|receipt) date|date(?: paid)?)$/i,
   /^(?:(?:invoice|receipt|reference|transaction|confirmation)(?:\s*(?:no\.?|number|#|id))?)$/i,
   /^(?:status|payment status)$/i,
+  /^(?:(?:payment|paid by) method|payment type|paid (?:by|with)|method)$/i,
 ];
 const fieldIndex=(s:string)=>fields.findIndex(rx=>rx.test(s.replace(/[:\s]+$/,'')));
-/** Inspect leaf tables only. Multi-record/comparison grids are never receipts. */
+/** Read each table's own rows, including labels/values inside layout cells.
+ * Nested rows are inspected independently, never flattened into extra records. */
 export function receiptFields(html:string):ReceiptField[] {
   const doc=parseDocument(html);
   const pairs:ReceiptField[]=[];
   const text=(node:Element)=>DomUtils.textContent(node).replace(/\s+/g,' ').trim();
   for(const table of DomUtils.findAll(e=>e.name==='table',doc.children)){
-    if(DomUtils.findOne(e=>e.name==='table',table.children,true))continue;
-    const rows=DomUtils.findAll(e=>e.name==='tr',table.children).map(row=>row.children.filter(isTag).filter(c=>/^(td|th)$/.test(c.name)).map(text).filter(Boolean)).filter(r=>r.length);
+    const rows=DomUtils.findAll(e=>e.name==='tr',table.children).filter(row=>{
+      let parent=row.parent;
+      while(parent&&parent!==table){if(isTag(parent)&&parent.name==='table')return false;parent=parent.parent;}
+      return parent===table;
+    }).map(row=>row.children.filter(isTag).filter(c=>/^(td|th)$/.test(c.name)).map(text).filter(Boolean)).filter(r=>r.length);
     const header=rows[0];
     if(!header)continue;
     if(header.length>=3&&header.filter(c=>fieldIndex(c)>=0).length>=2){
@@ -34,11 +39,22 @@ export function receiptFields(html:string):ReceiptField[] {
   const date='(?:\\d{1,2}[/-]\\d{1,2}[/-]\\d{2,4}|[A-Z][a-z]+ \\d{1,2},? \\d{4})';
   const payment=new RegExp(`\\b(?:paid to|payee[: ]|to)\\s+(.{2,100}?)\\s+on\\s+(${date})`,'i').exec(prose);
   if(payment){pairs.push({label:'Payee',value:payment[1]},{label:'Payment date',value:payment[2]});}
+  if(!pairs.some(p=>fieldIndex(p.label)===0)){
+    const total=/\byou paid\s+((?:[A-Z]{3}\s*)?[$€£][\d,]+(?:\.\d{2})?)/i.exec(prose);
+    if(total)pairs.push({label:'Amount paid',value:total[1]});
+  }
   const recognized=pairs.filter(p=>p.value&&p.value.length<600&&fieldIndex(p.label)>=0);
+  const unique=new Map<string,ReceiptField>();
+  for(const pair of recognized){
+    const key=pair.label.toLowerCase().replace(/[:\s]+$/,'');
+    // Separate receipts/records must not be merged into one compact summary.
+    if(unique.has(key)&&unique.get(key)!.value!==pair.value)return [];
+    unique.set(key,pair);
+  }
   const kinds=new Set(recognized.map(p=>fieldIndex(p.label)));
   // Need monetary identity plus another receipt field, not an arbitrary layout.
   if(!kinds.has(0)||kinds.size<2||!/(?:receipt|invoice|payment|paid|transaction)/i.test(DomUtils.textContent(doc)))return [];
-  return recognized.sort((a,b)=>fieldIndex(a.label)-fieldIndex(b.label));
+  return [...unique.values()].sort((a,b)=>fieldIndex(a.label)-fieldIndex(b.label));
 }
 export function useCompactReceipt(fields:ReceiptField[],overflow:boolean,choice:'compact'|'formatted'|null) {
   return fields.length>0&&(choice==='compact'||choice===null&&overflow);

@@ -10,7 +10,7 @@ import { Bell } from "lucide-react";
 
 const UNREAD_EVENT = "sjc:unread";
 
-export function NotificationBell({ initial }: { initial: number }) {
+export function NotificationBell({ initial, labelled=false }: { initial: number;labelled?:boolean }) {
   // The live count wins until the server renders a different one (a
   // refresh after marking read), which then takes over again.
   const [live, setLive] = useState<{ n: number; base: number } | null>(null);
@@ -29,9 +29,10 @@ export function NotificationBell({ initial }: { initial: number }) {
       className="relative flex items-center"
       aria-label={unread > 0 ? `Notifications, ${unread} unread` : "Notifications"}
     >
-      <Bell className="size-4 text-ink-2" strokeWidth={1.5} />
+      <Bell className={`size-4 text-ink-2 ${labelled?'@max-[40rem]/shell:hidden':''}`} strokeWidth={1.5} />
+      {labelled&&<span className="hidden whitespace-nowrap text-meta @max-[40rem]/shell:inline">Notifications {unread}</span>}
       {unread > 0 && (
-        <span className="absolute -right-1.5 -top-1.5 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-flag px-[3px] font-mono text-[9px] font-semibold leading-none text-paper">
+        <span className={`absolute -right-1.5 -top-1.5 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-flag px-[3px] font-mono text-[9px] font-semibold leading-none text-paper ${labelled?'@max-[40rem]/shell:hidden':''}`}>
           {unread > 99 ? "99+" : unread}
         </span>
       )}

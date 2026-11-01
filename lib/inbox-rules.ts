@@ -241,6 +241,19 @@ export function automationDeadline(evidence:string, receivedAt?:number):string|u
   return `Auto-completes ${date.toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'UTC'})}`;
 }
 
+/** Evidence-only action cue, independent of sender, subject or provider. */
+export function automatedActionLine(evidence:string,receivedAt?:number):string {
+  const text=splitQuotedText([evidence]).text.replace(/\s+/g,' ');
+  const action=/\b(?:complete|submit|provide|respond to|fill (?:in|out))\b.{0,70}\binformation request\b|\binformation request\b.{0,70}\b(?:complete|submit|provide|respond|fill)\b/i.test(text)?'Complete information request'
+    : /\breview\b.{0,50}\border\b|\border\b.{0,50}\b(?:review|complete[d]?|auto-completes?)\b/i.test(text)?'Review order':'';
+  if(!action)return '';
+  const auto=automationDeadline(text,receivedAt);
+  const absolute=/\bauto-completes?(?: automatically)?\s+(?:on\s+)?((?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2})\b/i.exec(text);
+  const relative=/\b(?:within|in|after)\s+(?:the next\s+)?(\d+)\s+(business\s+)?days?\b/i.exec(text);
+  const deadline=auto?auto[0].toLowerCase()+auto.slice(1):absolute?`auto-completes ${absolute[1]}`:relative?`${relative[1]} ${relative[2]?'business ':''}days`:'';
+  return [action,deadline].filter(Boolean).join(' · ');
+}
+
 // Updated only by a normal inbox load; nav polling never loads Gmail itself.
 const loadedNeedsCounts=new Map<string,number>();
 export function rememberNeedsCount(mailbox:string,count:number) {loadedNeedsCounts.set(mailbox.toLowerCase(),count);}

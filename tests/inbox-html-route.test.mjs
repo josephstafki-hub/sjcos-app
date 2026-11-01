@@ -21,6 +21,7 @@ registerHooks({resolve(s,c,n){
  if(s in stubs)return {url:'html-stub:'+s,shortCircuit:true};
  if(s==='@/lib/gmail')return n(new URL('../lib/gmail.ts',import.meta.url).href,c);
  if(s==='@/lib/inbox-email-content')return n(new URL('../lib/inbox-email-content.ts',import.meta.url).href,c);
+ if(s==='@/lib/inbox-read-gate')return n(new URL('../lib/inbox-read-gate.ts',import.meta.url).href,c);
  if(s.startsWith('./')&&c.parentURL?.endsWith('.ts')&&!s.endsWith('.ts'))return n(s+'.ts',c);
  throwIfLive(s);return n(s,c);
 },load(u,c,n){return u.startsWith('html-stub:')?{format:'module',source:stubs[u.slice(10)],shortCircuit:true}:n(u,c);}});

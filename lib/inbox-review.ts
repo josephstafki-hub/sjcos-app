@@ -1,3 +1,4 @@
+import {cleanEmailText} from './inbox-email-content.ts';
 import { splitQuotedText, threadNeedsMe} from './inbox-rules.ts';
 import {centralDay, matchesInboxTab} from './inbox-experience.ts';
 import type {InboxThread} from './inbox';
@@ -14,7 +15,7 @@ export function askExcerpt(paras:string[], subject=''):string {
   const text=splitQuotedText(paras).text
     .replace(/^\s*(?:hi|hello|hey|dear|good morning|good afternoon)(?:[ \t]+[^,\n!]{1,50})?[,!][ \t]*/i,'')
     .split(/\n\s*(?:thanks(?:[,!]|$)|regards\b|best\b|sincerely\b)/i)[0]
-    .replace(/https?:\/\/\S+/g,'');
+    .replace(/https?:\/\/\S+/g,'').replace(/\n{3,}/g,'\n\n');
   const sentences=text.split(/\n\s*\n|(?<=[.!?])\s+/).map(s=>s.replace(/\s+/g,' ').trim()).filter(Boolean);
   const request=REQUEST_SIGNAL;
   const selected=sentences.filter(s=>request.test(s)&&!/^thank/i.test(s));
@@ -25,7 +26,9 @@ export function askExcerpt(paras:string[], subject=''):string {
     if(whole.length&&whole.join(' ').length+sentence.length>700)break;
     whole.push(sentence);
   }
-  return whole.join(' ')||reflowPlainText(text).trim()||subject;
+  const excerpt=whole.join(' ')||reflowPlainText(text).trim()||subject;
+  const links=excerptLinks(splitQuotedText(paras).text);
+  return [excerpt,...links.map(link=>link.label)].filter(Boolean).join('\n\n');
 
 }
 type ActionThread=Partial<InboxThread> & Pick<InboxThread,'subject'|'fromName'>;
@@ -43,7 +46,7 @@ export function rowActionTitle(t:ActionThread):string {
   }
   const subject=(t.subject??'').replace(/^(?:(?:re|fwd?|aw)\s*:\s*)+/i,'').trim();
   if(t.automated)return subject||automationState(t).label;
-  const summary=cleanRowSummary(t.preview??'',t.fromName??'').replace(/\s+/g,' ').trim();
+  const summary=completeRequestClause(cleanRowSummary(cleanEmailText(t.preview??''),t.fromName??''));
   if(/^(?:review|confirm|complete|send|schedule|approve|asks? to)\b/i.test(summary))return summary.slice(0,160);
   if(summary&&REQUEST_SIGNAL.test(summary))return `Asks: ${summary}`.slice(0,160);
   return (subject||summary).slice(0,160);
@@ -73,7 +76,7 @@ export function restoreForwardChoices<T extends {id:string}>(originals:T[], stor
 
 /** Only soft prose wraps: short lines, structured blocks and signatures stay exact. */
 export function reflowPlainText(text:string):string {
-  const lines=text.split('\n'), result:string[]=[];
+  const lines=cleanEmailText(text).split('\n'), result:string[]=[];
   const structured=(line:string)=>/^\s*(?:>|[-*•]\s|\d+[.)]\s|--\s*$)|^\s{2,}|https?:\/\/|[\w.+-]+@[\w.-]+/.test(line);
   let signature=false;
   for(let i=0;i<lines.length;i++){
@@ -87,4 +90,19 @@ export function reflowPlainText(text:string):string {
 }
 export function draftRecipientName(toEmail:string,target?:{toName:string;toEmail:string}|null):string {
   return toEmail.trim() ? target?.toEmail.toLowerCase()===toEmail.trim().toLowerCase()&&target.toName?.trim()?target.toName:toEmail.trim() : 'Choose recipient';
+}
+
+/** Strip clipped prefixes only when a complete request clause follows. */
+export function completeRequestClause(text:string):string {
+  const value=text.replace(/\s+/g,' ').trim();
+  if(!/^(?:[….,;:—–-]+|(?:and|but|or|also|then)\b)/i.test(value))return value;
+  const rest=value.replace(/^[….,;:—–\s-]+/,'').replace(/^(?:(?:and|but|or|also|then)\b[\s,]*)+/i,'');
+  if(!/^(?:please\s+)?(?:provide|send|review|confirm|complete|schedule|approve|add|include|quote|estimate|check|can you|could you|would you|will you|we (?:need|want)|i (?:need|want))\b/i.test(rest))return '';
+  return rest.charAt(0).toUpperCase()+rest.slice(1);
+}
+export function excerptLinks(text:string):{href:string;label:string}[] {
+  return [...new Set(text.match(/https?:\/\/[^\s<>]+/g)??[])].slice(0,4).flatMap(raw=>{
+    const href=raw.replace(/[).,;]+$/,'');
+    try {const url=new URL(href);return [{href,label:`link · ${url.hostname.replace(/^www\./,'')}`}];}catch{return [];}
+  });
 }

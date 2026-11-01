@@ -1,3 +1,4 @@
+import {decodeEntities} from './inbox-email-content.ts';
 import { parseDocument, DomUtils } from 'htmlparser2';
 import { Text, isTag } from 'domhandler';
 
@@ -53,16 +54,16 @@ export function foldEmailQuotes(html: string): string {
 /** Content-first view from sanitized HTML. Re-escape text; allow only safe links.
  * Flatten layout tables, but retain each leaf row's labels next to its values. */
 export function readableEmailHtml(html:string):string {
-  const doc=parseDocument(html);
+  const doc=parseDocument(html,{decodeEntities:false});
   const escape=(s:string)=>s.replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;');
   function render(node:(typeof doc.children)[number]):string {
-    if(node.type==='text')return escape(node.data);
+    if(node.type==='text')return escape(decodeEntities(node.data));
     if(!isTag(node))return '';
     const tag=node.name;
     if(/^(?:script|style|img|svg|video|audio|iframe|blockquote|head)$/.test(tag))return '';
     const contents=()=>node.children.map(render).join('');
     if(tag==='a'){
-      const href=node.attribs.href??'';
+      const href=decodeEntities(node.attribs.href??'');
       return /^(?:https?:|mailto:|tel:)/i.test(href)?`<a href="${escape(href)}" target="_blank" rel="noopener noreferrer">${contents()}</a>`:contents();
     }
     if(tag==='br')return '<br>';

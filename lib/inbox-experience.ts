@@ -355,7 +355,7 @@ export function contextStripText(thread: Pick<InboxThread,'projectLabel'|'fromNa
   const date=(value:string)=>new Date(value.length===10?value+'T12:00:00Z':value).toLocaleDateString('en-US',{month:'short',day:'numeric',timeZone:'America/Chicago'});
   if(thread.automated)return ['Automated',thread.fromName,thread.actionTitle||thread.subject,automationDeadline(thread.attentionEvidence??'',thread.receivedAt)].filter(Boolean).join(' · ');
   const stage=(job?.stage||thread.contactStage||'').replaceAll('_',' ');
-  if(job?.kind==='lead'||thread.contactRole==='lead')return ['Lead',job?.scope||job?.name||thread.fromName,[job?.source,job?.createdAt?date(job.createdAt):''].filter(Boolean).join(' '),stage==='intake'?'New inquiry':stage].filter(Boolean).join(' · ');
+  if(job?.kind==='lead'||thread.contactRole==='lead')return ['Lead',job?.scope||job?.name||thread.fromName,[humanLeadSource(job?.source??''),job?.createdAt?date(job.createdAt):''].filter(Boolean).join(' '),stage==='intake'?'New inquiry':stage].filter(Boolean).join(' · ');
   const tasks=context?.todos??[...(thread.todos??[]),...(thread.jobTodos??[])];
   return [job||thread.projectLabel?'Job':'Contact',shortJobLabel(job?.name||thread.projectLabel||thread.fromName),job?.money&&job.money.outstanding>0?`${new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0}).format(job.money.outstanding/100)} outstanding`:'',job?.money?.lastPaidAt?`last paid ${date(job.money.lastPaidAt)}`:'',tasks.length?`${tasks.length} to-do${tasks.length===1?'':'s'}`:'',tasks.find(t=>t.thread_linked)?.title,!job&&!thread.projectLabel?(stage==='intake'?'New inquiry':stage):''].filter(Boolean).join(' · ');
 }
@@ -443,4 +443,23 @@ export function completionPass(pass:InboxThread[],currentId:string) {
   const index=pass.findIndex(t=>t.id===currentId);
   const remaining=pass.filter(t=>t.id!==currentId);
   return {next:pass.slice(index+1).find(t=>t.id!==currentId)??remaining[0],left:remaining.length};
+}
+
+/** Provider identifiers belong in Details, never the owner-facing source strip. */
+export function humanLeadSource(source:string):string {
+  const value=source.replace(/\b(?:gmail|email|crm)?\s*(?:thread|message|record|id)\b\s*[:#]?\s*[a-z0-9_:-]+/gi,'')
+    .replace(/\b[0-9a-f]{8}-[0-9a-f-]{27,}\b|\b[0-9a-f]{12,}\b|\b[a-z0-9_-]{24,}\b/gi,'')
+    .replace(/[\s/|·:—-]+$/,'').trim();
+  if(/\bwebsite\b/i.test(value))return 'Website form';
+  return value;
+}
+export type AttentionGroup = 'Draft ready'|'Needs attention'|'Replied to you'|'Waiting';
+export function attentionGroup(thread:InboxThread,drafts:ReadonlySet<string>):AttentionGroup {
+  if(drafts.has(thread.id)&&!thread.automated)return 'Draft ready';
+  if(thread.automated&&(thread.attentionOverride??thread.attentionRequired))return 'Needs attention';
+  return thread.inboundLast===false||thread.view==='awaiting_them'?'Waiting':'Replied to you';
+}
+export function orderedAttentionThreads(threads:InboxThread[],drafts:ReadonlySet<string>):InboxThread[] {
+  const rank={'Draft ready':0,'Needs attention':1,'Replied to you':2,'Waiting':3};
+  return [...threads].sort((a,b)=>rank[attentionGroup(a,drafts)]-rank[attentionGroup(b,drafts)]||(b.receivedAt??0)-(a.receivedAt??0));
 }

@@ -68,6 +68,7 @@ import {guardInboxNavigation,registerInboxDraft} from '@/lib/inbox-navigation';
 import {completionKey,readCompletions,saveCompletion,clearCompletion,retryCompletion,type SentCompletion} from "@/lib/inbox-completion";
 import {attachInquiryContinuity} from "@/lib/inbox-continuity";
 import {MAIL_FILE_ACCEPT,validateMailFiles,fileSize} from "@/lib/inbox-files";
+import {MAX_HTML_RETRIES, type EmailHtmlResult} from '@/lib/inbox-email-content';
 import {readableEmailHtml} from "@/lib/inbox-email-html";
 import { applyRemoteImagePolicy } from "@/lib/inbox-image-policy";
 import { mergeTranscript } from "@/lib/append-transcript";
@@ -106,7 +107,7 @@ import type {
 
 import {
   INBOX_TABS,
-  orderedInboxThreads, rowDay, canLoadMore, completionPass, attentionTaskTitle, draftGenerationResult,
+  orderedInboxThreads, orderedAttentionThreads, attentionGroup, rowDay, canLoadMore, completionPass, attentionTaskTitle, draftGenerationResult,
   applyInboxPreferences,
   contextStripText, threadTodoCue, todoDateLabel, contextLayout,
   completeAfterSend,
@@ -118,7 +119,7 @@ import {
   type InboxTab,
   type SavedInboxDraft,
 } from "@/lib/inbox-experience";
-import {reflowPlainText, draftRecipientName, askExcerpt, rowActionTitle, automationState, composerMode, olderOtherMail, completeMailBatch, draftReviewSize, regenerateModel, restoreForwardChoices} from '@/lib/inbox-review';
+import {reflowPlainText, draftRecipientName, askExcerpt, excerptLinks, rowActionTitle, automationState, composerMode, olderOtherMail, completeMailBatch, draftReviewSize, regenerateModel, restoreForwardChoices} from '@/lib/inbox-review';
 import {useComposerDraft, DraftSyncFooter} from './useComposerDraft';
 import {loadDrafts, dismissSuggestion} from '@/lib/actions/inbox-drafts';
 import {matchingSuggestion, draftRow} from '@/lib/inbox-draft-ui';
@@ -496,19 +497,13 @@ export function InboxClient({
 
   const baseVisible=useMemo(()=>sourceVisible.map(t=>applyInboxPreferences(t,preferences)),[sourceVisible,preferences]);
 
-  const visible = useMemo(
-    () =>
-      orderedInboxThreads(baseVisible
-        .filter(
-          (t) =>
-            !passCompleted.has(t.id) && (!tab || matchesInboxTab(t, tab, readyIds.has(t.id))) &&
-            `${t.fromName} ${t.fromEmail??""} ${t.subject} ${t.preview} ${t.projectLabel ?? ""}`
-              .toLowerCase()
-              .includes(query.toLowerCase()),
-        )
-        .filter((t,i,all)=>tab!=='new'||all.findIndex(other=>other.fromEmail?.toLowerCase()===t.fromEmail?.toLowerCase())===i),new Date(),tab==='needs'?readyIds:new Set()),
-    [baseVisible, tab, readyIds, query,passCompleted],
-  );
+  const visible = useMemo(() => {
+    const rows=baseVisible.filter(t =>
+      !passCompleted.has(t.id) && (!tab || matchesInboxTab(t,tab,readyIds.has(t.id))) &&
+      `${t.fromName} ${t.fromEmail??""} ${t.subject} ${t.preview} ${t.projectLabel??""}`.toLowerCase().includes(query.toLowerCase())
+    ).filter((t,i,all)=>tab!=='new'||all.findIndex(other=>other.fromEmail?.toLowerCase()===t.fromEmail?.toLowerCase())===i);
+    return tab==='needs'?orderedAttentionThreads(rows,readyIds):orderedInboxThreads(rows);
+  },[baseVisible,tab,readyIds,query,passCompleted]);
   // Count of threads sitting in the Gmail inbox (the plain "Inbox" rail view).
   const inboxCount = useMemo(
     () => threads.filter((t) => t.inInbox).length,
@@ -967,7 +962,7 @@ export function InboxClient({
             className="w-max !max-w-none !overflow-visible h-11 [&_button]:shrink-0 [&_button]:h-11 @4xl/page:h-8 @4xl/page:[&_button]:h-7"
           />
         </div>
-        <span className="hidden @4xl/page:inline text-meta text-ink-3">loaded</span>
+
         <label className="flex min-h-11 min-w-0 flex-1 items-center gap-1.5 rounded-md border border-rule bg-card px-2 @4xl/page:min-h-8 @4xl/page:w-28 @4xl/page:flex-none">
           <Search className="size-3.5 shrink-0 text-ink-3" />
           <input
@@ -1336,7 +1331,7 @@ export function InboxClient({
             ) : (
               visible.map((t,i) => (
                 <div key={t.id}>
-                {(i===0||rowDay(t)!==rowDay(visible[i-1]))&&<p className="border-b border-rule-soft bg-paper-2 px-3 py-1.5 text-meta font-semibold text-ink-3">{rowDay(t)}</p>}
+                {(i===0||(tab==='needs'?attentionGroup(t,readyIds)!==attentionGroup(visible[i-1],readyIds):rowDay(t)!==rowDay(visible[i-1])))&&<p className="border-b border-rule-soft bg-paper-2 px-3 py-1.5 text-meta font-semibold text-ink-3">{tab==='needs'?`${attentionGroup(t,readyIds)} · ${visible.filter(row=>attentionGroup(row,readyIds)===attentionGroup(t,readyIds)).length}`:rowDay(t)}</p>}
                 <ThreadRow
                   thread={draftRow(t,suggestions.get(t.id))}
                   selected={selected?.id === t.id}
@@ -1363,8 +1358,8 @@ export function InboxClient({
             )}
           </div>
           {!composing&&<div className="relative border-t border-rule-soft px-3 py-1 @4xl/page:hidden">
-            <Button variant="ghost" className="min-h-11" aria-expanded={splitSheet} onClick={()=>setSplitSheet(v=>!v)}>{INBOX_TABS.find(t=>t.value===tab)?.label??headerLabel} {tab?counts[tab]:visible.length} ▾ <span className="text-meta text-ink-3">loaded</span></Button>
-            {splitSheet&&<div role="dialog" aria-label="Inbox splits" className="absolute inset-x-0 bottom-full z-[75] rounded-t-xl border border-rule bg-card p-3 shadow-pop"><div className="flex items-center"><h2 className="flex-1 text-subheading font-semibold">Inbox splits · loaded</h2><Button variant="ghost" icon={X} iconOnly aria-label="Close splits" title="Close splits" onClick={()=>setSplitSheet(false)}/></div>{INBOX_TABS.map(split=><button key={split.value} aria-pressed={tab===split.value} className="flex min-h-11 w-full items-center justify-between rounded-md px-3 text-body aria-pressed:bg-selected" onClick={()=>{setTab(split.value);setMobileReader(false);setSplitSheet(false);}}><span>{split.label}</span><span>{counts[split.value]}</span></button>)}</div>}
+            <Button variant="ghost" className="min-h-11" aria-expanded={splitSheet} onClick={()=>setSplitSheet(v=>!v)}>{INBOX_TABS.find(t=>t.value===tab)?.label??headerLabel} {tab?counts[tab]:visible.length} ▾</Button>
+            {splitSheet&&<div role="dialog" aria-label="Inbox splits" className="absolute inset-x-0 bottom-full z-[75] rounded-t-xl border border-rule bg-card p-3 shadow-pop"><div className="flex items-center"><h2 className="flex-1 text-subheading font-semibold">Inbox splits</h2><Button variant="ghost" icon={X} iconOnly aria-label="Close splits" title="Close splits" onClick={()=>setSplitSheet(false)}/></div>{INBOX_TABS.map(split=><button key={split.value} aria-pressed={tab===split.value} className="flex min-h-11 w-full items-center justify-between rounded-md px-3 text-body aria-pressed:bg-selected" onClick={()=>{setTab(split.value);setMobileReader(false);setSplitSheet(false);}}><span>{split.label}</span><span>{counts[split.value]}</span></button>)}</div>}
           </div>}
         </section>
 
@@ -1967,7 +1962,7 @@ function useSafeDraft(saved:ReturnType<typeof useComposerDraft>, threadId:string
   </>};
 }
 /** A bounded excerpt always announces its scope and offers local expansion. */
-function RequestExcerpt({text,compact}:{text:string;compact:boolean}) {
+function RequestExcerpt({text,compact,links=[]}:{text:string;compact:boolean;links?:{href:string;label:string}[]}) {
   const [open,setOpen]=useState(false);
   const [overflow,setOverflow]=useState(false);
   const ref=useRef<HTMLQuoteElement>(null);
@@ -1977,9 +1972,9 @@ function RequestExcerpt({text,compact}:{text:string;compact:boolean}) {
     const observer=new ResizeObserver(measure);observer.observe(el);measure();return()=>observer.disconnect();
   },[text,compact,open]);
   return <div className="flex min-h-0 flex-col">
-    <div className="flex shrink-0 items-center gap-2 text-meta text-ink-3"><span>Request excerpt</span>{(compact||overflow||open)&&<button type="button" aria-expanded={open} className="min-h-8 text-accent-2 underline" onClick={()=>setOpen(v=>!v)}>{open?'less':'more'}</button>}</div>
+    <div className="flex shrink-0 items-center gap-2 text-meta text-ink-3"><span>Request excerpt</span><button type="button" aria-expanded={open} className="min-h-8 text-accent-2 underline" onClick={()=>setOpen(v=>!v)}>{open?'less':'more'}</button></div>
     <div className="relative min-h-0 overflow-hidden">
-      <blockquote ref={ref} aria-label="Incoming request" className={`max-h-[35dvh] overflow-y-auto whitespace-pre-line border-l-2 border-accent pl-2 pr-1 text-body text-ink-2 ${compact&&!open?'line-clamp-2':open?'':'max-h-[24dvh]'}`}>{text}</blockquote>
+      <blockquote ref={ref} aria-label="Incoming request" className={`max-h-[35dvh] overflow-y-auto whitespace-pre-line border-l-2 border-accent pl-2 pr-1 text-body text-ink-2 ${compact&&!open?'line-clamp-2':open?'':'max-h-[24dvh]'}`}>{links.reduce((value,link)=>value.replace(`\n\n${link.label}`,''),text)}{links.length>0&&<span className="mt-2 flex flex-wrap gap-2">{links.map(link=><a key={link.href} href={link.href} target="_blank" rel="noopener noreferrer" className="text-accent-2 underline">{link.label}</a>)}</span>}</blockquote>
       {overflow&&!open&&<div aria-hidden className="pointer-events-none absolute inset-x-0 bottom-0 h-5 bg-gradient-to-t from-paper-2 to-transparent"/>}
     </div>
   </div>;
@@ -2505,27 +2500,29 @@ function EmailMessageCard({
   onToggle: () => void;
 }) {
   const [forwarding,setForwarding]=useState(false);
-  const [html, setHtml] = useState("");
-  const [readingMode,setReadingMode]=useState<"readable"|"original">("readable");
+  const [content,setContent]=useState<EmailHtmlResult|{status:'loading';html:''}>({status:'loading',html:''});
+  const [readingMode,setReadingMode]=useState<"readable"|"original">("original");
   const imageKey=`sjc:inbox:images:v1:${mailbox.toLowerCase()}:${message.fromEmail?.toLowerCase()??''}`;
   const [allowedImages,setAllowedImages]=useState(false);
   useEffect(()=>{try{setAllowedImages(localStorage.getItem(imageKey)==='show');}catch{}},[imageKey]);
-  const loaded = useRef(false);
+  const [attempt,setAttempt]=useState(0);
+  const loaded=useRef('');
   useEffect(() => {
-    if (!expanded || loaded.current || !message.id) return;
-    let alive = true;
-    getThreadHtmlAction(threadId, message.id)
-      .then((r) => {
-        if (alive) {
-          setHtml(r.html);
-          loaded.current = true;
-        }
-      })
-      .catch(() => {});
-    return () => {
-      alive = false;
-    };
-  }, [expanded, threadId, message.id]);
+    if(!expanded)return;
+    const key=`${threadId}:${message.id}:${attempt}`;
+    if(loaded.current===key)return;
+    let alive=true;
+    setContent({status:'loading',html:''});
+    const failed={status:'failed',html:'',error:'Could not load formatted email. Showing text below.'} as const;
+    const timer=setTimeout(()=>{if(alive){alive=false;loaded.current=key;setContent(failed);}},20_000);
+    if(!message.id){clearTimeout(timer);loaded.current=key;setContent(failed);return;}
+    getThreadHtmlAction(threadId,message.id).then(result=>{
+      if(!alive)return;
+      clearTimeout(timer);loaded.current=key;setContent(result);
+    }).catch(()=>{if(alive){clearTimeout(timer);loaded.current=key;setContent(failed);}});
+    return ()=>{alive=false;clearTimeout(timer);};
+  },[expanded,threadId,message.id,attempt]);
+  const html=content.html;
   const imagePolicy=useMemo(()=>applyRemoteImagePolicy(html,!blockImages||allowedImages),[html,blockImages,allowedImages]);
   return (
     <article className="overflow-hidden rounded-lg border border-rule bg-card">
@@ -2564,13 +2561,16 @@ function EmailMessageCard({
           </details>
           {html ? (
             <>
-              <div className="mb-2 flex items-center gap-1" aria-label="Reading mode"><Button size="sm" variant={readingMode==='readable'?'secondary':'ghost'} aria-pressed={readingMode==='readable'} onClick={()=>setReadingMode('readable')}>Readable</Button><Button size="sm" variant={readingMode==='original'?'secondary':'ghost'} aria-pressed={readingMode==='original'} onClick={()=>setReadingMode('original')}>Original</Button></div>
+              <div className="mb-2 flex items-center gap-1" aria-label="Reading mode"><Button size="sm" variant={readingMode==='readable'?'secondary':'ghost'} aria-pressed={readingMode==='readable'} onClick={()=>setReadingMode('readable')}>Readable</Button><Button size="sm" variant={readingMode==='original'?'secondary':'ghost'} aria-pressed={readingMode==='original'} onClick={()=>setReadingMode('original')}>Formatted</Button></div>
               {readingMode==='original'&&imagePolicy.blocked>0&&<div className="mb-2 flex flex-wrap items-center gap-2 text-meta text-ink-3"><span>{imagePolicy.blocked} remote {imagePolicy.blocked===1?"resource":"resources"} blocked ·</span><Button variant="secondary" size="sm" onClick={()=>{setAllowedImages(true);try{localStorage.setItem(imageKey,'show');}catch{}}}>Show images</Button></div>}
               <EmailHtml key={`${imageKey}:${allowedImages}:${readingMode}`} html={readingMode==='readable'?readableEmailHtml(imagePolicy.html):imagePolicy.html} />
             </>
-          ) : (
-            <PlainBody paras={message.body} />
-          )}
+          ) : <>
+            {content.status==='loading'&&<p role="status" className="mb-2 text-meta text-ink-3">Loading formatted email… Text preview below.</p>}
+            {content.status==='text-only'&&<p className="mb-2 text-meta text-ink-3">Text-only email · no HTML part</p>}
+            {content.status==='failed'&&<div role="status" className="mb-2 flex flex-wrap items-center gap-2 text-meta text-ink-3"><span>{content.error}</span>{attempt<MAX_HTML_RETRIES?<Button size="sm" variant="secondary" onClick={()=>setAttempt(a=>a+1)}>Retry formatted email ({MAX_HTML_RETRIES-attempt} left)</Button>:<span>Retry limit reached. Reopen the conversation later to try again.</span>}</div>}
+            <PlainBody paras={message.body}/>
+          </>}
           {message.id&&<Button variant="ghost" size="sm" onClick={()=>setForwarding(true)}>Forward</Button>}
           {forwarding&&<ComposeModal selfEmail={mailbox} userId={userId} owner={owner} onClose={()=>setForwarding(false)} forward={{threadId,subject,message}}/>}
           {Boolean(message.attachments?.length) && (
@@ -2758,7 +2758,7 @@ function ReaderBody({
     });
   }
   const approval = (
-    <div data-draft-card className={`mt-auto flex min-h-0 max-h-full flex-col rounded-lg border border-ai/35 bg-card p-2 ${reviewExpanded?"flex-1":"shrink"}`}>
+    <div data-draft-card className={`flex min-h-0 max-h-full flex-col rounded-lg border border-ai/35 bg-card p-2 ${reviewExpanded?"flex-1":"shrink"}`}>
       <div className="flex shrink-0 items-start gap-1 text-meta text-ink-3">
         <details className="min-w-0 flex-1">
           <summary className="min-h-11 cursor-pointer list-none py-1" title={`To ${toEmail}`}>
@@ -2917,9 +2917,9 @@ function ReaderBody({
                 </div>
               </details>
             )}
-            {reviewActive&&<div className="mb-2 flex max-h-[40%] shrink-0 flex-col">
+            {reviewActive&&<div className="mb-2 flex max-h-[40%] min-h-0 shrink-0 flex-col">
               <div className="flex shrink-0 flex-wrap items-center gap-2 text-meta text-ink-3"><span>{reader.messages.length} {reader.messages.length===1?'message':'messages'}{latestInboundIndex(reader.messages)>0?` · ${latestInboundIndex(reader.messages)} earlier`:''}</span><button type="button" aria-expanded={showSource} className="min-h-8 text-accent-2 underline" onClick={()=>setShowSource(v=>!v)}>{showSource?'Hide full message':'Read full message'}</button>{!isAI&&!reviewExpanded&&<Button size="sm" variant="ghost" onClick={()=>setReviewExpanded(true)}>Expand review</Button>}</div>
-              {!showSource&&<RequestExcerpt text={askExcerpt(incoming?.body??[],reader.subject)} compact={reviewExpanded}/>}
+              {!showSource&&<RequestExcerpt text={askExcerpt(incoming?.body??[],reader.subject)} compact={reviewExpanded} links={excerptLinks(splitQuotedText(incoming?.body??[]).text)}/>}
             </div>}
             {safety.controls}
             {suggestion&&!preview&&saved.accepted?.id!==suggestion.id&&<div className="rounded-md border border-ai/30 bg-ai-soft p-2 text-meta">
@@ -2929,7 +2929,7 @@ function ReaderBody({
               <Button size="sm" variant="ghost" disabled={sending} onClick={()=>startSend(async()=>{try{await dismissSuggestion(suggestion.id);setDismissed(suggestion.id);await saved.synced.refresh();window.dispatchEvent(new Event('inbox-drafts-changed'));}catch{setError('Could not dismiss the suggestion.');}})}>Dismiss</Button></div>
             </div>}
             {isAI && hasDraft ? approval : composerExpanded(replying, draft) ? (
-              <div className={`mt-auto flex min-h-0 flex-col rounded-lg border border-rule bg-card p-2 ${reviewExpanded?"flex-1":"shrink"}`}>
+              <div className={`flex min-h-0 flex-col rounded-lg border border-rule bg-card p-2 ${reviewExpanded?"flex-1":"shrink"}`}>
                 <DraftBody
                   inputRef={composerRef}
                   expanded={reviewExpanded}

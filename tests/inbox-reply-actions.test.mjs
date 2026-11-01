@@ -9,13 +9,13 @@ const stubs = {
   '@/lib/dal':`export const requireAccess = async area => { if (!globalThis.__replyAction.allowed) throw Error('Forbidden'); return {id:'owner',role:globalThis.__replyAction.role??'owner'}; };`,
   '@/lib/db':`export const query = async (sql,p) => {globalThis.__replyAction.queries.push([sql,p]);if(globalThis.__replyAction.failLink&&sql.includes('INSERT INTO thread_links'))throw Error('db offline');return {rows:globalThis.__replyAction.row ? [globalThis.__replyAction.row] : []};};`,
   '@/lib/mailbox':`export const unlinkMailbox = async () => {}; export const withMailboxFor = async (u,fn) => fn();`,
-  '@/lib/gmail':`export const gmailConfigured = () => true; export const sendReply = async o => globalThis.__replyAction.calls.push(['email',o]); export const sendNewEmail = async o => {globalThis.__replyAction.calls.push(['new',o]);if(globalThis.__replyAction.failSend)throw Error('offline');return {threadId:'sent-thread'};}; export const findCorrespondence=async email=>{globalThis.__replyAction.calls.push(['search',email]);return [{id:'older',subject:'Email conversation'}];}; export const fetchConversation=async()=>({messages:[{id:'original',attachments:[{id:'plan',name:'plan.pdf',size:4,type:'application/pdf'}]}]}); export const fetchInboxAttachment=async()=>({name:'plan.pdf',type:'application/pdf',bytes:Buffer.from('plan')}); export const modifyThread=async(...args)=>globalThis.__replyAction.calls.push(['modify',...args]); export const trashThread=async()=>{}; export const fetchThreadHtml=async()=>''; export const fetchMessageHtml=async(t,m)=>t+':'+m;`,
+  '@/lib/gmail':`export const gmailConfigured = () => true; export const sendReply = async o => globalThis.__replyAction.calls.push(['email',o]); export const sendNewEmail = async o => {globalThis.__replyAction.calls.push(['new',o]);if(globalThis.__replyAction.failSend)throw Error('offline');return {threadId:'sent-thread'};}; export const findCorrespondence=async email=>{globalThis.__replyAction.calls.push(['search',email]);return [{id:'older',subject:'Email conversation'}];}; export const fetchConversation=async()=>({messages:[{id:'original',attachments:[{id:'plan',name:'plan.pdf',size:4,type:'application/pdf'}]}]}); export const fetchInboxAttachment=async()=>({name:'plan.pdf',type:'application/pdf',bytes:Buffer.from('plan')}); export const modifyThread=async(...args)=>globalThis.__replyAction.calls.push(['modify',...args]); export const trashThread=async()=>{}; export const fetchThreadHtml=async()=>''; export const fetchMessageHtml=async(t,m)=>{if(globalThis.__replyAction.failHtml)throw Error('offline');return globalThis.__replyAction.emptyHtml?'':t+':'+m;};`,
   '@/lib/inbox':`export const draftReplyForThread=async()=>({}); export const getInboxData=async()=>({threads:[{id:'claude-thread',channel:'email'}],readers:{'claude-thread':{messages:[{id:'latest',outbound:false}],replyTarget:{toEmail:'client@example.test'}}}}); export const invalidateInboxCache=()=>{}; export const loadMoreInbox=async()=>({}); export const loadLabelInbox=async()=>({}); export const loadSystemView=async()=>({});`,
   '@/lib/actions/sms':`export const sendSmsReply=async(...a)=>{globalThis.__replyAction.calls.push(['sms',...a]); return {ok:true};};`,
   '@/lib/actions/portal':`export const sendProjectMessage=async(s,f)=>globalThis.__replyAction.calls.push(['project',s,f.get('body')]); export const sendLeadPortalMessage=async(s,f)=>globalThis.__replyAction.calls.push(['lead',s,f.get('body')]);`,
   '@/lib/actions/chat':`export const sendChatMessage=async(...a)=>{globalThis.__replyAction.calls.push(['sub',...a]);return {ok:true};};`,
 };
-registerHooks({resolve(s,c,n){if(s in stubs)return {url:'stub:'+s,shortCircuit:true}; if(s==='@/lib/inbox-files')return n(new URL('../lib/inbox-files.ts',import.meta.url).href,c); if(s==='@/lib/inbox-rules')return n(new URL('../lib/inbox-rules.ts',import.meta.url).href,c); if(s==='@/lib/types')return n(new URL('../lib/types.ts',import.meta.url).href,c); return n(s,c);},load(u,c,n){return u.startsWith('stub:')?{format:'module',source:stubs[u.slice(5)],shortCircuit:true}:n(u,c);}});
+registerHooks({resolve(s,c,n){if(s in stubs)return {url:'stub:'+s,shortCircuit:true}; if(s==='@/lib/inbox-email-content')return n(new URL('../lib/inbox-email-content.ts',import.meta.url).href,c); if(s==='@/lib/inbox-files')return n(new URL('../lib/inbox-files.ts',import.meta.url).href,c); if(s==='@/lib/inbox-rules')return n(new URL('../lib/inbox-rules.ts',import.meta.url).href,c); if(s==='@/lib/types')return n(new URL('../lib/types.ts',import.meta.url).href,c); return n(s,c);},load(u,c,n){return u.startsWith('stub:')?{format:'module',source:stubs[u.slice(5)],shortCircuit:true}:n(u,c);}});
 const actions=await import('../lib/actions/inbox.ts');
 test('channel adapters call the SAME existing SMS, project, lead and sub actions',async()=>{
   calls.length=0;
@@ -109,4 +109,14 @@ test('batch archive and undo use the existing mailbox helpers with Gmail fully s
  const result=await completeMailBatch([{id:'a'},{id:'b'}],actions.archiveThreadAction);
  await completeMailBatch(result.completed,actions.restoreThreadToInboxAction);
  assert.deepEqual(calls,[['modify','a',{removeLabelIds:['INBOX']}],['modify','b',{removeLabelIds:['INBOX']}],['modify','a',{addLabelIds:['INBOX']}],['modify','b',{addLabelIds:['INBOX']}] ]);
+});
+
+
+test('HTML fetch failure never masquerades as a no-HTML part, and explicit retry can recover',async()=>{
+ globalThis.__replyAction.failHtml=true;
+ assert.equal((await actions.getThreadHtmlAction('new-notice','m1')).status,'failed');
+ globalThis.__replyAction.failHtml=false;globalThis.__replyAction.emptyHtml=true;
+ assert.deepEqual(await actions.getThreadHtmlAction('new-notice','m1'),{status:'text-only',html:''});
+ globalThis.__replyAction.emptyHtml=false;
+ assert.equal((await actions.getThreadHtmlAction('new-notice','m1')).status,'formatted');
 });

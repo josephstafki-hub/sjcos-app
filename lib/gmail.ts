@@ -1,3 +1,4 @@
+import { cleanEmailText, htmlToEmailText, hasEmailContent } from './inbox-email-content.ts';
 import { foldEmailQuotes } from './inbox-email-html';
 // Gmail connector for the unified inbox.
 //
@@ -357,7 +358,7 @@ function extractBody(payload: gmail_v1.Schema$MessagePart | undefined): string[]
   }
   if (!text.trim()) return [];
 
-  return text
+  return cleanEmailText(text)
     .replace(/\r\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .split(/\n{2,}/)
@@ -401,21 +402,7 @@ function findPart(
   return null;
 }
 
-function stripHtml(html: string): string {
-  return html
-    .replace(/<style[\s\S]*?<\/style>/gi, "")
-    .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<\/(p|div|tr|h[1-6]|li)>/gi, "\n")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&quot;/gi, '"')
-    .replace(/[ \t]+/g, " ");
-}
+function stripHtml(html: string): string { return htmlToEmailText(html); }
 
 // ─── Rich HTML body (with images) — resolved lazily when a thread is opened ──
 
@@ -562,9 +549,13 @@ async function renderMessageHtml(threadId: string, messageId: string): Promise<s
   const api = gmail();
   const data = await cachedThread(threadId);
   const message = data.messages?.find(m => m.id === messageId);
-  if (!message?.payload) return '';
+  if (!message?.payload) throw new Error('Message content is unavailable.');
   const htmlData = findPart(message.payload, "text/html");
-  if (!htmlData) return "";
+  if (!htmlData) {
+    const hasHtmlPart=(part:gmail_v1.Schema$MessagePart):boolean=>part.mimeType==='text/html'||Boolean(part.parts?.some(hasHtmlPart));
+    if(hasHtmlPart(message.payload))throw new Error('Formatted message part is empty or unavailable.');
+    return '';
+  }
   let html = Buffer.from(htmlData, "base64url").toString("utf-8");
 
   // Inline cid: images (signature logos etc.) → data URIs so they render.
@@ -590,7 +581,9 @@ async function renderMessageHtml(threadId: string, messageId: string): Promise<s
     );
   }
 
-  return sanitizeEmailHtml(html);
+  const sanitized = sanitizeEmailHtml(html);
+  if (!hasEmailContent(sanitized)) throw new Error('Formatted message content is empty.');
+  return sanitized;
 }
 
 // ─── One message, for filing (Unsorted documents) ────────────────────────────
@@ -659,7 +652,7 @@ export async function fetchMessageForFiling(messageId: string): Promise<FilingMe
   }
   const plainData = payload ? findPart(payload, "text/plain") : null;
   const plain = plainData ? Buffer.from(plainData, "base64url").toString("utf-8") : "";
-  const text = plain && looksLikeText(plain) ? plain : html ? stripHtml(html) : plain;
+  const text = cleanEmailText(plain && looksLikeText(plain) ? plain : html ? stripHtml(html) : plain);
 
   const attachments: FilingAttachment[] = [];
   for (const part of collectFileParts(payload)) {

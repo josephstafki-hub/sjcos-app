@@ -85,7 +85,7 @@ const stubs = {
   "@/lib/actions/inbox": actionNames
     .map(
       (n) =>
-        `export const ${n}=${n === "getThreadHtmlAction" ? "async()=>({html:globalThis.__imageHtml??''})" : n === "archiveThreadAction" ? "async(...args)=>globalThis.__archive(...args)" : n === "draftReplyAction" ? "globalThis.__draftActions.draft" : (n === "sendReplyAction" || n === "sendChannelReplyAction") ? "globalThis.__draftActions.send" : "async()=>({ok:true})"};`,
+        `export const ${n}=${n === "getThreadHtmlAction" ? "async()=>{if(globalThis.__htmlRequest)return globalThis.__htmlRequest();return {status:globalThis.__imageHtml?'formatted':'text-only',html:globalThis.__imageHtml??''};}" : n === "archiveThreadAction" ? "async(...args)=>globalThis.__archive(...args)" : n === "draftReplyAction" ? "globalThis.__draftActions.draft" : (n === "sendReplyAction" || n === "sendChannelReplyAction") ? "globalThis.__draftActions.send" : "async()=>({ok:true})"};`,
     )
     .join("\n"),
   "@/lib/actions/inbox-experience":
@@ -373,7 +373,7 @@ test('a draft written before AI generation stays mine until I explicitly use the
 test('remote image consent is explicit and remembered per sender and mailbox without changing screening keys',async()=>{
  globalThis.__imageHtml='<p>Delivery</p><img src="https://tracker.example.test/pixel">';
  const base={threadId:'images',expanded:true,onToggle(){},blockImages:true,mailbox:'joe@example.test'};
- const open=async(email,mailbox='joe@example.test')=>{cardData={...base,mailbox,message:{id:email,fromEmail:email,fromName:email,body:[],initials:'P'}};mount('images');await settle();click('Original');};
+ const open=async(email,mailbox='joe@example.test')=>{cardData={...base,mailbox,message:{id:email,fromEmail:email,fromName:email,body:[],initials:'P'}};mount('images');await settle();click('Formatted');};
  const formatted=()=>find(n=>typeof n.type==='function'&&n.type.name==='EmailHtml').props.html;
  try {
   await open('unknown@example.test');assert.doesNotMatch(formatted(),/src="https:/);assert.ok(find(n=>n.props?.children==='Show images'));
@@ -575,4 +575,28 @@ test('unseen Other view scopes the archive label and hides it at zero, with sent
    assert.equal(find(n=>n.type?.name==='ThreadRow'&&n.props.thread.id==='owner-sent'),undefined);
   }
  }finally{cleanups.forEach(f=>f?.());cleanups=[];clientData=null;globalThis.fetch=previousFetch;delete globalThis.document;}
+});
+
+
+test('unseen rich reader defaults to formatted, exposes failures and allows only two deliberate retries',async()=>{
+ let calls=0;
+ const base={threadId:'comparison-notice',expanded:true,onToggle(){},blockImages:true,mailbox:'owner@example.test',message:{id:'comparison-1',fromEmail:'notice@example.test',fromName:'Notice',body:['Terms &mdash; choose &ldquo;plan B&rdquo;. [image: logo]'],initials:'N'}};
+ try {
+  let finish;globalThis.__htmlRequest=()=>{calls++;return new Promise(resolve=>{finish=resolve;});};
+  cardData=base;mount('comparison-notice');assert.ok(find(n=>n.props?.children==='Loading formatted email… Text preview below.'));assert.equal(calls,1);
+  finish({status:'failed',html:'',error:'Could not load formatted email. Showing text below.'});await settle();
+  const retry=()=>find(n=>Array.isArray(n.props?.children)&&n.props.children[0]==='Retry formatted email (');
+  assert.ok(retry());
+  globalThis.__htmlRequest=async()=>{calls++;return {status:'failed',html:'',error:'Could not load formatted email. Showing text below.'};};
+  retry().props.onClick();render();flush();await settle();assert.equal(calls,2);
+  retry().props.onClick();render();flush();await settle();assert.equal(calls,3);assert.equal(retry(),undefined);
+  assert.ok(find(n=>n.props?.children==='Retry limit reached. Reopen the conversation later to try again.'));
+  const html='<p>Options</p><table><tr><th>Old</th><th>New</th><th>Difference</th></tr><tr><td>700</td><td>600</td><td>100</td></tr></table>';
+  globalThis.__htmlRequest=async()=>({status:'formatted',html});mount('comparison-notice');await settle();
+  assert.equal(find(n=>n.props?.children==='Formatted').props['aria-pressed'],true);
+  assert.equal(find(n=>typeof n.type==='function'&&n.type.name==='EmailHtml').props.html.includes('<table>'),true);
+  click('Readable');assert.match(find(n=>typeof n.type==='function'&&n.type.name==='EmailHtml').props.html,/<th scope="col"/);
+  globalThis.__htmlRequest=async()=>({status:'text-only',html:''});mount('comparison-notice');await settle();
+  assert.ok(find(n=>n.props?.children==='Text-only email · no HTML part'));assert.equal(retry(),undefined);
+ } finally {cleanups.forEach(fn=>fn?.());cleanups=[];cardData=null;delete globalThis.__htmlRequest;}
 });

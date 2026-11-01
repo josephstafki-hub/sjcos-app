@@ -1,3 +1,4 @@
+import {cleanEmailText} from './inbox-email-content.ts';
 import type { ThreadChannel } from './types';
 
 export interface ReplyMessage {
@@ -167,7 +168,7 @@ export function stageLabel(status: string): string {
 }
 
 export function splitQuotedText(paras: string[]): {text: string; quote: string} {
-  const text = paras.join('\n\n').replaceAll('\r', '');
+  const text = cleanEmailText(paras.join('\n\n'));
   const match = /(?:^|\n)[ \t]*(?:On[ \t\u00a0]+[\s\S]{4,1000}?wrote:[ \t]*(?:\n|$)|From:[^\n]+\n(?:[^\n]*\n){0,2}[ \t]*Sent:|>|-{2,}\s*(?:Original|Forwarded) message)/im.exec(text);
   return match ? {text:text.slice(0,match.index).trimEnd(),quote:text.slice(match.index).trimStart()} : {text,quote:''};
 }

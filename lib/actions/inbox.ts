@@ -11,6 +11,7 @@
 // thread archives it in their own account, and one with nothing linked gets
 // "Gmail is not connected" instead of a write against Joe's mailbox.
 
+import {loadEmailHtml, type EmailHtmlResult} from '@/lib/inbox-email-content';
 import {validateMailFiles,mailFileType} from "@/lib/inbox-files";
 import type { InboxLinkKind } from "@/lib/inbox-directory";
 import { inquiryReplySubject } from "@/lib/inbox-rules";
@@ -234,18 +235,12 @@ export async function loadSystemViewAction(
 }
 
 /** Compose and send a brand-new email. */
-/** Rich sanitized HTML body for a thread's latest message (with images),
- *  fetched lazily when the reader opens. Empty string = no HTML / not connected;
- *  the reader keeps showing the plain-text paragraphs in that case. */
-export async function getThreadHtmlAction(threadId: string, messageId?: string): Promise<{ html: string }> {
-  return mailbox(async () => {
-    if (!gmailConfigured()) return { html: "" };
-    try {
-      return { html: messageId ? await fetchMessageHtml(threadId, messageId) : await fetchThreadHtml(threadId) };
-    } catch {
-      return { html: "" };
-    }
-  });
+/** A missing MIME part is text-only. Connection/fetch failures stay retryable. */
+export async function getThreadHtmlAction(threadId: string, messageId?: string): Promise<EmailHtmlResult> {
+  return mailbox(async () => loadEmailHtml(async () => {
+    if (!gmailConfigured()) throw new Error('Gmail is not connected.');
+    return messageId ? fetchMessageHtml(threadId, messageId) : fetchThreadHtml(threadId);
+  }));
 }
 
 /** Lazy on inquiry open. Uses the lead's address, never a client-supplied search. */

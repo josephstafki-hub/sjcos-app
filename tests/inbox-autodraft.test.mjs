@@ -12,7 +12,7 @@ const stubs = {
     export const draftReplyForThread=async (id,model)=>{globalThis.__auto.models.push(model);if(globalThis.__auto.fail)throw globalThis.__auto.fail;return {body:'Hermes reply',toEmail:'client@example.test',subject:'Plans',basedOn:'project Closet'}};`,
   './gmail': `export const fetchConversation=async id=>{globalThis.__auto.fetches++;if(globalThis.__auto.fail)throw globalThis.__auto.fail;return globalThis.__auto.conversation(id)};
     export const isGmailRateLimit=e=>e?.code===429;`,
-  './dev-agents': `export const chatReplyClaude=async (prompt)=>{globalThis.__auto.models.push('claude');globalThis.__auto.prompts.push(prompt);return 'Claude reply'};`,
+  './dev-agents': `export const chatReplyClaude=async (prompt)=>{globalThis.__auto.models.push('claude');globalThis.__auto.prompts.push(prompt);return globalThis.__auto.response??'Claude reply'};`,
   './direct-send-gate': `export const directSendBlocked=async()=>globalThis.__auto.blocked;`,
   './agent-runtime/instructions': `export const loadActiveInstructionBlocks=async()=>({tone_guide:{body:'TONE: plain words, no jargon.'}});`,
   './mailbox-email': `export const ensureMailboxEmail=async()=>'joe@example.test';`,
@@ -40,6 +40,8 @@ beforeEach(()=>{
     const a=globalThis.__auto;
     if(/FROM app_settings/.test(sql))return {rows:a.settings};
     if(/FROM users/.test(sql))return {rows:[{id:'owner',role:'owner'}]};
+    if(/SELECT id, thread_key, source_message_id, summary, version/.test(sql))return {rows:a.existing??[]};
+    if(/UPDATE inbox_drafts SET summary=/.test(sql)){a.headlineWrites??=[];a.headlineWrites.push(p);assert.match(sql,/version=\$2 AND status='ready'/);return {rows:[{id:p[0]}]};}
     if(/INSERT INTO inbox_drafts/.test(sql)) {
       assert.match(sql,/NOT EXISTS[\s\S]+source='human' AND status='ready'/);
       assert.match(sql,/updated_at < now\(\)-interval '10 minutes'/);
@@ -139,4 +141,23 @@ test('Claude writes a short headline line that becomes the row action, never par
   assert.deepEqual(splitHeadline('HEADLINE: Price hallway painting and popcorn removal\n\nHi Michelle,\nThanks!'), { headline: 'Price hallway painting and popcorn removal', body: 'Hi Michelle,\nThanks!' });
   assert.deepEqual(splitHeadline('Hi Michelle,\nThanks!'), { headline: '', body: 'Hi Michelle,\nThanks!' });
   assert.equal(splitHeadline('Headline: "Confirm deck visit"\nTo: x@y.test\n\nHi,').body, 'Hi,');
+});
+
+
+test('unseen older ready drafts backfill missing headlines from stored inbound, within shared three-call cap',async()=>{
+ __auto.data=makeData([1,2,3,4].map(i=>makeThread(String(i),{fromName:'Rowan',preview:'Can you quote a garden gate?'})));
+ for(const reader of Object.values(__auto.data.readers))reader.messages[0].body=['Could you quote a garden gate in cedar?'];
+ __auto.existing=[1,2,3,4].map(i=>({id:'draft-'+i,thread_key:String(i),source_message_id:'m-'+i,version:2,summary:'Rowan: …And provide a quote'}));
+ __auto.response='HEADLINE: Quote a cedar garden gate';
+ const result=await sweepInboxDrafts();
+ assert.equal(result.attempted,3);assert.equal(result.headlines,3);assert.equal(__auto.fetches,0);
+ assert.deepEqual(__auto.models,['claude','claude','claude']);
+ assert.equal(__auto.headlineWrites.length,3);assert.match(__auto.prompts[0],/garden gate in cedar/);
+ assert.equal(__auto.headlineWrites[0][2],'Quote a cedar garden gate');
+ assert.equal(__auto.claims.size,0,'backfill does not redraft ready bodies');
+});
+test('existing useful headlines are left alone, even with Hermes configured',async()=>{
+ __auto.existing=[{id:'ready',thread_key:'1',source_message_id:'m-1',summary:'Confirm the fence visit',version:1}];
+ __auto.settings=[{key:'ai.inboxDraftModel',value:'hermes'}];
+ assert.equal((await sweepInboxDrafts()).attempted,0);assert.equal(__auto.models.length,0);assert.equal(__auto.fetches,0);
 });

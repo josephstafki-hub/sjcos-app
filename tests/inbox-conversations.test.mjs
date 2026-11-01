@@ -182,3 +182,21 @@ test('inquiry correspondence search lists ids once without fetching message deta
  assert.deepEqual(await gmail.findCorrespondence('alex@example.test'),[{id:'older-thread',subject:'Email conversation'}]);assert.equal(lists,1);assert.equal(calls.get,gets);
  await assert.rejects(()=>gmail.findCorrespondence('bad@example.test from:other@example.test'),/Invalid/);assert.equal(lists,1);
 });
+
+test('unseen MIME shapes decode entities, preserve comparison labels, and clean text/plain images',async()=>{
+ const previous=messages;
+ try {
+  messages=[msg('501','Notices <notice@example.test>')];
+  messages[0].payload.parts=[{mimeType:'text/html',body:{data:Buffer.from('<p>Offer &mdash; it&rsquo;s &#x201C;ready&#x201D;</p><table><tr><th>Existing plan</th><th>Alternative</th><th>Difference</th></tr><tr><td>$720</td><td>$610</td><td>$110</td></tr></table>').toString('base64url')}}];
+  const htmlOnly=await gmail.fetchConversation('unseen-html');
+  assert.match(htmlOnly.messages[0].body.join('\n'),/Offer — it’s “ready”/);
+  assert.match(htmlOnly.messages[0].body.join('\n'),/Existing plan: \$720 · Alternative: \$610 · Difference: \$110/);
+  assert.match(await gmail.fetchMessageHtml('unseen-html','501'),/<table/);
+  messages=[msg('502','Robin <robin@example.test>')];messages[0].payload.parts=[{mimeType:'text/plain',body:{data:Buffer.from('Please review &ldquo;plan C&rdquo;.\n\n[image: sketch]\n\nConfirm the gate width.').toString('base64url')}}];
+  assert.deepEqual((await gmail.fetchConversation('unseen-plain')).messages[0].body,['Please review “plan C”.','Confirm the gate width.']);
+  assert.equal(await gmail.fetchMessageHtml('unseen-plain','502'),'');
+  messages=[msg('503','Notices <notice@example.test>')];messages[0].payload.parts=[{mimeType:'text/html',body:{data:Buffer.from('<script>void 0</script>').toString('base64url')}}];
+  await assert.rejects(()=>gmail.fetchMessageHtml('unseen-empty','503'),/empty/);
+  await assert.rejects(()=>gmail.fetchMessageHtml('unseen-empty','missing'),/unavailable/);
+ } finally {messages=previous;}
+});

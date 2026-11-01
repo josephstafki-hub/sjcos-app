@@ -304,8 +304,9 @@ export function InboxClient({
   useEffect(()=>{
     const search=()=>{setPhoneSearch(true);setMobileReader(false);requestAnimationFrame(()=>searchRef.current?.focus());};
     const compose=()=>{if(data.mailbox.connected)setComposing(true);else setNotice('Connect your email before composing.');};
-    window.addEventListener('inbox-search',search);window.addEventListener('inbox-compose',compose);
-    return()=>{window.removeEventListener('inbox-search',search);window.removeEventListener('inbox-compose',compose);};
+    const views=()=>setShowSources(v=>!v);
+    window.addEventListener('inbox-views',views);window.addEventListener('inbox-search',search);window.addEventListener('inbox-compose',compose);
+    return()=>{window.removeEventListener('inbox-views',views);window.removeEventListener('inbox-search',search);window.removeEventListener('inbox-compose',compose);};
   },[data.mailbox.connected]);
   const [splitSheet,setSplitSheet]=useState(false);
   const [composing, setComposing] = useState(false);
@@ -964,14 +965,14 @@ export function InboxClient({
       className="relative flex h-full min-h-0 flex-col [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-focus [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-focus"
     >
       <div
-        className={`${mobileReader ? "hidden @4xl/page:flex" : "flex"} ${phoneSearch?"":"@max-sm/page:!hidden"} min-h-12 flex-none flex-wrap items-center gap-2 border-b border-rule bg-paper px-3 py-1 @4xl/page:flex-nowrap`}
+        className={`${mobileReader ? "hidden @4xl/page:flex" : "flex"} ${phoneSearch?"":"@max-[40rem]/page:!hidden"} min-h-12 flex-none flex-wrap items-center gap-2 border-b border-rule bg-paper px-3 py-1 @4xl/page:flex-nowrap`}
       >
         <Button
           onClick={() => setShowSources((v) => !v)}
           variant="ghost"
           icon={Filter}
           aria-expanded={showSources}
-          className="@max-sm/page:hidden min-h-11 @4xl/page:min-h-8"
+          className="@max-[40rem]/page:hidden min-h-11 @4xl/page:min-h-8"
         >
           Views
         </Button>
@@ -1009,12 +1010,12 @@ export function InboxClient({
           title="Keyboard shortcuts (?)"
           className="hidden @5xl/page:inline-flex"
         />
-        {phoneSearch&&<Button className="@sm/page:hidden" variant="ghost" onClick={()=>{setPhoneSearch(false);setQuery('');}}>Cancel</Button>}
+        {phoneSearch&&<Button className="@min-[40rem]/page:hidden" variant="ghost" onClick={()=>{setPhoneSearch(false);setQuery('');}}>Cancel</Button>}
         {data.mailbox.connected && (
           <Button
             onClick={() => setComposing(true)}
             icon={PenSquare}
-            className="@max-sm/page:hidden min-h-11 @4xl/page:min-h-8"
+            className="@max-[40rem]/page:hidden min-h-11 @4xl/page:min-h-8"
           >
             Compose
           </Button>

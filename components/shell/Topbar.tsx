@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { type ReactNode } from "react";
-import { Search, PenSquare } from "lucide-react";
+import { Search, PenSquare, Filter } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { CommandPalette, PALETTE_EVENT } from "@/components/panel/CommandPalette";
 import { NotificationBell } from "./NotificationBell";
@@ -33,11 +33,11 @@ export function Topbar({ breadcrumb = "TODAY", unread = 0, leading }: TopbarProp
   const pathParts = pathname.split("/").filter(Boolean);
 
   return (
-    <div className="flex h-[calc(3rem_+_env(safe-area-inset-top))] flex-none items-center gap-3 border-b border-rule bg-paper pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[env(safe-area-inset-top)]">
+    <div className={`flex h-[calc(3rem_+_env(safe-area-inset-top))] flex-none items-center gap-3 border-b border-rule bg-paper pl-[max(1rem,env(safe-area-inset-left))] pr-[max(1rem,env(safe-area-inset-right))] pt-[env(safe-area-inset-top)] ${inbox?"@max-[40rem]/shell:gap-0 @max-[40rem]/shell:px-2 @max-[40rem]/shell:[&_[data-mobile-more]]:size-11 @max-[40rem]/shell:[&_[data-mobile-more]]:m-0 @max-[40rem]/shell:[&_[data-mobile-more]>span]:hidden":""}`}>
       {leading}
       <nav aria-label="Breadcrumb" className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none]">
-        {inbox&&<span className="hidden @max-sm/shell:block text-body font-semibold text-ink">Inbox</span>}
-        <ol className={`flex items-center gap-2 whitespace-nowrap font-mono text-micro uppercase text-ink-3 ${inbox?"@max-sm/shell:hidden":""}`}>
+        {inbox&&<span className="hidden @max-[40rem]/shell:block text-body font-semibold text-ink">Inbox</span>}
+        <ol className={`flex items-center gap-2 whitespace-nowrap font-mono text-micro uppercase text-ink-3 ${inbox?"@max-[40rem]/shell:hidden":""}`}>
           {segments.map((segment, index) => {
             // The last crumb is this page; middle crumbs follow the path.
             const href = BREADCRUMB_ROUTES[segment.toLowerCase()]
@@ -50,14 +50,15 @@ export function Topbar({ breadcrumb = "TODAY", unread = 0, leading }: TopbarProp
           })}
         </ol>
       </nav>
-      {/^\/inbox(?:\/|$)/.test(pathname) && <span id="inbox-approval-badge" className="shrink-0 @max-sm/shell:hidden" />}
+      {/^\/inbox(?:\/|$)/.test(pathname) && <span id="inbox-approval-badge" className="order-last shrink-0 @min-[40rem]/shell:order-none" />}
       <CommandPalette />
-      <Button className={inbox?"@max-sm/shell:hidden":undefined} onClick={() => window.dispatchEvent(new Event(PALETTE_EVENT))} variant="ghost" size="sm" icon={Search} aria-label="Search" title="Search (⌘K)">
-        <span className="@max-sm/shell:hidden">Search… <kbd className="ml-3 font-mono text-meta text-ink-3">⌘K</kbd></span>
+      <Button className={inbox?"@max-[40rem]/shell:hidden":undefined} onClick={() => window.dispatchEvent(new Event(PALETTE_EVENT))} variant="ghost" size="sm" icon={Search} aria-label="Search" title="Search (⌘K)">
+        <span className="@max-[40rem]/shell:hidden">Search… <kbd className="ml-3 font-mono text-meta text-ink-3">⌘K</kbd></span>
       </Button>
-      {inbox&&<Button className="hidden @max-sm/shell:inline-flex size-11" variant="ghost" icon={Search} iconOnly aria-label="Search inbox" title="Search inbox" onClick={()=>window.dispatchEvent(new Event('inbox-search'))}/>}
-      <NotificationBell initial={unread} />
-      {inbox&&<Button className="hidden @max-sm/shell:inline-flex size-11" variant="ghost" icon={PenSquare} iconOnly aria-label="Compose email" title="Compose email" onClick={()=>window.dispatchEvent(new Event('inbox-compose'))}/>}
+      {inbox&&<Button className="hidden @max-[40rem]/shell:inline-flex size-11" variant="ghost" icon={Filter} iconOnly aria-label="Inbox views" title="Views" onClick={()=>window.dispatchEvent(new Event('inbox-views'))}/>}
+      {inbox&&<Button className="hidden @max-[40rem]/shell:inline-flex size-11" variant="ghost" icon={Search} iconOnly aria-label="Search inbox" title="Search inbox" onClick={()=>window.dispatchEvent(new Event('inbox-search'))}/>}
+      {inbox&&<Button className="hidden @max-[40rem]/shell:inline-flex size-11" variant="ghost" icon={PenSquare} iconOnly aria-label="Compose email" title="Compose email" onClick={()=>window.dispatchEvent(new Event('inbox-compose'))}/>}
+      <span className={inbox?"@max-[40rem]/shell:[&_a]:size-11 @max-[40rem]/shell:[&_a]:justify-center":undefined}><NotificationBell initial={unread} /></span>
     </div>
   );
 }

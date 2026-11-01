@@ -21,12 +21,28 @@ test('phone inbox has one title, one bell, search and compose triggers with no d
  const search=list.find(n=>n.props?.['aria-label']==='Search inbox');const compose=list.find(n=>n.props?.['aria-label']==='Compose email');
  assert.match(search.props.className,/size-11/);assert.match(compose.props.className,/size-11/);
  search.props.onClick();compose.props.onClick();assert.deepEqual(events,['inbox-search','inbox-compose']);
- assert.ok(list.some(n=>n.type==='span'&&n.props.children==='Inbox'&&n.props.className.includes('@max-sm/shell:block')));
+ assert.ok(list.some(n=>n.type==='span'&&n.props.children==='Inbox'&&n.props.className.includes('@max-[40rem]/shell:block')));
  assert.equal(list.filter(n=>n.type?.name==='NotificationBell').length,1);
- assert.match(list.find(n=>n.props?.id==='inbox-approval-badge').props.className,/@max-sm\/shell:hidden/);
- assert.match(list.find(n=>n.props?.['aria-label']==='Search').props.className,/@max-sm\/shell:hidden/);
+ assert.ok(list.find(n=>n.props?.id==='inbox-approval-badge'));
+ assert.ok(list.some(n=>n.props?.['aria-label']==='Inbox views'));
+ list.find(n=>n.props?.['aria-label']==='Inbox views').props.onClick();assert.equal(events.at(-1),'inbox-views');
+ assert.match(list.find(n=>n.props?.['aria-label']==='Search').props.className,/@max-\[40rem\]\/shell:hidden/);
  assert.equal(list.some(n=>n.type==='input'),false);
 });
 test('other pages retain their usual global controls',()=>{
  path='/schedule';const list=nodes(Topbar({breadcrumb:'Schedule'}));assert.equal(list.some(n=>n.props?.['aria-label']==='Compose email'),false);assert.equal(list.find(n=>n.props?.['aria-label']==='Search').props.className,undefined);
+});
+
+// Compile the actual utilities: @max-sm is only 384px, so class-name-only
+// tests missed the two-toolbar regression at 390px. No browser or app build.
+test('phone chrome switches at 640px of available shell/page width, including 390px',async()=>{
+ const {compile}=await import('@tailwindcss/node');
+ const source=readFileSync(new URL('../components/shell/Topbar.tsx',import.meta.url),'utf8');
+ const inbox=readFileSync(new URL('../components/inbox/InboxClient.tsx',import.meta.url),'utf8');
+ const tokens=[...source.matchAll(/@max-\[40rem\]\/shell:[\w!:-]+/g),...inbox.matchAll(/@max-\[40rem\]\/page:[\w!:-]+/g)].map(m=>m[0]);
+ assert.ok(tokens.includes('@max-[40rem]/shell:hidden'));assert.ok(tokens.includes('@max-[40rem]/page:!hidden'));
+ const compiler=await compile('@import "tailwindcss";',{base:process.cwd(),onDependency(){}});
+ const css=compiler.build(tokens);
+ assert.match(css,/@container shell \(width < 40rem\)/);assert.match(css,/@container page \(width < 40rem\)/);
+ assert.doesNotMatch(source+inbox,/@max-sm\/(?:shell|page)/);
 });

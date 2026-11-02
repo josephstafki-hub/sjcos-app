@@ -10,6 +10,7 @@ const stubs={
  'next/server':`export class NextResponse extends Response {static json(body,options){return new NextResponse(JSON.stringify(body),{...options,headers:{'content-type':'application/json'}})}}`,
  '@/lib/inbox-autodraft':`export const sweepInboxDrafts=async()=>{globalThis.__cronCalls++;return {ready:1}};`,
  '@/lib/gmail':`export const isGmailRateLimit=e=>e?.code===429;`,
+ '@/lib/gmail-quota':`export const runAsGmailBackground=fn=>fn();`,
  '@/lib/notify':`export const emit=async()=>{};`,
  '@/lib/db':`export const query=async()=>({rows:[]});`,
  '@/lib/worker/cron-runs':`export const recordCronRun=async()=>{};`,

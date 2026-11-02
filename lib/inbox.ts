@@ -1586,8 +1586,10 @@ async function loadChannelThreads(maps:ContactMaps,options:InboxData["linkOption
 // mailbox each time — one list call plus one per thread — ran Joe's Gmail
 // account into Google's per-minute limit. The Gmail half (threads + label
 // counts) is kept for a short while per mailbox; texts, portal messages, forms
-// and job links stay live. Any inbox action clears it (invalidateInboxCache).
-const GMAIL_TTL_MS = 30_000;
+// and job links stay live. A Gmail action (send, archive, star…) clears it
+// (invalidateInboxCache). Reloading it is cheap: lib/gmail.ts asks Gmail what
+// changed (2 units) and re-reads only those threads, so this can stay short.
+const GMAIL_TTL_MS = 15_000;
 type GmailLoad = [Awaited<ReturnType<typeof fetchThreadPage>>, Awaited<ReturnType<typeof fetchLabelCounts>>];
 type GmailCache = Map<string, { at: number; data: Promise<GmailLoad> }>;
 type GmailSnapshots = Map<string, { at: number; data: GmailLoad }>;

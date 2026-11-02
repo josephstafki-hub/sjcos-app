@@ -79,7 +79,8 @@ export async function linkThread(
      ON CONFLICT (gmail_thread_id) DO UPDATE SET link_type = EXCLUDED.link_type, link_slug = EXCLUDED.link_slug`,
     [threadId, type, slug],
   );
-  invalidateInboxCache();
+  // Links are read from the database on every render; the kept Gmail half
+  // doesn't change, so no Gmail reload (it used to cost a full re-read).
   revalidatePath("/inbox");
   return { ok: true };
 }
@@ -88,8 +89,7 @@ export async function linkThread(
 export async function unlinkThread(threadId: string): Promise<{ ok: boolean; error?: string }> {
   await requireAccess("inbox");
   await query(`DELETE FROM thread_links WHERE gmail_thread_id = $1`, [threadId]);
-  invalidateInboxCache();
-  revalidatePath("/inbox");
+  revalidatePath("/inbox"); // database-only: the kept Gmail half still holds
   return { ok: true };
 }
 
@@ -290,7 +290,7 @@ export async function retryInquiryLinkAction(inquiryId:string,threadId:string):P
     const {rows}=await query("SELECT slug FROM leads WHERE slug=$1 AND source ILIKE '%website%'",[slug]);
     if(!rows.length)return {ok:false,error:'That website inquiry is no longer available.'};
     await saveInquiryLink(threadId,slug);
-    invalidateInboxCache();revalidatePath('/inbox');
+    revalidatePath('/inbox'); // database-only: no Gmail reload
     return {ok:true};
   }catch{return {ok:false,error:'Email was already sent. Could not save the inquiry link; retry linking.'};}
 }

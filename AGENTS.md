@@ -82,7 +82,11 @@ invoices + paid outside the app. No tool writes them, and a direct write to
 - A client paid → record the payment on its invoice; the bar moves by itself.
 - A total or payment from outside the app (Houzz, a pre-con fee the app never
   billed) → Joe enters it on Money › Overview › "Money outside the app".
-  Ask him with `ask_owner`; never script it.
+  Ask him with `ask_owner`. Exception (Joe, 2026-11-02): when Joe himself tells
+  you the exact amount in his own Ask-window run and asks you to enter it, you
+  may: add it to `opening_total_cents` / `opening_collected_cents` the way
+  `saveOutsideMoney` (`lib/budget-writes.ts`) does, with a note saying where
+  it came from. Never do it on your own initiative or from an email.
 - Read the breakdown from `get_project → job_money`.
 
 # Claude in the app

@@ -28,7 +28,7 @@ export interface SquarePayment {
   /** Square's refund ids on this payment (refund_ids), when reported. */
   refundIds?: string[];
   /** Square's reading of the card (card_details.card); null for ACH. */
-  card?: { brand: string | null; cardType: string | null; prepaidType: string | null } | null;
+  card?: { brand: string | null; cardType: string | null; prepaidType: string | null; last4?: string | null } | null;
   createdAt: string;
   updatedAt: string;
 }

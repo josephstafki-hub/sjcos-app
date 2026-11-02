@@ -13,6 +13,8 @@ export interface OnlinePaymentRow {
   refundable_cents: number;
   state: string;
   completed_at: string | null;
+  /** The client's typed authorization is on file (lib/payments/authorization.ts). */
+  authorized: boolean;
 }
 
 const usd = (c: number) => `$${(c / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -36,6 +38,13 @@ export function RefundPayments({ rows, request }: { rows: OnlinePaymentRow[]; re
             <span className="text-ink-3">· Invoice {r.invoice_number} · {r.method === "ach" ? "bank transfer" : "card"} · {usd(r.amount_cents)}{r.completed_at ? ` · ${r.completed_at.slice(0, 10)}` : ""}</span>
             {r.state !== "completed" && <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-flag">{r.state}</span>}
             <span className="flex-1" />
+            {r.authorized ? (
+              <a className="rounded-md border border-rule px-2 py-1 text-[11.5px]" href={`/api/payments/authorization/${r.id}`} target="_blank" rel="noopener">
+                Authorization PDF
+              </a>
+            ) : (
+              <span className="text-[11px] text-ink-3" title="Paid before the portal asked clients to sign an authorization (Nov 2, 2026)">No authorization on file</span>
+            )}
             {r.refundable_cents > 0 && open !== r.id && (
               <button
                 type="button"

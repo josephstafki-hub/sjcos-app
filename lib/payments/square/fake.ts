@@ -80,6 +80,7 @@ export class FakeSquare implements SquareAdapter {
               brand: "VISA",
               cardType: input.sourceId.includes("debit") || input.sourceId.includes("prepaid") ? "DEBIT" : "CREDIT",
               prepaidType: input.sourceId.includes("prepaid") ? "PREPAID" : "NOT_PREPAID",
+              last4: "1111",
             }
           : null,
       createdAt: this.now(),
@@ -198,7 +199,7 @@ export class FakeSquare implements SquareAdapter {
             reference_id: p.referenceId,
             order_id: p.orderId,
             source_type: p.method === "ach" ? "BANK_ACCOUNT" : "CARD",
-            ...(p.card ? { card_details: { card: { card_brand: p.card.brand, card_type: p.card.cardType, prepaid_type: p.card.prepaidType } } } : {}),
+            ...(p.card ? { card_details: { card: { card_brand: p.card.brand, card_type: p.card.cardType, prepaid_type: p.card.prepaidType, last_4: p.card.last4 ?? undefined } } } : {}),
             refunded_money: { amount: p.refundedCents, currency: p.currency },
             processing_fee: p.feeCents == null ? [] : [{ amount_money: { amount: p.feeCents, currency: p.currency }, type: "INITIAL" }],
             updated_at: p.updatedAt,

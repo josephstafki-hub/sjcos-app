@@ -17,8 +17,9 @@ export default async function PortalPayPage({ params }: { params: Promise<{ invo
   const id = Number(invoiceId);
   const slug = await portalSlug();
   if (!slug || !Number.isInteger(id)) notFound();
-  const inv = await queryOne<{ id: number; number: string; milestone: string; amount: number; status: string; revision: number; due_at: string | null }>(
-    `SELECT i.id::int AS id, i.number, i.milestone, i.amount, i.status, i.revision, i.due_at::text AS due_at
+  const inv = await queryOne<{ id: number; number: string; milestone: string; amount: number; status: string; revision: number; due_at: string | null; project_label: string | null }>(
+    `SELECT i.id::int AS id, i.number, i.milestone, i.amount, i.status, i.revision, i.due_at::text AS due_at,
+            COALESCE(NULLIF(btrim(p.address), ''), p.name) AS project_label
        FROM invoices i JOIN projects p ON p.id = i.project_id
       WHERE i.id = $1 AND p.slug = $2 AND i.status <> 'draft'`,
     [id, slug],
@@ -69,6 +70,9 @@ export default async function PortalPayPage({ params }: { params: Promise<{ invo
               allowCard={setup.card}
               allowAch={setup.ach}
               surcharge={setup.surcharge}
+              invoiceNumber={inv.number}
+              milestone={inv.milestone ?? ""}
+              projectLabel={inv.project_label ?? ""}
             />
           ) : (
             <div className="border-t border-rule pt-4">

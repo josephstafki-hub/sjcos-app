@@ -36,7 +36,7 @@ interface RawPayment {
   processing_fee?: { amount_money?: RawMoney }[];
   refunded_money?: RawMoney;
   refund_ids?: string[];
-  card_details?: { card?: { card_brand?: string; card_type?: string; prepaid_type?: string } };
+  card_details?: { card?: { card_brand?: string; card_type?: string; prepaid_type?: string; last_4?: string } };
   created_at?: string;
   updated_at?: string;
 }
@@ -62,7 +62,7 @@ export function mapRawPayment(p: RawPayment): SquarePayment {
     refundedCents: Number(p.refunded_money?.amount ?? 0),
     refundIds: Array.isArray(p.refund_ids) ? p.refund_ids : [],
     card: p.card_details?.card
-      ? { brand: p.card_details.card.card_brand ?? null, cardType: p.card_details.card.card_type ?? null, prepaidType: p.card_details.card.prepaid_type ?? null }
+      ? { brand: p.card_details.card.card_brand ?? null, cardType: p.card_details.card.card_type ?? null, prepaidType: p.card_details.card.prepaid_type ?? null, last4: p.card_details.card.last_4 ?? null }
       : null,
     createdAt: p.created_at ?? new Date().toISOString(),
     updatedAt: p.updated_at ?? p.created_at ?? new Date().toISOString(),

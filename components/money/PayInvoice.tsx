@@ -17,10 +17,16 @@
 // type when it tokenizes, so a credit card gets a confirm step showing the
 // surcharge and the new total before anything is charged. The server
 // recomputes the same figure and checks Square's own reading of the card.
+//
+// Authorization (Joe, 2026-11-02; lib/payments/authorization.ts): the client
+// types their name and ticks a one-time charge authorization before Pay is
+// enabled. The words shown are built by the same function the server uses
+// to store them, so the record says exactly what the client agreed to.
 
 import { useEffect, useRef, useState } from "react";
 import { Card } from "@/components/ui";
 import { fmtPct, surchargeCents, surchargeNotice, surchargePct, type CardFacts, type SurchargeConfig } from "@/lib/payments/surcharge";
+import { authorizationStatement, cleanSignerName } from "@/lib/payments/authorization";
 
 type Method = "card" | "ach";
 
@@ -83,6 +89,9 @@ export function PayInvoice({
   allowCard,
   allowAch,
   surcharge,
+  invoiceNumber,
+  milestone,
+  projectLabel,
 }: {
   invoiceId: number;
   revision: number;
@@ -93,9 +102,19 @@ export function PayInvoice({
   allowCard: boolean;
   allowAch: boolean;
   surcharge: SurchargeConfig;
+  invoiceNumber: string;
+  milestone: string;
+  projectLabel: string;
 }) {
   const [method, setMethod] = useState<Method>(allowCard ? "card" : "ach");
-  const [holder, setHolder] = useState("");
+  // The client's typed name: the authorization signature, and the ACH
+  // account holder name.
+  const [signer, setSigner] = useState("");
+  const [agreed, setAgreed] = useState(false);
+  const signerName = cleanSignerName(signer);
+  const statementFor = (surchargeCentsShown: number) =>
+    authorizationStatement({ signerName: signerName ?? "[your name]", method, invoiceNumber, milestone, projectLabel, amountCents, surchargeCents: surchargeCentsShown });
+  const authorized = agreed && !!signerName;
   const [busy, setBusy] = useState(false);
   const [sdkReady, setSdkReady] = useState(environment === "fake");
   const [error, setError] = useState<string | null>(null);
@@ -168,9 +187,9 @@ export function PayInvoice({
       if (r.status !== "OK" || !r.token) throw new Error(r.errors?.[0]?.message || "Card details were not accepted.");
       return { sourceId: r.token, card: r.details?.card ?? null };
     }
-    if (!holder.trim()) throw new Error("Enter the account holder's name.");
+    if (!signerName) throw new Error("Enter the account holder's name.");
     const ach = await payments.current.ach();
-    const r = await ach.tokenize({ accountHolderName: holder.trim(), intent: "CHARGE", amount: (amountCents / 100).toFixed(2), currency: "USD" });
+    const r = await ach.tokenize({ accountHolderName: signerName, intent: "CHARGE", amount: (amountCents / 100).toFixed(2), currency: "USD" });
     if (r.status !== "OK" || !r.token) throw new Error(r.errors?.[0]?.message || "Bank details were not accepted.");
     return { sourceId: r.token, card: null };
   }
@@ -178,6 +197,10 @@ export function PayInvoice({
   /** Pay tapped: tokenize; a credit card stops at the surcharge confirm step. */
   async function pay() {
     if (busy) return;
+    if (!authorized) {
+      setError("Type your name and tick the authorization box first.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
@@ -214,7 +237,7 @@ export function PayInvoice({
     const res = await fetch("/api/payments/square/create", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ invoiceId, method, sourceId, nonce: nonceFor(invoiceId, revision), expectedAmountCents: amountCents, expectedRevision: revision, card: cardFacts, expectedSurchargeCents }),
+      body: JSON.stringify({ invoiceId, method, sourceId, nonce: nonceFor(invoiceId, revision), expectedAmountCents: amountCents, expectedRevision: revision, card: cardFacts, expectedSurchargeCents, authorization: { signerName, agreed: authorized } }),
     });
     const body = (await res.json()) as { ok?: boolean; error?: string; code?: string; detail?: string; state?: string; message?: string };
     // Declined now, or a tap that landed on an earlier declined attempt:
@@ -244,12 +267,12 @@ export function PayInvoice({
     <Card className="p-3">
       <div className="flex gap-2">
         {allowCard && (
-          <button type="button" onClick={() => { setMethod("card"); setConfirm(null); }} className={`rounded-md border px-2.5 py-1 text-[12px] ${method === "card" ? "border-ink bg-ink text-paper" : "border-rule text-ink-2"}`}>
+          <button type="button" onClick={() => { setMethod("card"); setConfirm(null); setAgreed(false); }} className={`rounded-md border px-2.5 py-1 text-[12px] ${method === "card" ? "border-ink bg-ink text-paper" : "border-rule text-ink-2"}`}>
             Card
           </button>
         )}
         {allowAch && (
-          <button type="button" onClick={() => { setMethod("ach"); setConfirm(null); }} className={`rounded-md border px-2.5 py-1 text-[12px] ${method === "ach" ? "border-ink bg-ink text-paper" : "border-rule text-ink-2"}`}>
+          <button type="button" onClick={() => { setMethod("ach"); setConfirm(null); setAgreed(false); }} className={`rounded-md border px-2.5 py-1 text-[12px] ${method === "ach" ? "border-ink bg-ink text-paper" : "border-rule text-ink-2"}`}>
             Bank transfer (ACH)
           </button>
         )}
@@ -266,12 +289,27 @@ export function PayInvoice({
             {notice && !noSurcharge && <p className="mt-2 text-[11px] text-ink-3">{notice}</p>}
           </>
         ) : (
-          <label className="flex flex-col gap-1">
-            <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Account holder name</span>
-            <input value={holder} onChange={(e) => setHolder(e.target.value)} className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent" placeholder="As it appears on the account" />
-            <span className="text-[11px] text-ink-3">Bank transfers pay the full open balance ({fmt(amountCents)}) and take 3–5 business days to clear. The invoice stays open until then.</span>
-          </label>
+          <p className="text-[11px] text-ink-3">Bank transfers pay the full open balance ({fmt(amountCents)}) and take 3–5 business days to clear. The invoice stays open until then.</p>
         )}
+      </div>
+
+      <div className="mt-3 rounded-md border border-rule p-2.5">
+        <label className="flex flex-col gap-1">
+          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">{method === "card" ? "Name on card" : "Account holder name"}</span>
+          <input
+            value={signer}
+            onChange={(e) => setSigner(e.target.value)}
+            disabled={!!confirm}
+            autoComplete={method === "card" ? "cc-name" : "name"}
+            className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent disabled:opacity-60"
+            placeholder={method === "card" ? "As it appears on the card" : "As it appears on the account"}
+          />
+        </label>
+        <label className="mt-2 flex items-start gap-2 text-[12px] leading-relaxed text-ink">
+          <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} disabled={!!confirm} className="mt-[3px] h-4 w-4 shrink-0" />
+          <span>{statementFor(0)}{method === "card" && notice && !noSurcharge ? " If this is a credit card, the surcharge is shown before anything is charged." : ""}</span>
+        </label>
+        <p className="mt-1.5 text-[10.5px] text-ink-3">Your name, the time and this device are kept with the payment as your signed authorization.</p>
       </div>
 
       {error && <p className="mt-2 text-[12px] text-flag">{error}</p>}
@@ -289,9 +327,10 @@ export function PayInvoice({
             <span className="font-semibold text-ink">Total charged</span>
             <span className="text-right font-semibold tabular-nums text-ink">{fmt(amountCents + confirm.surchargeCents)}</span>
           </div>
+          <p className="mt-2 text-[12px] leading-relaxed text-ink">{statementFor(confirm.surchargeCents)}</p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <button type="button" onClick={confirmSurcharge} disabled={busy} className="inline-flex items-center rounded-md border border-ink bg-ink px-3 py-1.5 text-[12.5px] font-semibold text-paper disabled:opacity-50">
-              {busy ? "Processing…" : `Pay ${fmt(amountCents + confirm.surchargeCents)}`}
+            <button type="button" onClick={confirmSurcharge} disabled={busy || !authorized} className="inline-flex items-center rounded-md border border-ink bg-ink px-3 py-1.5 text-[12.5px] font-semibold text-paper disabled:opacity-50">
+              {busy ? "Processing…" : `Authorize and pay ${fmt(amountCents + confirm.surchargeCents)}`}
             </button>
             <button type="button" onClick={() => setConfirm(null)} disabled={busy} className="text-[12px] text-ink-2 underline disabled:opacity-50">
               Use a different card or bank transfer
@@ -299,7 +338,7 @@ export function PayInvoice({
           </div>
         </div>
       ) : (
-        <button type="button" onClick={pay} disabled={busy || !sdkReady} className="mt-3 inline-flex items-center rounded-md border border-ink bg-ink px-3 py-1.5 text-[12.5px] font-semibold text-paper disabled:opacity-50">
+        <button type="button" onClick={pay} disabled={busy || !sdkReady || !authorized} className="mt-3 inline-flex items-center rounded-md border border-ink bg-ink px-3 py-1.5 text-[12.5px] font-semibold text-paper disabled:opacity-50">
           {busy ? "Processing…" : `Pay ${fmt(amountCents)}`}
         </button>
       )}

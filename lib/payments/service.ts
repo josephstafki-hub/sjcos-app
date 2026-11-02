@@ -37,6 +37,7 @@ import { stagePaymentReceipt, type ReceiptOutcome } from "./receipt.ts";
 import { stagePaymentAlert } from "./owner-alert.ts";
 import { onPaymentReceived } from "../agent-runtime/hooks.ts";
 import { loadSurchargeConfig, surchargeCents, surchargeable, type CardFacts } from "./surcharge.ts";
+import { AUTHORIZATION_VERSION, authorizationStatement, cleanSignerName } from "./authorization.ts";
 
 const usd = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 
@@ -53,6 +54,8 @@ export interface AttemptRow {
   surcharge_cents: number;
   card_brand: string | null;
   card_type: string | null;
+  /** Last 4 digits Square reports for the card (never seen by the app otherwise). */
+  card_last4: string | null;
   currency: string;
   method: PaymentMethod;
   provider: string;
@@ -68,7 +71,7 @@ export interface AttemptRow {
   completed_at: string | null;
 }
 
-const ATTEMPT_COLS = `id, invoice_id::int AS invoice_id, invoice_revision, intent_key, amount_cents, surcharge_cents, card_brand, card_type, currency, method, provider, provider_payment_id,
+const ATTEMPT_COLS = `id, invoice_id::int AS invoice_id, invoice_revision, intent_key, amount_cents, surcharge_cents, card_brand, card_type, card_last4, currency, method, provider, provider_payment_id,
   provider_order_id, provider_status, state, source_event_ids, last_error, actor, created_at::text AS created_at, updated_at::text AS updated_at,
   completed_at::text AS completed_at`;
 
@@ -159,6 +162,70 @@ export async function prepareAttempt(run: Run, input: PrepareInput): Promise<Pre
     [inv.id, inv.revision, key, b.balanceCents + surcharge, surcharge, card?.brand ?? null, card?.cardType ?? null, input.method, typeof input.actor === "string" ? input.actor : principalLabel(input.actor)],
   );
   return { ok: true, attempt: row, invoice: inv, reused: false };
+}
+
+/** Square's last_4, only when it really is four digits. */
+function last4Of(v: string | null | undefined): string | null {
+  return typeof v === "string" && /^[0-9]{4}$/.test(v) ? v : null;
+}
+
+// ── Authorization (lib/payments/authorization.ts, migration 0072) ─────────
+
+export interface AuthorizationInput {
+  /** As typed on the pay page; cleaned with cleanSignerName. */
+  signerName: string;
+  userId?: string | null;
+  ip?: string;
+  userAgent?: string;
+}
+
+export interface AuthorizationRow {
+  id: string;
+  payment_attempt_id: string;
+  invoice_id: number;
+  method: PaymentMethod;
+  signer_name: string;
+  statement: string;
+  statement_version: string;
+  amount_cents: number;
+  surcharge_cents: number;
+  actor: string;
+  ip: string;
+  user_agent: string;
+  agreed_at: string;
+}
+
+/** Record what the client agreed to for this attempt, in the transaction that
+ *  created it (before any charge). The statement is rebuilt here from the
+ *  attempt's own figures — the same function the pay page used — so it can't
+ *  say anything the server didn't charge. A repeat tap on the same attempt
+ *  keeps the first record. */
+export async function recordAuthorization(run: Run, attempt: AttemptRow, input: AuthorizationInput): Promise<AuthorizationRow | null> {
+  const signerName = cleanSignerName(input.signerName);
+  if (!signerName) throw new Error("A typed name is required to authorize the payment.");
+  const [ctx] = await run<{ number: string; milestone: string | null; project_label: string | null }>(
+    `SELECT i.number, i.milestone, COALESCE(NULLIF(btrim(p.address), ''), p.name) AS project_label
+       FROM invoices i JOIN projects p ON p.id = i.project_id WHERE i.id = $1`,
+    [attempt.invoice_id],
+  );
+  if (!ctx) throw new Error("Invoice not found.");
+  const statement = authorizationStatement({
+    signerName,
+    method: attempt.method,
+    invoiceNumber: ctx.number,
+    milestone: ctx.milestone ?? "",
+    projectLabel: ctx.project_label ?? "",
+    amountCents: invoiceShareCents(attempt),
+    surchargeCents: attempt.surcharge_cents ?? 0,
+  });
+  const [row] = await run<AuthorizationRow>(
+    `INSERT INTO payment_authorizations (payment_attempt_id, invoice_id, method, signer_name, statement, statement_version, amount_cents, surcharge_cents, user_id, actor, ip, user_agent)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+     ON CONFLICT (payment_attempt_id) DO NOTHING
+     RETURNING id, payment_attempt_id, invoice_id::int AS invoice_id, method, signer_name, statement, statement_version, amount_cents, surcharge_cents, actor, ip, user_agent, agreed_at::text AS agreed_at`,
+    [attempt.id, attempt.invoice_id, attempt.method, signerName, statement, AUTHORIZATION_VERSION, attempt.amount_cents, attempt.surcharge_cents ?? 0, input.userId ?? null, attempt.actor, (input.ip ?? "").slice(0, 64), (input.userAgent ?? "").slice(0, 500)],
+  );
+  return row ?? null;
 }
 
 // ── Provider call (outside any transaction) ────────────────────────────────
@@ -273,9 +340,9 @@ export async function applyProviderPayment(run: Run, input: { attemptId?: string
     `UPDATE payment_attempts
         SET provider_payment_id = COALESCE(provider_payment_id, $2), provider_order_id = COALESCE(provider_order_id, $3), provider_status = $4,
             source_event_ids = CASE WHEN $5::uuid IS NULL OR $5::uuid = ANY(source_event_ids) THEN source_event_ids ELSE array_append(source_event_ids, $5::uuid) END,
-            card_brand = COALESCE($6, card_brand), card_type = COALESCE($7, card_type)
+            card_brand = COALESCE($6, card_brand), card_type = COALESCE($7, card_type), card_last4 = COALESCE(card_last4, $8)
       WHERE id = $1`,
-    [attempt.id, input.payment.id, input.payment.orderId, input.payment.status, input.sourceEventId ?? null, input.payment.card?.brand ?? null, input.payment.card?.cardType ?? null],
+    [attempt.id, input.payment.id, input.payment.orderId, input.payment.status, input.sourceEventId ?? null, input.payment.card?.brand ?? null, input.payment.card?.cardType ?? null, last4Of(input.payment.card?.last4)],
   );
   if (!next) return { attempt: (await getAttempt(run, attempt.id))!, changed: false, from: attempt.state, to: attempt.state };
 
@@ -377,7 +444,7 @@ export function paymentFromWebhook(payload: SquareWebhookEnvelope): SquarePaymen
   if (!p || typeof p.id !== "string" || typeof p.status !== "string") return null;
   const money = p.amount_money as { amount?: number; currency?: string } | undefined;
   const fees = (p.processing_fee as { amount_money?: { amount?: number } }[] | undefined) ?? [];
-  const card = (p.card_details as { card?: { card_brand?: string; card_type?: string; prepaid_type?: string } } | undefined)?.card;
+  const card = (p.card_details as { card?: { card_brand?: string; card_type?: string; prepaid_type?: string; last_4?: string } } | undefined)?.card;
   return {
     id: p.id,
     status: p.status as SquarePayment["status"],
@@ -390,7 +457,7 @@ export function paymentFromWebhook(payload: SquareWebhookEnvelope): SquarePaymen
     feeCents: fees.length ? fees.reduce((s, f) => s + Number(f.amount_money?.amount ?? 0), 0) : null,
     refundedCents: Number((p.refunded_money as { amount?: number } | undefined)?.amount ?? 0),
     refundIds: Array.isArray(p.refund_ids) ? (p.refund_ids as string[]) : [],
-    card: card ? { brand: card.card_brand ?? null, cardType: card.card_type ?? null, prepaidType: card.prepaid_type ?? null } : null,
+    card: card ? { brand: card.card_brand ?? null, cardType: card.card_type ?? null, prepaidType: card.prepaid_type ?? null, last4: card.last_4 ?? null } : null,
     createdAt: typeof p.created_at === "string" ? p.created_at : new Date().toISOString(),
     updatedAt: typeof p.updated_at === "string" ? p.updated_at : new Date().toISOString(),
   };

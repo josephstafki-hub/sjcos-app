@@ -1757,6 +1757,15 @@
         "SELECT"
       ]
     },
+    "payment_authorizations": {
+      "note": "client payment authorizations: written only by the portal checkout (website); the worker reaches lib/payments/service.ts but never records one",
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
     "payment_provider_config": {
       "note": "where card payments go",
       "sjcos_agent": [

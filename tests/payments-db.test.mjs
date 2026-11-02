@@ -18,6 +18,7 @@ import {
   executeRefund,
   getAttempt,
   applyProviderDispute,
+  recordAuthorization,
 } from "../lib/payments/service.ts";
 import { fakeSquare, FAKE_NOTIFICATION_URL, FAKE_SIGNATURE_KEY } from "../lib/payments/square/fake.ts";
 import { verifyWebhookSignature } from "../lib/payments/square/signature.ts";
@@ -540,5 +541,44 @@ test("After completion: a Dashboard refund the webhook missed is picked up by th
     const evt = await processSquareEvent(run, { payload: { type: "dispute.state.updated", event_id: "e-d3", data: { object: { dispute: { id: "dp_2", state: "LOST", amount_money: { amount: 150000 }, disputed_payment: { payment_id: paid.payment.id } } } } }, sourceEventId: null });
     assert.equal(evt.handled, "dispute:lost");
     assert.equal(evt.changed, false);
+  });
+});
+
+test("payment authorization: recorded before the charge from the server's own figures, kept once per attempt, never edited; Square's last 4 lands on the attempt", { skip }, async () => {
+  await withTestDb(async (url, client) => {
+    const projectId = await seed(client, "zz-pay-auth");
+    await client.query(`UPDATE projects SET address = '1 ZZ Test Lane, Prior Lake' WHERE id = $1`, [projectId]);
+    const tx = txOver(url);
+    const run = runOn(client);
+    const adapter = getSquareAdapter();
+    const inv = await issued(tx, projectId, "draw:0:deposit", 250000);
+    const userId = (await run(`SELECT id FROM users WHERE link_slug = 'zz-pay-auth'`))[0].id;
+    const nonce = "auth-0001-abcdef";
+    const prep = await tx((r) => prepareAttempt(r, { invoiceId: inv.id, method: "card", nonce, expectedAmountCents: 250000, actor: "portal:client" }));
+    assert.ok(prep.ok);
+    const rec = await tx((r) => recordAuthorization(r, prep.attempt, { signerName: "  ZZ   Cardholder ", userId, ip: "203.0.113.9", userAgent: "zz-browser" }));
+    assert.equal(rec.signer_name, "ZZ Cardholder");
+    assert.equal(rec.amount_cents, 250000);
+    assert.match(rec.statement, /^I, ZZ Cardholder, am the cardholder/);
+    assert.match(rec.statement, /charge \$2,500\.00 one time/);
+    assert.match(rec.statement, /invoice INV-\d+ \(draw:0:deposit\) for the project at 1 ZZ Test Lane, Prior Lake\./);
+    // A repeat tap on the same attempt keeps the first record.
+    const again = await tx((r) => recordAuthorization(r, prep.attempt, { signerName: "Someone Else", userId }));
+    assert.equal(again, null);
+    assert.equal((await run(`SELECT count(*)::int AS n FROM payment_authorizations`))[0].n, 1);
+    // A typed name is required.
+    await assert.rejects(tx((r) => recordAuthorization(r, prep.attempt, { signerName: " " })), /typed name/);
+    // Permanent record.
+    await assert.rejects(client.query(`UPDATE payment_authorizations SET signer_name = 'Forged' WHERE id = $1`, [rec.id]), /permanent record/);
+    await assert.rejects(client.query(`DELETE FROM payment_authorizations WHERE id = $1`, [rec.id]), /permanent record/);
+    // Deleting the portal login only clears the link (FK SET NULL is allowed).
+    await client.query(`DELETE FROM users WHERE id = $1`, [userId]);
+    assert.equal((await run(`SELECT user_id FROM payment_authorizations WHERE id = $1`, [rec.id]))[0].user_id, null);
+    // Charge and apply: Square's last 4 lands on the attempt.
+    const outcome = await chargeAttempt(adapter, prep.attempt, { sourceId: "cnon:card-ok", locationId: "L1" });
+    assert.equal(outcome.kind, "payment");
+    const applied = await tx((r) => applyProviderPayment(r, { attemptId: prep.attempt.id, payment: outcome.payment, actor: "portal:client" }));
+    assert.equal(applied.attempt.state, "completed");
+    assert.equal(applied.attempt.card_last4, "1111");
   });
 });

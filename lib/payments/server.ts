@@ -20,9 +20,12 @@ import {
   processSquareEvent,
   reconcilePendingAttempts,
   executeRefund,
+  recordAuthorization,
   type AttemptRow,
+  type AuthorizationInput,
   type SquareWebhookEnvelope,
 } from "./service";
+import { cleanSignerName } from "./authorization";
 import type { PaymentMethod } from "./square/types";
 import type { SourceEvent } from "@/lib/commands/source-events";
 import { loadSurchargeConfig, type CardFacts, type SurchargeConfig } from "./surcharge";
@@ -78,12 +81,20 @@ export type CheckoutResult =
 
 /** Checkout core: prepare (server amount, idempotent attempt) → provider call
  *  outside the tx → apply provider state. */
-export async function checkout(input: { invoiceId: number; method: PaymentMethod; nonce: string; sourceId: string; expectedAmountCents?: number | null; expectedRevision?: number | null; card?: CardFacts | null; expectedSurchargeCents?: number | null; buyerEmail?: string | null; actor: Principal | string }): Promise<CheckoutResult> {
+export async function checkout(input: { invoiceId: number; method: PaymentMethod; nonce: string; sourceId: string; expectedAmountCents?: number | null; expectedRevision?: number | null; card?: CardFacts | null; expectedSurchargeCents?: number | null; buyerEmail?: string | null; authorization: AuthorizationInput | null; actor: Principal | string }): Promise<CheckoutResult> {
   const cfg = await getProviderConfig();
   const adapter = getSquareAdapter();
   const connected = squareReadiness(adapter.environment, cfg).connected && !!cfg?.location_id && !!cfg?.application_id;
   if (!connected) return { ok: false, code: "not_configured", reason: "Online payment isn't available right now. Pay by check to SJ Carpentry LLC, or message Joe to arrange another way to pay.", status: 409 };
-  const prep = await withTransaction((run) => prepareAttempt(run, { invoiceId: input.invoiceId, method: input.method, nonce: input.nonce, expectedAmountCents: input.expectedAmountCents, expectedRevision: input.expectedRevision, card: input.card, expectedSurchargeCents: input.expectedSurchargeCents, actor: input.actor }));
+  // Nothing is charged without the client's typed authorization (Joe,
+  // 2026-11-02): it is stored with the attempt, before the provider call.
+  const authorization = input.authorization;
+  if (!authorization || !cleanSignerName(authorization.signerName)) return { ok: false, code: "no_authorization", reason: "Type your name and tick the authorization box before paying.", status: 400 };
+  const prep = await withTransaction(async (run) => {
+    const p = await prepareAttempt(run, { invoiceId: input.invoiceId, method: input.method, nonce: input.nonce, expectedAmountCents: input.expectedAmountCents, expectedRevision: input.expectedRevision, card: input.card, expectedSurchargeCents: input.expectedSurchargeCents, actor: input.actor });
+    if (p.ok && (p.attempt.state === "created" || p.attempt.state === "unknown")) await recordAuthorization(run, p.attempt, authorization);
+    return p;
+  });
   if (!prep.ok) return { ok: false, code: prep.code, reason: prep.reason, status: prep.code === "not_found" ? 404 : 409 };
   if (prep.reused && ["pending", "completed", "refunded", "failed", "disputed"].includes(prep.attempt.state)) {
     return { ok: true, state: prep.attempt.state, attemptId: prep.attempt.id, amountCents: prep.attempt.amount_cents, reused: true, message: describe(prep.attempt.state, prep.attempt.method) };
@@ -187,11 +198,63 @@ export async function executeRefundDecision(decisionId: string, principal: Princ
 }
 
 /** Recent online payments for Settings › Payments, with what's left to refund. */
-export async function recentOnlinePayments(): Promise<Array<{ id: string; invoice_number: string; client: string; slug: string; method: PaymentMethod; amount_cents: number; refundable_cents: number; state: string; completed_at: string | null }>> {
+export async function recentOnlinePayments(): Promise<Array<{ id: string; invoice_number: string; client: string; slug: string; method: PaymentMethod; amount_cents: number; refundable_cents: number; state: string; completed_at: string | null; authorized: boolean }>> {
   return runDirect(
     `SELECT a.id, i.number AS invoice_number, COALESCE(NULLIF(p.client_name, ''), p.name) AS client, p.slug, a.method, a.amount_cents, a.state, a.completed_at::text AS completed_at,
+            EXISTS (SELECT 1 FROM payment_authorizations pa WHERE pa.payment_attempt_id = a.id) AS authorized,
             CASE WHEN a.state IN ('completed','refunded') THEN GREATEST(0, a.amount_cents - COALESCE((SELECT SUM(r.amount_cents) FROM refunds r WHERE r.payment_attempt_id = a.id AND r.state IN ('requested','pending','completed','unknown')), 0))::int ELSE 0 END AS refundable_cents
        FROM payment_attempts a JOIN invoices i ON i.id = a.invoice_id JOIN projects p ON p.id = i.project_id
       WHERE a.state IN ('completed','refunded','disputed','returned') ORDER BY COALESCE(a.completed_at, a.created_at) DESC LIMIT 20`,
   );
+}
+
+export interface PaymentAuthorizationRecord {
+  id: string;
+  attempt_id: string;
+  signer_name: string;
+  statement: string;
+  statement_version: string;
+  method: PaymentMethod;
+  amount_cents: number;
+  surcharge_cents: number;
+  agreed_at: string;
+  ip: string;
+  user_agent: string;
+  login_email: string | null;
+  invoice_number: string;
+  milestone: string | null;
+  client_name: string;
+  project_name: string;
+  project_address: string | null;
+  attempt_state: string;
+  card_brand: string | null;
+  card_type: string | null;
+  card_last4: string | null;
+  provider_payment_id: string | null;
+  completed_at: string | null;
+  /** Central time, e.g. "Nov 02, 2026 2:29:45 PM CST". */
+  agreed_label: string;
+  completed_label: string | null;
+}
+
+/** One stored authorization with what Square later reported, for the
+ *  printable page Settings › Payments links to (owner-only). */
+export async function getPaymentAuthorization(attemptId: string): Promise<PaymentAuthorizationRecord | null> {
+  if (!/^[0-9a-f-]{36}$/i.test(attemptId)) return null;
+  const rows = await runDirect<PaymentAuthorizationRecord>(
+    `SELECT pa.id, a.id AS attempt_id, pa.signer_name, pa.statement, pa.statement_version, pa.method, pa.amount_cents, pa.surcharge_cents,
+            pa.agreed_at::text AS agreed_at, pa.ip, pa.user_agent, u.email AS login_email,
+            i.number AS invoice_number, i.milestone, COALESCE(NULLIF(p.client_name, ''), p.name) AS client_name, p.name AS project_name, p.address AS project_address,
+            a.state AS attempt_state, a.card_brand, a.card_type, a.card_last4, a.provider_payment_id, a.completed_at::text AS completed_at,
+            to_char(pa.agreed_at AT TIME ZONE 'America/Chicago', 'Mon DD, YYYY FMHH12:MI:SS AM') || ' Central' AS agreed_label,
+            to_char(a.completed_at AT TIME ZONE 'America/Chicago', 'Mon DD, YYYY FMHH12:MI:SS AM') || ' Central' AS completed_label
+       FROM payment_authorizations pa
+       JOIN payment_attempts a ON a.id = pa.payment_attempt_id
+       JOIN invoices i ON i.id = pa.invoice_id
+       JOIN projects p ON p.id = i.project_id
+       LEFT JOIN users u ON u.id = pa.user_id
+      WHERE pa.payment_attempt_id = $1`,
+    [attemptId],
+  );
+  return rows[0] ?? null;
 }

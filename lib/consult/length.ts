@@ -16,11 +16,11 @@ function scalar(input: string): number | null {
   }
   return /^(?:\d+(?:\.\d*)?|\.\d+)$/.test(input.trim()) ? Number(input) : null;
 }
-export function formatLength(inches: number, precision = 1 / 8): string {
+export function formatLength(inches: number, precision = 1 / 8, inchesOnly = false): string {
   if (!Number.isFinite(inches) || inches < 0 || ![1/16, 1/8, 1/4, 1/2, 1].includes(precision)) throw new Error('invalid_length');
   const denominator = 1 / precision;
   const ticks = Math.round(inches * denominator);
-  const feet = Math.floor(ticks / (12 * denominator));
+  const feet = inchesOnly ? 0 : Math.floor(ticks / (12 * denominator));
   const remainder = ticks - feet * 12 * denominator;
   const whole = Math.floor(remainder / denominator);
   let numerator = remainder % denominator, divisor = denominator;
@@ -67,3 +67,5 @@ const VULGAR: Record<string, string> = { "1/8": "⅛", "1/4": "¼", "3/8": "⅜"
 export function prettyLength(t: string): string {
   return t.replace(/'/g, "′").replace(/"/g, "″").replace(/(\d) (\d\/\d)(?=″|$|\s|×)/g, (m, d: string, f: string) => (VULGAR[f] ? `${d}${VULGAR[f]}` : m));
 }
+
+export function displayLength(inches:number, precision=1/8):string { return formatLength(inches,precision,inches<48); }

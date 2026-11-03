@@ -177,8 +177,8 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
       const inst = f.addr.split(":")[0];
       if (c.rebase) { if (c.event_id) void wrap(api.discard(c.event_id, "Entered again after the visit was reopened")); if (f.def.type.startsWith("length")) setKeypad({ f }); else jump(f.addr); return; }
       const chosen = pick === "proposed" ? c.proposed : c.current ?? c.proposed;
-      if (!c.current || !c.proposed || !chosen) return;
-      void wrap(api.resolve(inst, f.key, c.current.revision, c.current.id, c.proposed.id, { status: chosen.status as AnswerPayload["status"], ...(chosen.status === "answered" ? { value: chosen.value } : {}), unit: f.def.unit }, f.def.label)).then(() => { if (pick === "other") { if (f.def.type.startsWith("length")) setKeypad({ f }); else jump(f.addr); } });
+      if (!c.current || !c.proposed || !chosen || chosen.available===false) return;
+      void wrap(api.resolve(inst, f.key, c.current.revision, c.current.id, c.proposed.id, { status: chosen.status as AnswerPayload["status"], ...(chosen.status === "answered" ? { value: chosen.value } : {}), unit: chosen.unit??f.def.unit, ...(chosen.status==='skipped'?{skip_reason:chosen.skip_reason as AnswerPayload["skip_reason"],skip_note:chosen.skip_note??undefined}:{}) }, f.def.label)).then(() => { if (pick === "other") { if (f.def.type.startsWith("length")) setKeypad({ f }); else jump(f.addr); } });
     },
   };
 

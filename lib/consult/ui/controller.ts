@@ -21,6 +21,7 @@ import { HOUSE_WIDE, baselineOf, buildModel, emptyDraft, manifestBlobs, moduleNo
 import { decisionsOp, answerOp, createInstanceOp, discardOp, removeInstanceOp, resolveOp, startOp, uuid, type AnswerPayload } from './ops.ts';
 
 export interface Boot {
+  status?:string; closed_at?:string|null; completeness?:unknown;
   consult_id: string; user: { id: string; name: string; role: string }; session_epoch: number;
   display: Display; auto_apply: boolean; capture_enabled: boolean; home: string;
 }
@@ -156,6 +157,7 @@ export class VisitController {
     window.addEventListener('online', this.onOnline); window.addEventListener('offline', this.onOffline); document.addEventListener('visibilitychange', this.onHide);
     const device = deviceId();
     const { boot, consultId } = this.state;
+    if (boot?.status==='complete') { window.location.replace(`${boot.home}/consult/${consultId}`); return; }
     if (boot && !boot.capture_enabled) {
       if ('serviceWorker' in navigator) await registerConsultWorker(false).catch(() => null);
       this.set({ device, phase: 'disabled', code: 'capture_disabled' }); return;
@@ -515,9 +517,7 @@ export class VisitController {
     this.set({ local: this.engine.read(), closing: { step: 'sending' } });
     if (!navigator.onLine) { this.set({closing:{step:'waiting_signal'}}); return; }
     if (this.closeTimer) clearTimeout(this.closeTimer);
-    this.closeTimer=setTimeout(()=>{
-      if (['sending','closing'].includes(this.state.closing?.step ?? '')) this.set({closing:{step:'error',code:'close_timeout'}});
-    },20_000);
+
     await this.drain(true);
     if(this.engine!==engine||this.memoryEpoch!==epoch)return;
     if (this.engine?.read()?.close_intent) await this.resumeClose();
@@ -563,9 +563,9 @@ export class VisitController {
       this.set({ local: this.engine?.read() ?? null, closing: { step: 'done', result } });
     } catch (e) {
       if (!owns()) return;
-      const code = codeOf(e);
+      const rawCode = codeOf(e), code = transientClose(rawCode) && rawCode !== 'no_signal' ? 'close_timeout' : rawCode;
       this.set({ local: this.engine?.read() ?? null, closing: { step: code === 'no_signal' ? 'waiting_signal' : 'error', code } });
-      if (transientClose(code)) this.schedule(Math.min(60_000, 2000 * 2 ** Math.min(this.closeAttempts++, 5)));
+      if (code === 'close_timeout' || transientClose(code)) this.schedule(Math.min(60_000, 2000 * 2 ** Math.min(this.closeAttempts++, 5)));
     } finally { if (owns()) { this.closing = false; this.closeToken = null; } }
   }
   dismissClosing() { this.set({ closing: null }); }

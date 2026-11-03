@@ -151,8 +151,8 @@ function ConflictPicker({ f, actions }: { f: FieldView; actions: FieldActions })
       <p className="font-semibold text-flag">! Conflict · {f.def.label}</p>
       <p className="text-[0.95em] text-ink">{c.rebase ? plainWords("rebase_required") : W.conflictBody}</p>
       <div className="mt-2 grid gap-3 sm:grid-cols-2">
-        {c.current && <Btn onClick={() => actions.resolve(f, "current")} >Pick {show(c.current.value, c.current.status)} · office</Btn>}
-        {c.proposed && !c.rebase && <Btn onClick={() => actions.resolve(f, "proposed")} >Pick {show(c.proposed.value, c.proposed.status)} · this device</Btn>}
+        {c.current && <Btn disabled={c.current.available===false} onClick={() => actions.resolve(f, "current")} >Pick {show(c.current.value, c.current.status)} · {c.current.source_label ?? "office"}</Btn>}
+        {c.proposed && !c.rebase && <Btn disabled={c.proposed.available===false} onClick={() => actions.resolve(f, "proposed")} >Pick {show(c.proposed.value, c.proposed.status)} · {c.proposed.source_label ?? "this device"}</Btn>}
         <Btn onClick={() => actions.resolve(f, "other")}>{W.enterAnother}</Btn>
       </div>
     </div>

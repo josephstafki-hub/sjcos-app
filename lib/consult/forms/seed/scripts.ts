@@ -26,8 +26,9 @@ export const CLOSING_JOE: ScriptLine[] = [
   { n: '6', text: 'Thanks for your time. We\'ll put back anything we moved.' },
 ];
 /** Staff closing: adds this line after line 2. */
-export const STAFF_CLOSING_LINE = 'Joe prices the estimate from everything I measured today, and he may call you with a question or two.';
-export const CLOSING_STAFF: ScriptLine[] = [...CLOSING_JOE.slice(0, 2).map(l=>l.n==='2'?{...l,text:l.text.replace('Next, I price this','Next, Joe prices this')}:l), { n: '2b', text: STAFF_CLOSING_LINE }, ...CLOSING_JOE.slice(2)];
+export const STAFF_CLOSING_LINE = 'Joe works from everything I measured today, and he may call you with a question or two.';
+export const STAFF_CLOSING_LINE_2 = "Next, Joe prices this with our trade partners and suppliers. You'll have the formal estimate by {estimate_date}. It shows each part of the work, the allowances for the things you're still choosing, and what isn't included.";
+export const CLOSING_STAFF: ScriptLine[] = [CLOSING_JOE[0], {n:'2',text:STAFF_CLOSING_LINE_2}, { n: '2b', text: STAFF_CLOSING_LINE }, ...CLOSING_JOE.slice(2)];
 
 export const SCRIPT_RULES = {
   opening: 'Shown on the Start screen, one card per line, Next advances; field-entry Next differs as §6.3 defines.',

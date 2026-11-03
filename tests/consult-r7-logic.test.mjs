@@ -1,0 +1,16 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {seedModules} from '../lib/consult/forms/seed.ts';
+import {evaluatedFlags} from '../lib/consult/flags.ts';
+import {displayLength} from '../lib/consult/length.ts';
+import {CLOSING_STAFF,STAFF_CLOSING_LINE_2} from '../lib/consult/forms/seed/scripts.ts';
+import {consultCompleteness} from '../lib/consult/completeness.ts';
+const field=(m,k)=>seedModules.find(x=>x.key===m).fields.find(x=>x.key===k);
+test('Orangeburg flags without crack answer',()=>assert.ok(evaluatedFlags(field('water','main_stack'),'w:main_stack',{main_stack:'Orangeburg'}).length));
+test('missing override reason flags',()=>assert.ok(evaluatedFlags(field('era','year_override_reason'),'e:year_override_reason',{'era.before_1978':false,before_1978:false,'house.year_built':1960}).length));
+test('blank visit has no flags',()=>assert.equal(seedModules.flatMap(m=>m.fields.flatMap(f=>evaluatedFlags(f,m.key+':'+f.key,{}))).length,0));
+test('staff closing script',()=>{assert.equal(CLOSING_STAFF.find(l=>l.n==='2').text,STAFF_CLOSING_LINE_2);assert.equal(CLOSING_STAFF.find(l=>l.n==='2b').text,'Joe works from everything I measured today, and he may call you with a question or two.');});
+test('short lengths in inches',()=>{assert.equal(displayLength(20),'20″');assert.equal(displayLength(48),'4′ 0″');});
+test('skipped date check completes with initials',()=>{const r=consultCompleteness({fields:[],photos:[],modules:[],recording:{asked:true,choice:'manual'},photo_permission:true,acknowledgement:{initials_committed:true},promised_date:null,promised_date_skip:{reason:'Joe sets the date'},manifests:[{device:'a',acknowledged:true,rejected:0,missing:false}],unresolved_conflicts:0,rrp:{applies:false},flags:[],touched_trades:[],trade_walks:[],no_trades_confirmed:true});assert.equal(r.complete,true);});
+test('sixteenth-inch seed fields are limited to kitchen layout and worst dip',()=>{const keys=seedModules.flatMap(m=>m.fields.filter(f=>f.precision===0.0625).map(f=>m.key+'.'+f.key)).sort();console.log('1/16 inch fields:',keys);assert.ok(keys.length);assert.ok(keys.every(k=>/kitchen|flooring/.test(k)));});
+test('kept toilet clearance is advisory',()=>{const flags=evaluatedFlags(field('bath_scope','toilet_front_clearance'),'b:toilet_front_clearance',{toilet_plan:'Keep',toilet_front_clearance:20});assert.equal(flags[0].kind,'advisory');assert.match(flags[0].hint,/Joe decides/);});

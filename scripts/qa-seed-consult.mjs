@@ -7,7 +7,7 @@ import {seedConsult} from '../db/seed-consult.mjs';
 import {schedule,command,snapshot,hash} from '../lib/consult/protocol.ts';
 import {buildModel,emptyDraft} from '../lib/consult/ui/model.ts';
 import {initConsultUpload,putConsultPart,commitConsultBlob} from '../lib/consult/uploads.ts';
-export async function seedQaConsult(c,slug,{uploadRoot}={}) {
+export async function seedQaConsult(c,slug,{uploadRoot,fixtureKey='consult-r7',skipEstimateDate=false}={}) {
  const project=(await c.query('SELECT id FROM projects WHERE slug=$1',[slug])).rows[0];
  if(!project)throw Error('Project slug not found');
  const owner=(await c.query("SELECT id FROM users WHERE active AND role='owner' ORDER BY created_at LIMIT 1")).rows[0];
@@ -18,9 +18,12 @@ export async function seedQaConsult(c,slug,{uploadRoot}={}) {
  const key=(await c.query('SELECT key_id,secret FROM consult_context_keys WHERE revoked_at IS NULL ORDER BY created_at DESC LIMIT 1')).rows[0];
  const ctx=(operation,id=null,asOwner=false,nonce=randomUUID())=>{const payload=JSON.stringify({kind:'in_home_consult',sub:asOwner?owner.id:staff.id,role:asOwner||staff.id===owner.id?'owner':'staff',areas:['projects'],mode:'person',operation,consult_id:id,iat:Date.now()/1000,exp:Date.now()/1000+120,run_id:randomUUID(),nonce});return {key_id:key.key_id,payload,signature:createHmac('sha256',key.secret).update(payload).digest('hex')};};
  const forms=(await c.query("SELECT id FROM consult_form_versions WHERE status='published' AND (kind='module' OR (kind='template' AND key IN ('bath','kitchen')))")).rows.map(r=>r.id);
- const namespace=`QA ${new Date().toISOString()} ${randomUUID().slice(0,8)}`;
+ const namespace=`QA ${fixtureKey}`;
+ await c.query('SELECT pg_advisory_xact_lock(hashtext($1))',[namespace+project.id]);
  const visits=[];
  for(const state of ['complete','conflict']){
+  const existing=(await c.query("SELECT v.id FROM consults v JOIN consult_events e ON e.consult_id=v.id WHERE v.project_id=$1 AND e.type='scheduled_notes' AND e.payload->>'visitor_notes' =$2",[project.id,`${namespace} ${state}`])).rows[0];
+  if(existing){visits.push({state,id:existing.id,reused:true});continue;}
   const {id}=await schedule(c,ctx('schedule',null,true),{project:project.id,visitor:staff.id,visit_time:new Date().toISOString(),forms,visitor_notes:`${namespace} ${state}`});
   const device=randomUUID();let seq=0;
   const run=(kind,input)=>command(c,ctx(kind,id,false,input?.nonce),id,kind,input);
@@ -39,7 +42,7 @@ export async function seedQaConsult(c,slug,{uploadRoot}={}) {
    for(const slot of m.slots.filter(s=>s.required)){
     const parents=slot.parent?m.sections.filter(s=>s.module.key===slot.parent).map(s=>s.instance.id):[null];
     for(const parent of parents){const count=m.sections.filter(s=>s.module.key===slot.module.key&&(!parent||s.instance.parent_id===parent)).length;
-     for(let n=count;n<slot.minimum;n++){await send('create_instance',{instance_id:randomUUID(),module_key:slot.module.key,label:`${slot.label??slot.module.title} ${n+1}`,...(parent?{parent_id:parent}:{})},{},await rev());added=true;}
+     for(let n=count;n<slot.minimum;n++){await send('create_instance',{instance_id:randomUUID(),module_key:slot.module.key,label:`${slot.module.title} ${n+1}`,...(parent?{parent_id:parent}:{})},{},await rev());added=true;}
     }
    }
    if(!added)break;
@@ -61,12 +64,13 @@ export async function seedQaConsult(c,slug,{uploadRoot}={}) {
    if(s.module.context_module||s.module.key==='visit'||f.def.derive||f.def.derive_cases||f.readOnly||f.def.type==='signature'||f.answer)continue;
    const target={instance_id:s.instance.id,field_key:f.key};
    if(s.module.key==='house'&&f.key==='year_built')await send('answer',target,{status:'answered',value:2000});
+   else if(f.key==='estimate_promised'&&skipEstimateDate){draft.skips[f.addr]={reason:'Joe sets the date'};await send('answer',target,{status:'skipped',skip_reason:'Joe sets the date'});}
    else if(f.def.type==='date')await send('answer',target,{status:'answered',value:'2026-12-10'});
    else {draft.skips[f.addr]={reason:'Other',note:'QA fixture: excluded by agreement',assumption};await send('answer',target,{status:'skipped',...(f.def.unit?{unit:f.def.unit}:{}),skip_reason:'Other',skip_note:'QA fixture: excluded by agreement'});}
   }
   m=await model();for(const s of m.sections)for(const shot of [...s.shots,...s.fields.flatMap(f=>f.shots)])draft.skips[shot.addr]={reason:'Other',note:'QA fixture: client declined photo',assumption};
   for(const flag of m.flags)draft.flags[flag.key]={disposition:'not_an_issue',note:'Reviewed for QA fixture'};
-  const evidence={...draft,photos_ok:true,manual_confirmed:true,handed_back:true,ack_reason:null,promised_date:'2026-12-10',no_trades_confirmed:true,touched_trades:[],trade_walks:[],rrp:{receipt:true,firm_current:true,renovator_current:true,redelivery_required:false}};
+  const evidence={...draft,photos_ok:true,manual_confirmed:true,handed_back:true,ack_reason:null,promised_date:skipEstimateDate?null:'2026-12-10',no_trades_confirmed:true,touched_trades:[],trade_walks:[],rrp:{receipt:true,firm_current:true,renovator_current:true,redelivery_required:false}};
   await run('evidence',{device,epoch:1,expected_revision:await rev(),evidence});
   const closing=m.sections.find(s=>s.module.key==='closing');
   const bytes=await sharp({create:{width:16,height:16,channels:3,background:'#ffffff'}}).png().toBuffer(),sha256=createHash('sha256').update(bytes).digest('hex'),event_id=randomUUID();

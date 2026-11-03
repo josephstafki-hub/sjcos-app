@@ -18,9 +18,9 @@ import type { QueueEntry } from '../queue.ts';
 import type { LocalBlob } from '../offline-engine.ts';
 
 export interface Display { client: string; project: string; slug: string; address: string | null; phone?: string | null; visitor_name: string; visitor_staff: boolean; scheduled_label: string }
-export interface SnapInstance { id: string; module_key: string; parent_id: string | null; removed_at: string | null; label?: string; created_at?: string }
-export interface SnapHead { id: string; instance_id: string; field_key: string; status: string; value: unknown; unit?: string | null; skip_reason: string | null; skip_note: string | null; server_revision: string | number; device_id?: string | null; actor?: string | null; created_at?: string }
-export interface SnapConflict { id?: string; instance_id: string; field_key: string; current_answer_id: string; proposed_answer_id: string }
+export interface SnapInstance { id: string; module_key: string; parent_id: string | null; removed_at: string | null; label?: string; created_at?: string; source_label?: string; person?: string }
+export interface SnapHead { id: string; instance_id: string; field_key: string; status: string; value: unknown; unit?: string | null; skip_reason: string | null; skip_note: string | null; server_revision: string | number; device_id?: string | null; actor?: string | null; created_at?: string; source_label?:string; person?:string }
+export interface SnapConflict { id?: string; instance_id: string; field_key: string; current_answer_id: string; proposed_answer_id: string; current?: SnapHead; proposed?: SnapHead }
 export interface Snapshot {
   consult: { id: string; project_id: string; status: string; revision: string | number; completion_generation: string | number; conducted_by: string; scheduled_at: string; deletion_epoch?: string | number; promised_date?: string | null; closed_at?: string | null; completed_at?: string | null; completeness_cache?: unknown };
   pins: { kind: string; key?: string; version?: number; checksum?: string; definition: ModuleDef | TemplateDef }[];
@@ -43,13 +43,13 @@ export const emptyDraft = (): EvidenceDraft => ({ skips: {}, flags: {}, trade_wa
 
 export type Mark = 'open' | 'partial' | 'covered' | 'not_applicable';
 export interface AnswerView { status: 'answered' | 'skipped' | 'cleared'; value: unknown; unit?: string; skip_reason?: SkipReason; skip_note?: string; local: 'server' | 'pending' | 'accepted' | 'conflict' | 'invalid' | 'other'; error_code?: string; event_id?: string; revision?: number }
-export interface ConflictView { key: string; instance_id: string; field_key: string; current?: { id: string; value: unknown; status: string; revision: number; device?: string | null }; proposed?: { id: string; value: unknown; status: string; device?: string | null }; event_id?: string; rebase?: boolean }
+export interface ConflictView { key: string; instance_id: string; field_key: string; current?: { id: string; value: unknown; status: string; revision: number; device?: string | null; source_label?:string; available?:boolean; unit?:string|null; skip_reason?:string|null; skip_note?:string|null; actor?:string|null; created_at?:string }; proposed?: { id: string; value: unknown; status: string; device?: string | null; source_label?:string; available?:boolean; unit?:string|null; skip_reason?:string|null; skip_note?:string|null; actor?:string|null; created_at?:string }; event_id?: string; rebase?: boolean }
 export interface ShotView { key: string; def: ShotDef; required: boolean; mark: Mark; skip?: AnswerView['skip_reason']; blobs: LocalBlob[]; addr: string }
 export interface FieldView {
   key: string; addr: string; def: FieldDef; required: boolean; applicable: boolean; mark: Mark;
   prefilledFrom?: { field: string; value: unknown; label: string }; readOnly?: boolean;
   answer?: AnswerView; conflict?: ConflictView; returnVisit: boolean; skipNote?: string; skipCounts: boolean;
-  shots: ShotView[]; flags: { key: string; issue: string; hint: string; address: string; measured: {field:string;value:unknown;unit?:string;address:string}[] }[]; initials?: LocalBlob;
+  shots: ShotView[]; flags: { kind?:string; key: string; issue: string; hint: string; address: string; measured: {field:string;value:unknown;unit?:string;address:string}[] }[]; initials?: LocalBlob;
 }
 export interface SectionView {
   instance: SnapInstance; module: ModuleDef; label: string; title: string; depth: number;
@@ -61,7 +61,7 @@ export interface VisitModel {
   modules: ModuleDef[]; templates: TemplateDef[]; sections: SectionView[]; slots: ModuleSlot[];
   pc: { done: number; total: number; skipped: number }; record: { done: number; total: number; skipped: number };
   open: { section: SectionView; item: FieldView | ShotView; kind: 'field' | 'shot'; partly: boolean }[];
-  flags: { key: string; issue: string; hint: string; address: string; measured: {field:string;value:unknown;unit?:string;address:string}[]; section: SectionView; field: FieldView }[];
+  flags: { kind?:string; key: string; issue: string; hint: string; address: string; measured: {field:string;value:unknown;unit?:string;address:string}[]; section: SectionView; field: FieldView }[];
   conflicts: ConflictView[]; touchedTrades: string[]; rrpApplies: boolean; rrp: ReturnType<typeof rrpFacts>;
   values: Record<string, unknown>; photosOk: boolean | null; promised: string | null;
   started: boolean; status: string; generation: number;
@@ -143,8 +143,9 @@ export function openConflicts(s: Snapshot, entries: QueueEntry[]): ConflictView[
   const heads = new Map(s.heads.map((h) => [h.id, h]));
   for (const x of s.conflicts) {
     if (resolvedEvents.has(x.proposed_answer_id)) continue;
-    const cur = heads.get(x.current_answer_id);
-    out.push({ key: addrOf(x.instance_id, x.field_key), instance_id: x.instance_id, field_key: x.field_key, current: cur ? { id: cur.id, value: cur.value, status: cur.status, revision: Number(cur.server_revision), device: cur.device_id } : undefined, proposed: { id: x.proposed_answer_id, value: undefined, status: 'answered' } });
+    const cur = x.current ?? heads.get(x.current_answer_id);
+    const side=(a:SnapHead|undefined)=>a?{...a,revision:Number(a.server_revision),device:a.device_id,source_label:a.source_label??(a.device_id?`${a.actor??'Visitor'} · device ${a.device_id.slice(0,8)}`:'office'),available:a.status!=='answered'||a.value!==undefined}:undefined;
+    out.push({key:addrOf(x.instance_id,x.field_key),instance_id:x.instance_id,field_key:x.field_key,current:side(cur)??{id:x.current_answer_id,value:undefined,status:'unavailable',revision:0,available:false,source_label:'Unavailable'},proposed:side(x.proposed)??{id:x.proposed_answer_id,value:undefined,status:'unavailable',available:false,source_label:'Unavailable'}});
   }
   for (const e of entries) {
     if (e.status !== 'conflict' || !ANSWER_TYPES.has(e.op.type) || resolvedEvents.has(e.op.client_event_id)) continue;
@@ -156,11 +157,11 @@ export function openConflicts(s: Snapshot, entries: QueueEntry[]): ConflictView[
     if (pair?.proposed && resolvedEvents.has(pair.proposed.id)) continue;
     const prop = pair?.proposed;
     const same = prop ? out.find((c) => c.key === key && c.proposed?.id === prop.id) : undefined;
-    if (same && prop) { same.proposed = { id: prop.id, value: prop.value, status: prop.status, device: prop.device_id }; same.event_id = e.op.client_event_id; continue; }
+    if (same && prop) { same.proposed = { ...same.proposed,...prop, id: prop.id, value: prop.value, status: prop.status, device: prop.device_id }; same.event_id = e.op.client_event_id; continue; }
     const p = e.op.payload as { value?: unknown; status: string };
     out.push({ key, instance_id: t.instance_id, field_key: t.field_key, event_id: e.op.client_event_id, rebase: e.error_code === 'rebase_required' || !pair?.current,
-      current: pair?.current ? { id: pair.current.id, value: pair.current.value, status: pair.current.status, revision: Number(pair.current.server_revision), device: pair.current.device_id } : undefined,
-      proposed: pair?.proposed ? { id: pair.proposed.id, value: pair.proposed.value, status: pair.proposed.status, device: pair.proposed.device_id } : { id: e.op.client_event_id, value: p.value, status: p.status } });
+      current: pair?.current ? { ...pair.current,id: pair.current.id, value: pair.current.value, status: pair.current.status, revision: Number(pair.current.server_revision), device: pair.current.device_id } : undefined,
+      proposed: pair?.proposed ? { ...pair.proposed,id: pair.proposed.id, value: pair.proposed.value, status: pair.proposed.status, device: pair.proposed.device_id } : { ...e.op.payload as object,id: e.op.client_event_id, value: p.value, status: p.status } });
   }
   return out;
 }
@@ -367,7 +368,7 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
       let mark: Mark = answered ? (shotsDone ? 'covered' : 'partial') : counts ? 'not_applicable' : 'open';
       if (f.type === 'length_pair' && answered && Array.isArray(a?.value) && a!.value.some((v) => typeof v !== 'number')) mark = 'partial';
       const flags: FieldView['flags'] = [];
-      for (const flag of evaluatedFlags(f,addr,values)) flags.push({key:flag.key,issue:flag.issue,hint:flag.hint??visitorFlagText(flag.issue),address:addr,measured:[...new Set(flagInputs(flag.when))].map(key=>{const parts=key.split('.'),def=parts.length===1?m.fields.find(f=>f.key===key):byKey.get(parts[0])?.fields.find(f=>f.key===parts[1]);const source=parts.length===1?inst:live.find(i=>i.module_key===parts[0]);return {field:key,value:values[key],unit:def?.unit==='in'?'″':def?.unit,address:source?addrOf(source.id,def?.key??key):addr};})});
+      for (const flag of evaluatedFlags(f,addr,values)) flags.push({kind:flag.kind,key:flag.key,issue:flag.issue,hint:flag.hint??visitorFlagText(flag.issue),address:addr,measured:[...new Set(flagInputs(flag.when))].map(key=>{const parts=key.split('.'),def=parts.length===1?m.fields.find(f=>f.key===key):byKey.get(parts[0])?.fields.find(f=>f.key===parts[1]);const source=parts.length===1?inst:live.find(i=>i.module_key===parts[0]);return {field:key,value:values[key],unit:def?.unit==='in'?'″':def?.unit,address:source?addrOf(source.id,def?.key??key):addr};})});
       const view: FieldView = { key: f.key, addr, readOnly: m.key==='closing'&&f.key==='summary', ...(prefilled?{prefilledFrom:{field:'house.year_built',value:global['house.year_built'],label:`From Year built (${global['house.year_built']})`}}:{}), def: f.key==='pamphlet_given'&&m.key==='era'&&typeof global['house.year_built']!=='number'&&global['era.before_1978']!==true?{...f,say:PAMPHLET_UNKNOWN_YEAR_LINE}:m.key==='era'&&f.key==='before_1978'?{...f,hint:yearHint(prefilled,a,global['house.year_built'])}:f, required, applicable, mark, answer: a, conflict, returnVisit: a?.status === 'skipped' && a.skip_reason === 'Get on return visit', skipNote: a?.skip_note, skipCounts: counts, shots, flags, initials };
       for (const fl of flags) allFlags.push({ ...fl, section, field: view });
       if (isDerived(f) || !applicable) { hidden.push(view); continue; }
@@ -539,7 +540,10 @@ export const assumptionOk = hasRiskAssumption;
  * Phase 1 has no recording, so the manual choice is always recorded.
  */
 export function buildEvidence(model: VisitModel, draft: EvidenceDraft, hasInitials: boolean): Record<string, unknown> | null {
-  if (!model.promised || !/^\d{4}-\d{2}-\d{2}$/.test(model.promised)) return null;
+  const dateSkip=model.sections.find(s=>s.module.key==='closing')?.fields.find(f=>f.key==='estimate_promised')?.answer;
+  const skippedDate=dateSkip?.status==='skipped'&&(dateSkip.skip_reason==='Joe sets the date'||(dateSkip.skip_reason==='Other'&&!!dateSkip.skip_note?.trim()));
+  if(!model.promised&&!skippedDate)return null;
+
   const trim = (s?: string | null) => (s ?? '').trim();
   const skips: Record<string, unknown> = {};
   const fields = new Map(model.sections.flatMap((s) => s.fields.map((f) => [f.addr, f] as const)));

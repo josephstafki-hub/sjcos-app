@@ -43,6 +43,7 @@ export function displayOf(h: VisitHead): Display {
 
 export async function bootFor(user: CurrentUser, h: VisitHead): Promise<Boot> {
   return {
+    status:h.status, closed_at:(await queryOne<{closed_at:string|null}>("SELECT closed_at FROM consults WHERE id=$1",[h.id]))?.closed_at??null, completeness:(await queryOne<{completeness_cache:unknown}>("SELECT completeness_cache FROM consults WHERE id=$1",[h.id]))?.completeness_cache??null,
     consult_id: h.id, user: { id: user.id, name: user.name, role: user.role }, session_epoch: await sessionEpoch(),
     display: displayOf(h), auto_apply: await flag("consult_auto_apply_findings"), capture_enabled: await flag("consult_capture"), home: `/projects/${h.slug}`,
   };
@@ -106,7 +107,7 @@ export interface LookOverExtra {
   media: { id: string; instance_id: string; field_key: string | null; shot_key: string | null; kind: string; file_id: string; sha256: string; taken_at: string }[];
   evidence: Record<string, unknown> | null;
   provenance: Record<string, { actor: string; source: string; device: string | null; at: string }>;
-  conflicts: Record<string, { current: { id: string; value: unknown; status: string; revision: number; actor: string; at: string }; proposed: { id: string; value: unknown; status: string; actor: string; at: string } }>;
+  conflicts: Record<string, { current: { id: string; value: unknown; status: string; revision: number; actor: string; at: string; unit?:string|null; device_id?:string|null; person?:string; source_label?:string; available?:boolean; skip_reason?:string|null; skip_note?:string|null }; proposed: { id: string; value: unknown; status: string; actor: string; at: string; unit?:string|null; device_id?:string|null; person?:string; source_label?:string; available?:boolean; skip_reason?:string|null; skip_note?:string|null } }>;
   pendingDevice: { photos: number } | null;
   closedAt: string | null; completedAt: string | null; reopenReason: string | null; completeness: unknown;
   autoApply: boolean;
@@ -121,6 +122,8 @@ export async function lookOverExtra(id: string): Promise<LookOverExtra> {
   const row = await queryOne<{ closed_at: string | null; completed_at: string | null; reopen_reason: string | null; completeness_cache: unknown }>(`SELECT closed_at, completed_at, reopen_reason, completeness_cache FROM consults WHERE id=$1`, [id]);
   const conflicts: LookOverExtra["conflicts"] = {};
   for (const c of conf) conflicts[`${c.instance_id}:${c.field_key}`] = { current: { id: c.cid, value: c.cv, status: c.cs, revision: Number(c.crev), actor: c.ca, at: String(c.cat) }, proposed: { id: c.pid, value: c.pv, status: c.ps, actor: c.pa, at: String(c.pat) } };
+  const sides=(await query(`SELECT a.*,u.name person,CASE WHEN a.device_id IS NULL THEN 'office' ELSE u.name || ' · device ' || left(a.device_id::text,8) END source_label FROM consult_answers a JOIN users u ON u.id=a.actor WHERE a.consult_id=$1 AND a.id IN (SELECT current_answer_id FROM consult_conflicts WHERE consult_id=$1 AND resolved_at IS NULL UNION SELECT proposed_answer_id FROM consult_conflicts WHERE consult_id=$1 AND resolved_at IS NULL)`,[id])).rows;
+  for(const pair of Object.values(conflicts))for(const side of [pair.current,pair.proposed]){const answer=sides.find(a=>a.id===side.id);Object.assign(side,answer??{}, {available:!!answer&&(answer.status!=='answered'||answer.value!==undefined)});}
   const provenance: LookOverExtra["provenance"] = {};
   for (const p of prov) provenance[`${p.instance_id}:${p.field_key}`] = { actor: p.actor, source: p.source, device: p.device_id, at: String(p.created_at) };
   const pendingPhotos = await queryOne<{ n: number }>(`SELECT count(*)::int AS n FROM consult_uploads WHERE consult_id=$1 AND status NOT IN ('committed','expired')`, [id]).catch(() => null);

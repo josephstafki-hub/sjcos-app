@@ -22,14 +22,23 @@ test('QA seed closes Complete and creates a real two-device conflict; blank/20 i
  const f={project,staff,context:()=>{throw Error('replace context');}};const root=await mkdtemp(`${tmpdir()}/consult-r6-`);
  try {
  
- const index=await seedQaConsult(c,f.project,{uploadRoot:root});
+ const index=await seedQaConsult(c,f.project,{uploadRoot:root,skipEstimateDate:true});
  assert.equal(index.visits[0].result.complete,true);
+ const promise=(await c.query("SELECT title,due_at FROM work_items WHERE source_id=$1",[`${index.visits[0].id}:promise:estimate`])).rows[0];assert.match(promise.title,/Set the formal estimate date/);assert.equal(promise.due_at,null);
  assert.equal(index.visits[1].devices.length,2);
  const id=index.visits[1].id;
  const key=(await c.query('SELECT * FROM consult_context_keys WHERE revoked_at IS NULL LIMIT 1')).rows[0];
  f.context=(operation,sub,id)=>{const payload=JSON.stringify({kind:'in_home_consult',sub,role:'staff',areas:['projects'],mode:'person',operation,consult_id:id,iat:Date.now()/1000,exp:Date.now()/1000+120,run_id:randomUUID(),nonce:randomUUID()});return {key_id:key.key_id,payload,signature:createHmac('sha256',key.secret).update(payload).digest('hex')};};
  const s=await snapshot(c,f.context('read',f.staff,id),id);
  assert.ok(s.conflicts.length);
+ assert.ok(s.conflicts[0].current.source_label);assert.ok(s.conflicts[0].proposed.value!==undefined);
+ const repeated=await seedQaConsult(c,f.project,{uploadRoot:root,skipEstimateDate:true});
+ assert.deepEqual(repeated.visits.map(v=>v.id),index.visits.map(v=>v.id));
+ const closing=s.instances.find(i=>i.module_key==='closing');
+ await c.query('SAVEPOINT summary_guard');
+ await assert.rejects(c.query('SELECT consult_capture_answer($1,$2,$3,1,$4,$5)',[f.context('capture_answer',staff,id),id,index.visits[1].devices[1],randomUUID(),{instance_id:closing.id,field_key:'summary',status:'answered',value:'bypass',generation:1}]),/summary_read_only/);
+ await c.query('ROLLBACK TO SAVEPOINT summary_guard');
+
  // Same pinned Bath + Kitchen definitions, evaluated through both production paths.
  const blank={...s,heads:s.heads.filter(h=>h.field_key==='templates'),conflicts:[]};
  assert.equal(buildModel(blank,[],[],emptyDraft()).flags.length,0);

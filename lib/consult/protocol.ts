@@ -21,7 +21,7 @@ const note=z.string().trim().min(1).max(8000);
 const skip=z.enum(['Not on this job','No access','Not safe to measure','Client absent','Joe sets the date','Client declined','Get on return visit','Sub/supplier will measure','Other']);
 const assumption=z.strictObject({text:note,responsible_trade:note,verification_point:note,adjustment_route:z.enum(['precon_change','change_order']),quantity:z.number().finite().nonnegative().nullable(),unit:note.nullable(),exclusion:note.nullable()});
 export const evidenceSchema=z.strictObject({
- photos_ok:z.boolean(),manual_confirmed:z.literal(true),handed_back:z.literal(true),ack_reason:note.nullable(),promised_date:day,
+ photos_ok:z.boolean(),manual_confirmed:z.literal(true),handed_back:z.literal(true),ack_reason:note.nullable(),promised_date:day.nullable(),
  no_trades_confirmed:z.boolean(),touched_trades:z.array(note).max(50),
  trade_walks:z.array(z.strictObject({trade:note,needed:z.boolean(),reason:note,day:day.optional()})).max(50),
  rrp:z.strictObject({receipt:z.boolean(),firm_current:z.boolean(),renovator_current:z.boolean(),redelivery_required:z.boolean(),redelivery_day:day.optional()}),
@@ -37,10 +37,12 @@ const instanceTarget=z.strictObject({instance_id:uuid,module_key:z.string(),pare
 const manifestSchema=z.strictObject({device:uuid,epoch:rev.min(1),last_seq:rev,required_blob_hashes:z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(10000),initials_hash:z.string().regex(/^[a-f0-9]{64}$/).nullable().optional(),initials_hashes:z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(10000).optional(),local_pending:z.literal(0)});
 export const hash=(value:unknown)=>createHash('sha256').update(canonicalJson(value)).digest('hex');
 type Context={key_id:string;payload:string;signature:string};
-type Snapshot={consult:{id:string;project_id:string;status:string;revision:string;completion_generation:string;conducted_by:string;scheduled_at:string};pins:{definition:ModuleDef|TemplateDef;kind:string}[];instances:{id:string;module_key:string;parent_id:string|null;removed_at:string|null}[];heads:{id:string;instance_id:string;field_key:string;status:string;value:unknown;skip_reason:string|null;skip_note:string|null;server_revision:string}[];conflicts:unknown[]};
+type Snapshot={consult:{id:string;project_id:string;status:string;revision:string;completion_generation:string;conducted_by:string;scheduled_at:string};pins:{definition:ModuleDef|TemplateDef;kind:string}[];instances:{id:string;module_key:string;parent_id:string|null;removed_at:string|null}[];heads:{id:string;instance_id:string;field_key:string;status:string;value:unknown;skip_reason:string|null;skip_note:string|null;server_revision:string}[];conflicts:{current_answer_id:string;proposed_answer_id:string;current?:unknown;proposed?:unknown}[]};
 async function one<T=Record<string,unknown>>(c:PoolClient,sql:string,args:unknown[]=[]):Promise<T>{return (await c.query(sql,args)).rows[0] as T;}
 export async function snapshot(c:PoolClient,context:Context,target:string):Promise<Snapshot>{
  const result=(await one<{v:Snapshot}>(c,'SELECT consult_read($1,$2) v',[await scoped(c,context,'read',target),target])).v;
+ const records=(await c.query(`SELECT a.*,u.name AS person,CASE WHEN a.device_id IS NULL THEN 'office' ELSE u.name || ' · device ' || left(a.device_id::text,8) END AS source_label FROM consult_answers a JOIN users u ON u.id=a.actor WHERE a.consult_id=$1 AND a.id IN (SELECT current_answer_id FROM consult_conflicts WHERE consult_id=$1 AND resolved_at IS NULL UNION SELECT proposed_answer_id FROM consult_conflicts WHERE consult_id=$1 AND resolved_at IS NULL)`,[target])).rows;
+ for(const x of result.conflicts){x.current=records.find(a=>a.id===x.current_answer_id);x.proposed=records.find(a=>a.id===x.proposed_answer_id);}
  const visitPin=result.pins.find(p=>p.kind==='module'&&p.definition.key==='visit');
  if(visitPin){
   const instance=result.consult.id;const keys=result.pins.filter(p=>p.kind==='template').map(p=>p.definition.key);
@@ -289,19 +291,19 @@ export async function completion(c:PoolClient,context:Context,target:string){
    // A signature field can't be typed (capture_answer refuses it); committed initials media for that exact field answers it.
    const signed=f.type==='signature'&&media.some(p=>p.instance_id===i.id&&p.kind==='initials'&&p.field_key===f.key);
    fields.push({key,tier:f.tier,required:!['name','level','decision'].includes(f.key)&&required(f.required),applicable:true,mapped:!!f.maps_to,answered:prefilled||a?.status==='answered'||signed,valid:prefilled||signed||(a?.status==='answered'&&a.value!==null&&a.value!==''&&(!Array.isArray(a.value)||a.value.length>0)),skip:a?.status==='skipped'?{reason:a.skip_reason as NonNullable<CompletionItem['skip']>['reason'],note:a.skip_note??undefined,...(sk?.reason===a.skip_reason?sk:{}),condition_validated:typeof f.required!=='boolean'&&!required(f.required)}:undefined});
-   for(const flag of evaluatedFlags(f,key,values)){const flagKey=flag.key;const d=e?.flags[flagKey];flags.push({key:flagKey,address:key,measured:[...new Set(flagInputs(flag.when))].map(ref=>{const parts=ref.split('.'),def=parts.length===1?m.fields.find(f=>f.key===ref):modules.find(m=>m.key===parts[0])?.fields.find(f=>f.key===parts[1]);const source=parts.length===1?i:live.find(i=>i.module_key===parts[0]);return {field:ref,value:values[ref],unit:def?.unit==='in'?'″':def?.unit,address:source?`${source.id}:${def?.key??ref}`:key};}),disposition:d?.disposition??null,note:d?.note??'',actor:d?row.actor:null,at:d?String(row.updated_at):null});}
+   for(const flag of evaluatedFlags(f,key,values)){const flagKey=flag.key;const d=e?.flags[flagKey];flags.push({kind:flag.kind,key:flagKey,address:key,measured:[...new Set(flagInputs(flag.when))].map(ref=>{const parts=ref.split('.'),def=parts.length===1?m.fields.find(f=>f.key===ref):modules.find(m=>m.key===parts[0])?.fields.find(f=>f.key===parts[1]);const source=parts.length===1?i:live.find(i=>i.module_key===parts[0]);return {field:ref,value:values[ref],unit:def?.unit==='in'?'″':def?.unit,address:source?`${source.id}:${def?.key??ref}`:key};}),disposition:d?.disposition??null,note:d?.note??'',actor:d?row.actor:null,at:d?String(row.updated_at):null});}
   }
   for(const shot of [...m.shots,...m.fields.flatMap(f=>f.shots??[])]){
    const key=`${i.id}:shot:${shot.key}`;photos.push({key,tier:shot.tier,required:required(shot.required),applicable:true,mapped:false,answered:media.some(p=>p.instance_id===i.id&&p.shot_key===shot.key),valid:true,skip:e?.skips[key]});
   }
  }
  const devices=(await c.query(`SELECT d.device_id,d.close_ack_at,d.close_manifest FROM consult_devices d WHERE d.consult_id=$1 AND NOT EXISTS(SELECT 1 FROM consult_events e,jsonb_array_elements(e.payload->'devices') x WHERE e.consult_id=d.consult_id AND e.type='missing_device_exception' AND x->>'device_id'=d.device_id::text AND (x->>'epoch')::bigint=d.epoch)`,[target])).rows;
- const rrp=rrpFacts(global,media.some(p=>p.kind==='initials'&&p.field_key==='pamphlet_initials'&&live.some(i=>i.id===p.instance_id&&i.module_key==='era')),s.consult.scheduled_at,(await one<{start_date:string|null}>(c,'SELECT start_date::text FROM projects WHERE id=$1',[s.consult.project_id])).start_date);
- const receiptException=live.some(i=>i.module_key==='era'&&s.heads.some(h=>h.instance_id===i.id&&['pamphlet_given','pamphlet_initials'].includes(h.field_key)&&h.status==='skipped'&&!!h.skip_note?.trim()&&e?.skips[`${i.id}:${h.field_key}`]?.reason===h.skip_reason));
+ const rrp=rrpFacts(global,media.some(p=>p.kind==='initials'&&p.field_key==='pamphlet_initials'&&live.some(i=>i.id===p.instance_id&&i.module_key==='era')),s.consult.scheduled_at,(await one<{start_date:string|null}>(c,'SELECT (start_date - 7)::text AS start_date FROM projects WHERE id=$1',[s.consult.project_id])).start_date);
+ const receiptException=live.some(i=>i.module_key==='era'&&s.heads.some(h=>h.instance_id===i.id&&['pamphlet_given','pamphlet_initials'].includes(h.field_key)&&h.status==='skipped'&&(['Client absent','Client declined'].includes(h.skip_reason??'')||!!h.skip_note?.trim())&&e?.skips[`${i.id}:${h.field_key}`]?.reason===h.skip_reason));
  const rrpApplies=rrp.applies;
  const input:CompletionInput={fields,photos,modules:mergeTemplateModules(templates,global).map(m=>({key:m.module,minimum:compileCondition(m.required,known)(global)?Math.max(1,m.min??1):0,live_count:live.filter(i=>i.module_key===m.module).length,parents_valid:live.every(i=>!i.parent_id||live.some(p=>p.id===i.parent_id))})),
  recording:{asked:e?.manual_confirmed===true,choice:e?'manual':null,confirmed_evidence:false,documented_failure_or_stop:false},photo_permission:e?.photos_ok??null,
- acknowledgement:{initials_committed:media.some(m=>m.kind==='initials'&&m.field_key==='client_initials'&&live.some(i=>i.id===m.instance_id&&i.module_key==='closing')),visitor_reason:e?.ack_reason??null,handed_back:e?.handed_back??false},promised_date:e?.promised_date??null,
+ acknowledgement:{initials_committed:media.some(m=>m.kind==='initials'&&m.field_key==='client_initials'&&live.some(i=>i.id===m.instance_id&&i.module_key==='closing')),visitor_reason:e?.ack_reason??null,handed_back:e?.handed_back??false},promised_date:e?.promised_date??null,promised_date_skip:s.heads.filter(h=>live.some(i=>i.id===h.instance_id&&i.module_key==='closing')&&h.field_key==='estimate_promised'&&h.status==='skipped').map(h=>({reason:h.skip_reason!,note:h.skip_note}))[0],
  manifests:devices.map(d=>({device:d.device_id,acknowledged:!!d.close_ack_at,rejected:0,missing:!d.close_manifest})),unresolved_conflicts:s.conflicts.length,
  rrp:{applies:rrpApplies,receipt:rrp.receipt||receiptException,firm_current:rrp.firm_current,renovator_current:rrp.renovator_current,redelivery_required:e?.rrp.redelivery_required??false,redelivery_todo:!!e?.rrp.redelivery_day},flags,
  touched_trades:e?.touched_trades??[],trade_walks:(e?.trade_walks??[]).map(w=>({...w,actor:row.actor,at:String(row.updated_at)})),no_trades_confirmed:e?.no_trades_confirmed??false};
@@ -328,12 +330,12 @@ export async function close(c:PoolClient,context:Context,target:string,input:unk
  await c.query('UPDATE consult_devices SET close_manifest=$4,close_ack_at=now() WHERE consult_id=$1 AND device_id=$2 AND epoch=$3',[target,m.device,m.epoch,{...m,digest}]);
  const {result,evidence,receiptException}=await completion(c,context,target);
  const owner=await ownerId(c);
- if(receiptException)await todo(c,s,'rrp','delivery','Deliver Renovate Right before work starts',owner,(await one<{start_date:string|null}>(c,'SELECT start_date::text FROM projects WHERE id=$1',[s.consult.project_id])).start_date);
+ if(receiptException)await todo(c,s,'rrp','delivery','Renovate Right: get the owner’s initials, or mail it with a certificate of mailing at least 7 days before work starts',owner,(await one<{start_date:string|null}>(c,'SELECT (start_date - 7)::text AS start_date FROM projects WHERE id=$1',[s.consult.project_id])).start_date);
  const nextDay=(await one<{work_day:string}>(c,`SELECT CASE extract(isodow FROM (now() AT TIME ZONE 'America/Chicago')::date) WHEN 5 THEN (now() AT TIME ZONE 'America/Chicago')::date+3 WHEN 6 THEN (now() AT TIME ZONE 'America/Chicago')::date+2 ELSE (now() AT TIME ZONE 'America/Chicago')::date+1 END::text AS work_day`)).work_day;
  if(!result.complete)await todo(c,s,'finish','visit','Finish in-home consultation',s.consult.conducted_by,nextDay);
  if(evidence){
   if(Object.values(evidence.skips).some(s=>s.reason==='Get on return visit'))await todo(c,s,'return','visit','Schedule return consultation',owner,evidence.return_day??null);
-  await todo(c,s,'promise','estimate','Prepare promised formal estimate',owner,evidence.promised_date);
+  await todo(c,s,'promise','estimate',evidence.promised_date?'Prepare promised formal estimate':`Set the formal estimate date and tell ${(await one<{client:string}>(c,"SELECT coalesce(client_name,name) client FROM projects WHERE id=$1",[s.consult.project_id])).client}`,owner,evidence.promised_date);
   for(const w of evidence.trade_walks.filter(w=>w.needed))await todo(c,s,'trade',w.trade,`${w.trade}: bid walk-through`,owner,w.day??null);
   if(evidence.rrp.redelivery_required&&evidence.rrp.redelivery_day)await todo(c,s,'rrp','redelivery','Re-deliver Renovate Right',owner,evidence.rrp.redelivery_day);
  }

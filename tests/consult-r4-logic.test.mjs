@@ -72,7 +72,7 @@ test('Close joins a background send and reaches result; concurrent sends never r
  const background=c.drain();assert.equal(c.drain(true),background);
  const sending=new Promise(resolve=>{const unsub=c.subscribe(()=>{if(c.state.closing){unsub();resolve();}});});
  const close=c.close(null);await sending;assert.equal(c.state.closing.step,'sending');
- const timeout=c.closeTimer._onTimeout;clearTimeout(c.closeTimer);timeout();assert.equal(c.state.closing.step,'error');assert.equal(c.state.closing.code,'close_timeout');
+ assert.equal(c.closeTimer,null); // R7: the transport deadline is the sole timeout source.
  release();await Promise.all([background,close]);
  assert.equal(replayCount,1);assert.equal(c.state.lastSendFailure,null);assert.equal(c.state.closing.step,'done');clearTimeout(c.closeTimer);
 });
@@ -167,7 +167,7 @@ test('R5 Close retries the saved request after a stalled body, direct and drain-
   globalThis.fetch=async(_url,init)=>{inputs.push(JSON.parse(init.body).input);calls++;return calls===1?new Response(new ReadableStream({start(x){old=x;}})):Response.json({complete:false,checks:[],price_critical:{total:0,done:0,skipped:0},record:{total:0,done:0,skipped:0},revision:1});};
   try{
    if(drainOwned)await c.drain(true);else await c.resumeClose();
-   assert.equal(c.state.closing.code,'http_408');assert.equal(c.closing,false);
+   assert.equal(c.state.closing.code,'close_timeout');assert.equal(c.closing,false);
    await c.close(null);assert.equal(c.state.closing.step,'done');
    assert.deepEqual(inputs,[request,request]);
    old.enqueue(new TextEncoder().encode('{"complete":true}'));old.close();

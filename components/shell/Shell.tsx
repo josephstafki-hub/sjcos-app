@@ -8,6 +8,8 @@ import { PageAiContext } from "@/components/panel/PageAiContext";
 import { canOpen, getCurrentUser, homeFor } from "@/lib/dal";
 import { getUnreadCount } from "@/lib/notifications";
 import { PATH_HEADER } from "@/lib/session-window";
+import { LiveCallBar } from "./LiveCallBar";
+import { liveCallBarData } from "@/lib/actions/discovery-checklist-ui";
 
 const ROLE_LABEL: Record<string, string> = {
   owner: "Owner · all roles",
@@ -37,6 +39,9 @@ export async function Shell({ children, breadcrumb, aiContext }: ShellProps) {
   // The bell counts THIS account's unread — the owner's company feed, or a team
   // member's own hand-offs and messages (lib/notifications.ts).
   const unread = user ? await getUnreadCount(user) : 0;
+  // Live-call bar (Calls access only). A failure here must never take a page
+  // down — the bar simply doesn't show.
+  const liveCalls = user ? await liveCallBarData().catch(() => null) : null;
 
   // Staff area enforcement, against the DB row (not the cookie): proxy.ts
   // already filtered on the token's copy, but a revoked area must bite on the
@@ -70,6 +75,7 @@ export async function Shell({ children, breadcrumb, aiContext }: ShellProps) {
           unread={unread}
           leading={<MobileNav user={sidebarUser} />}
         />
+        <LiveCallBar data={liveCalls} userId={user?.id ?? null} />
         {/* overflow-x-hidden: one over-wide element (a long status chip, a
             toolbar that didn't wrap) must never make the whole page pan
             sideways on a phone. Anything genuinely wide (tables) scrolls

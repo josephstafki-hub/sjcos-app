@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useTransition } from "react";
-import { PhoneCall, PhoneIncoming, PhoneOutgoing, Voicemail, AlertCircle, ExternalLink, Plus, X, ArrowLeft, FileText } from "lucide-react";
+import { PhoneCall, PhoneIncoming, PhoneOutgoing, Voicemail, AlertCircle, ExternalLink, Plus, X, ArrowLeft, FileText, ListChecks } from "lucide-react";
 import { ConnectionNotice } from "@/components/messages/ConnectionNotice";
 import { Button, PageHeader, Chip } from "@/components/ui";
 import { loadCall, placeCallAction, type CallDetail } from "@/lib/actions/calls";
@@ -9,15 +9,30 @@ import { runAction } from "@/lib/run-action";
 import { formatUsPhone } from "@/lib/comms/phone";
 import { callIdentityLabel } from "@/lib/comms/call-identity";
 import type { CallRow } from "@/lib/voice";
+import { startChecklist } from "@/lib/actions/discovery-checklist";
+import { ChecklistPane, type ChecklistCallInfo } from "./checklist/ChecklistPane";
+import { CallChecklistTab } from "./checklist/CallChecklistTab";
+import { setOpenChecklist } from "./open-call-store";
+import { chicagoWhen } from "./checklist/time";
+
+type DetailTab = "notes" | "checklist";
+
+function checklistCall(c: CallRow): ChecklistCallInfo {
+  return { id: c.id, direction: c.direction, status: c.status, ended: c.ended, started_at: c.started_at, answered_at: c.answered_at, label: name(c), number: c.counterparty_number };
+}
+
+/** Keep the address bar in step with what's open, so a reload or a shared
+ *  link lands on the same call or checklist (plan §4.1 item 4). */
+function syncUrl(q: string) {
+  const next = `/calls${q ? `?${q}` : ""}`;
+  if (window.location.pathname + window.location.search !== next) window.history.replaceState(null, "", next);
+}
 
 const LINK_ROUTE: Record<string, string> = { lead: "leads", sub: "subs", project: "projects", client: "projects", vendor: "vendors" };
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+/** Call times in America/Chicago (plan §6: the old view showed UTC). */
 function fmtWhen(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()} · ${String(d.getUTCHours()).padStart(2, "0")}:${String(d.getUTCMinutes()).padStart(2, "0")}`;
+  return chicagoWhen(iso);
 }
 
 function fmtDuration(s: number | null): string {
@@ -55,16 +70,31 @@ export function CallsClient({
   calls,
   configured,
   openId,
+  checklistId = null,
+  view = null,
+  userId,
 }: {
   calls: CallRow[];
   configured: boolean;
   problems: string[];
   openId: string | null;
+  /** ?checklist=<session-id>: a hand-ticked checklist with no call. */
+  checklistId?: string | null;
+  /** ?view=checklist: open the selected call on its checklist. */
+  view?: string | null;
+  userId: string;
 }) {
-  const initialId = openId ?? calls[0]?.id ?? null;
+  const initialId = checklistId ? null : openId ?? calls[0]?.id ?? null;
   const [selectedId, setSelectedId] = useState<string | null>(initialId);
+  const [manualId, setManualId] = useState<string | null>(checklistId);
+  const [tab, setTab] = useState<DetailTab>(() => {
+    const first = calls.find((x) => x.id === initialId);
+    return view === "checklist" || (first && !first.ended) ? "checklist" : "notes";
+  });
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState<string | null>(null);
   const [detail, setDetail] = useState<CallDetail | null>(null);
-  const [mobileDetail, setMobileDetail] = useState(Boolean(openId));
+  const [mobileDetail, setMobileDetail] = useState(Boolean(openId || checklistId));
   const [composeOpen, setComposeOpen] = useState(false);
   const [newPhone, setNewPhone] = useState("");
   const [newName, setNewName] = useState("");
@@ -87,11 +117,43 @@ export function CallsClient({
   }, [selectedId]);
 
   function open(id: string) {
+    const row = calls.find((x) => x.id === id);
     setSelectedId(id);
+    setManualId(null);
+    setTab(row && !row.ended ? "checklist" : "notes");
     setMobileDetail(true);
     setNotice(null);
     setShowTranscript(false);
   }
+
+  // One tap: the checklist exists the moment the button is pressed; the lead
+  // and call are linked later from its header (plan §4.2 step 1).
+  function startManual() {
+    if (starting) return;
+    setStarting(true);
+    setStartError(null);
+    void startChecklist({ operation_id: crypto.randomUUID() })
+      .then((r) => {
+        if (!r.ok) { setStartError("Couldn't start the checklist. Try again."); return; }
+        setManualId(r.session_id);
+        setSelectedId(null);
+        setMobileDetail(true);
+      })
+      .catch(() => setStartError(navigator.onLine === false ? "Starting a checklist needs a connection." : "Couldn't start the checklist. Try again."))
+      .finally(() => setStarting(false));
+  }
+
+  useEffect(() => {
+    if (manualId) syncUrl(`checklist=${manualId}`);
+    else if (selectedId) syncUrl(`open=${selectedId}${tab === "checklist" ? "&view=checklist" : ""}`);
+    else syncUrl("");
+  }, [manualId, selectedId, tab]);
+
+  // The live-call bar hides the call that's already on screen here.
+  useEffect(() => {
+    setOpenChecklist(manualId ? { sessionId: manualId, callId: null } : selectedId ? { sessionId: null, callId: selectedId } : null);
+    return () => setOpenChecklist(null);
+  }, [manualId, selectedId]);
 
   function dial() {
     if (dialing) return;
@@ -119,7 +181,14 @@ export function CallsClient({
   const c = current?.call ?? calls.find((x) => x.id === selectedId) ?? null;
 
   return (
-    <div className="flex h-full min-h-0 flex-col [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-focus [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-focus"><div className="border-b border-rule-soft px-4 py-5 @2xl/page:px-5"><PageHeader title="Calls" meta="Call history, recordings and notes for your business number." /></div><div className="flex min-h-0 flex-1">
+    <div className="flex h-full min-h-0 flex-col [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-focus [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-focus"><div className="border-b border-rule-soft px-4 py-5 @2xl/page:px-5"><PageHeader title="Calls" meta="Calls, recordings, notes and discovery checklists."
+        actions={<>
+          <button type="button" onClick={startManual} disabled={starting}
+            className="inline-flex min-h-12 items-center gap-2 rounded-md bg-ink px-4 text-[16px] font-semibold text-paper hover:bg-ink-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:opacity-50">
+            <ListChecks aria-hidden className="size-4" strokeWidth={1.75} /> {starting ? "Starting…" : "Start checklist"}
+          </button>
+          {startError && <span role="alert" className="text-[15px] text-flag">{startError}</span>}
+        </>} /></div><div className="flex min-h-0 flex-1">
       <aside className={`w-full flex-none flex-col border-r border-rule bg-paper-2 @3xl/page:w-[280px] ${mobileDetail ? "hidden @3xl/page:flex" : "flex"}`}>
         <div className="flex items-center gap-2 border-b border-rule px-4 py-3">
           <PhoneCall className="size-4 text-ink-3" strokeWidth={1.5} />
@@ -148,7 +217,8 @@ export function CallsClient({
                 key={x.id}
                 type="button"
                 onClick={() => open(x.id)}
-                className={`flex w-full items-start gap-2.5 border-b border-rule-soft px-4 py-3 text-left transition-colors hover:bg-paper ${x.id === selectedId ? "bg-paper" : ""}`}
+                aria-current={x.id === selectedId && !manualId ? "true" : undefined}
+                className={`flex min-h-12 w-full items-start gap-2.5 border-b border-rule-soft px-4 py-3 text-left transition-colors hover:bg-paper focus-visible:-outline-offset-2 ${x.id === selectedId && !manualId ? "bg-paper" : ""}`}
               >
                 <span className="mt-1"><DirIcon c={x} /></span>
                 <div className="min-w-0 flex-1">
@@ -170,10 +240,14 @@ export function CallsClient({
       </aside>
 
       <section className={`min-w-0 flex-1 flex-col ${mobileDetail ? "flex" : "hidden @3xl/page:flex"}`}>
-        {c ? (
+        {manualId ? (
+          <ChecklistPane key={manualId} sessionId={manualId} userId={userId} call={null}
+            onBack={() => setMobileDetail(false)}
+            onOpenCall={(id) => { if (calls.some((x) => x.id === id)) { setManualId(null); setSelectedId(id); setTab("notes"); } }} />
+        ) : c ? (
           <>
             <div className="flex flex-wrap items-center gap-2 border-b border-rule px-5 py-3">
-              <button type="button" onClick={() => setMobileDetail(false)} aria-label="Back" className="-ml-1 inline-flex size-11 items-center justify-center rounded-md text-ink-2 hover:bg-black/5 @3xl/page:hidden">
+              <button type="button" onClick={() => setMobileDetail(false)} aria-label="Back" className="-ml-1 inline-flex size-12 items-center justify-center rounded-md text-ink-2 hover:bg-black/5 @3xl/page:hidden">
                 <ArrowLeft className="size-4" strokeWidth={1.5} />
               </button>
               <DirIcon c={c} />
@@ -204,6 +278,18 @@ export function CallsClient({
 
             {notice && <div className="border-b border-rule bg-paper-2 px-5 py-2 text-meta text-ink-2">{notice}</div>}
 
+            <div role="tablist" aria-label="Call views" className="flex flex-none gap-1 border-b border-rule bg-paper px-4 @2xl/page:px-5">
+              {([["checklist", "Discovery checklist"], ["notes", "Call notes"]] as const).map(([value, label]) => (
+                <button key={value} type="button" role="tab" aria-selected={tab === value} onClick={() => setTab(value)}
+                  className={`-mb-px inline-flex min-h-12 items-center border-b-2 px-3 text-[16px] font-semibold focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-focus ${tab === value ? "border-ink text-ink" : "border-transparent text-ink-3 hover:text-ink"}`}>
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            {tab === "checklist" ? (
+              <CallChecklistTab key={c.id} call={checklistCall(c)} leadId={c.lead_id} linked={!!c.link_type} userId={userId} />
+            ) : (
             <div className="min-h-0 flex-1 space-y-4 overflow-y-auto bg-paper-2 px-5 py-4">
               {loading && !current ? (
                 <div className="py-10 text-center text-meta text-ink-3">Loading…</div>
@@ -295,11 +381,16 @@ export function CallsClient({
                 </>
               )}
             </div>
+            )}
           </>
         ) : (
-          <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-            <PhoneCall className="size-8 text-ink-3" strokeWidth={1.25} />
-            <div className="text-body text-ink-3">{calls.length === 0 ? "No calls yet." : "Select a call to view it."}</div>
+          <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+            <PhoneCall aria-hidden className="size-8 text-ink-3" strokeWidth={1.25} />
+            <p className="text-[16px] text-ink-2">Start a checklist, or pick a call.</p>
+            <button type="button" onClick={startManual} disabled={starting}
+              className="inline-flex min-h-12 items-center gap-2 rounded-md bg-ink px-4 text-[16px] font-semibold text-paper hover:bg-ink-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:opacity-50">
+              <ListChecks aria-hidden className="size-4" strokeWidth={1.75} /> {starting ? "Starting…" : "Start checklist"}
+            </button>
           </div>
         )}
       </section>

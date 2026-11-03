@@ -37,6 +37,8 @@ import {
 } from "lucide-react";
 import { Logo } from "./Logo";
 import { logout } from "@/lib/actions/auth";
+import { clearAllPending } from "@/lib/checklist-coverage/offline-store";
+import { clearSignedIn } from "@/components/calls/checklist/signed-in";
 import { getNavCounts, type NavCounts } from "@/lib/actions/nav";
 import { staffMayOpen } from "@/lib/permissions";
 import { subscribePanelBus } from "@/components/panel/panelBus";
@@ -329,7 +331,8 @@ export function Sidebar({ user, collapsible = false }: { user: SidebarUser; coll
         ) : (
           <Link href="/settings" title={`${user.name} · Settings`} aria-label={collapsed ? `${user.name} · Settings` : undefined} className="flex min-w-0 flex-1 items-center gap-2 rounded focus-visible:outline-2 focus-visible:outline-sidebar-sage">{accountRow}</Link>
         )}
-        <form action={logout} className="flex-none">
+        {/* Logout also drops unsent checklist edits kept on this device (plan §4.3). */}
+        <form action={logout} onSubmit={() => { void clearAllPending(typeof indexedDB === "undefined" ? undefined : indexedDB); clearSignedIn(); }} className="flex-none">
           <button type="submit" aria-label="Log out" title="Log out" className="block rounded p-1 text-sidebar-text-dim hover:text-paper focus-visible:outline-2 focus-visible:outline-sidebar-sage">
             <LogOut aria-hidden className="size-4" strokeWidth={1.5} />
           </button>

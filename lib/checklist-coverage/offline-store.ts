@@ -25,13 +25,6 @@ export function storeName(userId: string): string {
   return `${OFFLINE_QUEUE.storePrefix}${userId}`;
 }
 
-function request<R>(req: IDBRequest<R>): Promise<R> {
-  return new Promise((resolve, reject) => {
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error ?? new Error('IDB_REQUEST_FAILED'));
-  });
-}
-
 function openDb(factory: IDBFactory, version: number | undefined, store: string): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const req = version === undefined ? factory.open(OFFLINE_QUEUE.database) : factory.open(OFFLINE_QUEUE.database, version);

@@ -173,7 +173,7 @@ export function keepMine(s: SyncState, operationId: string): SyncState {
 }
 
 /** Joe chose the saved version: drop this device's edit. */
-export function useSaved(s: SyncState): SyncState {
+export function takeSaved(s: SyncState): SyncState {
   return { ...s, conflict: null, queue: s.queue.slice(1) };
 }
 

@@ -1,6 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {nextTapState,enqueueSetItem,enqueueNotes,ackHead,onConflict,keepMine,useSaved,rowView,notesView,markHeadSent,classifyError,stableJson,changesWord,normalizeSnapshot} from '../lib/checklist-coverage/client-queue.ts';
+import {nextTapState,enqueueSetItem,enqueueNotes,ackHead,onConflict,keepMine,takeSaved,rowView,notesView,markHeadSent,classifyError,stableJson,changesWord,normalizeSnapshot} from '../lib/checklist-coverage/client-queue.ts';
 import {buildValue,fieldsFromValue,formatValue,isRefusal,emailCandidates} from '../lib/checklist-coverage/answers.ts';
 
 const SID='11111111-1111-4111-8111-111111111111';
@@ -66,7 +66,7 @@ test('409 on the same row asks: keep mine gets a new id, use saved drops the edi
  assert.equal(r.state.queue[0].op.operation_id,id(1),'nothing re-sent until Joe chooses');
  const mine=keepMine(r.state,id(10));
  assert.equal(mine.conflict,null);assert.equal(mine.queue[0].op.operation_id,id(10));assert.equal(mine.queue[0].op.expected_revision,8);assert.equal(mine.queue[0].op.state,'covered');
- const saved=useSaved(r.state);
+ const saved=takeSaved(r.state);
  assert.equal(saved.queue.length,1);assert.equal(saved.queue[0].op.item_id,B);assert.equal(rowView(saved.snapshot,saved.queue,A).state,'partial');
 });
 

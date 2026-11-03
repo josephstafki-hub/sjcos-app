@@ -29,3 +29,5 @@ export { ToastProvider, ToastViewport, useToast, toast, toastError, dismissToast
 export type { ToastKind, ToastInput } from "./Toast";
 export { ErrorPanel } from "./ErrorPanel";
 export { LinkedText } from "./LinkedText";
+export { CoverageMark, coverageWord } from "./CoverageMark";
+export type { CoverageMarkProps, CoverageWord, ReadyWord } from "./CoverageMark";

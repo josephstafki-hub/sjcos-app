@@ -395,7 +395,7 @@ export function ChecklistPane({
         </fieldset>
 
         {/* On a phone the tab bar below already clears the safe area. */}
-        <div className="sticky bottom-0 z-10 border-t border-rule bg-paper-2 px-4 pb-2 pt-2 @2xl/page:px-5 sm:pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pt-3 sm:max-lg:pr-40">
+        <div className="sticky bottom-0 z-10 border-t border-rule bg-paper-2 px-4 pb-2 pt-2 @2xl/page:px-5 sm:pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pt-3 sm:max-lg:pr-40!">
           {/* The offline banner scrolls away with the rows; this line stays in view. */}
           {unsent && sync.queue.length > 0 && (
             <p className="mb-2 flex items-center gap-2 text-[15px] font-semibold text-ink-2"><CloudOff aria-hidden className="size-4 flex-none" /> {sync.online ? "" : "Offline — "}{changesWord(sync.queue.length)} not sent</p>

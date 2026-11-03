@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { validateFormulas } from './formula.ts';
 import { compileCondition } from './conditions.ts';
 import type { ModuleDef, TemplateDef, When } from '../form-types.ts';
 const key = z.string().regex(/^[a-z][a-z0-9_]*$/);
@@ -44,6 +45,7 @@ export function validateModule(value:unknown, registry:FormRegistry):ModuleDef {
  for(const item of module.coverage)if(item.satisfied_by.some(k=>!fields.has(k)))throw new Error('unknown_coverage_field');
  const knownFields=new Set([...fields,...registry.modules.flatMap(m=>m.fields.map(f=>`${m.key}.${f.key}`))]);
  const validateCondition=(v:boolean|When)=>{compileCondition(v,knownFields);};
+ validateFormulas(module.fields.filter(f=>f.derive).map(f=>({key:f.key,formula:f.derive!.replace(new RegExp(`\\b${module.key}\\.`, 'g'),'')})),knownFields);
  for(const field of module.fields){validateCondition(field.required);if(field.flag)validateCondition(field.flag.when);validateMapping(field.maps_to,registry);}
  for(const shot of shots)validateCondition(shot.required);
  return module;
@@ -57,7 +59,10 @@ export function validateTemplate(value:unknown,registry:FormRegistry):TemplateDe
  const template=templateSchema.parse(value);
  if(new Set(template.modules.map(m=>m.module)).size!==template.modules.length)throw new Error('duplicate_module_key');
  for(const item of template.modules)if(!registry.modules.some(m=>m.key===item.module))throw new Error('unknown_module');
- const known=new Set(registry.modules.flatMap(m=>m.fields.map(f=>`${m.key}.${f.key}`)));
+ const members=registry.modules.filter(m=>template.modules.some(t=>t.module===m.key));
+ const known=new Set(members.flatMap(m=>m.fields.map(f=>`${m.key}.${f.key}`)));
+ if(new Set(template.derived.map(d=>d.key)).size!==template.derived.length)throw new Error('duplicate_derived_key');
+ validateFormulas(template.derived,new Set([...known,...template.derived.map(d=>d.key)]));
  for(const item of template.modules)compileCondition(item.required,known);
  for(const derived of template.derived)validateMapping(derived.maps_to,registry);
  return {...template,derived:template.derived.map(d=>({...d,maps_to:d.maps_to}))};

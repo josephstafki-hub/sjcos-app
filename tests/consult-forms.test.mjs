@@ -28,3 +28,12 @@ test('conditional AST compiles compound sibling and consult conditions without e
  let deep={field:'plan',op:'answered'};for(let i=0;i<20;i++)deep={not:deep};
  assert.throws(()=>compileCondition(deep,known),/too_complex/);
 });
+
+test('publication formula grammar, references, cycles and pinned template membership',()=>{
+ const good=structuredClone(module);good.fields.push({...field,key:'area',derive:'length * length / 144'});
+ assert.doesNotThrow(()=>validateModule(good,{...registry,modules:[good]}));
+ for(const formula of ['length.constructor()', 'missing*2', 'length+', 'area*2']){const bad=structuredClone(good);bad.fields[1].derive=formula;assert.throws(()=>validateModule(bad,{...registry,modules:[bad]}));}
+ const template={key:'general',version:1,title:'General',opening:[],closing:[],modules:[{module:'room',required:true}],derived:[{key:'area',label:'Area',formula:'room.length*room.length/144'}]};
+ assert.doesNotThrow(()=>validateTemplate(template,registry));
+ assert.throws(()=>validateTemplate({...template,derived:[...template.derived,...template.derived]},registry),/duplicate_derived/);
+});

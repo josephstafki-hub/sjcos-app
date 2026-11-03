@@ -1,4 +1,9 @@
-# In-home consultation backend handoff — PARTIAL, not ready for UI integration
+# In-home consultation backend handoff — capture server slice implemented
+
+The current contract is in **Current server integration** below. Earlier continuation
+notes are historical and describe the pre-0076 foundation. Phase 1 as a whole still
+requires files/uploads, browser offline integration, and office findings. Do not deploy
+this as an end-to-end offline consultation feature. No deployment or push performed.
 
 Branch: `t3/in-home-consult-backend`.
 Phase 0 commit: `3e3e1cca` (only MCP kinds/aliases and estimating regression test).
@@ -77,46 +82,20 @@ Use `failureCopy` / `controlCopy` as the wording source; do not expose raw codes
 | HTTP 429 / 5xx / lost connection | Jittered 2–60 second retry; same op IDs. No signal: “No signal · saved on this device”. |
 | findings apply failure | “Couldn't apply findings to the scope — [Try again]”. Same generation/application key on retry. |
 
-## Remaining backend work (required, not an approved scope reduction)
+## Remaining backend work
 
-1. **0075 migration — PARTIAL, not done**: Phase 1 storage entities, relational
-   pins, composite FKs, append-only answers/events/receipts, published-byte immutability,
-   single visitor/device constraints, default-off flags and command-only manifest entries
-   are implemented. Signed HMAC claims are independent of 0074 and have no UUID/GUC
-   fallback. Remaining: complete publication validation parity (registered mappings,
-   formula/coverage/compound validation), full operation-batch protocol and nonce/receipt
-   binding, agent proposals, assignment management, human conflict resolution, trusted
-   close/reducer transitions, upload commands, reconciliation job projections, complete
-   protected-field/membership guard coverage and schema mirror strategy. The SQL subset
-   below is tested, but does not fulfill all of item 1. Do not deploy as a complete backend.
-2. **Executable seed — NOT done**: `forms/seed.ts` and its migration companion are still
-   absent. Every approved row, compound subfield, template, add-on, shot, MN flag, script,
-   formula and versioned mapping registry must still be translated into executable data.
-   Compound AST/compiler is implemented and integrated with form validation/completeness;
-   this does not replace the seed or full-seed fidelity tests. No external blocker or
-   new approval requirement was established.
-3. **Server integration**: fresh DAL/assignment/device authorization on all routes and
-   MCP commands, CSRF and Origin checks, ops transaction/receipt/revision/conflict handling,
-   close manifests, completion lock/Reopen, enrollment and to-dos with Central due dates.
-4. **Files**: classification before generic signed/session readers/listings/thumbnails/
-   Range/signing/upload paths; photo permission at init and commit; bounded safe uploads,
-   deterministic file transaction, crash/rename retry and orphan cleanup.
-5. **Offline**: IDB browser validation, durable encrypted blob store, device/PIN key and
-   signed lease handling, lock/quarantine/takeover, capacity estimate, asset manifest,
-   data-free shell, service worker `/consult/`, kill/update lifecycle and recovery.
-6. **Office outputs**: `findings.ts` reconciler and `consultScopeFacts()`, v1 shared DB
-   fixture, exact site-plan mapping, aggregation/supersession/retraction, sent/signed locks,
-   readiness and work-item integration, no review or stage advancement.
-7. **Tests still absent**: consult-sync-db, consult-findings-db, consult-todos-db,
-   full seed coverage and end-to-end offline/upload tests. `consult-access-db` now tests
-   real SQL signed access, raw narrow SELECT/INSERT/UPDATE denial, assignment/revocation,
-   immutable publication, answer receipts/conflicts, Complete lock and Reopen. It does
-   not establish full authorization/command coverage for the unfinished protocol.
-
-Audio, AI and the shared transcript remain out of this task's Phase 1 scope by design;
-React screens remain the next UI builder's work. The other omissions above are unfinished
-implementation. No technical/external blocker was established, and no approval is needed
-to continue the authorized work.
+- Files/uploads: authorization on every generic file path, bounded image/EXIF processing,
+  multipart/deterministic commit recovery, initials and photo capture. No upload command
+  is exposed by this slice. Required photos/initials cannot be faked by close evidence.
+- Offline browser engine: IDB/browser verification, encrypted blobs, device/PIN keys,
+  leases, quarantine/takeover, data-free shell and service worker, update/recovery flow.
+- Office outputs: findings reconciliation, provenance and sent/signed locks, generation
+  supersession, scope facts DB export and pricing readiness. No findings job is enqueued
+  by this slice. Complete itself requires no owner action/review.
+- Agent proposals remain a later slice. Agents cannot use website person commands.
+- Executable seed belongs to the parallel seed builder. It was absent at this slice's
+  final validation; publication was tested using small real module/template fixtures.
+  Run publication on the complete seed when it lands; do not infer seed acceptance.
 
 ## Validation in this worktree
 
@@ -197,3 +176,123 @@ Continuation validation:
 - Shared-lock typecheck: exit=0.
 - No Next commands, browsers, live/QA database connection, deploy or service operations.
   DB fixtures used the disposable `consult` cluster; it is stopped before handback.
+
+## Current server integration (0076 continuation; authoritative)
+
+Implemented in `lib/consult/protocol.ts`, `lib/consult/forms/formula.ts`,
+`app/api/consult/route.ts`, `app/api/consult/[id]/route.ts`, and migration 0076.
+The website runs these owner-connection transactions after fresh DAL authentication.
+Every command re-verifies the current user/area/assignment inside SQL. Capture mutations
+also check active device/user/epoch. Assignment/scheduling/publication require Joe;
+Reopen and conflict selection allow the assigned visitor or Joe. No narrow execute or
+raw consult privileges were added. Envelopes stay server-side; claims use the actual
+session authentication time, preserving revocation checks.
+
+### HTTP API for the UI
+
+All responses are JSON with `Cache-Control: no-store` on successful reads/commands.
+Use cookie authentication. POST requires same Origin as request URL, JSON content type,
+and `X-Consult-CSRF: 1`. Cross-site requests are refused. Payload limit is 256 KiB.
+
+- `GET /api/consult`: `{visits:[{id,project_id,status,revision,completion_generation,
+  scheduled_at,conducted_by}]}`, latest 200, owner all / staff assigned only.
+- `GET /api/consult/{uuid}`: `{consult,pins,instances,heads,conflicts}`. Pins include
+  immutable definitions. Includes tombstoned instances; heads are server-accepted
+  answers only. Conflicts include current/proposed answer IDs. Re-fetch the snapshot
+  after mutations; this slice does not expose an incremental cursor endpoint.
+- `POST /api/consult/{uuid}`: `{command,input}` with the commands below.
+- `POST /api/consult/new`: global `schedule` or `publish_form` only.
+
+| command | exact input | result |
+|---|---|---|
+| schedule | `{project,visit_time,visitor,forms:UUID[],plan?:UUID|null,plan_revision?:number|null}`; offset ISO timestamp; all pins published, every template module pinned | `{id}` + scheduled-visit task |
+| publish_form | `{form_id,registry_id}` | `{checksum}` |
+| start | `{device,expected_revision}` | `{epoch}` (DB bigint JSON may be a string) |
+| assign | `{visitor,expected_revision,scheduled_at?:offset ISO timestamp}` | `{revision}`; revokes prior assignment/device, returns to scheduled for explicit new Start |
+| ops | `{nonce,ops:ConsultOp[]}`; nonce 16–128 chars; <=50 ops, one device/epoch | array of queue `OpReceipt`: `{id,status,revision?,error_code?,conflict?}` |
+| evidence | `{device,epoch,expected_revision,evidence}` (strict schema below) | `{revision}` |
+| close | `{expected_revision,manifest:CloseManifest}` | `{digest,complete,checks,price_critical,record,revision}` |
+| reopen | `{expected_revision,reason}` | `{generation}`; clears close acknowledgments, preserves history |
+| resolve_conflict | `{instance_id,field_key,current_answer_id,proposed_answer_id,expected_revision,generation,reason,choice:'current'|'proposed'}` | `{revision,answer_id}`; office selection without capture-device takeover |
+
+`ConsultOp` is the exact queue.ts envelope. `payload_sha256` hashes canonical JSON of
+**payload**; server also binds the entire envelope to the immutable event receipt.
+Signed nonce binds to the request nonce; nonce reuse with different bytes is refused.
+Same event/hash retries return the original receipt even under another transport nonce.
+Receipt/answer/event/projection/sequence commit together under a consult row lock.
+Invalid individual operations roll back to a savepoint and persist a 422 receipt;
+malformed envelopes, authorization/hash/sequence errors reject the batch atomically.
+A dropped connection before commit rolls everything back; ack loss after commit is safe.
+
+Supported op types:
+- `answer` / `clear`: target `{instance_id,field_key}`, payload
+  `{status:'answered'|'skipped'|'cleared',value?,unit?,skip_reason?,skip_note?}`.
+  Clear requires `status:'cleared'`. Base revision is the **field** head revision.
+  Derived fields and caller-selected source/actor/protected properties are refused.
+- `create_instance`: target `{instance_id,module_key,parent_id?,label}`, payload `{}`;
+  base is consult revision. Pinned membership, once modules, parent cycles enforced.
+- `remove_instance`: target `{instance_id}`, payload `{}`; consult revision required,
+  live children must be removed first. Stale removal returns conflict, never deletes.
+- `resolve`: answer target; payload `{current_answer_id,proposed_answer_id,reason,answer}`
+  where `answer` has the answer payload above. New value or either existing value may
+  be supplied; both IDs and current field revision must still match. Stores immutable
+  resolution evidence and resolves the conflicting proposal.
+- `discard_rejection`: target `null`, payload `{event_id,hash,reason}`. Hash is canonical
+  SHA256 of the entire rejected op. Human explicitly abandons a rejected/stale proposal;
+  unresolved answer conflicts require `resolve` instead. Never silently rebases.
+
+Evidence uses the strict exported `evidenceSchema` as the executable UI contract:
+`{photos_ok,manual_confirmed:true,handed_back:true,ack_reason:string|null,promised_date,
+no_trades_confirmed,touched_trades:string[],trade_walks:[{trade,needed,reason,day?}],
+rrp:{receipt,firm_current,renovator_current,redelivery_required,redelivery_day?},
+flags:Record<instanceId:fieldKey,{disposition,note}>,
+skips:Record<instanceId:fieldKey|instanceId:shot:shotKey,{reason,note?,assumption?,trade_walk_decided?}>,
+return_day?}`. Dates are strict YYYY-MM-DD. Assumptions use `RiskAssumption` exactly.
+The server stamps actor/time; client cannot supply completion checks, accepted answers,
+photo references, recording evidence, or lifecycle status through this command.
+Only Joe can choose return/walk task dates. Without his date these tasks remain undated.
+RRP conservatively applies when house year is missing/ambiguous or before 1978.
+
+Close derives all eleven checks from pins, live instances, accepted heads, committed
+media, recorded human evidence, flags/conditions and unresolved conflicts. It requires
+all sequence receipts to be accepted or explicitly resolved/abandoned, all manifest blobs
+committed, all live media hashes included, and zero local pending. Server returns the
+canonical exact manifest digest; retrying the same close returns that acknowledgment.
+Complete locks mutations. Reopen increments generation, audits reason/actor and forces
+old-generation proposals into explicit `rebase_required` receipts. No owner exemption,
+review state, review task, push or stage advancement exists.
+
+Tasks use stable `(consult,kind,key)` source IDs under the consult lock: schedule to the
+visitor on Central visit day, finish to the visitor next business day, return/trade walk
+to Joe (undated until he chooses), estimate promise to Joe on promised date, RRP
+re-delivery on its recorded day. All dated work is Central midnight; the existing table
+trigger snoozes future work. Completed visits close their finish/schedule task only.
+
+### Publication and schema mirror strategy
+
+There is one strict executable schema/semantic validator: `forms/validate.ts` against
+`FieldDef`/`ModuleDef`/`TemplateDef`. It validates registered mapping labels, template
+membership, field/shot/coverage uniqueness and references, compound conditions, bounded
+arithmetic grammar/references and formula cycles. No dynamic formula evaluation occurs.
+Owner-installed `consult_mapping_registries` are immutable, versioned rows; the browser
+cannot supply arbitrary mappings to publish. `publish()` validates and writes a
+checksum-bound, validator-version-1 attestation in the same transaction before calling
+SQL publish. SQL and its publication trigger require this attestation, including on
+raw INSERT/UPDATE attempts. A definition edit invalidates it. This replaces the partial
+PL/pgSQL schema interpreter and prevents TS/SQL schema drift; future schema changes must
+bump the validator/attestation version together and test both publish paths.
+
+Physical schema source is the ordered migration ledger: base `db/schema.sql` plus
+0075/0076, exactly as the disposable harness installs it. Do not copy CREATE statements
+into the base snapshot and then replay them a second time. Both new-table manifests and
+migration permission-generator output are included; all five 0076 tables have no narrow
+grants. Publication fixture and narrow-denial DB tests verify the installed schema.
+
+### This continuation's validation
+
+Passing: consult-access-db, consult-sync-db, consult-todos-db; all existing consult unit
+files (length, forms, completeness, queue, offline, readiness, scope-facts); estimating-db;
+db-roles-manifest-db; db-roles-paths-db. `db-roles-scan --diff` exits 0 (documented
+withheld privileges only). Locked niced `tsc --noEmit -p .` exits 0.
+No browser/build/server, production/QA connection, deploy, push or service operation.
+The disposable `consult` cluster is stopped before handback.

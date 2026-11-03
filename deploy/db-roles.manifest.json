@@ -3074,6 +3074,21 @@
     },
     "consult_finding_applications": {
       "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consult_batches": {
+      "note": "Website person commands only; no narrow raw access."
+    },
+    "consult_sync_receipts": {
+      "note": "Website person commands only; no narrow raw access."
+    },
+    "consult_close_evidence": {
+      "note": "Website person commands only; no narrow raw access."
+    },
+    "consult_mapping_registries": {
+      "note": "Owner-only immutable publication validation; no narrow raw access."
+    },
+    "consult_publication_validations": {
+      "note": "Owner-only immutable publication validation; no narrow raw access."
     }
   }
 }

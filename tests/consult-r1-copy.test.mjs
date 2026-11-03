@@ -8,7 +8,7 @@ test('spoken duration is words only, never the office hint', () => {
   assert.equal(spokenDuration(['kitchen']), 'two hours');
   assert.equal(spokenDuration(['deck']), 'an hour');
   assert.equal(spokenDuration(['general']), 'forty-five minutes');
-  assert.equal(spokenDuration(['whole']), 'three to four hours, or two scheduled visits');
+  assert.equal(spokenDuration(['whole']), 'three to four hours'); // r3: the office line keeps "or two scheduled visits"; it is never said aloud
   assert.equal(spokenDuration([]), '');
   for (const k of [['bath', 'kitchen'], ['whole'], ['addition', 'basement']]) assert.doesNotMatch(spokenDuration(k), /offer|separate|\d/);
 });

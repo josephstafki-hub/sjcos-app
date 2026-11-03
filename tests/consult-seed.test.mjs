@@ -196,7 +196,8 @@ test('field labels use the plan\'s words (seed-added helpers listed explicitly)'
   const missing = [];
   for (const m of seed.seedModules) for (const f of m.fields) {
     if (SEED_ADDED.has(`${m.key}.${f.key}`)) continue;
-    const base = f.label.split(' — ')[0].replace(/[*`]/g, '');
+    // r3 C13: labels print curly quotes (“Ahead”); the plan writes straight ones.
+    const base = f.label.split(' — ')[0].replace(/[*`]/g, '').replace(/[“”]/g, '"');
     if (!planText.toLowerCase().includes(base.toLowerCase())) missing.push(`${m.key}.${f.key}: ${base}`);
   }
   assert.deepEqual(missing, []);

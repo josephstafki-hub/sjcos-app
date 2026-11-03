@@ -45,7 +45,7 @@ export interface ShotView { key: string; def: ShotDef; required: boolean; mark: 
 export interface FieldView {
   key: string; addr: string; def: FieldDef; required: boolean; applicable: boolean; mark: Mark;
   answer?: AnswerView; conflict?: ConflictView; returnVisit: boolean; skipNote?: string; skipCounts: boolean;
-  shots: ShotView[]; flags: { key: string; issue: string }[]; initials?: LocalBlob;
+  shots: ShotView[]; flags: { key: string; issue: string; hint: string }[]; initials?: LocalBlob;
 }
 export interface SectionView {
   instance: SnapInstance; module: ModuleDef; label: string; title: string; depth: number;
@@ -57,10 +57,21 @@ export interface VisitModel {
   modules: ModuleDef[]; templates: TemplateDef[]; sections: SectionView[]; slots: ModuleSlot[];
   pc: { done: number; total: number; skipped: number }; record: { done: number; total: number; skipped: number };
   open: { section: SectionView; item: FieldView | ShotView; kind: 'field' | 'shot'; partly: boolean }[];
-  flags: { key: string; issue: string; section: SectionView; field: FieldView }[];
+  flags: { key: string; issue: string; hint: string; section: SectionView; field: FieldView }[];
   conflicts: ConflictView[]; touchedTrades: string[]; rrpApplies: boolean; rrp: ReturnType<typeof rrpFacts>;
   values: Record<string, unknown>; photosOk: boolean | null; promised: string | null;
   started: boolean; status: string; generation: number;
+}
+
+/** Fallback for a flag published without a visitor `hint` (Joe's own edits): strip code citations
+ *  so the visit screen never shows "R314" or "(299F.51)" (r3 C5). The office keeps `issue`. */
+export function visitorFlagText(issue: string): string {
+  const t = issue
+    .replace(/\s*\((?:[^()]*\b(?:IRC|R\d{3}|\d{3}[A-Z]?\.\d+|Minn\. R\.|MN Rules|CFR|UPC|1346|1322|4714)\b[^()]*)\)/g, '')
+    .replace(/\b(?:IRC\s+)?R\d{3}(?:\.\d+)*(?:\/R?\d{3}(?:\.\d+)*)*\b/g, '')
+    .replace(/\b\d{3}[A-Z]\.\d+\b|\b(?:Minn\. R\.|MN Rules)\s*\d+\.\d+|\b(?:1346|1322|4714)(?:\.\d+)?\b|\bUPC\b/g, '')
+    .replace(/\s+([;,.])/g, '$1').replace(/;\s*;/g, ';').replace(/\(\s*\)/g, '').replace(/\s{2,}/g, ' ').replace(/^[\s:;,—-]+|[\s:;,—-]+$/g, '').trim();
+  return t ? `${t.charAt(0).toUpperCase()}${t.slice(1)}${/[.!?]$/.test(t) ? '' : '.'}` : 'Needs a decision.';
 }
 
 export const addrOf = (instance_id: string, field_key: string) => `${instance_id}:${field_key}`;
@@ -178,6 +189,16 @@ function safeCondition(cond: boolean | When, known: Set<string>, values: Record<
   try { return compileCondition(cond, known)(values); } catch { return true; }
 }
 
+/** The area a pre-created instance was made for: "Room dimensions 1 — Bathroom" → "Bath". */
+export function areaOf(label?: string | null): string | null {
+  const m = /\s—\s([^—]+)$/.exec(label ?? '');
+  if (!m) return null;
+  const area = m[1].trim();
+  return area === 'Bathroom' ? 'Bath' : area;
+}
+/** "Kitchen wall 1" already says Kitchen; "Bath 1" already says Bathroom (r3 C11). */
+const saysArea = (base: string, area: string) => { const b = base.toLowerCase(), a = area.toLowerCase(); return b.includes(a) || a.startsWith(b.split(/\s+/)[0]); };
+
 /** Display label: the instance_label pattern with {n} and field values filled in. */
 export function instanceLabel(m: ModuleDef, inst: SnapInstance, ordinal: number, answers: Map<string, AnswerView>): string {
   if (!m.repeatable) return m.title;
@@ -192,8 +213,15 @@ export function instanceLabel(m: ModuleDef, inst: SnapInstance, ordinal: number,
   if (missing) {
     // A pattern without {n} ("Wall {letter}", "{decision}") would collapse to a bare word: use the
     // created label or "<Title> <n>" ("Kitchen wall 2") instead, so repeat instances stay named.
-    if (!pattern.includes('{n}')) return inst.label || `${m.title} ${ordinal}`;
+    if (!pattern.includes('{n}')) {
+      const created = inst.label || `${m.title} ${ordinal}`;
+      const area = areaOf(created), base = created.replace(/\s+—\s+[^—]+$/, '');
+      return area && saysArea(base, area) ? base : created;
+    }
     const clean = text.replace(/\s+—\s*$/, '').trim();
+    // Rooms made for an area keep it until they are named: "Room 1 — Bath", "Room 2 — Kitchen".
+    const area = areaOf(inst.label);
+    if (clean && area && !saysArea(clean, area)) return `${clean} — ${area}`;
     return clean || inst.label || `${m.title} ${ordinal}`;
   }
   return text;
@@ -291,7 +319,7 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
       let mark: Mark = answered ? (shotsDone ? 'covered' : 'partial') : counts ? 'not_applicable' : 'open';
       if (f.type === 'length_pair' && answered && Array.isArray(a?.value) && a!.value.some((v) => typeof v !== 'number')) mark = 'partial';
       const flags: FieldView['flags'] = [];
-      for (const [index, flag] of [...(f.flag ? [f.flag] : []), ...(f.flags ?? [])].entries()) if (req(flag.when)) flags.push({ key: index ? `${addr}:${index}` : addr, issue: flag.issue });
+      for (const [index, flag] of [...(f.flag ? [f.flag] : []), ...(f.flags ?? [])].entries()) if (req(flag.when)) flags.push({ key: index ? `${addr}:${index}` : addr, issue: flag.issue, hint: flag.hint ?? visitorFlagText(flag.issue) });
       const view: FieldView = { key: f.key, addr, def: f, required, applicable, mark, answer: a, conflict, returnVisit: a?.status === 'skipped' && a.skip_reason === 'Get on return visit', skipNote: a?.skip_note, skipCounts: counts, shots, flags, initials };
       if (!applicable) { hidden.push(view); continue; }
       fieldViews.push(view);
@@ -350,8 +378,14 @@ export function nextOpen(model: VisitModel, sectionId: string, fromAddr?: string
 /** Open items in one section, in the leave-section banner's words (§5.3 step 8). */
 export function leaveList(model: VisitModel, sectionId: string): { open: string[]; partly: string[] } {
   const items = model.open.filter((o) => o.section.instance.id === sectionId);
-  const name = (o: VisitModel['open'][number]) => (o.kind === 'field' ? (o.item as FieldView).def.label : `${(o.item as ShotView).def.label} photo`).replace(/\s*\(.*?\)\s*/g, ' ').trim();
+  const name = (o: VisitModel['open'][number]) => (o.kind === 'field' ? (o.item as FieldView).def.label : `${(o.item as ShotView).def.label} photo`).replace(/\s*\(.*?\)\s*/g, ' ').replace(/\s*\?\s*$/, '').trim();
   return { open: items.filter((o) => !o.partly).map(name), partly: items.filter((o) => o.partly).map(name) };
+}
+
+/** One banner line per group: at most `max` names joined with " · ", then "and n more" (r3 C3). */
+export function leaveLine(names: string[], max = 3): string {
+  const shown = names.slice(0, max).join(' · ');
+  return names.length > max ? `${shown} and ${names.length - max} more` : shown;
 }
 
 /** Rooms and areas the client sees on "What we went over" (kitchen walls are cabinet detail, not rooms). */
@@ -359,24 +393,25 @@ const CLIENT_ROOMS = ['room', 'bath_scope', 'kitchen_scope', 'addition_scope', '
 /** "Existing valve — Keep/Replace/Unknown" → "existing valve"; drops option lists and (asides). */
 const plainLabel = (label: string) => label.replace(/\s*\(.*?\)\s*/g, ' ').replace(/\s+—\s+[^—]*\/[^—]*$/, '').trim().toLowerCase();
 
-/** Allowlisted client summary (§6.4): only what was actually covered, rooms by their own names,
- *  still-to-decide grouped by room, open questions, formal estimate date. Never a stock sentence. */
-export function summaryInput(model: VisitModel, display: Display | undefined, visitDate: string, formalDate: string) {
-  const rooms: { name: string; work: string[] }[] = [];
-  const comeBack: string[] = [];
-  for (const s of model.sections) {
-    if (!CLIENT_ROOMS.includes(s.module.key)) continue;
-    const answered = s.fields.filter((f) => !['name','level','decision'].includes(f.key) && f.answer?.status === 'answered' && f.mark !== 'open');
-    if (!answered.length) { if (s.mark !== 'not_applicable') comeBack.push(s.label); continue; }
-    const work: string[] = [];
-    if (answered.some((f) => f.def.type === 'length' || f.def.type === 'length_pair')) work.push('Measured');
-    for (const f of answered) {
-      if (f.def.type !== 'choice' || !f.def.maps_to || f.def.tier !== 'price_critical') continue;
-      work.push(`${plainLabel(f.def.label)}: ${String(f.answer!.value).toLowerCase()}`);
-    }
-    if (work.length === 0) work.push('Looked over');
-    rooms.push({ name: s.label, work: work.slice(0, 6) });
-  }
+/** The client's word for an area group: "Bath" → "Bathroom" (r3 C6: one name in every list). */
+export function clientArea(group: string): string {
+  return group === 'Bath' ? 'Bathroom' : group.replace(/\bbath$/i, 'bathroom');
+}
+const SCOPE_AREA: Record<string, string> = { bath_scope: 'bathroom', kitchen_scope: 'kitchen', addition_scope: 'addition', basement_scope: 'basement', deck_scope: 'deck', whole_scope: 'whole house', general_scope: 'work area' };
+const LEVEL_ROOM: Record<string, string> = { Basement: 'the basement room', Main: 'a main-floor room', Upper: 'an upper-floor room', Attic: 'the attic room', Garage: 'the garage' };
+/** A name the homeowner recognises (r2 N3): the room's own name, else its area, else its level. */
+export function clientPlace(s: SectionView): { heading: string; phrase: string } {
+  const named = s.fields.find((f) => f.key === 'name' && f.answer?.status === 'answered' && String(f.answer.value ?? '').trim());
+  if (named) { const n = String(named.answer!.value).trim(); return { heading: n, phrase: n }; }
+  const word = s.module.key === 'room' ? (() => { const a = areaOf(s.instance.label); return a ? clientArea(a).toLowerCase() : null; })() : SCOPE_AREA[s.module.key] ?? null;
+  if (word) return { heading: word.charAt(0).toUpperCase() + word.slice(1), phrase: `the ${word}` };
+  const level = s.fields.find((f) => f.key === 'level' && f.answer?.status === 'answered')?.answer?.value;
+  const phrase = typeof level === 'string' && LEVEL_ROOM[level] ? LEVEL_ROOM[level] : 'another room';
+  return { heading: phrase.replace(/^(the|a|an) /, '').replace(/^./, (c) => c.toUpperCase()), phrase };
+}
+
+/** Selections not yet exact, grouped by area in visit order, area prefix dropped from each item. */
+export function openSelectionGroups(model: VisitModel): { group: string; items: string[] }[] {
   const single = model.templates.length === 1 ? (model.templates[0].title === 'Bathroom' ? 'Bath' : model.templates[0].title) : 'Other';
   const groups = new Map<string, string[]>();
   for (const s of model.sections) {
@@ -384,13 +419,55 @@ export function summaryInput(model: VisitModel, display: Display | undefined, vi
     const st = s.fields.find((f) => f.key === 'status');
     if (st?.answer?.value === 'Exact product picked') continue;
     const at = s.label.indexOf(' — ');
-    const group = at > 0 ? s.label.slice(0, at) : single;
+    const group = clientArea(at > 0 ? s.label.slice(0, at) : single);
     const item = at > 0 ? s.label.slice(at + 3) : s.label;
     groups.set(group, [...(groups.get(group) ?? []), item]);
   }
-  const stillToDecide = [...groups].map(([group, items]) => ({ group, items }));
+  return [...groups].map(([group, items]) => ({ group, items }));
+}
+
+const SAY_N = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve', 'thirteen', 'fourteen', 'fifteen', 'sixteen', 'seventeen', 'eighteen', 'nineteen', 'twenty'];
+const andList = (xs: string[]) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`);
+/** Closing line 3 read aloud (r2 N4): grouped by area in client-view order, at most `max` each,
+ *  no "Bath —" prefixes or (asides): "for the bathroom, the vanity, vanity top, sink, faucets and
+ *  toilet, and ten more; for the kitchen, …". */
+export function spokenSelections(model: VisitModel, max = 5): string {
+  const groups = openSelectionGroups(model);
+  return groups.map(({ group, items }) => {
+    const said = items.map((x) => x.replace(/\s*\(.*?\)\s*/g, ' ').replace(/\//g, ' and ').trim().toLowerCase());
+    const head = said.slice(0, max), rest = said.length - head.length;
+    const list = `the ${andList(head)}${rest ? `, and ${SAY_N[rest] ?? rest} more` : ''}`;
+    return groups.length > 1 ? `for the ${group.toLowerCase()}, ${list}` : list;
+  }).join('; ');
+}
+
+/** Allowlisted client summary (§6.4): only what was actually covered, rooms by names the client
+ *  knows, "Not measured today" for the rest, still-to-decide grouped by area, open questions,
+ *  formal estimate date. Never a stock sentence. */
+export function summaryInput(model: VisitModel, display: Display | undefined, visitDate: string, formalDate: string) {
+  const rooms: { name: string; work: string[] }[] = [];
+  const comeBack: string[] = [];
+  for (const s of model.sections) {
+    if (!CLIENT_ROOMS.includes(s.module.key)) continue;
+    const place = clientPlace(s);
+    const answered = s.fields.filter((f) => !['name','level','decision'].includes(f.key) && f.answer?.status === 'answered' && f.mark !== 'open');
+    if (!answered.length) { if (s.mark !== 'not_applicable') comeBack.push(place.phrase); continue; }
+    const work: string[] = [];
+    if (answered.some((f) => f.def.type === 'length' || f.def.type === 'length_pair')) work.push('Measured');
+    for (const f of answered) {
+      if (f.def.type !== 'choice' || !f.def.maps_to || f.def.tier !== 'price_critical') continue;
+      work.push(`${plainLabel(f.def.label)}: ${String(f.answer!.value).toLowerCase()}`);
+    }
+    if (work.length === 0) work.push('Looked over');
+    const same = rooms.find((r) => r.name === place.heading);
+    if (same) same.work = [...new Set([...same.work, ...work])].slice(0, 6);
+    else rooms.push({ name: place.heading, work: work.slice(0, 6) });
+  }
+  // One mention per place, and never "not measured" for a place listed as gone over.
+  const covered = new Set(rooms.map((r) => r.name.toLowerCase()));
+  const notMeasured = [...new Set(comeBack)].filter((p) => !covered.has(p.replace(/^(the|a|an) /, '').toLowerCase()));
   const questions = model.sections.filter((s) => s.module.key === 'closing').flatMap((s) => s.fields.filter((f) => f.key === 'client_questions' && f.answer?.status === 'answered').map((f) => String(f.answer!.value)));
-  return { client_name: display?.client ?? '', visit_date: visitDate, rooms, come_back: comeBack, still_to_decide: stillToDecide, open_questions: questions, formal_estimate_date: formalDate };
+  return { client_name: display?.client ?? '', visit_date: visitDate, rooms, come_back: notMeasured, still_to_decide: openSelectionGroups(model), open_questions: questions, formal_estimate_date: formalDate };
 }
 
 /** Required blob hashes for the exact close manifest: every photo this device holds for live instances. */

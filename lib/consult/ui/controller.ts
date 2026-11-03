@@ -332,7 +332,10 @@ export class VisitController {
       for (let i = 0; i < need; i++) {
         const preset = presets[slot.live + i] as Record<string, unknown> | undefined;
         const area = model.templates.flatMap(t=>Array.from({length:t.modules.find(m=>m.module===slot.module.key)?.min??0},()=>t.title))[slot.live+i];
-        const label = preset?.decision ? String(preset.decision) : slot.module.repeatable ? `${slot.module.title} ${slot.live + i + 1} — ${area ?? model.templates[0]?.title ?? ""}` : slot.module.title;
+        // "Room dimensions 1 — Bath"; never "Kitchen wall 1 — Kitchen" (r3 C11). Bath is the one area word.
+        const areaWord = (area ?? model.templates[0]?.title ?? "") === "Bathroom" ? "Bath" : (area ?? model.templates[0]?.title ?? "");
+        const base = `${slot.module.title} ${slot.live + i + 1}`;
+        const label = preset?.decision ? String(preset.decision) : slot.module.repeatable ? (areaWord && !base.toLowerCase().includes(areaWord.toLowerCase()) ? `${base} — ${areaWord}` : base) : slot.module.title;
         const op = await this.commit((q, b) => createInstanceOp(q, this.state.device, b, slot.module.key, label), label);
         const defaults: Record<string, unknown> = slot.module.key === 'footing' ? {frost_zone:frostZones[0].label,required_depth:frostZones[0].depth} : slot.module.key === 'era' ? Object.fromEntries(Object.entries({firm_cert_number:snap.prefill?.firm_cert_number,firm_cert_expiry:snap.prefill?.firm_cert_expiry}).filter(([,v])=>!!v)) : {};
         for (const [field, value] of Object.entries({...defaults,...preset})) {

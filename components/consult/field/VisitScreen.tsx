@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CoverageMark } from "@/components/ui/CoverageMark";
 import type { FieldView, SectionView, ShotView, VisitModel, EvidenceDraft, Display } from "@/lib/consult/ui/model";
-import { leaveList, nextOpen, resumeSection } from "@/lib/consult/ui/model";
+import { leaveLine, leaveList, nextOpen, resumeSection, spokenSelections } from "@/lib/consult/ui/model";
 import type { AnswerPayload } from "@/lib/consult/ui/ops";
 import { W, fill, plainWords, spokenDuration, visitDuration } from "@/lib/consult/ui/words";
 import { Banner, Btn, Eyebrow, Sheet } from "./primitives";
@@ -30,10 +30,12 @@ export interface VisitApi {
   showToClient: (field?: FieldView) => void;
 }
 
+/** A line that can't be read yet (no estimate date) is a direction to the visitor, never a quote (r2 item 9). */
+const needsDate = (line: string, model: VisitModel) => !model.promised && line.includes("{estimate_date}");
 const fillScript = (line: string, display: Display | undefined, model: VisitModel) =>
-  (!model.promised && line.includes("{estimate_date}") ? "Pick the date below first." : line).replace(/\s*This is \{helper\}[^.]*\./, "").replace("{duration}", spokenDuration(model.templates.map((t) => t.key)))
+  line.replace(/\s*This is \{helper\}[^.]*\./, "").replace("{duration}", spokenDuration(model.templates.map((t) => t.key)))
     .replace("{name}", display?.visitor_name ?? "").replace("{estimate_date}", model.promised ? centralTime(`${model.promised}T12:00:00-06:00`, { weekday: "long", month: "long", day: "numeric" }) : "the date you pick below")
-    .replace("{open_selections}", model.sections.filter((s) => s.module.key === "selections" && !s.fields.some((f) => f.key === "status" && f.answer?.value === "Exact product picked")).map((s) => s.label).join(", ") || "none");
+    .replace("{open_selections}", spokenSelections(model) || "none");
 
 /** §6.1 thumb zone: the primary action bottom-right, 56 px. Fixed on phone and tablet portrait;
  *  from 1024 px it is sticky at the bottom of the scrolling right pane (the section is a flex column
@@ -61,10 +63,12 @@ function SectionRows({ model, active, onOpen, onAdd, compact }: { model: VisitMo
           <li key={s.instance.id}>
             <button type="button" onClick={() => onOpen(s.instance.id)} aria-current={active === s.instance.id ? "true" : undefined}
               aria-label={`${s.label}, ${s.pc.done} of ${s.pc.total} price-critical done, ${s.mark === "covered" ? "Covered" : s.mark === "partial" ? "Partly" : s.mark === "not_applicable" ? "N/A" : "Open"}${s.returnVisit ? ", Return visit" : ""}${s.conflict ? ", Conflict" : ""}`}
-              className={`grid min-h-14 w-full items-center gap-x-3 border-b-2 border-rule-soft px-2 py-2 text-left hover:bg-hover focus-visible:outline-3 focus-visible:outline-focus ${compact ? "grid-cols-[1fr_auto]" : "grid-cols-[minmax(0,1fr)_auto_auto]"} ${active === s.instance.id ? "bg-accent-soft" : ""} ${s.depth ? "pl-6" : ""}`}>
+              className={`grid min-h-14 w-full items-center gap-x-3 border-b-2 border-rule-soft px-2 py-2 text-left hover:bg-hover focus-visible:outline-3 focus-visible:outline-focus ${compact ? "grid-cols-[1fr_auto]" : "grid-cols-[minmax(0,1fr)_auto_auto_auto]"} ${active === s.instance.id ? "bg-accent-soft" : ""} ${s.depth ? "pl-6" : ""}`}>
               <span className="min-w-0 break-words font-semibold text-ink">{s.depth ? "↳ " : ""}{s.label}</span>
-              <span className="font-mono text-[0.9em] text-ink-2">{s.pc.done}/{s.pc.total}{compact ? "" : " ›"}</span>
+              {/* r3 C9: count · mark, chevron last. */}
+              <span className="font-mono text-[0.9em] text-ink-2">{s.pc.done}/{s.pc.total}</span>
               <span className={compact ? "col-span-2 justify-self-start" : ""}><MarkCell f={{ mark: s.mark, conflict: s.conflict, returnVisit: s.returnVisit }} /></span>
+              {!compact && <span aria-hidden className="font-mono text-ink-3">›</span>}
             </button>
           </li>
         ))}
@@ -101,7 +105,7 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
   const section = model.sections.find((s) => s.instance.id === active) ?? null;
   const tmpl = model.templates[0];
   const opening = useMemo(() => ((staff ? tmpl?.opening_staff : tmpl?.opening) ?? tmpl?.opening ?? []).map((l) => fillScript(l, display, model)), [tmpl, staff, display, model]);
-  const closingLines = useMemo(() => ((staff ? tmpl?.closing_staff : tmpl?.closing) ?? tmpl?.closing ?? []).filter(l => !l.includes("{open_selections}") || model.sections.some(s=>s.module.key==="selections" && !s.fields.some(f=>f.key==="status"&&f.answer?.value==="Exact product picked"))).map((l) => fillScript(l, display, model)), [tmpl, staff, display, model]);
+  const closingLines = useMemo(() => ((staff ? tmpl?.closing_staff : tmpl?.closing) ?? tmpl?.closing ?? []).filter(l => !l.includes("{open_selections}") || model.sections.some(s=>s.module.key==="selections" && !s.fields.some(f=>f.key==="status"&&f.answer?.value==="Exact product picked"))).map((l) => ({ direction: needsDate(l, model), text: needsDate(l, model) ? W.pickDateFirst : fillScript(l, display, model) })), [tmpl, staff, display, model]);
   const head = `${display?.client ?? ""}${model.templates.length ? ` · ${model.templates.map((t) => t.title).join(" + ")}` : ""}`;
 
   // In-tool Back returns to the section list; from the list it stays in the tool.
@@ -231,7 +235,11 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
       </details>}
       {leave && leave.from === section.instance.id && (() => { const l = leaveList(model, section.instance.id); return (
         <div className="mt-3"><Banner kind="action" actions={<><Btn onClick={() => { setLeave(null); const h = nextOpen(model, section.instance.id); if (h) setFocusAddr(h.addr); }}>{W.goBack}</Btn><Btn tone="primary" onClick={() => { const go = leave.go; setLeave(null); go(); }}>{W.leaveForNow}</Btn></>}>
-          {fill(W.leaveStill, { section: section.label, list: [l.open.length ? `Open: ${l.open.join(", ")}` : "", l.partly.length ? `Partly: ${l.partly.join(", ")}` : ""].filter(Boolean).join(" · ") })}
+          <p className="font-semibold">{fill(W.leaveStill, { section: section.label })}</p>
+          <ul className="mt-1 grid gap-1">
+            {l.open.length > 0 && <li><span className="font-semibold">{W.leaveOpen}</span> {leaveLine(l.open)}</li>}
+            {l.partly.length > 0 && <li><span className="font-semibold">{W.leavePartly}</span> {leaveLine(l.partly)}</li>}
+          </ul>
         </Banner></div>); })()}
       {section.module.say.length > 0 && (
         <div className="mt-3 rounded-lg border-2 border-rule-soft bg-card p-3 lg:hidden">
@@ -241,12 +249,14 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
       {section.module.key === "closing" && closingLines.length > 0 && (
         <div className="mt-3 rounded-lg border-2 border-rule-soft bg-card p-3">
           <Eyebrow>{W.script}</Eyebrow>
-          {closingLines.map((l, i) => <p key={i} className="mt-1 font-serif text-ink-2">“{l}”</p>)}
+          {closingLines.map((l, i) => l.direction
+            ? <p key={i} className="mt-2 rounded-md border-2 border-info bg-info-soft px-3 py-2 font-sans font-semibold text-ink"><span aria-hidden>→ </span>{l.text}</p>
+            : <p key={i} className="mt-1 font-serif text-ink-2">“{l.text}”</p>)}
           <div className="mt-3"><Btn tone="primary" onClick={() => api.showToClient()}>{W.showToClient}</Btn></div>
         </div>
       )}
       <div className="md:grid md:grid-cols-2 md:gap-x-6 lg:block xl:grid">
-        {section.fields.map((f) => <div key={f.addr} className={f.def.type === "text" || f.def.type === "multi" || f.shots.length ? "md:col-span-2" : ""}><FieldRow f={f} actions={actions} sectionId={section.instance.id} last={lastValue(section, f)} /></div>)}
+        {section.fields.map((f) => <div key={f.addr} className={f.def.type === "text" || f.def.type === "multi" || f.shots.length || f.def.say ? "md:col-span-2" : ""}><FieldRow f={f} actions={actions} sectionId={section.instance.id} last={lastValue(section, f)} /></div>)}
       </div>
       {section.shots.map((s) => <PhotoRow key={s.key} shot={s} actions={actions} sectionId={section.instance.id} />)}
       {section.hidden.length > 0 && (
@@ -310,7 +320,8 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
         }} />}
       <WrapSheet open={sheet === "wrap"} onClose={() => setSheet(null)} model={model} draft={draft} hasInitials={hasInitials} refused={refused}
         onGo={(id, addr) => { setSheet(null); openSection(id, addr); }} onFlags={() => setSheet("flags")} onTrades={() => setSheet("trades")} onRrp={() => setSheet("rrp")} onClient={() => { setSheet(null); api.showToClient(); }} onAck={() => setSheet("ack")}
-        onCloseVisit={() => { setSheet(null); api.close(); }} />
+        onCloseVisit={() => { setSheet(null); api.close(); }}
+        onPromised={(() => { const c = model.sections.find((x) => x.module.key === "closing"); return c ? () => { setSheet(null); openSection(c.instance.id, `${c.instance.id}:estimate_promised`); } : undefined; })()} />
       {sheet === "flags" && <FlagSheet open onClose={() => setSheet("wrap")} model={model} draft={draft} saveError={saveError} onSave={api.setDraft} />}
       {sheet === "trades" && <TradeSheet open onClose={() => setSheet("wrap")} model={model} draft={draft} saveError={saveError} onSave={api.setDraft} />}
       {sheet === "rrp" && <RrpSheet model={model} onGo={() => {setSheet(null);const id=model.sections.find(s=>s.module.key==="era")?.instance.id;if(id)openSection(id);}} open onClose={() => setSheet("wrap")} draft={draft} saveError={saveError} onSave={api.setDraft} />}

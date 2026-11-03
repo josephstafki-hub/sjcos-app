@@ -26,8 +26,8 @@ export const house: ModuleDef = {
   fields: [
     yesno('photos_ok', 'Photos okay?', true, { say: PHOTO_LINE, hint: 'If no, leave the camera off and write down what you saw instead.', note: 'No disables camera/upload and creates explicit photo alternatives/assumptions; no hidden completeness bypass' }),
     text('permit_city', 'Permit authority — city/township', true, { note: 'prefill sub scope permits', maps_to: { scope_key: 'general.permits', kind: 'client_answer' } }),
-    text('permit_building_inspector', 'Permit authority — building/plumbing inspector', true, { note: 'prefill sub scope permits', maps_to: { scope_key: 'general.permits', kind: 'client_answer' } }),
-    choice('permit_electrical', 'Permit authority — electrical', ['City', 'DLI'], true, { hint: 'DLI is the state electrical inspector.', note: 'prefill sub scope permits', maps_to: { scope_key: 'general.permits', kind: 'client_answer' } }),
+    text('permit_building_inspector', 'Permit authority — building/plumbing inspector', true, { hint: 'Usually the city building department. Write the city, or Not sure.', note: 'prefill sub scope permits', maps_to: { scope_key: 'general.permits', kind: 'client_answer' } }),
+    choice('permit_electrical', 'Permit authority — electrical', ['City', 'DLI', 'Not sure'], true, { hint: 'Most cities use the state (DLI, the Dept. of Labor and Industry). A few, like Minneapolis and St. Paul, inspect their own. Not sure? Pick Not sure — Joe checks.', note: 'prefill sub scope permits; DLI inspects electrical statewide except cities with their own electrical inspection (e.g. Minneapolis, St. Paul); the licensed electrician files the request. Not sure → Joe confirms from exterior_site.city', maps_to: { scope_key: 'general.permits', kind: 'client_answer' } }),
     text('alarms_locations', 'Smoke and CO alarms now — locations', true, {
       note: 'all templates including add-ons',
       flag: { when: isIn('alarms_missing', ['Missing', 'Unknown']), issue: 'permitted work: review R314/R315; CO within 10 ft of sleeping rooms (299F.51)' },
@@ -107,7 +107,7 @@ export const room: ModuleDef = {
   fields: [
     text('name', 'Room name', true),
     choice('level', 'Level', ['Basement', 'Main', 'Upper', 'Attic', 'Garage'], true),
-    text('ahead_wall', 'Wall used as "Ahead" (facing from the entry door)', true, { hint: 'Facing the room from the main door, which wall is ahead?', note: 'orients windows/doors for the floor plan' }),
+    text('ahead_wall', 'Wall used as “Ahead” (facing from the entry door)', true, { hint: 'Facing the room from the main door, which wall is ahead?', note: 'orients windows/doors for the floor plan' }),
     len('length', 'Length (wall to wall, longest)', true, { range: [24, 600], precision: 0.125 }),
     len('width', 'Width', true, { range: [24, 600], precision: 0.125 }),
     choice('shape', 'Shape', ['Rectangle', 'L-shape', 'Other'], true, { hint: 'Not a rectangle? Measure each leg and photograph a hand sketch.', note: 'not Rectangle → sketch R + leg length/width R' }),
@@ -122,7 +122,7 @@ export const room: ModuleDef = {
       flag: { when: eq('wall_finish', 'Plaster & lath'), issue: 'plaster: demo and patch cost' },
     }),
     text('base_trim', 'Base trim height and profile', false),
-    len('out_of_level', 'Out of level across the room', any(tpl('kitchen'), tileFloor), { range: [0, 6], hint: 'The biggest gap under a long level laid across the floor.', note: 'R? kitchen or tile floor; O otherwise' }),
+    len('out_of_level', 'Out of level across the room', any(tpl('kitchen'), tileFloor), { range: [0, 6], hint: 'How much lower the floor’s low side is than its high side — with a laser, or a level held level. Not dips under a straightedge.', note: 'R? kitchen or tile floor; O otherwise. Level (low side vs high side), not flatness; tile flatness (about ¼ in in 10 ft) is the flooring add-on’s worst-dip field' }),
     choice('heat', 'Heat in the room', ['Floor register', 'Baseboard', 'Radiator', 'In-floor', 'None'], true),
     derived('floor_area', 'Floor area', 'number', '(length * width + leg_length * leg_width) / 144', { unit: 'sf', note: 'length × width (+ leg) ÷ 144' }),
     derived('perimeter', 'Perimeter', 'number', '2 * (length + width) / 12', { unit: 'lf' }),
@@ -333,7 +333,7 @@ export const hvac_vent: ModuleDef = {
     choice('appliance', 'Appliance', ['Furnace', 'Boiler', 'Water heater', 'Fireplace or stove', 'Gas dryer', 'Other'], true),
     choice('fuel', 'Fuel', ['Electric — no venting', 'Natural gas', 'Propane', 'Oil', 'Wood', 'Pellet'], true),
     choice('venting', 'Venting', ['Atmospheric', 'Fan-assisted', 'Power-vent', 'Direct-vent sealed', 'Solid fuel', 'None'], true, {
-      hint: 'Atmospheric: draft hood or open metal flue into a chimney. Fan-assisted: metal flue, fan inside. Power-vent: fan on top, plastic pipe out the wall. Direct-vent sealed: two pipes, or one pipe inside another.', note: 'Atmospheric (draft hood or open metal flue into a chimney) / Fan-assisted (metal flue, fan inside the appliance) / Power-vent (fan on top, plastic pipe out the wall) / Direct-vent sealed (two pipes or one concentric pipe) / Solid fuel / None. Feeds the 1346.0501 table column',
+      hint: 'Atmospheric: draft hood or open metal flue to a chimney. Fan-assisted: metal flue, fan inside. Power-vent: one plastic pipe out, fan on top or inside. Direct-vent: two plastic pipes, or one inside another.', note: 'Atmospheric (draft hood or open metal flue into a chimney) / Fan-assisted (metal flue, fan inside the appliance) / Power-vent (one plastic pipe out the wall or roof; fan on top for a water heater, inside for a 90% furnace) / Direct-vent sealed (two pipes or one concentric pipe) / Solid fuel / None. Feeds the 1346.0501 table column',
       flag: { when: all(eq('venting', 'Atmospheric'), newExhaust), issue: 'backdraft risk — HVAC sub checks before pricing' },
     }),
   ],
@@ -415,7 +415,7 @@ export const era: ModuleDef = {
     yesno('pamphlet_given', 'Renovate Right pamphlet given', rrpApplies, {
       flag: { when: eq('pamphlet_given', false), issue: 'Renovate Right not given — give before work starts' },
       say: PAMPHLET_LINE,
-      hint: 'It has to reach the client within 60 days before work starts.', note: 'R? RRP applies (including window replacement). Pamphlet must reach the client within 60 days before work starts; if the start is later, the app files a to-do to re-deliver it before start',
+      hint: 'Give it no more than 60 days before work starts, and get their initials. If work starts later, we give it again.', note: 'R? RRP applies (including window replacement). Pamphlet must reach the client within 60 days before work starts; if the start is later, the app files a to-do to re-deliver it before start',
     }),
     signature('pamphlet_initials', 'Renovate Right pamphlet — client initials', rrpApplies, { note: 'client initials on SignaturePad' }),
     choice('lead_plan', 'Lead: plan', ['Assume lead present', 'Test kit', 'Lab test', 'Not needed'], before1978),
@@ -443,7 +443,7 @@ export const exterior_site: ModuleDef = {
     text('easements', 'Easements or utilities across the lot', false),
     len('slope', 'Slope across the work area (high to low)', true, { range: [0, 120] }),
     multi('things_in_area', 'Things in the work area', ['Gas meter', 'AC unit', 'Dryer vent', 'Hose bib', 'Electric service', 'Window wells', 'None'], true),
-    yesno('will_dig', 'Will we dig?', true, { hint: 'If yes, call 811 (Gopher State One Call) before anyone digs.', note: 'yes → "Gopher State One Call (811) before digging" (MN Stat. 216D)' }),
+    yesno('will_dig', 'Will we dig?', true, { hint: 'Whoever digs calls 811 at least 2 business days ahead. 811 doesn’t mark private lines — yard lights, sprinklers, gas to a grill.', note: 'yes → "Gopher State One Call (811) before digging" (MN Stat. 216D)' }),
     text('trees', 'Trees, roots, shrubs in the way', true),
     len('narrowest_gate', 'Narrowest gate or gap for equipment', any(tpl('addition'), addon('garage'))),
     choice('siding', 'Siding', ['Vinyl', 'Wood lap', 'Fiber cement', 'Stucco', 'Brick veneer', 'Stone', 'Metal'], true),
@@ -461,7 +461,7 @@ export const footing: ModuleDef = {
   fields: [
     choice('frost_zone', 'County frost zone', frostZones.map(z=>z.label), true, {hint:'Confirm the county in the city’s handout. The city requirement stays editable.',note:'Minn. R. 1303.1600: Zone I northern counties 60 in; Zone II southern counties 42 in.'}),
     len('required_depth', 'Footing depth the city requires', true, {
-      hint: 'Southern Minnesota (Zone II): 42 in; northern counties (Zone I): 60 in. Check the city’s handout.', note: 'default 42 in. MN Rules 1303.1600: 42″ in the southern zone (metro), 60″ in the northern; confirm on the city\'s handout; floating option requires documented Minn. R. 1303.1600 criteria and city approval',
+      hint: '42 in across southern Minnesota, metro included. 60 in in the northern counties. The city’s handout is the final word.', note: 'default 42 in. MN Rules 1303.1600: 42″ in the southern zone (metro), 60″ in the northern; confirm on the city\'s handout; floating option requires documented Minn. R. 1303.1600 criteria and city approval',
     }),
     len('planned_depth', 'Planned footing depth', true, {flag:{when:lt('depth_margin',0),issue:'Planned footing is shallower than the city requirement — get a written city-approved detail'}}),
     derived('depth_margin', 'Planned depth minus city requirement', 'number', 'planned_depth - required_depth'),

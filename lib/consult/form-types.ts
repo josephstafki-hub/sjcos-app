@@ -23,8 +23,10 @@ export interface FieldDef {
   shots?: ShotDef[];                   // photos that prove this field
   derive?: string;                     // formula over keys in the same instance/consult, e.g. "length*width/144"
   derive_cases?: ({ when: When; formula: string } | { when: When; value: string | boolean } | { when: When; gap: true })[];
-  flags?: { when: When; issue: string }[];
-  flag?: { when: When; issue: string };   // becomes an `issue` finding the visitor must decide (§10.3 check 9)
+  /** `issue` is the office text (look-over, scope facts; code citations allowed); `hint` is the
+   *  visitor's plain sentence on the visit screen (r3 C5). */
+  flags?: { when: When; issue: string; hint?: string }[];
+  flag?: { when: When; issue: string; hint?: string };   // becomes an `issue` finding the visitor must decide (§10.3 check 9)
   maps_to?: { scope_key: string; quantity_label?: string; kind: "measurement" | "observation" | "client_answer" | "decision" | "issue" | "new_work" | "photo" };
 }
 export interface ModuleDef {

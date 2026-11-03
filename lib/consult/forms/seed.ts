@@ -11,6 +11,7 @@ import { templates, addOns, scopeMappings } from './seed/templates.ts';
 import { moduleParents, selectionDecisions } from './seed/templates.ts';
 import { OPENING_STAFF, CLOSING_STAFF } from './seed/scripts.ts';
 import { derivationCases } from './seed/derivations.ts';
+import { FLAG_HINTS } from './seed/flag-hints.ts';
 
 export * from './seed/scripts.ts';
 export {
@@ -28,7 +29,9 @@ export const seedModules: ModuleDef[] = [...contextModules, ...sharedModules, ..
 for(const module of seedModules){
  if(module.key==='visit')module.context_module=true;
  if(moduleParents[module.key])module.parent_module=moduleParents[module.key];
- for(const field of module.fields){const rule=derivationCases.find(d=>d.kind==='derived'&&d.module===module.key&&d.field===field.key);if(rule)field.derive_cases=rule.cases;}
+ for(const field of module.fields){const rule=derivationCases.find(d=>d.kind==='derived'&&d.module===module.key&&d.field===field.key);if(rule)field.derive_cases=rule.cases;
+  // Visitor sentence for each flag; the office `issue` keeps its citations (r3 C5).
+  [...(field.flag?[field.flag]:[]),...(field.flags??[])].forEach((flag,i)=>{const hint=FLAG_HINTS[`${module.key}.${field.key}${i?`#${i}`:''}`];if(hint)flag.hint=hint;});}
 }
 for(const template of [...templates,...addOns]){
  template.opening_staff=OPENING_STAFF.map(l=>l.text);template.closing_staff=CLOSING_STAFF.map(l=>l.text);

@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import { SignaturePad, type SignaturePadHandle } from "@/components/esign/SignaturePad";
 import { STILL_TO_DECIDE_SHOWN, clientSummary, handBackAllowed, type ClientSummary } from "@/lib/consult/client-summary";
 import { W, fill } from "@/lib/consult/ui/words";
+import { clientArea } from "@/lib/consult/ui/model";
 import { Btn, TextInput } from "./primitives";
 
 const clock = () => performance.now();
@@ -73,14 +74,14 @@ export function ClientView({ summary, pamphlet = false, hasInitials, onInitials,
               </li>
             ))}
           </ul>}
-          {(s.come_back?.length ?? 0) > 0 && <p className="mt-5 text-ink-2">{W.comeBackTo}: {s.come_back!.join(", ")}.</p>}
+          {(s.come_back?.length ?? 0) > 0 && <p className="mt-5 text-ink-2">{W.notMeasuredToday}: {s.come_back!.join(", ")}.</p>}
           {s.still_to_decide.length > 0 && (
             <div className="mt-6">
               <h2 className={EYEBROW}>{W.stillToDecide}</h2>
               <div className="mt-2 grid gap-3">
                 {s.still_to_decide.map((g) => (
                   <div key={g.group}>
-                    <p className="font-semibold">{g.group}</p>
+                    <p className="font-semibold">{clientArea(g.group)}</p>
                     <ul className="list-disc pl-6">
                       {g.items.slice(0, STILL_TO_DECIDE_SHOWN).map((x, i) => <li key={i}>{x}</li>)}
                       {g.items.length > STILL_TO_DECIDE_SHOWN && <li className="list-none text-ink-2">{fill(W.moreForEstimate, { n: g.items.length - STILL_TO_DECIDE_SHOWN })}</li>}
@@ -91,7 +92,7 @@ export function ClientView({ summary, pamphlet = false, hasInitials, onInitials,
             </div>
           )}
           {s.open_questions.length > 0 && <div className="mt-5"><p className={EYEBROW}>{W.openQuestions}</p><ul className="list-disc pl-6">{s.open_questions.map((q, i) => <li key={i}>{q}</li>)}</ul></div>}
-          <div className="mt-5"><p className={EYEBROW}>{W.nextStep}</p><p>{s.formal_estimate_date ? fill(W.nextFormal, { date: s.formal_estimate_date }) : "formal estimate"}</p></div>
+          <div className="mt-5"><p className={EYEBROW}>{W.nextStep}</p><p>{s.formal_estimate_date ? fill(W.nextFormal, { date: s.formal_estimate_date }) : W.nextFormalNoDate}</p></div>
           <p className="mt-5 text-[0.85em] text-ink-2">This is what we talked about today. It is not a contract or a price.</p></>}
         </section>
         <section className="grid content-start gap-4">

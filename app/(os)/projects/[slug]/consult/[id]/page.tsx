@@ -7,6 +7,7 @@ import { requireAccess } from "@/lib/dal";
 import { consultDevices, lookOverExtra, readSnapshot, scheduleOptions, visitHead } from "@/lib/consult/ui/server";
 import { buildModel, emptyDraft, type EvidenceDraft, type FieldView, type SectionView } from "@/lib/consult/ui/model";
 import { pinnedDerivations } from "@/lib/consult/derive";
+import { openItemCount } from "@/lib/consult/completeness";
 import { formatLength } from "@/lib/consult/length";
 import type { LocalBlob } from "@/lib/consult/offline-engine";
 import { CHECK_WORDS, W, fill, plainWords, statusLabel } from "@/lib/consult/ui/words";
@@ -63,9 +64,10 @@ export default async function ConsultLookOver({ params, searchParams }: { params
   const model = buildModel(snap, [], blobs, draft);
   const section: SectionView | undefined = model.sections.find((x) => x.instance.id === selected) ?? model.sections[0];
   const status = snap.consult.status;
-  const completeness = extra.completeness as { checks?: { check: number; code: string; open: string[] }[] } | null;
+  const completeness = extra.completeness as { checks?: { check: number; code: string; open: string[] }[]; price_critical?: { total: number; done: number }; record?: { total: number; done: number } } | null;
   const openChecks = completeness?.checks?.filter((c) => c.open.length) ?? [];
-  const openN = openChecks.reduce((n, c) => n + c.open.length, 0);
+  // The same total the visitor saw on Before you wrap and the close result (r3 C2 / r2 N6).
+  const openN = completeness?.price_critical && completeness.record ? openItemCount({ price_critical: completeness.price_critical, record: completeness.record }) : openChecks.reduce((n, c) => n + c.open.length, 0);
   const job = snap.findings_job;
   const live = snap.instances.filter((i) => !i.removed_at);
   // FEEDS (§6.8): scope title · quantity label, value + unit in mono; "○ Open" until an answer feeds it.
@@ -128,7 +130,7 @@ export default async function ConsultLookOver({ params, searchParams }: { params
             <p className="eyebrow mb-2 mt-6">Status</p>
             <dl className="grid gap-1 text-body text-ink-2">
               <div>Client ack {initials ? "✓ initials" : ev?.ack_reason ? `· ${ev.ack_reason}` : "· not yet"}</div>
-              <div>Sent from device {extra.closedAt ? "✓" : "· not yet"}</div>
+              <div>Closed on device {extra.closedAt ? "✓" : "· not yet"}</div>
               <div>Notes · off (manual visit)</div>
             </dl>
             {owner && (movable || devices.some((d) => d.revoked && !d.closed)) && (

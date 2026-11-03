@@ -59,6 +59,7 @@ export const W = {
   lastSent: 'Last sent',
   lastTry: 'Last try',
   notYet: 'Not yet',
+  allSent: 'All sent ✓',
   signal: 'Signal',
   notes: 'Notes',
   weakSignal: 'Sending answers and photos first.',
@@ -127,7 +128,9 @@ export const W = {
   photoRefused: 'This photo couldn\'t be sent ({reason}). [Retake]',
   photosOff: 'The client said no to photos — skip each shot with a reason.',
   // Leave check §5.3/§6.3
-  leaveStill: '{section} still needs · {list}',
+  leaveStill: '{section} still needs',
+  leaveOpen: '○ Open:',
+  leavePartly: '◐ Partly:',
   goBack: 'Go back',
   leaveForNow: 'Leave for now',
   // Saving
@@ -152,11 +155,16 @@ export const W = {
   closeWaiting: 'Close visit is saved on this device and finishes by itself when it can send.',
   complete: 'Complete',
   needsFinishing: 'Needs finishing',
-  needsFinishingN: 'Needs finishing — {n} open; a Finish consultation to-do was made.',
+  needsFinishingN: '{n} open. A Finish consultation to-do was made.',
+  otherDeviceWaiting: '1 other device hasn’t sent yet — Joe can recover it.',
+  otherDevicesWaiting: '{n} other devices haven’t sent yet — Joe can recover them.',
+  conflictsToPick: 'A conflict is left to pick.',
   visitCutShort: 'Visit closed — {n} open items. A Finish consultation to-do was made.',
   notClosed: "This visit wasn't closed.",
   orKeepWorking: 'or keep working.',
   promisedBy: 'Formal estimate promised by',
+  promisedMissing: 'Formal estimate date — not picked yet',
+  pickDate: 'Pick the date',
   photosOk: 'Photos okay?',
   // Flags §10.3 check 9
   flagTitle: 'Flags to decide',
@@ -195,11 +203,13 @@ export const W = {
   showToClient: 'Show to client',
   whatWeWentOver: 'What we went over today',
   stillToDecide: 'Still to decide',
-  comeBackTo: 'We\'ll come back to',
+  notMeasuredToday: 'Not measured today',
   moreForEstimate: '+ {n} more for the estimate',
   openQuestions: 'Open questions',
   nextStep: 'Next',
-  nextFormal: 'formal estimate {date}',
+  nextFormal: 'Joe sends your formal estimate by {date}.',
+  nextFormalNoDate: 'Joe sends your formal estimate.',
+  pickDateFirst: 'Pick the estimate date below, then read this line.',
   initials: 'Initials',
   clearInitials: 'Clear',
   thisIsWhat: 'This is what we went over',
@@ -435,7 +445,8 @@ const spokenBare = (h: number): string => (h === 1 ? 'one' : h < 2 ? spokenFull(
 /**
  * Spoken `{duration}` for opening line 3 (§7.2): words only, no office hint.
  * bath → "an hour and a half to two hours"; bath + kitchen → "three and a half to four hours";
- * general → "forty-five minutes"; whole → "three to four hours, or two scheduled visits".
+ * general → "forty-five minutes"; whole → "three to four hours". Whether whole-home is split into two
+ * scheduled visits is decided in the office before the visit, so it is never said aloud (r2 item 2).
  */
 export function spokenDuration(keys: string[]): string {
   const t = visitTiming(keys);
@@ -444,5 +455,5 @@ export function spokenDuration(keys: string[]): string {
   if (hi < 60 && hi % 30 !== 0) return lo === hi && lo === 45 ? 'forty-five minutes' : `${lo} to ${hi} minutes`;
   const a = Math.round(lo / 30) / 2, b = Math.round(hi / 30) / 2;
   const said = a === b ? spokenFull(b) : `${spokenBare(a)} to ${spokenFull(b)}`;
-  return `${said}${keys.includes('whole') ? ', or two scheduled visits' : ''}`;
+  return said;
 }

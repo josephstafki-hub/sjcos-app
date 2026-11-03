@@ -223,7 +223,7 @@ export function FieldRow({ f, actions, sectionId, last }: { f: FieldView; action
         </div>
       )}
       {f.conflict && <ConflictPicker f={f} actions={actions} />}
-      {f.flags.map((fl) => <p key={fl.key} className="mt-2 text-[0.95em] font-semibold text-flag">⚑ Flag · {fl.issue} — decide in {W.beforeYouWrap}</p>)}
+      {f.flags.map((fl) => <p key={fl.key} className="mt-2 text-[0.95em] font-semibold text-flag">⚑ Flag · {fl.hint} Decide in {W.beforeYouWrap}.</p>)}
       {f.shots.map((s) => <PhotoRow key={s.key} shot={s} actions={actions} fieldKey={f.key} sectionId={sectionId} />)}
       <div className="mt-2 flex flex-wrap gap-3">
         {last !== undefined && !answered && (d.type === "length" || d.type === "length_pair") && <Btn onClick={() => void actions.answer(f, { status: "answered", value: last, unit: d.unit })}>{W.sameAsLast} · {showLength(last, d)}</Btn>}

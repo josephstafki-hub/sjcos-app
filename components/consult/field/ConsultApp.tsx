@@ -70,7 +70,7 @@ function StatusBar({ unsent, photos, answers, online, lastSend, failure, onSend,
           <dt className="text-ink-2">{W.notes}</dt><dd>{W.notesOff}</dd>
           <dt className="text-ink-2">{W.answersWaiting}</dt><dd className="font-mono">{answers}</dd>
           <dt className="text-ink-2">{W.photosWaiting}</dt><dd className="font-mono">{photos}</dd>
-          <dt className="text-ink-2">{W.lastSent}</dt><dd>{lastSend ? clock(lastSend) : unsent === 0 ? "All sent ✓" : W.notYet}</dd>
+          <dt className="text-ink-2">{W.lastSent}</dt><dd>{lastSend ? clock(lastSend) : unsent === 0 ? W.allSent : W.notYet}</dd>
           {failed && <><dt className="text-ink-2">{W.lastTry}</dt><dd className="text-ink"><span aria-hidden className="font-bold text-flag">⚠ </span>{clock(failure!.at)} · {plainWords(failure!.code)}{!/^(send_stuck|no_signal)$/.test(failure!.code) && <span className="block font-mono text-[0.8em] text-ink-3">{W.codeForJoe} {failure!.code}</span>}</dd></>}
           <dt className="text-ink-2">{W.signal}</dt><dd>{online ? W.online : W.noSignal}</dd>
         </dl>
@@ -140,7 +140,7 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date());
     const visitDay = snap ? new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date(snap.consult.scheduled_at)) : today;
     if (client) {
-      const formal = model.promised ? centralTime(`${model.promised}T12:00:00-06:00`, { month: "short", day: "numeric" }) : "";
+      const formal = model.promised ? centralTime(`${model.promised}T12:00:00-06:00`, { weekday: "short", month: "short", day: "numeric" }) : "";
       return <div className="consult-root min-h-dvh" data-sun={sun ? "1" : undefined}><ClientView summary={summaryInput(model, display, centralTime(snap?.consult.scheduled_at ?? nowIso(), { month: "short", day: "numeric" }), formal)} pamphlet={client.field === "pamphlet_initials"} hasInitials={st.local.blobs.some(b=>b.kind==="initials"&&b.instance_id===client.instance&&b.field_key===client.field)}
         onInitials={async (png) => { await ctl.photo(png, { instance_id: client.instance, field_key: client.field, kind: "initials" }, W.initials); }}
         verifyPin={(pin) => ctl.verifyPin(pin)}

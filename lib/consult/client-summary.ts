@@ -3,7 +3,7 @@ export interface ClientSummary {
   client_name:string; visit_date:string;
   /** Only rooms with something actually covered; `work` is what was done there, in plain words. */
   rooms:{name:string;work:string[]}[];
-  /** Rooms with nothing covered yet: "We'll come back to …". Never claimed as looked over. */
+  /** Places with nothing covered yet, by names the client knows: "Not measured today: …". Never claimed as looked over. */
   come_back?:string[];
   /** Grouped by room/area (§6 "Still to decide · faucet"). */
   still_to_decide:{group:string;items:string[]}[];

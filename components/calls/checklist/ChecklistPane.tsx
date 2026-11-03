@@ -423,14 +423,17 @@ export function ChecklistPane({
 }
 
 function ManualHeader({ onBack, started, badgeSlot }: { onBack?: () => void; started: string | null; badgeSlot?: boolean }) {
+  // One 48 px row at every width (plan §6.4a): "← Checklist · 8:58 PM [⚑ 1]" on
+  // a phone, "← Calls Checklist · started 8:58 PM [Decisions 1]" from @md. The
+  // time and its "·" never break apart, so no line ends on "·".
   return (
     <div className="flex min-h-12 items-center gap-1 border-b border-rule bg-paper px-4 @2xl/page:gap-2 @2xl/page:px-5">
       {onBack && (
-        <button type="button" onClick={onBack} aria-label="Back to calls" className={`-ml-2 inline-flex min-h-12 items-center gap-1 rounded-md px-2 text-[16px] text-ink-2 hover:bg-hover @3xl/page:hidden ${FOCUS}`}>
-          <ArrowLeft aria-hidden className="size-4" strokeWidth={1.75} /> Calls
+        <button type="button" onClick={onBack} aria-label="Back to Calls" className={`-ml-2 inline-flex min-h-12 flex-none items-center gap-1 rounded-md px-2 text-[16px] text-ink-2 hover:bg-hover @max-sm/page:size-11 @max-sm/page:min-h-11 @max-sm/page:justify-center @max-sm/page:px-0 @3xl/page:hidden ${FOCUS}`}>
+          <ArrowLeft aria-hidden className="size-4" strokeWidth={1.75} /> <span className="@max-sm/page:hidden">Calls</span>
         </button>
       )}
-      <h2 className="min-w-0 font-serif text-[20px] font-semibold leading-7 text-ink">Checklist{started ? <span className="font-sans text-[16px] font-normal text-ink-3"> · started {chicagoTime(started)}</span> : null}</h2>
+      <h2 className="min-w-0 truncate whitespace-nowrap font-serif text-[20px] font-semibold leading-7 text-ink">Checklist{started ? <span className="whitespace-nowrap font-sans text-[16px] font-normal text-ink-3"> · <span className="@max-md/page:hidden">started </span>{chicagoTime(started)}</span> : null}</h2>
       {badgeSlot && <ApprovalBadgeSlot className="ml-auto" />}
     </div>
   );

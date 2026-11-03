@@ -2,12 +2,13 @@
 import { errorCopy } from "@/lib/checklist-coverage/action-result";
 
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { PhoneCall } from "lucide-react";
 import { discoveryCallConfirmData, startDiscoveryCall } from "@/lib/actions/discovery-checklist";
 import { checklistLeadBySlug } from "@/lib/actions/discovery-checklist-ui";
 import { formatUsPhone } from "@/lib/comms/phone";
 import { Btn, Sheet } from "@/components/calls/checklist/Sheet";
+import { claimCompactApprovals } from "@/lib/notification-placement";
 
 // "Start a discovery call" on the lead page (plan §4.1 item 2, §6.2). The
 // confirm sheet offers Call now (owner: the existing exact-number click-to-call)
@@ -38,6 +39,16 @@ export function StartDiscoveryCall({ slug, isOwner, variant = "button", calling 
   const [fallback, setFallback] = useState<string | null>(null);
   // One operation per sheet: a double tap or a retry starts the same checklist.
   const opRef = useRef<string | null>(null);
+  // The header button is this page's entry point: while it is on screen,
+  // approvals fold into their badge (beside the bell) instead of stacking
+  // over it. The … menu item needs no claim; the confirm Sheet adds its own
+  // modal one (lib/notification-placement.ts).
+  const claimId = `start-discovery-call-${useId()}`;
+  useEffect(() => {
+    if (variant !== "button") return;
+    claimCompactApprovals(claimId, true);
+    return () => claimCompactApprovals(claimId, false);
+  }, [claimId, variant]);
 
   async function load(): Promise<Confirm | null> {
     setLoadError(false);

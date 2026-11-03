@@ -29,14 +29,14 @@ test('a mounted checklist surface makes any page compact; an open sheet keeps th
   const surface = p.approvalPlacement('/leads/alex', { surface: true, modal: false }, true);
   assert.equal(surface.compact, true);
   assert.equal(surface.expanded, true);
-  assert.equal(surface.badge, 'corner', 'no slot on the page: top corner');
+  assert.equal(surface.badge, 'topbar', 'no slot on the page: beside the bell, never a floating corner');
   for (const [path, slot] of [['/leads/alex', false], ['/calls', true], ['/projects', false]]) {
     const modal = p.approvalPlacement(path, { surface: true, modal: true }, true, slot);
     assert.equal(modal.compact, true, path);
     assert.equal(modal.expanded, false, `${path}: no card above an open sheet, even after a tap`);
     assert.equal(modal.layer, 35);
   }
-  assert.equal(p.approvalPlacement('/leads/alex', { surface: true, modal: true }, false, false).badge, 'none', 'no slot + sheet open: the badge waits rather than land on the breadcrumb');
+  assert.equal(p.approvalPlacement('/leads/alex', { surface: true, modal: true }, false, false).badge, 'topbar', 'no slot + sheet open: the badge stays beside the bell (cards stay shut)');
   assert.equal(p.approvalPlacement('/calls', { surface: true, modal: true }, false, true).badge, 'slot');
   // The old boolean form (Inbox's surface flag) still works.
   assert.equal(p.approvalPlacement('/projects', true, false).compact, true);
@@ -67,6 +67,7 @@ test('module registry: a claim made before NotificationCenter listens is still c
   p.claimCompactApprovals('pane-1', false);
   assert.deepEqual(p.currentClaims(), NONE);
   assert.equal(p.APPROVAL_SLOT_ID, 'approval-badge-slot');
+  assert.equal(p.APPROVAL_TOPBAR_SLOT_ID, 'approval-badge-topbar');
 });
 
 test('submitted copy: the owner is told it waits for *his* approval; staff that Joe approves it', () => {

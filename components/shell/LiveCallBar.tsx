@@ -6,6 +6,7 @@ import { useEffect, type ReactNode } from "react";
 import { X } from "lucide-react";
 import type { LiveCallBarData } from "@/lib/actions/discovery-checklist-ui";
 import { formatUsPhone } from "@/lib/comms/phone";
+import { claimCompactApprovals } from "@/lib/notification-placement";
 import { useOpenChecklist } from "@/components/calls/open-call-store";
 import { markSignedIn } from "@/components/calls/checklist/signed-in";
 import { chicagoTime, elapsed } from "@/components/calls/checklist/time";
@@ -16,6 +17,7 @@ import { useClock, useSessionValue, writeSessionValue } from "@/components/calls
 // changes — no poller of its own. ✕ hides one call for this browser tab only.
 
 const HIDDEN_KEY = "sjcos:live-call-bar:hidden";
+const LIVE_CALL_CLAIM = "live-call";
 
 function parseHidden(raw: string | null): string[] {
   try { const v = JSON.parse(raw ?? "[]"); return Array.isArray(v) ? v : []; } catch { return []; }
@@ -66,6 +68,15 @@ export function LiveCallBar({ data, userId }: { data: LiveCallBarData | null; us
   const pageSlug = pathname?.match(/^\/leads\/([^/?#]+)/)?.[1] ?? null;
   if (pageSlug) entries.sort((a, b) => Number(b.leadSlug === pageSlug) - Number(a.leadSlug === pageSlug));
   const entry = entries[0] ?? null;
+  // While the bar shows a call, approvals fold into their badge so a card
+  // never covers the bar (or the page Joe is taking the call on). Released
+  // when the bar empties or unmounts.
+  const showing = !!entry;
+  useEffect(() => {
+    if (!showing) return;
+    claimCompactApprovals(LIVE_CALL_CLAIM, true);
+    return () => claimCompactApprovals(LIVE_CALL_CLAIM, false);
+  }, [showing]);
 
   if (!entry) return null;
 

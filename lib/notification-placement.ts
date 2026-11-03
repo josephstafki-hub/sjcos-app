@@ -4,15 +4,20 @@
 // their bottom edge — Inbox's reply footer, the discovery checklist's Finish
 // bar and sheets, Settings › Calls' Save footer — and a card there would cover
 // the very action Joe is in the middle of. On those screens the cards go
-// *compact*: a "Decisions N" badge in the page's #approval-badge-slot that
-// opens them only when tapped, at z-35, below sheets and dialogs.
+// *compact*: a "Decisions N" badge that opens them only when tapped, at z-35,
+// below sheets and dialogs. The badge sits in the page's own
+// #approval-badge-slot when it has one, else in the top bar beside the bell
+// (#approval-badge-topbar, on every page). It never floats over the page.
 //
 // A screen asks for compact mode by its path (COMPACT_PATHS) or by claiming it
-// while a surface is mounted (claimCompactApprovals). A claim marked `modal`
-// (an open checklist sheet or confirm) also keeps the cards closed: no
-// approval card may sit above an open sheet.
+// while a surface is mounted (claimCompactApprovals): the checklist, the live
+// call bar while it shows a call, the lead page's Start a discovery call. A
+// claim marked `modal` (an open checklist sheet or confirm) also keeps the
+// cards closed: no approval card may sit above an open sheet.
 
 export const APPROVAL_SLOT_ID = "approval-badge-slot";
+/** The badge's fallback home, beside the bell in the top bar (Topbar.tsx). */
+export const APPROVAL_TOPBAR_SLOT_ID = "approval-badge-topbar";
 /** Fired when an ApprovalBadgeSlot mounts or unmounts, so the badge moves. */
 export const APPROVAL_SLOT_EVENT = "sjc:approval-badge-slot";
 /** Fired whenever the set of compact claims changes. */
@@ -84,9 +89,9 @@ export function approvalPlacement(
     compact,
     /** The cards themselves: on tap in compact mode, never over an open sheet. */
     expanded: compact ? opened && !c.modal : true,
-    /** The "Decisions N" badge: in the page's slot; with no slot, in the top
-     *  corner — except while a sheet is open, when it simply waits. */
-    badge: !compact ? "none" : hasSlot ? "slot" : c.modal ? "none" : "corner",
+    /** The "Decisions N" badge: in the page's slot; with no slot, beside the
+     *  bell in the top bar. Never a floating corner over the page. */
+    badge: !compact ? "none" : hasSlot ? "slot" : "topbar",
     corner: compact ? "top" : "bottom",
     layer: compact ? 35 : 60,
   } as const;

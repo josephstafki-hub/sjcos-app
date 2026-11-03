@@ -18,7 +18,7 @@
 
 import Link from "next/link";
 import { createPortal } from "react-dom";
-import { APPROVAL_SLOT_EVENT, APPROVAL_SLOT_ID, COMPACT_APPROVALS_EVENT, approvalPlacement, currentClaims, type CompactClaims } from "@/lib/notification-placement";
+import { APPROVAL_SLOT_EVENT, APPROVAL_SLOT_ID, APPROVAL_TOPBAR_SLOT_ID, COMPACT_APPROVALS_EVENT, approvalPlacement, currentClaims, type CompactClaims } from "@/lib/notification-placement";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BellRing, ChevronDown, ChevronUp, X } from "lucide-react";
@@ -48,12 +48,17 @@ export function NotificationCenter() {
   // Settings › Calls by path; any mounted surface or open sheet by claim.
   const [claims, setClaims] = useState<CompactClaims>(() => ({ surface: false, modal: false }));
   const [opened, setOpened] = useState(false);
-  const [badgeSlot, setBadgeSlot] = useState<HTMLElement | null>(null);
+  // Where the compact badge goes: the page's own slot, else beside the bell.
+  const [badgeSlot, setBadgeSlot] = useState<{ el: HTMLElement; page: boolean } | null>(null);
   const badgeRef = useRef<HTMLButtonElement>(null);
-  const placement = approvalPlacement(pathname, claims, opened, !!badgeSlot);
+  const placement = approvalPlacement(pathname, claims, opened, !!badgeSlot?.page);
   useEffect(() => {
     setOpened(false);
-    const findSlot = () => setBadgeSlot(document.getElementById(APPROVAL_SLOT_ID));
+    const findSlot = () => {
+      const page = document.getElementById(APPROVAL_SLOT_ID);
+      const el = page ?? document.getElementById(APPROVAL_TOPBAR_SLOT_ID);
+      setBadgeSlot((prev) => (prev?.el === el ? prev : el ? { el, page: !!page } : null));
+    };
     const change = () => {
       const next = currentClaims();
       setClaims((prev) => (prev.surface === next.surface && prev.modal === next.modal ? prev : next));
@@ -188,12 +193,13 @@ export function NotificationCenter() {
     const badge = <button ref={badgeRef} type="button" onClick={() => setOpened(v => !v)}
       aria-label={`${approvals.length} waiting on you — ${placement.expanded ? "hide" : "show"} decisions`}
       aria-expanded={placement.expanded} aria-controls="approval-decisions"
-      className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 whitespace-nowrap rounded-full border border-rule bg-paper px-2 text-meta text-ink-2 hover:bg-paper-2">
-      <span>Decisions {approvals.length}</span>
+      className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 whitespace-nowrap rounded-full border border-rule bg-paper px-2 text-meta text-ink-2 hover:bg-paper-2 @max-sm/shell:size-11 @max-sm/shell:gap-0.5 @max-sm/shell:px-0">
+      {/* On a phone a 44×44 chip, icon + count; from @sm "Decisions N". */}
+      <BellRing aria-hidden className="hidden size-4 text-flag @max-sm/shell:block" strokeWidth={1.75} />
+      <span className="@max-sm/shell:hidden">Decisions</span> <span>{approvals.length}</span>
     </button>;
     return <>
-      {placement.badge === "slot" && badgeSlot ? createPortal(badge, badgeSlot)
-        : placement.badge === "corner" ? <div className="fixed right-28 top-[env(safe-area-inset-top)] z-[35]">{badge}</div> : null}
+      {placement.badge !== "none" && badgeSlot ? createPortal(badge, badgeSlot.el) : null}
       {placement.expanded && <div id="approval-decisions" role="region" aria-label="Waiting on you"
         className="fixed right-3 top-[calc(3rem+env(safe-area-inset-top))] z-[35] max-h-[calc(100dvh-8rem-env(safe-area-inset-bottom))] w-[min(380px,calc(100vw-24px))] space-y-2 overflow-y-auto rounded-xl border border-rule bg-paper p-3 shadow-pop">
         <div className="flex items-center justify-between text-body font-semibold">Waiting on you

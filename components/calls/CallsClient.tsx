@@ -1,7 +1,7 @@
 "use client";
 import { errorCopy } from "@/lib/checklist-coverage/action-result";
 
-import { useEffect, useRef, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition, type RefObject } from "react";
 import { PhoneCall, PhoneIncoming, PhoneOutgoing, Voicemail, AlertCircle, ExternalLink, Plus, X, ArrowLeft, FileText, ListChecks } from "lucide-react";
 import { ConnectionNotice } from "@/components/messages/ConnectionNotice";
 import { Button, PageHeader, Chip } from "@/components/ui";
@@ -196,9 +196,14 @@ export function CallsClient({
   // in the open call's or checklist's header when that is what's on screen —
   // on a phone the page title is hidden then — else beside the page title.
   const detailOnScreen = mobileDetail && (!!manualId || !!c);
+  // Below @sm/page a long number fills the call header's first row, so the
+  // badge would take a row of its own: it moves to the end of the tab row.
+  // Measured, not CSS-hidden, because only one slot may be mounted at a time.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const narrow = useNarrowerThan(rootRef, 24);
 
   return (
-    <div className="flex h-full min-h-0 flex-col [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-focus [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-focus">{/* On a phone with a call or checklist open, the pane's own header
+    <div ref={rootRef} className="flex h-full min-h-0 flex-col [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-focus [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-focus">{/* On a phone with a call or checklist open, the pane's own header
           (← Calls) is enough: the page title would push the rows off screen. */}
       <div className={`border-b border-rule-soft px-4 py-5 @2xl/page:px-5 ${mobileDetail ? "hidden @3xl/page:block" : ""}`}><PageHeader title="Calls" meta="Calls, recordings, notes and discovery checklists."
         badge={detailOnScreen ? undefined : <ApprovalBadgeSlot />}
@@ -276,7 +281,7 @@ export function CallsClient({
               {name(c) !== formatUsPhone(c.counterparty_number) && <span className="whitespace-nowrap text-meta text-ink-3">{formatUsPhone(c.counterparty_number)}</span>}
               {live ? <CallState call={checklistCall(c)} now={now} /> : <OutcomeChip c={c} />}
               <div className="ml-auto flex items-center gap-2">
-                {detailOnScreen && <ApprovalBadgeSlot />}
+                {detailOnScreen && !narrow && <ApprovalBadgeSlot />}
                 {c.link_type && c.link_slug && LINK_ROUTE[c.link_type] && (
                   <a href={`/${LINK_ROUTE[c.link_type]}/${c.link_slug}`} className="inline-flex items-center gap-1 text-meta text-ink-3 hover:text-ink">
                     <ExternalLink className="size-3.5" strokeWidth={1.5} /> {c.link_type}
@@ -307,6 +312,7 @@ export function CallsClient({
                   {label}
                 </button>
               ))}
+              {detailOnScreen && narrow && <ApprovalBadgeSlot className="ml-auto self-center" />}
             </div>
 
             {tab === "checklist" ? (
@@ -454,4 +460,23 @@ export function CallsClient({
       )}
     </div>
   );
+}
+
+/** True while `ref` is narrower than `rem` root ems (an @container width check
+ *  for the one thing CSS can't do: decide where a single slot is mounted). */
+function useNarrowerThan(ref: RefObject<HTMLElement | null>, rem: number): boolean {
+  const [narrow, setNarrow] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    const check = () => {
+      const px = rem * (parseFloat(getComputedStyle(document.documentElement).fontSize) || 16);
+      setNarrow(el.clientWidth < px);
+    };
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [ref, rem]);
+  return narrow;
 }

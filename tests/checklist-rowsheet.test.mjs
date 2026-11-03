@@ -189,7 +189,7 @@ test('An open sheet claims modal compact approvals; initialFocus takes an elemen
   const p = placement.approvalPlacement('/leads/alex-smith', now, true);
   assert.equal(p.compact, true);
   assert.equal(p.expanded, false, 'cards stay closed while the sheet is open, even if opened before');
-  assert.equal(p.badge, 'none', 'no slot on the lead page: the badge waits instead of covering the breadcrumb');
+  assert.equal(p.badge, 'topbar', 'no slot on the lead page: the badge stays beside the bell, never over the breadcrumb');
 });
 
 // ── Lead picker ordering, lead page live call ──────────────────────────────

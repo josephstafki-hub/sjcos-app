@@ -116,7 +116,7 @@ test("unknown humans and cold pitches are visible in New senders, below linked i
   );
   assert.equal(other.view, "needs_reply", "filing never archives");
 });
-test("inbox approvals start compact at the upper corner and stay below inbox dialogs", () => {
+test("inbox approvals start compact in the top bar and stay below inbox dialogs", () => {
   assert.deepEqual(approvalPlacement("/projects", false, false), {
     compact: false,
     expanded: true,
@@ -133,7 +133,7 @@ test("inbox approvals start compact at the upper corner and stay below inbox dia
     assert.deepEqual(p, {
       compact: true,
       expanded: false,
-      badge: "corner",
+      badge: "topbar",
       corner: "top",
       layer: 35,
     });

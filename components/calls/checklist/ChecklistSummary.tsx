@@ -137,8 +137,8 @@ export function ChecklistSummary({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      {/* pb-20: the last "Ask in email" can scroll clear of the tablet Operator pill. */}
-      <div className="grid gap-x-8 gap-y-6 px-4 pb-20 pt-4 @2xl/page:px-5 @6xl/page:grid-cols-2">
+      {/* pb-20 (pb-28 from 640 to 1024 px, where the Operator pill floats): the last "Ask in email" scrolls clear of the pill. */}
+      <div className="grid gap-x-8 gap-y-6 px-4 pb-20 pt-4 @2xl/page:px-5 @6xl/page:grid-cols-2 sm:max-lg:pb-28">
         <section aria-labelledby={`${sessionId}-sum`}>
           <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
             <div className="min-w-0">

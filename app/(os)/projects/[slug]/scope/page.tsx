@@ -24,6 +24,7 @@ export default async function ScopeRegisterPage({ params }: { params: Promise<{ 
   const isHistorical = project.status === "warranty" || project.status === "closeout";
   const showPrices = can(viewer, "estimates");
   const [reg, design, workflow] = await Promise.all([getScopeRegister(runDirect, project.id), getDesignDecisions(runDirect, project.id), projectWorkflowView(runDirect, project.id).catch(() => null)]);
+  const [consult] = await runDirect<{ id: string }>(`SELECT id FROM consults WHERE project_id = $1 AND status <> 'cancelled' ORDER BY scheduled_at DESC LIMIT 1`, [project.id]).catch(() => []);
   const live = reg.items.filter((i) => i.status !== "superseded");
   const money = (c: number | null) => (c == null ? "—" : `$${(c / 100).toLocaleString("en-US", { minimumFractionDigits: 2 })}`);
   const designFor = (key: string) => design.find((d) => d.scope_key === key);
@@ -89,7 +90,10 @@ export default async function ScopeRegisterPage({ params }: { params: Promise<{ 
 
         {reg.plan && (
           <section className="mb-8">
-            <Eyebrow>Site-visit plan · rev {reg.plan.revision} · {reg.plan.status}</Eyebrow>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Eyebrow>Site-visit plan · rev {reg.plan.revision} · {reg.plan.status}</Eyebrow>
+              {consult && <Link href={`/projects/${slug}/consult/${consult.id}`} className="text-body font-semibold text-accent">Open the in-home consultation →</Link>}
+            </div>
             <ul className="mt-2 grid gap-1 text-body @4xl/page:grid-cols-2">
               {reg.plan.items.map((it) => (
                 <li key={it.id} className="rounded-md border border-rule px-3 py-2">

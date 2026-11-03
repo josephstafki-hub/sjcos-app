@@ -1,0 +1,138 @@
+"use client";
+/**
+ * Get ready (plan §5.2): Checking · Ready offline ✓ · A check failed · No signal.
+ * Uses the shared CoverageMark `ready` set (✓ Done · ○ Not yet · ! Problem). Each
+ * problem names the check and its §5.7 reason. Ready offline only when the first five
+ * pass. Microphone is Phase 2 (no audio in Phase 1) and is not listed.
+ * Tablet: same card centred at 560 px.
+ */
+import { useState, type ReactNode } from "react";
+import { CoverageMark } from "@/components/ui/CoverageMark";
+import type { ReadyCheck, CheckResult } from "@/lib/consult/readiness";
+import type { ReadyResult } from "@/lib/consult/ui/controller";
+import { READY_LABEL, READY_ROWS, W, fill, plainWords, readyReason } from "@/lib/consult/ui/words";
+import { Btn, LinkBtn, TextInput } from "./primitives";
+
+export function centralTime(iso: string | number | null | undefined, opts: Intl.DateTimeFormatOptions = { weekday: "short", hour: "numeric", minute: "2-digit" }) {
+  if (iso === null || iso === undefined) return "";
+  const d = new Date(iso); if (!Number.isFinite(+d)) return "";
+  return new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", ...opts }).format(d).replace(" AM", " am").replace(" PM", " pm");
+}
+
+export function ScreenHead({ title, back = "/consult/", right }: { title: string; back?: string | null; right?: ReactNode }) {
+  return (
+    <div className="flex min-h-14 items-center gap-3 border-b-2 border-rule-soft px-4">
+      {back && <a href={back} className="inline-flex min-h-14 items-center pr-2 font-semibold text-accent no-underline focus-visible:outline-3 focus-visible:outline-focus">‹ {W.visits}</a>}
+      <p className="min-w-0 flex-1 truncate text-right text-[0.95em] text-ink-2">{title}</p>
+      {right}
+    </div>
+  );
+}
+
+function Rows({ checks, result }: { checks: Partial<Record<ReadyCheck, CheckResult>>; result: ReadyResult }) {
+  return (
+    <ul className="mt-4 grid gap-1" aria-label="Checks">
+      {READY_ROWS.map((key) => {
+        const c = checks[key];
+        const state = c?.state === "done" || (result === "ready") ? "done" : c?.state === "problem" ? "problem" : "not_yet";
+        return (
+          <li key={key} className="grid min-h-12 grid-cols-[minmax(7.5em,auto)_1fr] items-start gap-3 py-1.5">
+            <CoverageMark variant="ready" state={state} />
+            <span className={`min-w-0 ${state === "problem" ? "font-semibold text-flag" : "text-ink"}`}>
+              {READY_LABEL[key]}{c?.state === "checking" && <span className="text-ink-3"> · checking…</span>}
+              {state === "problem" && c?.reason && <span className="block font-normal text-ink">— {readyReason(key, c.reason)}</span>}
+            </span>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function PinChoice({ enrolled, onGo, busy }: { enrolled: boolean; onGo: (pin: string) => void; busy: boolean }) {
+  const [pin, setPin] = useState(""); const [again, setAgain] = useState(""); const [err, setErr] = useState<string | null>(null);
+  const go = () => {
+    if (!/^\d{4,8}$/.test(pin)) { setErr(W.pinShort); return; }
+    if (!enrolled && pin !== again) { setErr(W.pinMismatch); return; }
+    setErr(null); onGo(pin);
+  };
+  return (
+    <form className="mt-5 grid gap-3" onSubmit={(e) => { e.preventDefault(); go(); }}>
+      <TextInput label={enrolled ? W.pinEnter : W.pinChoose} value={pin} onChange={(v) => setPin(v.replace(/\D/g, "").slice(0, 8))} type="password" inputMode="numeric" describedBy="pin-help" />
+      {!enrolled && <TextInput label={W.pinConfirm} value={again} onChange={(v) => setAgain(v.replace(/\D/g, "").slice(0, 8))} type="password" inputMode="numeric" />}
+      <p id="pin-help" className="text-[0.9em] text-ink-2">{W.pinChooseHelp}</p>
+      {err && <p role="alert" className="font-semibold text-flag">! {err}</p>}
+      <Btn tone="primary" wide type="submit" disabled={busy}>{W.getReady}</Btn>
+    </form>
+  );
+}
+
+export function GetReadyCard({ title, result, checks, enrolled, expires, code, userName, onGetReady, onStart, started, busy }: {
+  title: string; result: ReadyResult; checks: Partial<Record<ReadyCheck, CheckResult>>; enrolled: boolean; expires: number | null; code?: string | null; userName: string;
+  onGetReady: (pin: string) => void; onStart?: () => void; started?: boolean; busy?: boolean;
+}) {
+  const [pin, setPin] = useState<string | null>(null);
+  const run = (p: string) => { setPin(p); onGetReady(p); };
+  const signedOut = code === "signed_out" || checks.visit_details?.reason === "signed_out";
+  return (
+    <div className="mx-auto w-full max-w-[560px]">
+      <ScreenHead title={title} />
+      <section className="px-4 pb-8 pt-4" aria-live="polite">
+        {result === "idle" && <>
+          <h1 className="font-serif text-[1.6em] font-semibold text-ink">{W.getReady}</h1>
+          <p className="mt-1 text-ink-2">Do this with signal — at the office, in the truck or in the driveway.</p>
+          <Rows checks={{}} result="idle" />
+          <PinChoice enrolled={enrolled} onGo={run} busy={!!busy} />
+        </>}
+        {result === "checking" && <>
+          <h1 className="font-serif text-[1.6em] font-semibold text-ink">{W.gettingReady}</h1>
+          <Rows checks={checks} result={result} />
+          <p className="mt-3 text-ink-2">{W.keepOpen}</p>
+        </>}
+        {result === "ready" && <>
+          <h1 className="font-serif text-[1.6em] font-semibold text-accent-2">{W.readyOffline}</h1>
+          {expires && <p className="mt-1 font-semibold text-ink">{fill(W.worksUntil, { time: centralTime(expires) })}</p>}
+          <Rows checks={checks} result={result} />
+          <p className="mt-3 text-ink-2">{W.installHint}<br />{W.keepDevice}</p>
+          {onStart && <div className="mt-5"><Btn tone="primary" wide onClick={onStart} disabled={busy}>{started ? W.openVisit : W.startVisit}</Btn></div>}
+        </>}
+        {result === "not_ready" && <>
+          <h1 className="font-serif text-[1.6em] font-semibold text-flag">{W.notReady}</h1>
+          <Rows checks={checks} result={result} />
+          <p className="mt-3 text-ink">{W.usePaper}</p>
+          <div className="mt-5 grid gap-3">
+            {signedOut
+              ? <LinkBtn tone="primary" wide href={`/login?next=${encodeURIComponent(typeof location === "undefined" ? "/consult/" : location.pathname)}`}>{W.signIn}</LinkBtn>
+              : pin ? <Btn tone="primary" wide onClick={() => onGetReady(pin)}>{W.tryAgain}</Btn> : <PinChoice enrolled={enrolled} onGo={run} busy={!!busy} />}
+          </div>
+        </>}
+        {result === "no_signal" && <>
+          <h1 className="font-serif text-[1.6em] font-semibold text-ink">{W.noSignal}</h1>
+          <p className="mt-2 text-[1.05em] font-semibold text-ink">{W.openOnce}</p>
+          <p className="text-ink">{W.notPreparedYet}</p>
+          <p className="mt-3 text-ink">{W.usePaper}</p>
+          <div className="mt-5"><Btn tone="primary" wide onClick={() => (pin ? onGetReady(pin) : location.reload())}>{W.tryAgain}</Btn></div>
+        </>}
+        {code && result !== "not_ready" && code !== "signed_out" && <p role="alert" className="mt-4 font-semibold text-flag">! {plainWords(code, { name: userName })}</p>}
+      </section>
+    </div>
+  );
+}
+
+export function UnlockCard({ title, onUnlock, busy, code, expires, olderBuild }: { title: string; onUnlock: (pin: string) => void; busy: boolean; code: string | null; expires: number | null; olderBuild: boolean }) {
+  const [pin, setPin] = useState("");
+  return (
+    <div className="mx-auto w-full max-w-[560px]">
+      <ScreenHead title={title} />
+      <form className="grid gap-3 px-4 pb-8 pt-4" onSubmit={(e) => { e.preventDefault(); if (/^\d{4,8}$/.test(pin)) onUnlock(pin); }}>
+        <h1 className="font-serif text-[1.6em] font-semibold text-ink">{W.app}</h1>
+        <p className="text-ink">{W.unlockLead}</p>
+        {expires && <p className="text-ink-2">{fill(W.worksUntil, { time: centralTime(expires) })}</p>}
+        {olderBuild && <div role="status" className="rounded-lg border-2 border-info bg-info-soft px-4 py-3 text-ink">Update ready — reload between rooms. This visit keeps working on this device until its answers are sent.</div>}
+        <TextInput label={W.pinEnter} value={pin} onChange={(v) => setPin(v.replace(/\D/g, "").slice(0, 8))} type="password" inputMode="numeric" autoFocus />
+        {code && <p role="alert" className="font-semibold text-flag">! {plainWords(code)}</p>}
+        <Btn tone="primary" wide type="submit" disabled={busy || !/^\d{4,8}$/.test(pin)}>{busy ? "Opening…" : W.openVisit}</Btn>
+      </form>
+    </div>
+  );
+}

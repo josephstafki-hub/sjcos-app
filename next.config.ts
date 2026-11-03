@@ -1,4 +1,7 @@
 import type { NextConfig } from "next";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { PHASE_PRODUCTION_BUILD } from "next/constants";
 
 const nextConfig: NextConfig = {
   skipTrailingSlashRedirect: true, // proxy preserves /consult/ for its scoped offline worker
@@ -54,4 +57,19 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["pdfkit", "sharp"],
 };
 
-export default nextConfig;
+/**
+ * The in-home consultation offline shell (public/consult/assets/capture.{js,css} +
+ * public/consult/precache.json) is generated at the start of every production build,
+ * so "Ready offline" always matches the code being deployed. Once per build (Next
+ * re-evaluates this file in worker processes); SJC_SKIP_CONSULT_CAPTURE=1 skips it.
+ * Details: scripts/build-consult-capture.mjs.
+ */
+export default async function config(phase: string): Promise<NextConfig> {
+  if (phase === PHASE_PRODUCTION_BUILD && !process.env.SJC_SKIP_CONSULT_CAPTURE && !process.env.__SJC_CONSULT_CAPTURE_BUILT) {
+    const mod = await import(pathToFileURL(path.join(process.cwd(), "scripts/build-consult-capture.mjs")).href);
+    const manifest = await mod.buildConsultCapture();
+    process.env.__SJC_CONSULT_CAPTURE_BUILT = manifest.build;
+    console.log(`[consult-capture] offline shell ${String(manifest.build).slice(0, 12)} · ${manifest.assets.length} assets`);
+  }
+  return nextConfig;
+}

@@ -11,3 +11,20 @@ test('form publication validation rejects missing tiers, invalid units, duplicat
  for(const change of [m=>delete m.fields[0].tier,m=>m.fields[0].unit='lf',m=>m.fields.push({...field}),m=>m.fields[0].maps_to.quantity_label='Guess',m=>m.coverage[0].satisfied_by=['missing'],m=>m.fields[0].required={field:'unknown',op:'eq',value:true}]){const m=structuredClone(module);change(m);assert.throws(()=>validateModule(m,registry));}
 });
 test('templates require known modules and versioned quantity registry',()=>{const t={key:'general',version:1,title:'General',opening:[],closing:[],modules:[{module:'room',required:true,min:1}],derived:[]};assert.deepEqual(validateTemplate(t,registry),t);assert.throws(()=>validateTemplate({...t,modules:[{module:'missing',required:true}]},registry),/unknown_module/);});
+
+test('conditional AST compiles compound sibling and consult conditions without evaluation',async()=>{
+ const {compileCondition}=await import('../lib/consult/forms/conditions.ts');
+ const known=new Set(['glass','plan','house.year_built','rooms']);
+ const condition={all:[{field:'glass',op:'ne',value:'None'},{any:[{field:'plan',op:'in',value:['Replace','New']},{field:'house.year_built',op:'lt',value:1978}]}]};
+ const check=compileCondition(condition,known);
+ assert.equal(check({glass:'Sidelight',plan:'Replace'}),true);
+ assert.equal(check({glass:'None',plan:'Replace'}),false);
+ assert.equal(check({plan:'Replace'}),false);
+ assert.equal(check({glass:'Sidelight',plan:'Keep','house.year_built':1970}),true);
+ assert.equal(compileCondition({field:'rooms',op:'in',value:['Bath','Kitchen']},known)({rooms:['Bedroom','Bath']}),true);
+ assert.throws(()=>compileCondition({field:'missing',op:'answered'},known),/unknown_condition_field/);
+ assert.throws(()=>compileCondition({all:[]},known),/invalid_condition/);
+ assert.throws(()=>compileCondition({field:'glass',op:'in',value:'bad'},known),/list_required/);
+ let deep={field:'plan',op:'answered'};for(let i=0;i<20;i++)deep={not:deep};
+ assert.throws(()=>compileCondition(deep,known),/too_complex/);
+});

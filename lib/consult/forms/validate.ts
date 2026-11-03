@@ -1,14 +1,21 @@
 import { z } from 'zod';
-import type { ModuleDef, TemplateDef } from '../form-types.ts';
+import { compileCondition } from './conditions.ts';
+import type { ModuleDef, TemplateDef, When } from '../form-types.ts';
 const key = z.string().regex(/^[a-z][a-z0-9_]*$/);
 const text = z.string().trim().min(1);
 const unit = z.enum(['in','sf','lf','ea','amp','gal','cfm','pct','psi','pitch','V','BTU/h','ton','lb']);
 const tier = z.enum(['price_critical','record']);
-export const whenSchema = z.strictObject({ field:text,op:z.enum(['eq','ne','in','lt','gt','answered']),value:z.unknown().optional() }).superRefine((v,ctx)=>{
+const atomicWhenSchema = z.strictObject({ field:text,op:z.enum(['eq','ne','in','lt','gt','answered']),value:z.unknown().optional() }).superRefine((v,ctx)=>{
   if(v.op!=='answered' && v.value===undefined)ctx.addIssue({code:'custom',message:'Condition needs a value'});
   if(v.op==='in' && !Array.isArray(v.value))ctx.addIssue({code:'custom',message:'in needs a list'});
   if((v.op==='lt'||v.op==='gt') && (typeof v.value!=='number'||!Number.isFinite(v.value)))ctx.addIssue({code:'custom',message:'Comparison needs a number'});
 });
+export const whenSchema: z.ZodType<When> = z.lazy(() => z.union([
+ atomicWhenSchema,
+ z.strictObject({all:z.array(whenSchema).min(1).max(256)}),
+ z.strictObject({any:z.array(whenSchema).min(1).max(256)}),
+ z.strictObject({not:whenSchema}),
+]));
 const required=z.union([z.boolean(),whenSchema]);
 export const mappingSchema=z.strictObject({scope_key:text,quantity_label:text.optional(),kind:z.enum(['measurement','observation','client_answer','decision','issue','new_work','photo'])});
 export const shotSchema=z.strictObject({key,label:text,required,tier,hint:text.optional()});
@@ -35,11 +42,8 @@ export function validateModule(value:unknown, registry:FormRegistry):ModuleDef {
  if(new Set(shots.map(s=>s.key)).size!==shots.length)throw new Error('duplicate_shot_key');
  if(new Set(module.coverage.map(c=>c.key)).size!==module.coverage.length)throw new Error('duplicate_coverage_key');
  for(const item of module.coverage)if(item.satisfied_by.some(k=>!fields.has(k)))throw new Error('unknown_coverage_field');
- const validateCondition=(v:boolean|z.infer<typeof whenSchema>)=>{
-  if(typeof v==='boolean')return;
-  if(!v.field.includes('.') && !fields.has(v.field))throw new Error('unknown_condition_field');
-  if(v.field.includes('.')){const [moduleKey,field,...extra]=v.field.split('.');if(extra.length || !registry.modules.some(m=>m.key===moduleKey && m.fields.some(f=>f.key===field)))throw new Error('unknown_condition_field');}
- };
+ const knownFields=new Set([...fields,...registry.modules.flatMap(m=>m.fields.map(f=>`${m.key}.${f.key}`))]);
+ const validateCondition=(v:boolean|When)=>{compileCondition(v,knownFields);};
  for(const field of module.fields){validateCondition(field.required);if(field.flag)validateCondition(field.flag.when);validateMapping(field.maps_to,registry);}
  for(const shot of shots)validateCondition(shot.required);
  return module;
@@ -53,6 +57,8 @@ export function validateTemplate(value:unknown,registry:FormRegistry):TemplateDe
  const template=templateSchema.parse(value);
  if(new Set(template.modules.map(m=>m.module)).size!==template.modules.length)throw new Error('duplicate_module_key');
  for(const item of template.modules)if(!registry.modules.some(m=>m.key===item.module))throw new Error('unknown_module');
+ const known=new Set(registry.modules.flatMap(m=>m.fields.map(f=>`${m.key}.${f.key}`)));
+ for(const item of template.modules)compileCondition(item.required,known);
  for(const derived of template.derived)validateMapping(derived.maps_to,registry);
  return {...template,derived:template.derived.map(d=>({...d,maps_to:d.maps_to}))};
 }

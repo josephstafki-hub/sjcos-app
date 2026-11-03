@@ -1,3 +1,4 @@
+import { compileCondition } from './forms/conditions.ts';
 import type { When } from './form-types.ts';
 export type SkipReason = 'Not on this job' | 'No access' | 'Not safe to measure' | 'Client declined' | 'Get on return visit' | 'Sub/supplier will measure' | 'Other';
 export interface RiskAssumption {
@@ -26,17 +27,15 @@ export function countingSkip(item: CompletionItem): boolean {
   return hasRiskAssumption(skip.assumption);
 }
 export function conditionMatches(when: When, get: (field: string) => unknown): boolean {
-  const actual = get(when.field);
-  if (when.op === 'answered') return actual !== undefined && actual !== null && actual !== '';
-  // An unknown answer never implies that a conditional requirement has been satisfied.
-  if (actual === undefined || actual === null) return false;
-  switch (when.op) {
-    case 'eq': return actual === when.value;
-    case 'ne': return actual !== when.value;
-    case 'in': return Array.isArray(when.value) && when.value.includes(actual);
-    case 'lt': return typeof actual === 'number' && typeof when.value === 'number' && actual < when.value;
-    case 'gt': return typeof actual === 'number' && typeof when.value === 'number' && actual > when.value;
+  const values: Record<string,unknown> = {};
+  function collect(node: When): void {
+    if ('all' in node) node.all.forEach(collect);
+    else if ('any' in node) node.any.forEach(collect);
+    else if ('not' in node) collect(node.not);
+    else values[node.field] = get(node.field);
   }
+  collect(when);
+  return compileCondition(when,new Set(Object.keys(values)))(values);
 }
 export interface CompletionInput {
   fields: CompletionItem[]; photos: CompletionItem[];

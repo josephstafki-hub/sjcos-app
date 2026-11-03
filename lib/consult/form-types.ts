@@ -1,7 +1,8 @@
 // lib/consult/form-types.ts  (pure, client-safe; zod schemas beside it)
 export type FieldType = "length" | "length_pair" | "count" | "number" | "choice" | "multi" | "yesno" | "text" | "year" | "date" | "signature";
 export type Unit = "in" | "sf" | "lf" | "ea" | "amp" | "gal" | "cfm" | "pct" | "psi" | "pitch" | "V" | "BTU/h" | "ton" | "lb";
-export interface When { field: string; op: "eq" | "ne" | "in" | "lt" | "gt" | "answered"; value?: unknown }   // sibling or "house.year_built"
+export interface AtomicWhen { field: string; op: "eq" | "ne" | "in" | "lt" | "gt" | "answered"; value?: unknown }   // sibling or "house.year_built"
+export type When = AtomicWhen | { all: When[] } | { any: When[] } | { not: When };
 export interface ShotDef { key: string; label: string; required: boolean | When; tier: "price_critical" | "record"; hint?: string }
 export interface FieldDef {
   key: string; label: string; type: FieldType; unit?: Unit;

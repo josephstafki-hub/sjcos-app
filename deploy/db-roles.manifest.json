@@ -2894,7 +2894,7 @@
       "note": "staff Gmail refresh tokens; only the website's own mailbox code reads them"
     },
     "users": {
-      "note": "logins and passwords: Joe's Settings › Team (website) or his own panel run only",
+      "note": "logins and passwords: Joe's Settings \u203a Team (website) or his own panel run only",
       "sjcos_agent": [
         "SELECT(id,email,name,role,initials,link_slug,active,permissions,created_at,portal_claimed_at,ai_scope,last_permission_change_at)"
       ],
@@ -3029,6 +3029,51 @@
       "sjcos_readonly": [
         "SELECT"
       ]
+    },
+    "consult_context_keys": {
+      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consult_form_versions": {
+      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consults": {
+      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consult_form_pins": {
+      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consult_assignments": {
+      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consult_devices": {
+      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consult_instances": {
+      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consult_events": {
+      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consult_answers": {
+      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consult_field_heads": {
+      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consult_conflicts": {
+      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consult_media": {
+      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consult_operation_receipts": {
+      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consult_uploads": {
+      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consult_finding_applications": {
+      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
     }
   }
 }

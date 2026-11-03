@@ -125,7 +125,7 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
 
   let body: React.ReactNode = null;
   if (st.phase === "loading") body = <div className="mx-auto max-w-[560px]"><ScreenHead title={title} right={more} /><p className="px-4 py-6 text-ink-2" role="status">Opening…</p></div>;
-  else if (st.phase === "complete") body = <CompleteCard title={title} closedAt={boot?.closed_at} completeness={boot?.completeness} lookOver={`${home}/consult/${consultId}`} more={more} />;
+  else if (st.phase === "complete") body = <CompleteCard title={title} closedAt={boot?.closed_at} completeness={boot?.completeness} unmeasured={boot?.unmeasured} lookOver={`${home}/consult/${consultId}`} more={more} />;
   else if (st.phase === "disabled") body = <div className="mx-auto max-w-[560px]"><ScreenHead title={title} right={more} /><div className="px-4 py-6"><Banner kind="action">{plainWords("capture_disabled")}</Banner><div className="mt-4"><LinkBtn wide href={home}>{W.back}</LinkBtn></div></div></div>;
   else if (st.phase === "get_ready") body = <GetReadyCard title={title} result={st.ready.result} checks={st.ready.checks} enrolled={st.enrolled} expires={st.leaseExpires} code={st.code} readyCode={st.ready.code} userName={userName} onGetReady={(pin) => void ctl.getReady(pin)} more={more} />;
   else if (st.phase === "unlock") body = <UnlockCard title={title} onUnlock={(pin) => void ctl.unlock(pin)} busy={st.busy} code={st.code} expires={st.leaseExpires} olderBuild={st.olderBuild} more={more} />;
@@ -173,11 +173,11 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
     if (!model.started) {
       body = <GetReadyCard title={title} result="ready" checks={st.ready.checks} enrolled expires={st.leaseExpires} code={st.code} userName={userName} onGetReady={(pin) => void ctl.getReady(pin)} onStart={() => void ctl.start()} busy={st.busy} more={more} />;
     } else if (st.closing) {
-      body = <>{banners}<ClosingScreen closing={st.closing} unsent={unsent} online={st.online} autoApply={!!boot?.auto_apply} findings={(st.fresh?.findings_job as { status: string; last_error: string | null } | null) ?? null} findingsCode={st.findingsCode}
+      body = <>{banners}<ClosingScreen closing={st.closing} unsent={unsent} online={st.online} autoApply={!!boot?.auto_apply} findings={(st.fresh?.findings_job as { status: string; last_error: string | null } | null) ?? null} findingsCode={st.findingsCode} unmeasured={model.unmeasured}
         onSend={() => void ctl.drain(true)} onRetry={() => void ctl.close(buildEvidence(model, st.draft, !!initials))} onKeepWorking={() => ctl.dismissClosing()} onAction={(a) => { setAfter(a); ctl.dismissClosing(); }} onReopen={(r) => ctl.reopen(r)} onApply={() => void ctl.applyFindings()} home={home} /></>;
     } else if (status === "complete") {
       body = <>{banners}<ClosingScreen closing={{ step: "done", result: { complete: true, checks: [], price_critical: { total: model.pc.total, done: model.pc.done, skipped: model.pc.skipped }, record: { total: model.record.total, done: model.record.done, skipped: model.record.skipped }, revision: 0 } }} unsent={unsent} online={st.online} autoApply={!!boot?.auto_apply}
-        findings={(st.fresh?.findings_job as { status: string; last_error: string | null } | null) ?? null} findingsCode={st.findingsCode} onSend={() => void ctl.drain(true)} onRetry={() => void ctl.refresh()} onKeepWorking={() => undefined} onReopen={(r) => ctl.reopen(r)} onApply={() => void ctl.applyFindings()} home={home} /></>;
+        findings={(st.fresh?.findings_job as { status: string; last_error: string | null } | null) ?? null} findingsCode={st.findingsCode} unmeasured={model.unmeasured} onSend={() => void ctl.drain(true)} onRetry={() => void ctl.refresh()} onKeepWorking={() => undefined} onReopen={(r) => ctl.reopen(r)} onApply={() => void ctl.applyFindings()} home={home} /></>;
     } else {
       body = <>{banners}<VisitScreen key={resume ?? "visit"} device={st.device} startAt={resume} saveError={st.code} prefill={snap?.prefill} visitorNotes={snap?.visitor_notes} model={model} display={display} thumbs={st.thumbs} online={st.online} draft={st.draft} refused={refusedEntries(entries).length} hasInitials={!!initials} userName={userName} staff={!!display?.visitor_staff} lastSaved={st.lastSaved} startAction={after} onStartAction={() => setAfter(null)}
         forgotClose={status === "in_progress" && visitDay < today}

@@ -2,7 +2,7 @@
 /**
  * Visit page actions (plan §6.8): Reopen (reason), Apply findings (only while automatic
  * apply is off), Try again on a failed apply (same generation, never duplicates), and the
- * office conflict picker (Pick · Pick · Enter another). Errors are data → plain words.
+ * office conflict picker (Pick · Pick, then how to use another value). Errors are data → plain words.
  */
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -48,7 +48,7 @@ export function OfficeConflict({ id, revision, generation, instance, fieldKey, l
   current: { id: string; text: string; from: string; available: boolean }; proposed: { id: string; text: string; from: string; available: boolean };
 }) {
   const router = useRouter();
-  const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false); const [other, setOther] = useState(false);
+  const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   const pick = async (choice: "current" | "proposed") => {
     setBusy(true); setErr(null);
     try { await command(id, "resolve_conflict", { instance_id: instance, field_key: fieldKey, current_answer_id: current.id, proposed_answer_id: proposed.id, expected_revision: revision, generation, reason: "Picked on the visit page", choice }); router.refresh(); }
@@ -58,12 +58,16 @@ export function OfficeConflict({ id, revision, generation, instance, fieldKey, l
     <div role="group" aria-label={`Conflict on ${label}`} className="mt-2 rounded-md border-2 border-flag bg-flag-soft p-3">
       <p className="text-body font-semibold text-flag">! Conflict · {label}</p>
       <p className="text-body text-ink">{W.conflictBody}</p>
-      <div className="mt-2 grid gap-2 sm:grid-cols-2">
-        {current.available && <Button size="lg" variant="secondary" disabled={busy} onClick={() => void pick("current")}>{fill(W.pick, { value: current.text })} · {current.from}</Button>}
-        {proposed.available && <Button size="lg" variant="secondary" disabled={busy} onClick={() => void pick("proposed")}>{fill(W.pick, { value: proposed.text })} · {proposed.from}</Button>}
-        <Button size="lg" variant="ghost" onClick={() => setOther(true)}>{W.enterAnother}</Button>
+      {/* r8 R8-1: the card sits in a narrow section column — one column, labels wrap inside the button
+          (two columns only when the card itself is wide). The office can't type a value, so "another
+          value" is a line of text, not a button. */}
+      <div className="@container/pick mt-2">
+        <div className="grid gap-2 @[520px]/pick:grid-cols-2">
+          {current.available && <Button size="lg" variant="secondary" disabled={busy} className="h-auto! min-h-12 w-full min-w-0 justify-start! py-3 text-left whitespace-normal!" onClick={() => void pick("current")}>{fill(W.pick, { value: current.text })} · {current.from}</Button>}
+          {proposed.available && <Button size="lg" variant="secondary" disabled={busy} className="h-auto! min-h-12 w-full min-w-0 justify-start! py-3 text-left whitespace-normal!" onClick={() => void pick("proposed")}>{fill(W.pick, { value: proposed.text })} · {proposed.from}</Button>}
+        </div>
       </div>
-      {other && <p className="mt-2 text-body text-ink">Pick one of the two first, then the visitor enters the new value on the visit device — the office page doesn’t type answers.</p>}
+      <p className="mt-2 text-body text-ink-2">{W.officeEnterAnother}</p>
       {err && <p role="alert" className="mt-1 text-body font-semibold text-flag">! {err}</p>}
     </div>
   );

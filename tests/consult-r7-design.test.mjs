@@ -36,7 +36,8 @@ test('R7-2: 408 / 429 / 5xx during close read as the calm Still closing words', 
 
 test('R7-3: conflict sides say where they came from and a blank side is not offered', () => {
   const row = src('components/consult/field/FieldRow.tsx');
-  assert.match(row, /side\.device === actions\.device \? conflictSideLabel\(side,undefined,actions\.device\)/);
+  // r8 R8-2: this device, or any side with a person, is named by conflictSideLabel (person · time).
+  assert.match(row, /side\.device === actions\.device\) \|\| side\.person \? conflictSideLabel\(side, other, actions\.device\)/);
   assert.match(row, /side\.available !== false && !\(side\.status === "answered" && side\.value === undefined\)/);
   const office = src('components/consult/office/LookOverActions.tsx');
   assert.match(office, /\{current\.available && <Button/);

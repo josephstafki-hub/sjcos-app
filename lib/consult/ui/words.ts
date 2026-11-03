@@ -90,6 +90,18 @@ export const W = {
   showTheRest: 'Show the rest',
   required: 'required',
   skip: 'Skip this field…',
+  // r8 extra: a skipped field says the skip took — change its reason, or undo it.
+  changeReason: 'Change reason…',
+  undoSkip: 'Undo skip',
+  /** r8 domain 3: the mark word for a skip that needs no written assumption. */
+  skippedMark: 'Skipped',
+  /** r8 domain 3: the date field's hint while it is skipped. */
+  dateSkippedHint: 'Joe gets a to-do to set the date.',
+  /** r8 domain E4: the Complete pill, when quantities that feed the estimate weren't measured. */
+  quantitiesNotMeasured: '{n} estimate quantities not measured',
+  quantityNotMeasured: '1 estimate quantity not measured',
+  /** r8 D3: a kept toilet's advisory card — the choices are in Before you wrap. */
+  advisoryTail: 'The choices are in Before you wrap.',
   skipTitle: 'Skip this field',
   skipWhy: 'Why are you skipping it?',
   skipNote: 'Note',
@@ -274,6 +286,8 @@ export const W = {
   anotherDevice: 'another device',
   office: 'office',
   enterAnother: 'Enter another',
+  /** r8 R8-1 extra: the office can't type an answer, so it says how instead of offering a button. */
+  officeEnterAnother: 'To use a different value, pick one, then the visitor types the new one on the visit device.',
   pickReason: 'Picked at close',
   // Visit page §6.8
   reopen: 'Reopen',
@@ -414,6 +428,28 @@ export function skipLine(f: { def: { type?: string; key?: string; tier?: string 
   if (reason === 'Not on this job') tail = f.skipCounts ? '' : ' — the job needs it, so it stays Open';
   else if (!f.returnVisit && skipNeedsAssumption(f.def, reason)) tail = !f.skipCounts ? ' — needs a written assumption to count' : MEASUREMENT.test(f.def.type ?? '') ? ' — assumption written' : '';
   return `Skipped · ${reason}${tail}${note && note !== reason ? ` · ${note}` : ''}`;
+}
+
+/**
+ * r8 domain 3: a skip that needs no written assumption ("Joe sets the date", a client who was away
+ * or declined to initial, a record field) reads "– Skipped" on the right, not "– N/A" — the field
+ * applies, it just wasn't filled. "Not on this job" stays N/A; a return visit stays Open.
+ */
+export function skippedNotNA(f: { def: { type?: string; key?: string; tier?: string }; answer?: { status?: string; skip_reason?: string } }): boolean {
+  const reason = f.answer?.skip_reason;
+  if (f.answer?.status !== 'skipped' || !reason || reason === 'Not on this job' || reason === 'Get on return visit') return false;
+  return !skipNeedsAssumption(f.def, reason);
+}
+
+/** r8 domain E4: "3 estimate quantities not measured" — empty when every quantity was measured. */
+export function quantitiesLine(n: number): string {
+  return n <= 0 ? '' : n === 1 ? W.quantityNotMeasured : fill(W.quantitiesNotMeasured, { n });
+}
+
+/** r8 office extra: "checked before pricing", not "checked at Before pricing". */
+export function checkedAt(point: string): string {
+  const p = point.trim();
+  return /^(before|after|at|during|when|on|in)\b/i.test(p) ? `checked ${p.charAt(0).toLowerCase()}${p.slice(1)}` : `checked at ${p}`;
 }
 
 /** §10.3 — the eleven checks in plain words, in order. */

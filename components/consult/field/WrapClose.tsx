@@ -10,9 +10,9 @@ import { useState } from "react";
 import { CoverageMark } from "@/components/ui/CoverageMark";
 import type { EvidenceDraft, FieldView, ShotView, VisitModel } from "@/lib/consult/ui/model";
 import type { ClosingState } from "@/lib/consult/ui/controller";
-import { CHECK_ACTION_WORDS, FLAG_CHOICES, W, fill, plainWords } from "@/lib/consult/ui/words";
+import { CHECK_ACTION_WORDS, FLAG_CHOICES, W, fill, plainWords, quantitiesLine } from "@/lib/consult/ui/words";
 import { flagLead } from "@/lib/consult/ui/flag-lead";
-import { Banner, Btn, Choice, Sheet, TextInput } from "./primitives";
+import { Banner, Box, Btn, Choice, Sheet, TextInput } from "./primitives";
 
 const itemLabel = (o: VisitModel["open"][number]) => (o.kind === "field" ? (o.item as FieldView).def.label : `Photo · ${(o.item as ShotView).def.label}`);
 const itemAddr = (o: VisitModel["open"][number]) => (o.kind === "field" ? (o.item as FieldView).addr : (o.item as ShotView).addr);
@@ -171,7 +171,7 @@ export function RrpSheet({ model, onGo, open, onClose, draft, onSave, saveError 
   const toggle = (k: "receipt" | "firm_current" | "renovator_current" | "redelivery_required", label: string) => (
     <button type="button" role="checkbox" aria-checked={rrp[k]} onClick={() => setRrp({ ...rrp, [k]: !rrp[k] })}
       className={`min-h-14 rounded-md border-2 px-3 py-2 text-left font-semibold ${rrp[k] ? "border-accent bg-accent-soft text-ink" : "border-rule bg-card text-ink-2"}`}>
-      <span aria-hidden className="mr-1.5 font-mono">{rrp[k] ? "☑" : "☐"}</span>{label}
+      <Box on={rrp[k]} />{label}
     </button>
   );
   return (
@@ -210,8 +210,10 @@ export function AckSheet({ open, onClose, draft, onSave, saveError, summaryText 
 }
 
 /** Visit closed — sending → Complete / Needs finishing, the same words for Joe's and staff visits. */
-export function ClosingScreen({ closing, unsent, online, autoApply, findings, findingsCode, onSend, onRetry, onKeepWorking, onReopen, onApply, onAction, home }: {
+export function ClosingScreen({ closing, unsent, online, autoApply, findings, findingsCode, unmeasured = 0, onSend, onRetry, onKeepWorking, onReopen, onApply, onAction, home }: {
   closing: ClosingState; unsent: number; online: boolean; autoApply: boolean; findings: { status: string; last_error: string | null } | null; findingsCode: string | null;
+  /** r8 domain E4: estimate quantities with no measured answer, said under ✓ Complete. */
+  unmeasured?: number;
   onSend: () => void; onRetry: () => void; onKeepWorking: () => void; onReopen: (reason: string) => Promise<void>; onApply: () => void; home: string;
   /** r5: an open check's own way forward (Review flags, Pick the date, Show to client, …) — back on the visit. */
   onAction?: (action: string) => void;
@@ -251,6 +253,7 @@ export function ClosingScreen({ closing, unsent, online, autoApply, findings, fi
       {closing.step === "done" && r && <>
         {r.complete ? <>
           <h1 className="font-serif text-[1.8em] font-semibold text-accent-2">✓ {W.complete}</h1>
+          {unmeasured > 0 && <p className="mt-1 font-semibold text-ink">{quantitiesLine(unmeasured)}</p>}
           <p className="mt-2 font-mono text-ink">Price-critical {r.price_critical.done}/{r.price_critical.total} · Record {r.record.done}/{r.record.total} · {r.price_critical.skipped + r.record.skipped} skipped</p>
           <p className="mt-1 text-ink-2">Answers and photos sent ✓</p>
           {!autoApply && (

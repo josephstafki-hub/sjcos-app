@@ -1,5 +1,4 @@
 "use client";
-import {conflictSideLabel} from "@/lib/consult/ui/words";
 /**
  * One field (plan §6.1, §6.3): label 17/18 px, separate * required marker, the one-legend
  * mark right-aligned (symbol + word, flags beside the state, never replacing it), the
@@ -10,8 +9,8 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { CoverageMark } from "@/components/ui/CoverageMark";
 import type { FieldView, ShotView } from "@/lib/consult/ui/model";
 import type { AnswerPayload } from "@/lib/consult/ui/ops";
-import { W, fill, plainWords, skipLine } from "@/lib/consult/ui/words";
-import { Btn, Choice, scrollInPane } from "./primitives";
+import { W, conflictSideLabel, fill, plainWords, skipLine, skippedNotNA } from "@/lib/consult/ui/words";
+import { Box, Btn, Choice, scrollInPane } from "./primitives";
 import { showLength } from "./Keypad";
 import { curly } from "@/lib/consult/typography";
 
@@ -56,12 +55,13 @@ export function valueText(f: FieldView): string {
   return typeof v === "object" ? JSON.stringify(v) : String(v ?? "");
 }
 
-export function MarkCell({ f }: { f: { mark: FieldView["mark"]; conflict?: unknown; returnVisit?: boolean } }) {
+export function MarkCell({ f }: { f: { mark: FieldView["mark"]; conflict?: unknown; returnVisit?: boolean; def?: FieldView["def"]; answer?: FieldView["answer"] } }) {
+  // r8 extra: a field in conflict isn't settled — only "! Conflict" until a side is picked.
+  if (f.conflict) return <span className="flex flex-wrap items-center justify-end gap-x-2 gap-y-0.5 text-right"><CoverageMark variant="coverage" state="conflict" /></span>;
   return (
     <span className="flex flex-wrap items-center justify-end gap-x-2 gap-y-0.5 text-right">
-      <CoverageMark variant="coverage" state={f.mark} />
+      <CoverageMark variant="coverage" state={f.mark} skipped={!!f.def && skippedNotNA({ def: f.def, answer: f.answer })} />
       {f.returnVisit && <CoverageMark variant="coverage" state="return_visit" />}
-      {!!f.conflict && <CoverageMark variant="coverage" state="conflict" />}
     </span>
   );
 }
@@ -149,18 +149,22 @@ export function PhotoRow({ shot, actions, fieldKey, sectionId }: { shot: ShotVie
 function ConflictPicker({ f, actions }: { f: FieldView; actions: FieldActions }) {
   const c = f.conflict!;
   const show = (v: unknown, status?: string) => (status && status !== "answered" ? (status === "skipped" ? "skipped" : "cleared") : f.def.type.startsWith("length") ? showLength(v, f.def) : v === true ? W.yes : v === false ? W.no : String(v ?? "—"));
-  // r7 R7-3: each side is named by where it came from; a side whose value can't be loaded isn't offered.
-  const from = (side: { device?: string | null; source_label?: string; created_at?: string }, queuedHere: boolean) => (side.device && actions.device && side.device === actions.device ? conflictSideLabel(side,undefined,actions.device)
-    : side.source_label ?? (queuedHere ? W.thisDevice : side.device ? W.anotherDevice : W.office));
+  // r8 R8-2: each side is named by who typed it and when (conflictSideLabel — the same words as the
+  // office): "this device · 3:58 pm", "Abigail", "Abigail · 3:52 pm", "office · Joe". Never a device code.
+  type Side = { device?: string | null; source_label?: string; person?: string; actor?: string | null; created_at?: string };
+  const from = (side: Side, other: Side | undefined, queuedHere: boolean) =>
+    (side.device && actions.device && side.device === actions.device) || side.person ? conflictSideLabel(side, other, actions.device)
+      : queuedHere ? W.thisDevice : side.source_label ?? (side.device ? W.anotherDevice : W.office);
   const offer = (side: { value: unknown; status: string; available?: boolean } | undefined) => !!side && side.available !== false && !(side.status === "answered" && side.value === undefined);
   return (
     <div role="group" aria-label={`Conflict on ${f.def.label}`} className="mt-3 rounded-md border-2 border-flag bg-flag-soft p-3">
       <p className="font-semibold text-flag">! Conflict · {f.def.label}</p>
       <p className="text-[0.95em] text-ink">{c.rebase ? plainWords("rebase_required") : W.conflictBody}</p>
-      <div className="mt-2 grid gap-3 sm:grid-cols-2">
-        {offer(c.current) && <Btn onClick={() => actions.resolve(f, "current")}>{fill(W.pick, { value: show(c.current!.value, c.current!.status) })} · {from(c.current!, false)}</Btn>}
-        {!c.rebase && offer(c.proposed) && <Btn onClick={() => actions.resolve(f, "proposed")}>{fill(W.pick, { value: show(c.proposed!.value, c.proposed!.status) })} · {from(c.proposed!, !c.proposed!.device)}</Btn>}
-        <Btn onClick={() => actions.resolve(f, "other")}>{W.enterAnother}</Btn>
+      {/* r8 R8-1: one column, labels wrap inside their buttons at any width. */}
+      <div className="mt-2 grid gap-3">
+        {offer(c.current) && <Btn className="h-auto w-full min-w-0 justify-start! py-3 text-left whitespace-normal" onClick={() => actions.resolve(f, "current")}>{fill(W.pick, { value: show(c.current!.value, c.current!.status) })} · {from(c.current!, c.proposed, false)}</Btn>}
+        {!c.rebase && offer(c.proposed) && <Btn className="h-auto w-full min-w-0 justify-start! py-3 text-left whitespace-normal" onClick={() => actions.resolve(f, "proposed")}>{fill(W.pick, { value: show(c.proposed!.value, c.proposed!.status) })} · {from(c.proposed!, c.current, !c.proposed!.device)}</Btn>}
+        <Btn className="h-auto w-full min-w-0 justify-start! py-3 text-left whitespace-normal" onClick={() => actions.resolve(f, "other")}>{W.enterAnother}</Btn>
       </div>
     </div>
   );
@@ -237,7 +241,7 @@ export function FieldRow({ f, actions, sectionId, last }: { f: FieldView; action
             return (
               <button key={o} type="button" aria-pressed={on} onClick={() => void actions.answer(f, next.length ? { status: "answered", value: next, unit: d.unit } : { status: "cleared", unit: d.unit })}
                 className={`min-h-14 rounded-md border-2 px-3 py-2 text-left font-semibold leading-tight focus-visible:outline-3 focus-visible:outline-focus ${on ? "border-accent bg-accent-soft text-ink" : "border-rule bg-card text-ink-2 hover:bg-paper-2"}`}>
-                <span aria-hidden className="mr-1.5 font-mono">{on ? "☑" : "☐"}</span>{curly(o)}
+                <Box on={on} />{curly(o)}
               </button>
             );
           })}
@@ -278,8 +282,9 @@ export function FieldRow({ f, actions, sectionId, last }: { f: FieldView; action
         </p>
         <MarkCell f={f} />
       </div>
-      {d.hint && <p className="text-[0.9em] text-ink-2">{d.hint}</p>}
-      {/* r7 R7-5: "Skipped · {reason} · {note}" — the mark on the right already says N/A. */}
+      {/* r8 domain 3: while the date is skipped its hint says what happens instead. */}
+      {d.hint && <p className="text-[0.9em] text-ink-2">{skipped && d.key === "estimate_promised" ? W.dateSkippedHint : d.hint}</p>}
+      {/* r7 R7-5 / r8: "Skipped · {reason} · {note}" — the mark on the right says N/A or Skipped once. */}
       {skipped && <p className="mt-1 text-[0.95em] text-ink-2">{skipLine(f)}</p>}
       {input}
       <Saved f={f} />
@@ -291,13 +296,14 @@ export function FieldRow({ f, actions, sectionId, last }: { f: FieldView; action
       )}
       {f.conflict && <ConflictPicker f={f} actions={actions} />}
       {f.flags.map((fl) => fl.kind === "advisory"
-        ? <p key={fl.key} className="mt-2 text-[0.95em] font-semibold text-ink-2"><span aria-hidden>⚐ </span>Flag · {fl.hint} Decide in {W.beforeYouWrap}.</p>
+        ? <p key={fl.key} className="mt-2 text-[0.95em] font-semibold text-ink-2"><span aria-hidden>⚐ </span>Flag · {fl.hint} {W.advisoryTail}</p>
         : <p key={fl.key} className="mt-2 text-[0.95em] font-semibold text-flag">⚑ Flag · {fl.hint} Decide in {W.beforeYouWrap}.</p>)}
       {f.shots.map((s) => <PhotoRow key={s.key} shot={s} actions={actions} fieldKey={f.key} sectionId={sectionId} />)}
       <div className="mt-2 flex flex-wrap gap-3">
         {last !== undefined && !answered && (d.type === "length" || d.type === "length_pair") && <Btn onClick={() => void actions.answer(f, { status: "answered", value: last, unit: d.unit })}>{W.sameAsLast} · {showLength(last, d)}</Btn>}
-        {!answered && d.type !== "signature" && <Btn tone="quiet" onClick={() => actions.skip({ field: f, sectionId })}>{W.skip}</Btn>}
-        {d.type === "signature" && !f.initials && <Btn tone="quiet" onClick={() => actions.skip({ field: f, sectionId })}>{W.skip}</Btn>}
+        {/* r8 extra: once skipped, the button changes the reason and Undo skip takes it back. */}
+        {((!answered && d.type !== "signature") || (d.type === "signature" && !f.initials)) && <Btn tone="quiet" onClick={() => actions.skip({ field: f, sectionId })}>{skipped ? W.changeReason : W.skip}</Btn>}
+        {skipped && !(d.type === "signature" && f.initials) && <Btn tone="quiet" onClick={() => void actions.answer(f, { status: "cleared", unit: d.unit })}>{W.undoSkip}</Btn>}
       </div>
     </div>
   );

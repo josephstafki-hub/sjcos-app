@@ -22,6 +22,8 @@ import { decisionsOp, answerOp, createInstanceOp, discardOp, removeInstanceOp, r
 
 export interface Boot {
   status?:string; closed_at?:string|null; completeness?:unknown;
+  /** r8 domain E4: on a Complete visit, estimate quantities with no measured answer. */
+  unmeasured?: number;
   consult_id: string; user: { id: string; name: string; role: string }; session_epoch: number;
   display: Display; auto_apply: boolean; capture_enabled: boolean; home: string;
 }

@@ -36,7 +36,7 @@ test('client summary lists only rooms with something covered; untouched places a
   assert.deepEqual(sum.rooms.map((r) => r.name), ['Kitchen']);
   assert.ok(sum.rooms[0].work.includes('Measured'));
   assert.ok(!JSON.stringify(sum).includes('Measured and looked over'), 'never the stock sentence');
-  assert.deepEqual(sum.come_back, ['another room', 'the bathroom'], 'the kitchen is listed as gone over, so it is not also "not measured"');
+  assert.deepEqual(sum.come_back, ['the bathroom', 'one more room'], 'the kitchen is listed as gone over, so it is not also "not measured"; an unnamed room is said last (r8)');
   assert.ok(!sum.come_back.some((n) => /Room \d|Bath \d/.test(n)), 'no generic instance names reach the client');
   assert.ok(!sum.rooms.some((r) => /^wall\b/i.test(r.name)) && !sum.come_back.some((n) => /wall/i.test(n)), 'kitchen walls are not rooms');
 });

@@ -11,7 +11,7 @@ import { pool, query, queryOne } from "@/lib/db";
 import { readSession } from "@/lib/session";
 import type { CurrentUser } from "@/lib/dal";
 import { snapshot } from "@/lib/consult/protocol";
-import type { Display, Snapshot } from "./model";
+import { buildModel, emptyDraft, type Display, type Snapshot } from "./model";
 import type { Boot } from "./controller";
 import type { ListVisit } from "@/components/consult/field/VisitList";
 
@@ -43,7 +43,10 @@ export function displayOf(h: VisitHead): Display {
 }
 
 export async function bootFor(user: CurrentUser, h: VisitHead): Promise<Boot> {
+  // r8 domain E4: the Complete card says how many estimate quantities weren't measured.
+  const unmeasured = h.status === "complete" ? await readSnapshot(user, h.id).then((s) => buildModel(s, [], [], emptyDraft()).unmeasured).catch(() => undefined) : undefined;
   return {
+    unmeasured,
     status:h.status, closed_at:(await queryOne<{closed_at:string|null}>("SELECT closed_at FROM consults WHERE id=$1",[h.id]))?.closed_at??null, completeness:(await queryOne<{completeness_cache:unknown}>("SELECT completeness_cache FROM consults WHERE id=$1",[h.id]))?.completeness_cache??null,
     consult_id: h.id, user: { id: user.id, name: user.name, role: user.role }, session_epoch: await sessionEpoch(),
     display: displayOf(h), auto_apply: await flag("consult_auto_apply_findings"), capture_enabled: await flag("consult_capture"), home: `/projects/${h.slug}`,

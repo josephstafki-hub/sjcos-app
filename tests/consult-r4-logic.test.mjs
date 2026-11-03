@@ -208,7 +208,7 @@ test('R5 section and wrap count the same required fields across tiers; unknown-y
  for(const sec of m.sections){const n=sectionCounts(sec);assert.equal(n.total-n.done,m.open.filter(o=>o.section===sec&&!o.partly).length);}
  assert.equal(openItemCount({price_critical:m.pc,record:m.record}),m.open.filter(o=>!o.partly).length);
  assert.equal(closeAction('flag_decisions'),'review_flags');
- assert.match(m.sections.find(s=>s.module.key==='era').fields.find(f=>f.key==='pamphlet_given').def.say,/We don’t know for sure/);
+ assert.match(m.sections.find(s=>s.module.key==='era').fields.find(f=>f.key==='pamphlet_given').def.say,/We’re not sure the house was built in 1978 or later/);
 });
 
 for (const fails of [false,true]) test('R6 held Close cannot touch replacement engine after lock/unlock: '+(fails?'failure':'success'),async t=>{

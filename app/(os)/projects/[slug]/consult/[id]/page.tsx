@@ -10,7 +10,7 @@ import { pinnedDerivations } from "@/lib/consult/derive";
 import { openCheckPhrase, openItemCount } from "@/lib/consult/completeness";
 import { displayLength } from "@/lib/consult/length";
 import type { LocalBlob } from "@/lib/consult/offline-engine";
-import { W, fill, plainWords, skipLine, statusLabel } from "@/lib/consult/ui/words";
+import { W, checkedAt, conflictSideLabel, fill, plainWords, quantitiesLine, skipLine, skippedNotNA, statusLabel } from "@/lib/consult/ui/words";
 import { ApplyFindings, OfficeConflict, ReopenButton } from "@/components/consult/office/LookOverActions";
 import { AssignControl } from "@/components/consult/office/ScheduleDialog";
 import { RecoveryControl } from "@/components/consult/office/RecoveryControl";
@@ -86,7 +86,9 @@ export default async function ConsultLookOver({ params, searchParams }: { params
   const photos = extra.media.filter((m) => m.kind !== "initials");
   const initials = extra.media.find((m) => m.kind === "initials");
   const chip: "covered" | "partial" | null = status === "complete" ? "covered" : status === "incomplete" ? "partial" : null;
-  const headline = status === "complete" ? `Complete · ${fmt(extra.completedAt)}` : status === "incomplete" ? `Needs finishing · ${openN} open` : status === "in_progress" && interrupted(snap.consult.scheduled_at) ? W.visitInterrupted : statusLabel(status);
+  // r8 domain E4: a Complete visit says how many quantities that feed the estimate weren't measured.
+  const unmeasured = quantitiesLine(feeds.filter((x) => x.value === null).length);
+  const headline = status === "complete" ? `Complete · ${fmt(extra.completedAt)}${unmeasured ? ` · ${unmeasured}` : ""}` : status === "incomplete" ? `Needs finishing · ${openN} open` : status === "in_progress" && interrupted(snap.consult.scheduled_at) ? W.visitInterrupted : statusLabel(status);
   const sectionLink = (x: SectionView) => `/projects/${slug}/consult/${head.id}?s=${x.instance.id}`;
   const fieldLink = (addr: string) => `/projects/${slug}/consult/${head.id}?s=${addr.split(":")[0]}#f-${addr}`;
   const canRecover = owner && devices.some((d) => d.revoked && !d.closed);
@@ -120,7 +122,7 @@ export default async function ConsultLookOver({ params, searchParams }: { params
       <div className="mx-auto max-w-[1440px] px-4 pb-16 pt-6 @xl/page:px-7">
         {/* §6.8 head: "{client} › In-home consultation · Nov 3 · Abigail Stafki", a status chip (not a control), then actions. */}
         <PageHeader variant="record" title={`${head.client} › ${W.app} · ${fmt(snap.consult.scheduled_at, { month: "short", day: "numeric" })} · ${head.visitor_name}`} className="mb-4"
-          badge={<span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-[20px] border border-rule-soft bg-paper-2 px-2.5 py-0.5 text-meta font-semibold text-ink-2">
+          badge={<span className={`inline-flex items-center gap-1.5 rounded-[20px] ${unmeasured && status === "complete" ? "" : "whitespace-nowrap"} border border-rule-soft bg-paper-2 px-2.5 py-0.5 text-meta font-semibold text-ink-2`}>
             {chip === "covered" && <span aria-hidden>✓</span>}{chip === "partial" && <span aria-hidden className="font-mono">◐</span>}{headline}
           </span>}
           actions={<>
@@ -193,11 +195,13 @@ export default async function ConsultLookOver({ params, searchParams }: { params
                     <li key={f.addr} id={`f-${f.addr}`} className="grid gap-1 py-2 @[520px]/sec:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] @[520px]/sec:items-baseline @[520px]/sec:gap-4">
                       <span className="text-body font-semibold text-ink">{f.def.label}{f.required && <span className="text-flag" aria-label={W.required}> *</span>}</span>
                       <span className="text-body text-ink">{v && <span className="font-mono">{v}</span>}{p && <span className="ml-2 text-meta text-ink-3">{p.source === "office" ? "picked in office" : "typed"} · {p.actor}</span>}</span>
-                      <span className="flex flex-wrap justify-end gap-2"><CoverageMark variant="coverage" state={f.mark} size="sm" />{f.returnVisit && <CoverageMark variant="coverage" state="return_visit" size="sm" />}{c && <CoverageMark variant="coverage" state="conflict" size="sm" />}</span>
-                      {c && <div className="@[520px]/sec:col-span-3"><OfficeConflict id={head.id} revision={Number(snap.consult.revision)} generation={Number(snap.consult.completion_generation)} instance={f.addr.split(":")[0]} fieldKey={f.key} label={`${section.label} ${f.def.label}`}
-                        current={{ id: c.current.id, text: c.current.status === "answered" ? show(c.current.value, f.def) : c.current.status, from: c.current.source_label ?? (c.current.device_id ? W.anotherDevice : W.office), available: c.current.available !== false }}
-                        proposed={{ id: c.proposed.id, text: c.proposed.status === "answered" ? show(c.proposed.value, f.def) : c.proposed.status, from: c.proposed.source_label ?? (c.proposed.device_id ? W.anotherDevice : W.office), available: c.proposed.available !== false }} /></div>}
-                      {f.answer?.status === "skipped" && draft.skips[f.addr]?.assumption && <p className="text-meta text-ink-2 @[520px]/sec:col-span-3">Assumption: {draft.skips[f.addr].assumption!.text} · {draft.skips[f.addr].assumption!.responsible_trade} · checked at {draft.skips[f.addr].assumption!.verification_point}</p>}
+                      {/* r8: a field in conflict shows only "! Conflict" until it is picked; a skip that needs no assumption reads "– Skipped". */}
+                      <span className="flex flex-wrap justify-end gap-2">{c ? <CoverageMark variant="coverage" state="conflict" size="sm" /> : <><CoverageMark variant="coverage" state={f.mark} size="sm" skipped={skippedNotNA(f)} />{f.returnVisit && <CoverageMark variant="coverage" state="return_visit" size="sm" />}</>}</span>
+                      {/* r8 R8-1/R8-2: "Section › Field", and each side named by person and time — the field's words. */}
+                      {c && <div className="@[520px]/sec:col-span-3"><OfficeConflict id={head.id} revision={Number(snap.consult.revision)} generation={Number(snap.consult.completion_generation)} instance={f.addr.split(":")[0]} fieldKey={f.key} label={`${section.label} › ${f.def.label}`}
+                        current={{ id: c.current.id, text: c.current.status === "answered" ? show(c.current.value, f.def) : c.current.status, from: c.current.source_label ?? conflictSideLabel({ ...c.current, created_at: c.current.at }, { ...c.proposed, created_at: c.proposed.at }), available: c.current.available !== false }}
+                        proposed={{ id: c.proposed.id, text: c.proposed.status === "answered" ? show(c.proposed.value, f.def) : c.proposed.status, from: c.proposed.source_label ?? conflictSideLabel({ ...c.proposed, created_at: c.proposed.at }, { ...c.current, created_at: c.current.at }), available: c.proposed.available !== false }} /></div>}
+                      {f.answer?.status === "skipped" && draft.skips[f.addr]?.assumption && <p className="text-meta text-ink-2 @[520px]/sec:col-span-3">Assumption: {draft.skips[f.addr].assumption!.text} · {draft.skips[f.addr].assumption!.responsible_trade} · {checkedAt(draft.skips[f.addr].assumption!.verification_point)}</p>}
                     </li>
                   );
                 })}

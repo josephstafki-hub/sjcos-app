@@ -137,6 +137,15 @@ export function Ring({ on }: { on: boolean }) {
   );
 }
 
+/** r8 extra: a checkbox's box is drawn the same way as the ring — square, 2 px border, a tick when on. */
+export function Box({ on }: { on: boolean }) {
+  return (
+    <span aria-hidden className={`mr-2 inline-grid size-[1.05em] shrink-0 place-items-center rounded-[3px] border-2 align-[-0.2em] ${on ? "border-accent bg-accent" : "border-ink-3 bg-card"}`}>
+      {on && <svg viewBox="0 0 12 12" className="size-[0.75em] text-card" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><path d="M2.5 6.2 5 8.6 9.6 3.4" /></svg>}
+    </span>
+  );
+}
+
 /** Big segmented choice — never a dropdown when ≤6 options (§6.6). */
 export function Choice<T extends string | boolean>({ label, options, value, onPick, labels, columns }: { label?: string; options: readonly T[]; value: T | undefined | null; onPick: (v: T) => void; labels?: (v: T) => string; columns?: number }) {
   const gid = useId();

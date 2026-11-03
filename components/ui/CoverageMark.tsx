@@ -27,10 +27,14 @@ export type CoverageMarkProps = (
   /** "row" = 15 px state word (checklist rows); "sm" = compact lists. */
   size?: "row" | "sm";
   className?: string;
+  /** Consult r8: an N/A that is really a skip needing no assumption ("Joe sets the date") keeps the
+   *  same – symbol and tone but says "Skipped". Only applies to coverage `not_applicable`. */
+  skipped?: boolean;
 };
 
-export function CoverageMark({ variant, state, size = "row", className = "" }: CoverageMarkProps) {
-  const [symbol, word] = variant === "coverage" ? COVERAGE_MARKS.coverage[state as CoverageWord] : COVERAGE_MARKS.ready[state as ReadyWord];
+export function CoverageMark({ variant, state, size = "row", className = "", skipped = false }: CoverageMarkProps) {
+  const [symbol, base] = variant === "coverage" ? COVERAGE_MARKS.coverage[state as CoverageWord] : COVERAGE_MARKS.ready[state as ReadyWord];
+  const word = skipped && variant === "coverage" && state === "not_applicable" ? "Skipped" : base;
   const tone = variant === "coverage" ? COVERAGE_TONE[state as CoverageWord] : READY_TONE[state as ReadyWord];
   return (
     <span className={`inline-flex items-center gap-1.5 whitespace-nowrap font-sans font-semibold ${size === "row" ? "text-[15px] leading-5" : "text-label"} ${tone} ${className}`}>

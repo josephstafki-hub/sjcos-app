@@ -10,7 +10,7 @@ import { useState, type ReactNode } from "react";
 import { CoverageMark } from "@/components/ui/CoverageMark";
 import type { ReadyCheck, CheckResult } from "@/lib/consult/readiness";
 import type { ReadyResult } from "@/lib/consult/ui/controller";
-import { READY_LABEL, READY_ROWS, W, fill, plainWords, readyReason } from "@/lib/consult/ui/words";
+import { READY_LABEL, READY_ROWS, W, fill, plainWords, quantitiesLine, readyReason } from "@/lib/consult/ui/words";
 import { Btn, LinkBtn, TextInput } from "./primitives";
 
 export function centralTime(iso: string | number | null | undefined, opts: Intl.DateTimeFormatOptions = { weekday: "short", hour: "numeric", minute: "2-digit" }) {
@@ -148,7 +148,7 @@ export function GetReadyCard({ title, result, checks, enrolled, expires, code, r
 }
 
 /** r7 R7-1: a Complete visit opened on a device — finished, locked, calm. No Get ready, PIN or paper line. */
-export function CompleteCard({ title, closedAt, completeness, lookOver, more }: { title: string; closedAt?: string | null; completeness?: unknown; lookOver: string; more?: ReactNode }) {
+export function CompleteCard({ title, closedAt, completeness, unmeasured = 0, lookOver, more }: { title: string; closedAt?: string | null; completeness?: unknown; unmeasured?: number; lookOver: string; more?: ReactNode }) {
   const c = completeness as { price_critical?: { total: number; done: number; skipped?: number }; record?: { total: number; done: number; skipped?: number } } | null | undefined;
   const when = centralTime(closedAt, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
   return (
@@ -156,6 +156,7 @@ export function CompleteCard({ title, closedAt, completeness, lookOver, more }: 
       <ScreenHead title={title} right={more} />
       <section className="px-4 pb-8 pt-4" aria-live="polite">
         <h1 className="font-serif text-[1.8em] font-semibold text-accent-2">✓ {W.complete}{when ? ` · ${when}` : ""}</h1>
+        {unmeasured > 0 && <p className="mt-1 font-semibold text-ink">{quantitiesLine(unmeasured)}</p>}
         {c?.price_critical && c.record && <p className="mt-2 font-mono text-ink">Price-critical {c.price_critical.done}/{c.price_critical.total} · Record {c.record.done}/{c.record.total} · {(c.price_critical.skipped ?? 0) + (c.record.skipped ?? 0)} skipped</p>}
         <p className="mt-3 text-ink">{W.completeLocked}</p>
         <div className="mt-5 grid gap-3">

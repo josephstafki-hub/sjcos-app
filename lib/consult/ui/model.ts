@@ -44,7 +44,7 @@ export const emptyDraft = (): EvidenceDraft => ({ skips: {}, flags: {}, trade_wa
 
 export type Mark = 'open' | 'partial' | 'covered' | 'not_applicable';
 export interface AnswerView { status: 'answered' | 'skipped' | 'cleared'; value: unknown; unit?: string; skip_reason?: SkipReason; skip_note?: string; local: 'server' | 'pending' | 'accepted' | 'conflict' | 'invalid' | 'other'; error_code?: string; event_id?: string; revision?: number }
-export interface ConflictView { key: string; instance_id: string; field_key: string; current?: { id: string; value: unknown; status: string; revision: number; device?: string | null; source_label?:string; available?:boolean; unit?:string|null; skip_reason?:string|null; skip_note?:string|null; actor?:string|null; created_at?:string }; proposed?: { id: string; value: unknown; status: string; device?: string | null; source_label?:string; available?:boolean; unit?:string|null; skip_reason?:string|null; skip_note?:string|null; actor?:string|null; created_at?:string }; event_id?: string; rebase?: boolean }
+export interface ConflictView { key: string; instance_id: string; field_key: string; current?: { id: string; value: unknown; status: string; revision: number; device?: string | null; source_label?:string; available?:boolean; unit?:string|null; skip_reason?:string|null; skip_note?:string|null; actor?:string|null; created_at?:string; person?:string }; proposed?: { id: string; value: unknown; status: string; device?: string | null; source_label?:string; available?:boolean; unit?:string|null; skip_reason?:string|null; skip_note?:string|null; actor?:string|null; created_at?:string; person?:string }; event_id?: string; rebase?: boolean }
 export interface ShotView { key: string; def: ShotDef; required: boolean; mark: Mark; skip?: AnswerView['skip_reason']; blobs: LocalBlob[]; addr: string }
 export interface FieldView {
   key: string; addr: string; def: FieldDef; required: boolean; applicable: boolean; mark: Mark;
@@ -66,6 +66,8 @@ export interface VisitModel {
   conflicts: ConflictView[]; touchedTrades: string[]; rrpApplies: boolean; rrp: ReturnType<typeof rrpFacts>;
   values: Record<string, unknown>; photosOk: boolean | null; promised: string | null;
   started: boolean; status: string; generation: number;
+  /** r8 domain E4: quantities that feed the estimate with no measured answer behind them. */
+  unmeasured: number;
 }
 
 /** Fallback for a flag published without a visitor `hint` (Joe's own edits): strip code citations
@@ -412,6 +414,7 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
     modules, templates, sections, slots, pc: tally.pc, record: tally.record, open: allOpen, flags: allFlags, conflicts,
     touchedTrades: [...touched], rrp, rrpApplies: rrpFacts(global, false, String(s.consult.scheduled_at)).applies, values: global, photosOk,
     promised: typeof promisedRaw === 'string' ? promisedRaw : null, started, status, generation: Number(s.consult.completion_generation),
+    unmeasured: projection.derived.filter((d) => d.definition.maps_to && !(d.result && d.result.answer_revisions.length > 0)).length,
   };
 }
 
@@ -452,6 +455,8 @@ export function clientArea(group: string): string {
   return group === 'Bath' ? 'Bathroom' : group.replace(/\bbath$/i, 'bathroom');
 }
 const SCOPE_AREA: Record<string, string> = { bath_scope: 'bathroom', kitchen_scope: 'kitchen', addition_scope: 'addition', basement_scope: 'basement', deck_scope: 'deck', whole_scope: 'whole house', general_scope: 'work area' };
+/** A room with no name, area or level (the client summary counts these and says them last). */
+const UNNAMED_ROOM = 'another room';
 const LEVEL_ROOM: Record<string, string> = { Basement: 'the basement room', Main: 'a main-floor room', Upper: 'an upper-floor room', Attic: 'the attic room', Garage: 'the garage' };
 /** A name the homeowner recognises (r2 N3): the room's own name, else its area, else its level. */
 export function clientPlace(s: SectionView): { heading: string; phrase: string } {
@@ -460,7 +465,7 @@ export function clientPlace(s: SectionView): { heading: string; phrase: string }
   const word = s.module.key === 'room' ? (() => { const a = areaOf(s.instance.label); return a ? clientArea(a).toLowerCase() : null; })() : SCOPE_AREA[s.module.key] ?? null;
   if (word) return { heading: word.charAt(0).toUpperCase() + word.slice(1), phrase: `the ${word}` };
   const level = s.fields.find((f) => f.key === 'level' && f.answer?.status === 'answered')?.answer?.value;
-  const phrase = typeof level === 'string' && LEVEL_ROOM[level] ? LEVEL_ROOM[level] : 'another room';
+  const phrase = typeof level === 'string' && LEVEL_ROOM[level] ? LEVEL_ROOM[level] : UNNAMED_ROOM;
   return { heading: phrase.replace(/^(the|a|an) /, '').replace(/^./, (c) => c.toUpperCase()), phrase };
 }
 
@@ -500,15 +505,15 @@ export function spokenSelections(model: VisitModel, max = 5): string {
  *  formal estimate date. Never a stock sentence. */
 export function summaryInput(model: VisitModel, display: Display | undefined, visitDate: string, formalDate: string) {
   const rooms: { name: string; work: string[] }[] = [];
-  const comeBack: {phrase:string; room:boolean}[] = [];
+  const comeBack: {phrase:string; room:boolean; id:string}[] = [];
   const measured = new Set<string>();
   const placeKey = (p:string)=>p.replace(/^(the|a|an) /i,'').toLowerCase();
   for (const s of model.sections) {
     if (!CLIENT_ROOMS.includes(s.module.key)) continue;
     const place = clientPlace(s);
     const answered = s.fields.filter((f) => !['name','level','decision'].includes(f.key) && f.answer?.status === 'answered' && f.mark !== 'open');
-    if (s.module.key === 'room' && !answered.some(f=>f.def.type==='length' || f.def.type==='length_pair')) comeBack.push({phrase:place.phrase,room:s.module.key==='room'});
-    if (!answered.length) { if (s.mark !== 'not_applicable') comeBack.push({phrase:place.phrase,room:s.module.key==='room'}); continue; }
+    if (s.module.key === 'room' && !answered.some(f=>f.def.type==='length' || f.def.type==='length_pair')) comeBack.push({phrase:place.phrase,room:s.module.key==='room',id:s.instance.id});
+    if (!answered.length) { if (s.mark !== 'not_applicable') comeBack.push({phrase:place.phrase,room:s.module.key==='room',id:s.instance.id}); continue; }
     const work: string[] = [];
     if (answered.some((f) => f.def.type === 'length' || f.def.type === 'length_pair')) {work.push('Measured');if(s.module.key==='room')measured.add(placeKey(place.phrase));}
     for (const f of answered) {
@@ -520,7 +525,11 @@ export function summaryInput(model: VisitModel, display: Display | undefined, vi
     if (same) same.work = [...new Set([...same.work, ...work])].slice(0, 6);
     else rooms.push({ name: place.heading, work: work.slice(0, 6) });
   }
-  const notMeasured = [...new Set(comeBack.filter(p=>p.room || !measured.has(placeKey(p.phrase))).map(p=>p.phrase))];
+  // r8 extra: a room with no name, area or level isn't "another room" up front — it is counted
+  // and said last: "the bathroom, the kitchen and one more room" (two unnamed rooms: "two more rooms").
+  const kept = comeBack.filter(p=>p.room || !measured.has(placeKey(p.phrase)));
+  const unnamed = new Set(kept.filter(p=>p.phrase===UNNAMED_ROOM).map(p=>p.id)).size;
+  const notMeasured = [...new Set(kept.filter(p=>p.phrase!==UNNAMED_ROOM).map(p=>p.phrase)), ...(unnamed ? [unnamed === 1 ? 'one more room' : `${SAY_N[unnamed] ?? unnamed} more rooms`] : [])];
   const questions = model.sections.filter((s) => s.module.key === 'closing').flatMap((s) => s.fields.filter((f) => f.key === 'client_questions' && f.answer?.status === 'answered').map((f) => String(f.answer!.value)));
   return { client_name: display?.client ?? '', visit_date: visitDate, rooms, come_back: notMeasured, still_to_decide: openSelectionGroups(model), open_questions: questions, formal_estimate_date: formalDate };
 }

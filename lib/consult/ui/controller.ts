@@ -30,7 +30,7 @@ export interface Boot {
 export type Phase = 'loading' | 'get_ready' | 'unlock' | 'visit' | 'blocked' | 'disabled' | 'complete';
 export type ReadyResult = 'idle' | 'checking' | 'ready' | 'not_ready' | 'no_signal';
 export interface CloseResult { complete: boolean; checks: { check: number; code: string; action?: string; open: string[]; open_phrase?: string }[]; price_critical: { total: number; done: number; skipped: number }; record: { total: number; done: number; skipped: number }; revision: number }
-export interface ClosingState { step: 'sending' | 'closing' | 'done' | 'error' | 'waiting_signal'; result?: CloseResult; code?: string }
+export interface ClosingState { step: 'sending' | 'closing' | 'done' | 'error' | 'waiting_signal'; result?: CloseResult; code?: string; ownerNotified?: boolean }
 export interface State {
   phase: Phase; online: boolean; boot: Boot | null; consultId: string; identity: OfflineIdentity | null; device: string;
   enrolled: boolean; olderBuild: boolean; leaseExpires: number | null;
@@ -568,7 +568,12 @@ export class VisitController {
       if (!owns()) return;
       const rawCode = codeOf(e), code = transientClose(rawCode) && rawCode !== 'no_signal' ? 'close_timeout' : rawCode;
       this.set({ local: this.engine?.read() ?? null, closing: { step: code === 'no_signal' ? 'waiting_signal' : 'error', code } });
-      if (code === 'close_timeout' || transientClose(code)) this.schedule(Math.min(60_000, 2000 * 2 ** Math.min(this.closeAttempts++, 5)));
+      if (!transientClose(rawCode) || Date.now()-(local.close_intent?.started_at??Date.now())>=30*60_000) {
+        try { await post(this.state.consultId,'report_close_failure',{reason:rawCode});
+          if(owns())this.set({closing:{step:'error',code,ownerNotified:true}});
+        } catch { /* Keep the intent and retry reporting when connectivity returns. */ }
+      }
+      this.schedule(Math.min(60_000,2000*2**Math.min(this.closeAttempts++,5)));
     } finally { if (owns()) { this.closing = false; this.closeToken = null; } }
   }
   dismissClosing() { this.set({ closing: null }); }

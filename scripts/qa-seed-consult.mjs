@@ -58,6 +58,7 @@ export async function seedQaConsult(c,slug,{uploadRoot,fixtureKey='consult-r7',s
    if(!(await snap()).conflicts.length)throw Error('Conflict was not created');
    visits.push({state,id,devices:[device,second],field:f.addr});continue;
   }
+  for(const key of ['hvac_vent','hvac_exhaust_fan']){const m=await model();if(!m.sections.some(s=>s.module.key===key))await send('create_instance',{instance_id:randomUUID(),module_key:key,label:key,parent_id:m.sections.find(s=>s.module.key==='hvac').instance.id},{},await rev());}
   const assumption={text:'QA fixture: omitted from estimate',responsible_trade:'General contractor',verification_point:'Before pricing',adjustment_route:'precon_change',quantity:null,unit:null,exclusion:'QA only — excluded'};
   let m=await model();
   for(const s of m.sections)for(const f of [...s.fields,...s.hidden]){
@@ -66,11 +67,19 @@ export async function seedQaConsult(c,slug,{uploadRoot,fixtureKey='consult-r7',s
    if(s.module.key==='house'&&f.key==='year_built')await send('answer',target,{status:'answered',value:2000});
    else if(f.key==='estimate_promised'&&skipEstimateDate){draft.skips[f.addr]={reason:'Joe sets the date'};await send('answer',target,{status:'skipped',skip_reason:'Joe sets the date'});}
    else if(f.def.type==='date')await send('answer',target,{status:'answered',value:'2026-12-10'});
+   else if(['length','count','number','year','yesno','choice','multi','text','length_pair'].includes(f.def.type)) {
+    const numbers={length:144,width:120,height:96,toilet_front_clearance:30,toilet_rough_in:12,vanity_width:48,amp:200};
+    let value=f.def.type==='yesno'?true:f.def.type==='choice'?(f.def.options.includes('Keep')?'Keep':f.def.options[0]):f.def.type==='multi'?[f.def.options[0]]:f.def.type==='text'?'Client requests durable neutral finishes; existing locations retained.':f.def.type==='length_pair'?[36,24]:f.def.type==='year'?2000:f.def.type==='count'?1:numbers[f.key]??(f.def.unit==='amp'?200:f.def.unit==='cfm'?110:f.def.unit==='sf'?120:36);
+    if(s.module.key==='era'&&['before_1978','disturbs_paint','window_door_replacement'].includes(f.key))value=false;
+    if(f.def.maps_to?.kind==='new_work')value={origin:'client_requested_optional',text:'Add dimmable task lighting above the kitchen counter'};
+    if(typeof value==='number'&&f.def.range)value=Math.max(f.def.range[0],Math.min(f.def.range[1],value));
+    await send('answer',target,{status:'answered',value,...(f.def.unit?{unit:f.def.unit}:{})});
+   }
    else {draft.skips[f.addr]={reason:'Other',note:'QA fixture: excluded by agreement',assumption};await send('answer',target,{status:'skipped',...(f.def.unit?{unit:f.def.unit}:{}),skip_reason:'Other',skip_note:'QA fixture: excluded by agreement'});}
   }
   m=await model();for(const s of m.sections)for(const shot of [...s.shots,...s.fields.flatMap(f=>f.shots)])draft.skips[shot.addr]={reason:'Other',note:'QA fixture: client declined photo',assumption};
   for(const flag of m.flags)draft.flags[flag.key]={disposition:'not_an_issue',note:'Reviewed for QA fixture'};
-  const evidence={...draft,photos_ok:true,manual_confirmed:true,handed_back:true,ack_reason:null,promised_date:skipEstimateDate?null:'2026-12-10',no_trades_confirmed:true,touched_trades:[],trade_walks:[],rrp:{receipt:true,firm_current:true,renovator_current:true,redelivery_required:false}};
+  const evidence={...draft,photos_ok:true,manual_confirmed:true,handed_back:true,ack_reason:null,promised_date:skipEstimateDate?null:'2026-12-10',no_trades_confirmed:false,touched_trades:m.touchedTrades,trade_walks:m.touchedTrades.map(trade=>({trade,needed:true,reason:trade==='Plumber'?'Confirm shower drain and sink connections':trade==='Electrician'?'Confirm kitchen circuits and bath GFCI':'Confirm bath exhaust route'})),rrp:{receipt:true,firm_current:true,renovator_current:true,redelivery_required:false}};
   await run('evidence',{device,epoch:1,expected_revision:await rev(),evidence});
   const closing=m.sections.find(s=>s.module.key==='closing');
   const bytes=await sharp({create:{width:16,height:16,channels:3,background:'#ffffff'}}).png().toBuffer(),sha256=createHash('sha256').update(bytes).digest('hex'),event_id=randomUUID();

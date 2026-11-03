@@ -100,7 +100,7 @@ test('offline Close intent and send failure survive cold unlock',async()=>{
  await assert.rejects(engine.replay(),/invalid_receipts/);
  assert.equal(engine.read().last_send_failure.code,'invalid_receipts');
  engine.lock();const cold=new OfflineEngine(id,store);await cold.unlock(key,lease);
- assert.deepEqual(cold.read().close_intent,{evidence:{photos_ok:false}});
+ assert.deepEqual(cold.read().close_intent.evidence,{photos_ok:false});assert.ok(cold.read().close_intent.started_at>0);
  assert.equal(cold.read().last_send_failure.code,'invalid_receipts');
  await cold.clearCloseIntent();assert.equal(cold.read().close_intent,undefined);store.close();
 });

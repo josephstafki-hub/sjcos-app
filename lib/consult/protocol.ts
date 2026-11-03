@@ -1,3 +1,4 @@
+import {touchedTrades} from './trades.ts';
 import {sameBathroom} from './flags.ts';
 import {conflictSideLabel} from './ui/words.ts';
 import {saveAcknowledgedSummary} from './summary.ts';
@@ -320,12 +321,13 @@ export async function completion(c:PoolClient,context:Context,target:string){
  const rrp=rrpFacts(global,media.some(p=>p.kind==='initials'&&p.field_key==='pamphlet_initials'&&live.some(i=>i.id===p.instance_id&&i.module_key==='era')),s.consult.scheduled_at,(await one<{start_date:string|null}>(c,'SELECT start_date::text FROM projects WHERE id=$1',[s.consult.project_id])).start_date);
  const receiptException=live.some(i=>i.module_key==='era'&&s.heads.some(h=>h.instance_id===i.id&&['pamphlet_given','pamphlet_initials'].includes(h.field_key)&&h.status==='skipped'&&(['Client absent','Client declined'].includes(h.skip_reason??'')||!!h.skip_note?.trim())&&e?.skips[`${i.id}:${h.field_key}`]?.reason===h.skip_reason));
  const rrpApplies=rrp.applies;
+ const derivedTrades=touchedTrades(live,flags.some(f=>live.some(i=>i.module_key==='structure'&&f.address?.startsWith(i.id+':'))),global['era.asbestos']);
  const input:CompletionInput={fields,photos,modules:mergeTemplateModules(templates,global).map(m=>({key:m.module,minimum:compileCondition(m.required,known)(global)?Math.max(1,m.min??1):0,live_count:live.filter(i=>i.module_key===m.module).length,parents_valid:live.every(i=>!i.parent_id||live.some(p=>p.id===i.parent_id))})),
  recording:{asked:e?.manual_confirmed===true,choice:e?'manual':null,confirmed_evidence:false,documented_failure_or_stop:false},photo_permission:e?.photos_ok??null,
  acknowledgement:{initials_committed:media.some(m=>m.kind==='initials'&&m.field_key==='client_initials'&&live.some(i=>i.id===m.instance_id&&i.module_key==='closing')),visitor_reason:e?.ack_reason??null,handed_back:e?.handed_back??false},promised_date:e?.promised_date??null,promised_date_skip:s.heads.filter(h=>live.some(i=>i.id===h.instance_id&&i.module_key==='closing')&&h.field_key==='estimate_promised'&&h.status==='skipped').map(h=>({reason:h.skip_reason!,note:h.skip_note}))[0],
  manifests:devices.map(d=>({device:d.device_id,acknowledged:!!d.close_ack_at,rejected:0,missing:!d.close_manifest})),unresolved_conflicts:s.conflicts.length,
  rrp:{applies:rrpApplies,receipt:rrp.receipt||receiptException,firm_current:rrp.firm_current,renovator_current:rrp.renovator_current,redelivery_required:e?.rrp.redelivery_required??false,redelivery_todo:!!e?.rrp.redelivery_day},flags,
- touched_trades:e?.touched_trades??[],trade_walks:(e?.trade_walks??[]).map(w=>({...w,actor:row.actor,at:String(row.updated_at)})),no_trades_confirmed:e?.no_trades_confirmed??false};
+ touched_trades:[...new Set([...derivedTrades,...(e?.touched_trades??[])])],trade_walks:(e?.trade_walks??[]).map(w=>({...w,actor:row.actor,at:String(row.updated_at)})),no_trades_confirmed:derivedTrades.length===0&&(e?.no_trades_confirmed??false)};
  return {result:consultCompleteness(input),flags,snapshot:s,evidence:e,receiptException:rrp.applies&&receiptException};
 }
 export async function close(c:PoolClient,context:Context,target:string,input:unknown){
@@ -358,9 +360,11 @@ export async function close(c:PoolClient,context:Context,target:string,input:unk
   for(const w of evidence.trade_walks.filter(w=>w.needed))await todo(c,s,'trade',w.trade,`${w.trade}: bid walk-through`,owner,w.day??null);
   if(evidence.rrp.redelivery_required&&evidence.rrp.redelivery_day)await todo(c,s,'rrp','redelivery','Re-deliver Renovate Right',owner,evidence.rrp.redelivery_day);
  }
+ await c.query('SELECT consult_reconcile_rrp($1)',[s.consult.project_id]);
  if(result.complete)await c.query('UPDATE consult_field_heads SET locked_generation=$2 WHERE consult_id=$1',[target,s.consult.completion_generation]);
  await c.query(`UPDATE consults SET status=$2,revision=revision+1,closed_at=now(),closed_by=$3,completed_at=CASE WHEN $4 THEN now() END,completed_by=CASE WHEN $4 THEN $3::uuid END,completeness_cache=$5 WHERE id=$1`,[target,result.complete?'complete':'incomplete',actor,result.complete,result]);
  await c.query("UPDATE work_items SET status='done',completed_at=now() WHERE source_kind='consult' AND (source_id=$1 OR ($3 AND source_id=$2)) AND status NOT IN ('done','cancelled')",[`${target}:schedule:visit`,`${target}:finish:visit`,result.complete]);
+ await c.query("UPDATE work_items SET status='done',completed_at=now() WHERE source_kind='consult' AND source_id=$1 AND status NOT IN ('done','cancelled')",[`${target}:close_failure:visit`]);
  await audit(c,target,actor,'close',{manifest:m,digest,result});
  if(result.complete && (await one<{value:string}>(c,"SELECT value FROM app_settings WHERE key='consult_auto_apply_findings'"))?.value==='true'){
   await enqueueConsultFindings(c,target,Number(s.consult.completion_generation));
@@ -475,6 +479,16 @@ export async function command(c:PoolClient,context:Context,target:string,kind:st
  if(kind==='resolve_conflict')return resolveConflict(c,context,target,input);
  if(kind==='ops')return batch(c,context,target,input);
  if(kind==='evidence')return saveEvidence(c,context,target,input);
+ if(kind==='report_close_failure'){
+  await authorize(c,context,target,kind);
+  const v=z.strictObject({reason:note}).parse(input);
+  const s=await snapshot(c,context,target);
+  if(['complete','incomplete'].includes(s.consult.status))return {reported:false};
+  const names=await one<{visitor:string;client:string}>(c,"SELECT u.name visitor,coalesce(p.client_name,p.name) client FROM consults c JOIN projects p ON p.id=c.project_id JOIN users u ON u.id=c.conducted_by WHERE c.id=$1",[target]);
+  await todo(c,s,'close_failure','visit',`${names.visitor}'s visit for ${names.client} hasn't closed — ${v.reason}`,await ownerId(c),null);
+  await c.query("UPDATE work_items SET status='open',completed_at=NULL WHERE source_kind='consult' AND source_id=$1 AND status IN ('done','cancelled')",[`${target}:close_failure:visit`]);
+  return {reported:true};
+ }
  if(kind==='close')return close(c,context,target,input);
  if(kind==='assign')return assign(c,context,target,input);
  if(kind==='start'){

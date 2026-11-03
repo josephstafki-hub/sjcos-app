@@ -267,7 +267,7 @@ export const W = {
   openQuestions: 'Open questions',
   nextStep: 'Next',
   nextFormal: 'Joe sends your formal estimate by {date}.',
-  nextFormalNoDate: 'Joe sends your formal estimate.',
+  nextFormalNoDate: "Joe will be in touch to tell you when you’ll have your formal estimate.",
   pickDateFirst: 'Pick the estimate date below, then read this line.',
   initials: 'Initials',
   clearInitials: 'Clear',

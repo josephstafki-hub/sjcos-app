@@ -3,7 +3,7 @@ import {deadlineFetch,transportCode} from './transport.ts';
 import {ConsultOfflineStore,assertOfflineLease,partitionKey,verifyLease,type SignedLease,type OfflineIdentity,type OfflineLease} from './offline.ts';
 import {applyReceipt,applyServerEpoch,enqueue,nextBatch,type QueueState,type ConsultOp,type OpReceipt} from './queue.ts';
 export interface LocalBlob {summary_text?:string;hash:string;event_id:string;mime:string;kind:'photo'|'initials';instance_id:string;field_key?:string;shot_key?:string;receipt?:{file_id:string;media_id:string}}
-export interface LocalVisit {queue:QueueState;snapshot:unknown;blobs:LocalBlob[];last_send:number|null;close_intent?:{evidence:Record<string,unknown>|null;request?:{expected_revision:number;manifest:unknown}};last_send_failure?:{code:string;at:number;detail?:string}|null}
+export interface LocalVisit {queue:QueueState;snapshot:unknown;blobs:LocalBlob[];last_send:number|null;close_intent?:{started_at?:number;evidence:Record<string,unknown>|null;request?:{expected_revision:number;manifest:unknown}};last_send_failure?:{code:string;at:number;detail?:string}|null}
 export type OfflineRepository=Pick<ConsultOfflineStore,'load'|'save'|'saveBlob'|'loadBlob'|'preflight'|'close'|'deleteBlob'|'blobHashes'>;
 export class OfflineEngine {
  lastSendFailure:{code:string;at:number;detail?:string}|null=null;
@@ -25,7 +25,7 @@ export class OfflineEngine {
  read():LocalVisit|null{this.access();if(this.value?.queue.blocked==='deleted')return {...structuredClone(this.value),snapshot:null,blobs:[],queue:{...this.value.queue,projection:{},entries:[]}};return this.value?structuredClone(this.value):null;}
  private async commit(value:LocalVisit){const {key,lease}=this.access();const revision=await this.store.save(this.identity,lease,key,this.revision,value);this.access();this.revision=revision;this.value=structuredClone(value);}
  async prepare(value:LocalVisit){if(this.value)throw new Error('local_conflict');await this.store.preflight();await this.commit(value);}
- async saveCloseIntent(evidence:Record<string,unknown>|null){return this.exclusive(async()=>{const v=this.read();if(v)await this.commit({...v,close_intent:{evidence}});});}
+ async saveCloseIntent(evidence:Record<string,unknown>|null){return this.exclusive(async()=>{const v=this.read();if(v)await this.commit({...v,close_intent:{evidence,started_at:Date.now()}});});}
  async saveCloseRequest(request:{expected_revision:number;manifest:unknown}){return this.exclusive(async()=>{const v=this.read();if(v?.close_intent)await this.commit({...v,close_intent:{...v.close_intent,request}});});}
  async clearCloseIntent(request?:{expected_revision:number;manifest:unknown}){return this.exclusive(async()=>{const v=this.read();if(request && JSON.stringify(v?.close_intent?.request)!==JSON.stringify(request))return;if(v)await this.commit({...v,close_intent:undefined});});}
  /** One durable transaction: initialization is either entirely present or absent. */

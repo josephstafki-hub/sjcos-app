@@ -1,3 +1,4 @@
+// Counsel confirmation needed: skipped-date Next sentence matches the spoken promise.
 /** Client hand-over payload: constructed from an allowlist, never a consult snapshot. */
 export interface ClientSummary {
   client_name:string; visit_date:string;
@@ -33,6 +34,6 @@ export function clientRecapText(input:ClientSummary):string {
  ...s.rooms.flatMap(r=>[r.name,r.work.join(' · ')]),
  ...s.still_to_decide.flatMap(g=>['Still to decide',g.group,...g.items.slice(0,STILL_TO_DECIDE_SHOWN),...(g.items.length>STILL_TO_DECIDE_SHOWN?['More choices in the estimate']:[])]),
  ...(s.come_back?.length?['Not measured today: '+sayList(s.come_back)]:[]),
- ...s.open_questions,'Next',s.formal_estimate_date?'Joe sends your formal estimate by '+s.formal_estimate_date+'.':'Joe will confirm the estimate date.',
+ ...s.open_questions,'Next',s.formal_estimate_date?'Joe sends your formal estimate by '+s.formal_estimate_date+'.':"Joe will be in touch to tell you when you’ll have your formal estimate.",
  'This is what we talked about today. It is not a contract or a price.'].filter(Boolean).join('\n');
 }

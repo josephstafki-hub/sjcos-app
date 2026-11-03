@@ -1,3 +1,4 @@
+import {touchedTrades} from '../trades.ts';
 import {sameBathroom} from '../flags.ts';
 import {conflictSideLabel} from './words.ts';
 import {PAMPHLET_UNKNOWN_YEAR_LINE} from '../forms/seed/shared.ts';
@@ -278,7 +279,7 @@ export function instanceLabel(m: ModuleDef, inst: SnapInstance, ordinal: number,
 }
 
 export interface TradeMap { [module: string]: string }
-const TRADES: TradeMap = { panel: 'Electrician', plumb_fixture: 'Plumber', water: 'Plumber', hvac: 'HVAC', hvac_vent: 'HVAC', hvac_exhaust_fan: 'HVAC' };
+
 
 export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[], draft: EvidenceDraft, overlayFrom = 0): VisitModel {
   const modules = modulesOf(s), templates = templatesOf(s);
@@ -401,11 +402,7 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
     sections.push(section);
   }
 
-  const touched = new Set<string>();
-  for (const i of live) if (TRADES[i.module_key]) touched.add(TRADES[i.module_key]);
-  if (allFlags.some(f => f.section.module.key === 'structure')) touched.add('Engineer/framer');
-  if (live.some(i => i.module_key === 'footing')) touched.add('Excavation/foundation');
-  if (Array.isArray(global['era.asbestos']) && global['era.asbestos'].some(v => v !== 'None')) touched.add('Abatement');
+  const touched = touchedTrades(live,allFlags.some(f=>f.section.module.key==='structure'),global['era.asbestos']);
   const year = global['house.year_built'];
   const status = s.consult.status;
   const started = status !== 'scheduled' || entries.some((e) => e.op.type === 'start' && !['invalid', 'deleted'].includes(e.status));

@@ -82,7 +82,7 @@ test('D4: a flag card leads with the measured value and has Go to field', () => 
   assert.equal(flagLead(flag, m), 'Measured 20″ — less than 24″ in front of the toilet. It’s staying where it is, so the code doesn’t force a change. Pick ‘Not an issue’ if it stays, or ‘Price it’ if the client wants it moved.');
   const fresh = buildModel(snapshot(tpl('bath'), [bath], [head(bath.id, 'toilet_plan', 'New standard'), head(bath.id, 'toilet_front_clearance', 20)]), [], [], emptyDraft()).flags.find((f) => f.key === `${bath.id}:toilet_front_clearance`);
   assert.equal(fresh.kind, 'code');
-  assert.equal(flagLead(fresh, m), 'Measured 20″ — less than 24″ in front of the toilet — a new toilet needs at least 24″ (Minnesota plumbing code).');
+  assert.equal(flagLead(fresh, m), 'Measured 20″ — in front of the toilet, a new toilet needs at least 24″ (Minnesota plumbing code).');
   assert.equal(flagLead({ ...flag, measured: [{ ...flag.measured[0], value: 19.5 }] }, m).split(' — ')[0], 'Measured 19 1/2″');
   assert.equal(flagLead({ ...flag, measured: [] }, m), flag.hint, 'nothing measured: the hint alone');
   const wrap = code(src('components/consult/field/WrapClose.tsx'));

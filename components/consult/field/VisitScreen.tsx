@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CoverageMark } from "@/components/ui/CoverageMark";
 import type { FieldView, SectionView, ShotView, VisitModel, EvidenceDraft, Display } from "@/lib/consult/ui/model";
-import { leaveList, nextOpen } from "@/lib/consult/ui/model";
+import { leaveList, nextOpen, resumeSection } from "@/lib/consult/ui/model";
 import type { AnswerPayload } from "@/lib/consult/ui/ops";
 import { W, fill, plainWords, spokenDuration, visitDuration } from "@/lib/consult/ui/words";
 import { Banner, Btn, Eyebrow, Sheet } from "./primitives";
@@ -88,7 +88,7 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
   saveError?: string | null; prefill?: import("@/lib/consult/ui/model").Snapshot["prefill"]; visitorNotes?: string; startAt?: string | null; model: VisitModel; display: Display | undefined; api: VisitApi; thumbs: Record<string, string>; online: boolean; draft: EvidenceDraft; refused: number; hasInitials: boolean; userName: string; staff: boolean; lastSaved: string | null; forgotClose: boolean;
 }) {
   const [view, setView] = useState<"opening" | "list" | "section">(() => (startAt ? "section" : model.sections.some((s) => s.fields.some((f) => f.answer)) ? "list" : "opening"));
-  const [active, setActive] = useState<string | null>(startAt ?? null);
+  const [active, setActive] = useState<string | null>(resumeSection(model,startAt));
   const [focusAddr, setFocusAddr] = useState<string | null>(null);
   const [keypad, setKeypad] = useState<{ f: FieldView; resolveAfter?: boolean } | null>(null);
   const [skip, setSkip] = useState<{ field?: FieldView; shot?: ShotView; sectionId: string } | null>(null);
@@ -294,7 +294,7 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
             <div className="mt-4 grid gap-3"><Btn onClick={() => { setOpeningStep(0); setView("opening"); }}>{W.opening}</Btn><Btn tone="primary" onClick={() => setSheet("wrap")}>{W.beforeYouWrap}</Btn></div>
           </div>
         </aside>
-        <div ref={main} className="min-w-0 lg:overflow-y-auto">{view === "list" ? <><div className="lg:hidden">{listView}</div><div className="hidden px-6 py-10 text-ink-2 lg:block">Pick a section on the left to start.</div></> : body}{keypad && <div aria-hidden className="h-[60dvh] lg:hidden" />}</div>
+        <div ref={main} className="min-w-0 lg:overflow-y-auto">{view === "list" ? <><div className="lg:hidden">{listView}</div><div className="hidden lg:block">{sectionView}</div></> : body}{keypad && <div aria-hidden className="h-[60dvh] lg:hidden" />}</div>
       </div>
 
       {keypad && <Keypad open def={keypad.f.def} label={keypad.f.def.label} initial={keypad.f.answer?.status === "answered" ? keypad.f.answer.value : undefined} last={section ? lastValue(section, keypad.f) : undefined}

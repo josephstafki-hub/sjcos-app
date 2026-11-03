@@ -35,7 +35,7 @@ test('DB export supplies flags, assumptions, exclusions, explicit new-work origi
    {key:'risk',label:'Risk',type:'text',maps_to:{scope_key:'flooring.install',kind:'observation'}},
    {key:'addition',label:'Additional work',type:'text',maps_to:{scope_key:'flooring.install',kind:'new_work'}}
   ].map(f=>({...f,required:false,tier:'record'}));
-  const definitions=[{key:'facts',fields},{key:'house',fields:[{key:'permit_city',type:'text'},{key:'permit_building_inspector',type:'text'},{key:'permit_electrical',type:'text'},{key:'year_built',type:'year'}].map(f=>({...f,label:f.key,required:false,tier:'record'}))},{key:'era',fields:[{key:'firm_cert_number',type:'text'},{key:'renovator_cert',type:'text'},{key:'renovator_expiry',type:'date'}].map(f=>({...f,label:f.key,required:false,tier:'record'}))}];
+  const definitions=[{key:'facts',fields},{key:'house',fields:[{key:'permit_city',type:'text'},{key:'permit_building_inspector',type:'text'},{key:'permit_electrical',type:'text'},{key:'year_built',type:'year'}].map(f=>({...f,label:f.key,required:false,tier:'record'}))},{key:'era',fields:[{key:'disturbs_paint',type:'yesno'},{key:'firm_cert_number',type:'text'},{key:'renovator_cert',type:'text'},{key:'renovator_expiry',type:'date'}].map(f=>({...f,label:f.key,required:false,tier:'record'}))}];
   let factsId;
   for(const d of definitions){
    const definition={...d,version:1,title:d.key,repeatable:false,say:[],shots:[],coverage:[]};
@@ -44,7 +44,7 @@ test('DB export supplies flags, assumptions, exclusions, explicit new-work origi
    await c.query('INSERT INTO consult_form_pins SELECT $1,id,kind,key,version,checksum FROM consult_form_versions WHERE id=$2',[f.consult,form]);
    const instance_id=randomUUID();if(d.key==='facts')factsId=instance_id;
    await f.send([f.op('create_instance',{},await f.revision(),{instance_id,module_key:d.key,label:d.key})]);
-   const data=d.key==='facts'?{condition:'Wet floor',supplier:null,risk:null,addition:{origin:'found_condition_required',text:'Repair damaged substrate'}}:d.key==='house'?{permit_city:'City',permit_building_inspector:'Inspector',permit_electrical:'DLI',year_built:1960}:{firm_cert_number:'firm',renovator_cert:'renovator',renovator_expiry:'2020-01-01'};
+   const data=d.key==='facts'?{condition:'Wet floor',supplier:null,risk:null,addition:{origin:'found_condition_required',text:'Repair damaged substrate'}}:d.key==='house'?{permit_city:'City',permit_building_inspector:'Inspector',permit_electrical:'DLI',year_built:1960}:{disturbs_paint:false,firm_cert_number:'firm',renovator_cert:'renovator',renovator_expiry:'2020-01-01'};
    for(const [field_key,value] of Object.entries(data))await f.send([f.op('answer',value===null?{status:'skipped',skip_reason:field_key==='supplier'?'Sub/supplier will measure':'No access'}:{status:'answered',value},0,{instance_id,field_key})]);
   }
   await f.save({...f.evidence,flags:{[`${factsId}:condition`]:{disposition:'sub_must_look',note:'Flooring sub to inspect'}},skips:{[`${factsId}:risk`]:{reason:'No access',assumption:{text:'Assume dry',responsible_trade:'Flooring',verification_point:'Before ordering',adjustment_route:'precon_change',quantity:null,unit:null,exclusion:null}}}});

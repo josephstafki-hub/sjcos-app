@@ -25,9 +25,9 @@ const EXPECTED_FIELDS = {
   hvac_exhaust_fan: 'where R P|cfm_source R P|rated_cfm C P cfm',
   structure: 'joist_size C P|joist_direction C P|walls_to_remove O Rec|bearing C P|floor_feel C P|sag_cracks O Rec|foundation R P|foundation_cracks O Rec|attic_access C P|attic_insulation C P',
   moisture: 'signs R P|meter O Rec pct|where C P|grade_slope C P',
-  era: 'window_door_replacement C P|renovator_name C P|renovator_cert C P|renovator_expiry C P|firm_cert_on_file C P|firm_cert_number C P|firm_cert_expiry C P|kids_pregnant C P|before_1978 R P|disturbs_paint C P|pamphlet_given C P|pamphlet_initials C P|lead_plan C P|asbestos C P|knob_tube C P',
+  era: 'year_override_reason C P|window_door_replacement C P|renovator_name C P|renovator_cert C P|renovator_expiry C P|firm_cert_on_file C P|firm_cert_number C P|firm_cert_expiry C P|kids_pregnant C P|before_1978 R P|disturbs_paint C P|pamphlet_given C P|pamphlet_initials C P|lead_plan C P|asbestos C P|knob_tube C P',
   exterior_site: 'city R P|survey R P|lot_line_front R P in|lot_line_side R P in|lot_line_rear R P in|easements O Rec|slope R P in|things_in_area R P|will_dig R P|trees R P|narrowest_gate C P in|siding R P|match_siding C P|roof_pitch C P pitch|pitch_factor D P|roofing C P',
-  footing: 'required_depth R P in|footing_type R P|reusable C P|old_concrete O Rec',
+  footing: 'frost_zone R P|planned_depth R P in|depth_margin D P|required_depth R P in|footing_type R P|reusable C P|old_concrete O Rec',
   selections: 'decision R P|status R P|product C P|direction C P|who_buys R P|budget_words O Rec|showroom O Rec',
   closing: 'summary R P|client_initials R P|estimate_promised R P|best_contact R P|client_questions O Rec|worried O Rec',
   bath_scope: 'new_tub_capacity O Rec gal|existing_tub_material R P|tub_drain_end C P|shower_drain_center C P in|wet_wall_exterior R P|wet_wall_framing C P|valve_brand R P|valve_cartridge R P|valve_plan R P|vent_stack_route C P|fan_label_cfm C P cfm|fan_route C P|fan_duct_length C P in|fan_elbows C P ea|fan_exit C P|fan_switch C P|elec_gfci R P|elec_receptacles R P ea|elec_dedicated_20a R P|elec_light_locations R P|toilet_front_clearance C P in|threshold_thickness R P in|heated_floor_area C P sf|bath_type R P|only_bathroom R P|top_changes R Rec|tub_shower_plan R P|existing_length C P in|existing_width C P in|new_shower_width C P in|new_shower_depth C P in|curb C P|niche O Rec|bench O Rec|glass C P|valve_type O Rec|shower_extras O Rec|wall_tile_height R P|heated_floor R P|vanity_wall R P in|vanity_width R P in|vanity_excess D P in|mirror O Rec|mirror_stud_bay C P|toilet_plan R P|fan_now R P|window_in_shower R P|grab_bars O Rec|storage_wanted O Rec|tile_height_in D P in|kept_tub_area D P sf|wall_tile_area D P sf',
@@ -65,7 +65,7 @@ const EXPECTED_SHOTS = {
 
 // Every ⚑ in the plan, with a fragment of its required text (citations where the plan gives one).
 const EXPECTED_FLAGS = {
-  'era.pamphlet_given':'Renovate Right not given', 'footing.footing_type':'Shallow footing',
+  'era.pamphlet_given':'Renovate Right not given', 'footing.footing_type':'Shallow footing', 'footing.planned_depth':'shallower than the city requirement', 'era.year_override_reason':'Year and pre-1978 answer disagree',
   'house.alarms_locations': 'R314/R315; CO within 10 ft of sleeping rooms (299F.51)', 'house.hoa_rules': 'HOA approval may be needed before permit',
   'access.dumpster_spot': 'street-use permit', 'access.narrowest_door': 'tub/cabinet delivery — check sizes', 'room.wall_finish': 'plaster: demo and patch cost',
   'window.wet_or_door_glazing': 'IRC R308.4.5 wet area / R308.4.2 next to a door', 'window.large_pane': 'IRC R308.4.3', 'window.near_stairs': 'R308.4.6 stairs / R308.4.7 bottom landing',
@@ -189,7 +189,7 @@ test('code rows carry the round-2/3 fixes: egress, makeup air, tempered glass, t
 });
 
 test('field labels use the plan\'s words (seed-added helpers listed explicitly)', () => {
-  const SEED_ADDED = new Set(['water.stack_cracks','hvac.fuel_appliances','bath_scope.new_tub_capacity','basement_scope.water_details','egress.well_ladder','visit.templates', 'visit.add_ons', 'visit.device', 'window.unit', 'window.new_unit', 'door.unit', 'garage_door.unit', 'garage.attached',
+  const SEED_ADDED = new Set(['era.year_override_reason','footing.frost_zone','footing.planned_depth','footing.depth_margin','water.stack_cracks','hvac.fuel_appliances','bath_scope.new_tub_capacity','basement_scope.water_details','egress.well_ladder','visit.templates', 'visit.add_ons', 'visit.device', 'window.unit', 'window.new_unit', 'door.unit', 'garage_door.unit', 'garage.attached',
     'exterior_site.pitch_factor', 'bath_scope.vanity_excess', 'bath_scope.tile_height_in', 'bath_scope.kept_tub_area', 'kitchen_wall.plumb_difference',
     'kitchen_scope.backsplash_height_in', 'kitchen_scope.island_run', 'kitchen_scope.island_top_area', 'addition_scope.wall_height', 'addition_scope.eave_overhang_area',
     'addition_scope.utilities_meter_in_footprint', 'basement_scope.new_partitions', 'basement_scope.drywall_ceiling_area', 'egress.well_area', 'deck_scope.deck_area']);

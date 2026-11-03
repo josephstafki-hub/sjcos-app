@@ -553,7 +553,8 @@ export const garage: ModuleDef = {
     text('ceiling', 'Ceiling height / trusses / attic storage', true),
     multi('electrical_wanted', 'Electrical wanted', ['Outlets', 'Lights', 'Subpanel', 'EV charger', 'Heater'], true, { note: '→ panel' }),
     choice('separation', 'Attached: wall and ceiling to the house, door to the house self-closing?', ['In place', 'Missing', 'Not sure'], eq('attached', true), {
-      flag: { when: isIn('separation', ['Missing', 'Not sure']), issue: 'IRC R302.6 separation missing' },
+      flag: { when: eq('separation', 'Missing'), issue: 'IRC R302.6 separation missing' },
+      flags: [{when:eq('separation','Not sure'),issue:'Garage separation not confirmed (IRC R302.6)'}],
     }),
   ],
   shots: [shot('each_side', 'Each side', true), shot('slab', 'Slab', true), shot('overhead_door', 'Overhead door', true), shot('attic', 'Attic', false)],

@@ -5,6 +5,7 @@
  * close result: Visit closed — sending · Complete · Needs finishing (n open) with the
  * failing checks in plain words. No item count is a score; the server decides Complete.
  */
+import {openItemCount} from '@/lib/consult/completeness';
 import { useState } from "react";
 import { CoverageMark } from "@/components/ui/CoverageMark";
 import type { EvidenceDraft, FieldView, ShotView, VisitModel } from "@/lib/consult/ui/model";
@@ -35,7 +36,7 @@ export function WrapSheet({ open, onClose, model, draft, hasInitials, refused, o
   const rrpOpen = model.rrpApplies && !(model.rrp.receipt && model.rrp.firm_current && model.rrp.renovator_current);
   const ackOpen = !hasInitials && !draft.ack_reason?.trim();
   const blocking = required.length > 0 || undecidedFlags.length > 0 || tradesOpen || rrpOpen || ackOpen || model.conflicts.length > 0 || refused > 0 || !model.promised;
-  const title = `${W.beforeYouWrap} · ${required.length} Open · ${partly.length} Partly`;
+  const title = `${W.beforeYouWrap} · ${openItemCount({price_critical:model.pc,record:model.record})} Open · ${partly.length} Partly`;
   return (
     <Sheet open={open} onClose={onClose} side title={title}
       footer={<><Btn onClick={onClose}>{W.keepWorking}</Btn><Btn tone="primary" onClick={onCloseVisit} disabled={model.conflicts.length > 0 || refused > 0}>{blocking ? W.closeVisitNeeds : W.closeVisit}</Btn></>}>
@@ -186,7 +187,7 @@ export function ClosingScreen({ closing, unsent, online, autoApply, findings, fi
 }) {
   const [reopening, setReopening] = useState(false); const [reason, setReason] = useState(""); const [err, setErr] = useState<string | null>(null);
   const r = closing.result;
-  const openN = r ? r.checks.reduce((n, c) => n + c.open.length, 0) : 0;
+  const openN = r ? openItemCount(r) : 0;
   return (
     <section className="mx-auto w-full max-w-[640px] px-4 py-6" aria-live="polite">
       {(closing.step === "sending" || closing.step === "closing") && <>
@@ -222,7 +223,7 @@ export function ClosingScreen({ closing, unsent, online, autoApply, findings, fi
           <p className="mt-2 text-ink">{fill(W.needsFinishingN, { n: openN })}</p>
           <ul className="mt-3 grid gap-2">
             {r.checks.filter((c) => c.open.length).map((c) => (
-              <li key={c.code} className="flex gap-2 rounded-md border-2 border-rule-soft bg-card px-3 py-2"><CoverageMark variant="ready" state="problem" size="sm" /><span className="text-ink">{CHECK_WORDS[c.code] ?? c.code}{c.open.length > 1 ? ` · ${c.open.length} open` : ""}</span></li>
+              <li key={c.code} className="flex gap-2 rounded-md border-2 border-rule-soft bg-card px-3 py-2"><CoverageMark variant="ready" state="problem" size="sm" /><span className="text-ink">{CHECK_WORDS[c.code] ?? c.code}{c.code === "close_manifests" ? ` · ${c.open.filter(x=>x!=="conflicts").length} devices waiting${c.open.includes("conflicts") ? "; unresolved conflicts" : ""}` : c.open.length > 1 ? ` · ${c.open.length} open` : ""}</span></li>
             ))}
           </ul>
         </>}

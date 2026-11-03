@@ -6,6 +6,7 @@
  * ⋯ holds Sun mode and Back to SJC OS on every width. Phase 1 has no recording, so
  * the capture state always reads "○ Notes off" and there is no notes/AI control.
  */
+import {sendHealth,sendDeadlines,type SendHealth} from "@/lib/consult/ui/send-health";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { VisitController, type Boot } from "@/lib/consult/ui/controller";
 import { buildEvidence, refusedEntries, summaryInput, unsentCount } from "@/lib/consult/ui/model";
@@ -37,14 +38,11 @@ function useAfter(at: number | null | undefined, ms: number): boolean {
 
 /** Two minutes online with answers waiting and nothing sent is a failure in itself (r2 N6): the
  *  screen must not depend on a send reporting an error. Returns when "stuck" began, or null. */
-const STUCK_MS = 120_000;
-function useStuckSince(online: boolean, unsent: number, lastSend: number | null): number | null {
-  const [waitingFrom, setWaitingFrom] = useState<number | null>(null);
-  const waiting = unsent > 0;
-  useEffect(() => { setWaitingFrom((w) => (waiting ? w ?? Date.now() : null)); }, [waiting]);
-  const since = waitingFrom === null ? null : Math.max(waitingFrom, lastSend ?? 0);
-  const due = useAfter(online && since !== null ? since : null, STUCK_MS);
-  return due && since !== null ? since + STUCK_MS : null;
+function useStuckSince(online:boolean,unsent:number,lastSend:number|null,failed:boolean) {
+ const [health,setHealth]=useState<SendHealth>({waitingFrom:null,failureFrom:null,lastSend});
+ useEffect(()=>setHealth(h=>sendHealth(h,online,unsent,lastSend,failed,Date.now())),[online,unsent,lastSend,failed]);
+ useAfter(health.waitingFrom,120_000);useAfter(health.failureFrom,60_000);
+ return sendDeadlines(health,Date.now());
 }
 
 /** §6.2 status bar: one 56 px row. Focus rings sit inside the row (offset −3 px) so none is clipped. */
@@ -72,7 +70,7 @@ function StatusBar({ unsent, photos, answers, online, lastSend, failure, onSend,
           <dt className="text-ink-2">{W.notes}</dt><dd>{W.notesOff}</dd>
           <dt className="text-ink-2">{W.answersWaiting}</dt><dd className="font-mono">{answers}</dd>
           <dt className="text-ink-2">{W.photosWaiting}</dt><dd className="font-mono">{photos}</dd>
-          <dt className="text-ink-2">{W.lastSent}</dt><dd>{lastSend ? clock(lastSend) : W.notYet}</dd>
+          <dt className="text-ink-2">{W.lastSent}</dt><dd>{lastSend ? clock(lastSend) : unsent === 0 ? "All sent ✓" : W.notYet}</dd>
           {failed && <><dt className="text-ink-2">{W.lastTry}</dt><dd className="text-ink"><span aria-hidden className="font-bold text-flag">⚠ </span>{clock(failure!.at)} · {plainWords(failure!.code)}{!/^(send_stuck|no_signal)$/.test(failure!.code) && <span className="block font-mono text-[0.8em] text-ink-3">{W.codeForJoe} {failure!.code}</span>}</dd></>}
           <dt className="text-ink-2">{W.signal}</dt><dd>{online ? W.online : W.noSignal}</dd>
         </dl>
@@ -105,10 +103,10 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
   const unsentOps = unsentCount(entries);
   const unsentPhotos = st.local?.blobs.filter((b) => !b.receipt).length ?? 0;
   const unsent = unsentOps + unsentPhotos;
-  const stuckAt = useStuckSince(st.online && st.phase === "visit", unsent, st.local?.last_send ?? null);
+  const {stuckAt,banner} = useStuckSince(st.online && st.phase === "visit", unsent, st.local?.last_send ?? null, sendFailed(st.lastSendFailure));
   // A reported failure wins; otherwise a silent stall online is shown as "Nothing went out".
   const failure = sendFailed(st.lastSendFailure) ? st.lastSendFailure : stuckAt !== null && !st.sending ? { code: "send_stuck", at: stuckAt } : st.lastSendFailure;
-  const failureDue = useAfter(sendFailed(failure) ? failure!.at : null, 60_000);
+  const failureDue = banner;
   const userName = boot?.user.name ?? display?.visitor_name ?? "yourself";
   const home = boot?.home ?? (display?.slug ? `/projects/${display.slug}` : "/");
   // One time format everywhere: the label is always made by centralTime from the stored visit time.

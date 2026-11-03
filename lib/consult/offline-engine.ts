@@ -1,11 +1,12 @@
+import {transportCode} from './transport.ts';
 /** Framework-independent controller. No decrypted shared singleton or automatic rebase. */
 import {ConsultOfflineStore,assertOfflineLease,partitionKey,verifyLease,type SignedLease,type OfflineIdentity,type OfflineLease} from './offline.ts';
 import {applyReceipt,applyServerEpoch,enqueue,nextBatch,type QueueState,type ConsultOp,type OpReceipt} from './queue.ts';
 export interface LocalBlob {hash:string;event_id:string;mime:string;kind:'photo'|'initials';instance_id:string;field_key?:string;shot_key?:string;receipt?:{file_id:string;media_id:string}}
-export interface LocalVisit {queue:QueueState;snapshot:unknown;blobs:LocalBlob[];last_send:number|null;close_intent?:{evidence:Record<string,unknown>|null;request?:{expected_revision:number;manifest:unknown}};last_send_failure?:{code:string;at:number}|null}
+export interface LocalVisit {queue:QueueState;snapshot:unknown;blobs:LocalBlob[];last_send:number|null;close_intent?:{evidence:Record<string,unknown>|null;request?:{expected_revision:number;manifest:unknown}};last_send_failure?:{code:string;at:number;detail?:string}|null}
 export type OfflineRepository=Pick<ConsultOfflineStore,'load'|'save'|'saveBlob'|'loadBlob'|'preflight'|'close'|'deleteBlob'|'blobHashes'>;
 export class OfflineEngine {
- lastSendFailure:{code:string;at:number}|null=null;
+ lastSendFailure:{code:string;at:number;detail?:string}|null=null;
  private device:string|null=null;private key:CryptoKey|null=null;private lease:OfflineLease|null=null;private value:LocalVisit|null=null;private revision=0;private running=false;
  private mutations:Promise<unknown>=Promise.resolve();
  private exclusive<T>(work:()=>Promise<T>):Promise<T>{const next=this.mutations.then(work);this.mutations=next.catch(()=>undefined);return next;}
@@ -38,15 +39,15 @@ export class OfflineEngine {
   * No replacement user is ever allowed to drain the old author's queue. */
  recoveryManifest(){const v=this.read();return {identity:this.identity,partition:partitionKey(this.identity),ops:v?.queue.entries.filter(e=>e.status!=='accepted').map(e=>e.op)??[],blobs:v?.blobs??[]};}
  private async post(path:string,body:unknown,method='POST',headers:Record<string,string>={}){return this.request(`/api/consult/${this.identity.consult_id}${path}`,{method,credentials:'same-origin',cache:'no-store',headers:{'X-Consult-CSRF':'1','Content-Type':'application/json',...headers},body:JSON.stringify(body)});}
- private async receipts(receipts:OpReceipt[]){const v=this.read();if(!v)return;let queue=v.queue;const failure=receipts.find(r=>r.status!==200);if(!failure)this.lastSendFailure=null;if(failure)this.lastSendFailure={code:failure.error_code??(failure.status===0?'no_signal':'send_failed'),at:Date.now()};for(const r of receipts)queue=applyReceipt(queue,r,Date.now());await this.commit({...v,queue,last_send_failure:this.lastSendFailure,last_send:receipts.some(r=>r.status>=200&&r.status<300)?Date.now():v.last_send,...(queue.blocked?{snapshot:null}: {})});if(queue.blocked==='signed_out'||queue.blocked==='revoked')this.lock();}
- async replay(){return this.exclusive(async()=>{try{await this.replayWrite();}catch(e){this.lastSendFailure={code:e instanceof Error?e.message:'unknown',at:Date.now()};let v:LocalVisit|null=null;try{v=this.key?this.read():null;}catch{/* locked lease: memory diagnostic remains visible */}if(v)await this.commit({...v,last_send_failure:this.lastSendFailure});throw e;}});}
+ private async receipts(receipts:OpReceipt[],detail?:string){const v=this.read();if(!v)return;let queue=v.queue;const failure=receipts.find(r=>r.status!==200);if(!failure)this.lastSendFailure=null;if(failure)this.lastSendFailure={code:failure.error_code??(failure.status===0?'no_signal':'send_failed'),at:Date.now(),...(detail?{detail}: {})};for(const r of receipts)queue=applyReceipt(queue,r,Date.now());await this.commit({...v,queue,last_send_failure:this.lastSendFailure,last_send:receipts.some(r=>r.status>=200&&r.status<300)?Date.now():v.last_send,...(queue.blocked?{snapshot:null}: {})});if(queue.blocked==='signed_out'||queue.blocked==='revoked')this.lock();}
+ async replay(){return this.exclusive(async()=>{try{await this.replayWrite();}catch(e){this.lastSendFailure={code:transportCode(e),at:Date.now(),detail:String(e)};let v:LocalVisit|null=null;try{v=this.key?this.read():null;}catch{/* locked lease: memory diagnostic remains visible */}if(v)await this.commit({...v,last_send_failure:this.lastSendFailure});throw e;}});}
  private async stoppedSend(code:string){this.lastSendFailure={code,at:Date.now()};if(this.key){const v=this.read();if(v)await this.commit({...v,last_send_failure:this.lastSendFailure});}}
  private async replayWrite(){
   if(this.running){await this.stoppedSend('send_in_progress');return;}this.running=true;
   try{const v=this.read();if(!v||v.queue.blocked){await this.stoppedSend(v?.queue.blocked??'not_prepared');return;}
    const ops=nextBatch(v.queue,Date.now());
    if(!ops.length){const first=v.queue.entries.find(e=>e.status!=='accepted');if(first){await this.stoppedSend(first.status==='pending'?(first.next_at>Date.now()?'retry_wait':'op_too_large'):(first.error_code??`queue_${first.status}`));return;}}
-   if(ops.length){let response:Response;try{response=await this.post('',{command:'ops',input:{nonce:crypto.randomUUID(),ops}});}catch(e){await this.receipts(ops.map(o=>({id:o.client_event_id,status:0,error_code:e instanceof TypeError&&/Illegal invocation/i.test(e.message)?'transport_invocation':'no_signal'})));return;}
+   if(ops.length){let response:Response;try{response=await this.post('',{command:'ops',input:{nonce:crypto.randomUUID(),ops}});}catch(e){await this.receipts(ops.map(o=>({id:o.client_event_id,status:0,error_code:transportCode(e)})),String(e));return;}
     const result=await response.json();const receipts:OpReceipt[]=response.ok?result:ops.map(o=>({id:o.client_event_id,status:response.status,error_code:result.error_code}));
     if(!Array.isArray(receipts)||receipts.length!==ops.length||new Set(receipts.map(r=>r.id)).size!==ops.length||receipts.some(r=>!ops.some(o=>o.client_event_id===r.id)))throw new Error('invalid_receipts');await this.receipts(receipts);
    }
@@ -60,13 +61,14 @@ export class OfflineEngine {
   const first=v.queue.entries[0]?.op;const device=first?.device_id??this.device;if(!device)throw new Error('device_missing');
   const init=await this.post('/uploads',{event_id:meta.event_id,device_id:device,device_epoch:v.queue.device_epoch,kind:meta.kind,mime:meta.mime,size:blob.size,sha256:meta.hash,instance_id:meta.instance_id,...(meta.field_key?{field_key:meta.field_key}:{}),...(meta.shot_key?{shot_key:meta.shot_key}:{})});
   if(!init.ok){await this.transportFailure(init.status);return;}const status=await init.json();
+  if(!status.receipt&&(!Number.isInteger(status.part_bytes)||status.part_bytes<=0||!status.upload_id||!Array.isArray(status.received_parts)))throw new Error('invalid_upload_response');
   if(!status.receipt){for(let n=0;n<Math.ceil(blob.size/status.part_bytes);n++){
    if(status.received_parts.some((p:{n:number})=>p.n===n))continue;
    const bytes=await blob.slice(n*status.part_bytes,(n+1)*status.part_bytes).arrayBuffer();const sha=[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(b=>b.toString(16).padStart(2,'0')).join('');
    const part=await this.request(`/api/consult/${this.identity.consult_id}/uploads/${status.upload_id}/parts/${n}`,{method:'PUT',credentials:'same-origin',headers:{'X-Consult-CSRF':'1','X-Part-SHA256':sha},body:bytes});if(!part.ok){await this.transportFailure(part.status);return;}
   }}
   const committed=status.receipt?null:await this.post(`/uploads/${status.upload_id}/commit`,{event_id:meta.event_id,sha256:meta.hash});if(committed&&!committed.ok){await this.transportFailure(committed.status);return;}
-  const receipt=status.receipt??await committed!.json(),latest=this.read()!;await this.commit({...latest,blobs:latest.blobs.map(b=>b.event_id===meta.event_id?{...b,receipt}:b)});
+  const receipt=status.receipt??await committed!.json(),latest=this.read()!;if(!receipt?.file_id||!receipt?.media_id)throw new Error('invalid_upload_receipt');this.lastSendFailure=null;await this.commit({...latest,last_send:Date.now(),last_send_failure:null,blobs:latest.blobs.map(b=>b.event_id===meta.event_id?{...b,receipt}:b)});
  }
  private async transportFailure(status:number){this.lastSendFailure={code:status===401?'signed_out':status===403?'revoked':`upload_${status}`,at:Date.now()};const v=this.read();if(!v)return;await this.commit({...v,last_send_failure:this.lastSendFailure});if([401,403,410,426].includes(status)){const queue={...v.queue,blocked:(status===401?'signed_out':status===403?'revoked':status===410?'deleted':'update_required') as QueueState['blocked'],projection:{}};await this.commit({...v,queue,snapshot:null});this.lock();}}
 }

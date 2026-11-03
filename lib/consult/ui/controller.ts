@@ -1,3 +1,5 @@
+import {frostZones} from '../frost.ts';
+import {isNetworkFailure,transportCode,transientClose} from '../transport.ts';
 /**
  * The one stateful object behind the field app. Wires the backend's offline modules
  * (get-ready.ts, offline-vault.ts, offline-engine.ts, queue.ts, service-worker.ts)
@@ -41,11 +43,12 @@ const post = async (consultId: string, command: string, input: unknown) => {
   const r = await fetch(`/api/consult/${consultId}`, { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-Consult-CSRF': '1' }, body: JSON.stringify({ command, input }) });
   let body: Record<string, unknown> = {};
   try { body = await r.json(); } catch { /* empty body */ }
-  if (!r.ok || body.ok === false) throw new Error(String(body.error_code ?? body.code ?? (r.status === 401 ? 'signed_out' : r.status === 403 ? 'access_denied' : 'invalid_command')));
+  if (r.status === 408 || r.status === 429 || r.status >= 500) throw new Error(`http_${r.status}`);
+  if (!r.ok || body.ok === false) throw new Error(String(body.error_code ?? body.code ?? (r.status === 401 ? 'signed_out' : r.status === 403 ? 'access_denied' : `http_${r.status}`)));
   return body;
 };
-const offlineError = (e: unknown) => e instanceof TypeError || (e instanceof Error && /Failed to fetch|NetworkError|Load failed|network/i.test(e.message));
-const codeOf = (e: unknown) => (offlineError(e) ? 'no_signal' : e instanceof Error ? e.message : 'unknown');
+const offlineError = isNetworkFailure;
+const codeOf = transportCode;
 
 export function deviceId(): string {
   try {
@@ -331,7 +334,7 @@ export class VisitController {
         const area = model.templates.flatMap(t=>Array.from({length:t.modules.find(m=>m.module===slot.module.key)?.min??0},()=>t.title))[slot.live+i];
         const label = preset?.decision ? String(preset.decision) : slot.module.repeatable ? `${slot.module.title} ${slot.live + i + 1} — ${area ?? model.templates[0]?.title ?? ""}` : slot.module.title;
         const op = await this.commit((q, b) => createInstanceOp(q, this.state.device, b, slot.module.key, label), label);
-        const defaults: Record<string, unknown> = slot.module.key === 'footing' ? {required_depth:42} : slot.module.key === 'era' ? Object.fromEntries(Object.entries({firm_cert_number:snap.prefill?.firm_cert_number,firm_cert_expiry:snap.prefill?.firm_cert_expiry}).filter(([,v])=>!!v)) : {};
+        const defaults: Record<string, unknown> = slot.module.key === 'footing' ? {frost_zone:frostZones[0].label,required_depth:frostZones[0].depth} : slot.module.key === 'era' ? Object.fromEntries(Object.entries({firm_cert_number:snap.prefill?.firm_cert_number,firm_cert_expiry:snap.prefill?.firm_cert_expiry}).filter(([,v])=>!!v)) : {};
         for (const [field, value] of Object.entries({...defaults,...preset})) {
           const def = slot.module.fields.find((f) => f.key === field); if (!def) continue;
           const id = (op.target as { instance_id: string }).instance_id;
@@ -344,6 +347,7 @@ export class VisitController {
 
   async answer(instance_id: string, field_key: string, label: string, payload: AnswerPayload, draft?: EvidenceDraft) {
     const op = await this.commit((q, b) => answerOp(q, this.state.device, b, instance_id, field_key, payload), label, draft);
+    if (field_key === 'frost_zone' && payload.status === 'answered') await this.answer(instance_id,'required_depth','Footing depth the city requires',{status:'answered',value:frostZones.find(z=>z.label===payload.value)?.depth ?? frostZones[0].depth});
     if (field_key === 'rooms_wanted') await this.ensureRequiredInstances();
     return op;
   }
@@ -421,6 +425,7 @@ export class VisitController {
       if (next !== undefined) this.schedule(Math.max(2000, next - Date.now()));
     }
   }
+  private closeAttempts = 0;
   private schedule(ms: number) { if (this.timer) clearTimeout(this.timer); this.timer = setTimeout(() => { void this.drain(); }, ms); }
 
   /** Fresh authorized snapshot for display/baseline; never replaces durable pending state. */
@@ -435,7 +440,7 @@ export class VisitController {
       const freshSeq = entries.filter((e) => e.status === 'accepted').reduce((m, e) => Math.max(m, e.op.seq), 0);
       if (epoch !== this.memoryEpoch) return;
       this.set({ fresh, freshSeq, online: true });
-    } catch (e) { if (offlineError(e)) this.set({ online: false }); }
+    } catch (e) { if (offlineError(e)) this.set({ online: false }); else this.set({lastSendFailure:{code:codeOf(e),at:Date.now()}}); }
   }
 
   /** §5.5 close: drain → evidence → exact manifest → server Complete / Needs finishing. */
@@ -445,7 +450,6 @@ export class VisitController {
     this.set({ local: this.engine.read(), closing: { step: 'sending' } });
     if (!navigator.onLine) { this.set({closing:{step:'waiting_signal'}}); return; }
     await this.drain(true);
-    if (this.engine?.read()?.close_intent && !this.closing) await this.resumeClose();
   }
   private async resumeClose() {
     if (!this.engine || this.closing) return;
@@ -458,7 +462,7 @@ export class VisitController {
     this.set({ closing: { step: 'closing' } });
     try {
       await this.refresh();
-      let revision = Number(this.state.fresh!.consult.revision);
+      let revision = Number((this.state.fresh ?? local.snapshot as Snapshot).consult.revision);
       if (evidence && !local.close_intent?.request) {
         try { const r = await post(this.state.consultId, 'evidence', { device: this.state.device, epoch: local.queue.device_epoch, expected_revision: revision, evidence }); revision = Number(r.revision); }
         catch (e) { throw e; }
@@ -470,10 +474,12 @@ export class VisitController {
       const result = (await post(this.state.consultId, 'close', request)) as unknown as CloseResult;
       await this.refresh();
       await this.engine?.clearCloseIntent();
-      this.set({ closing: { step: 'done', result } });
+      this.closeAttempts = 0;
+      this.set({ local: this.engine?.read() ?? null, closing: { step: 'done', result } });
     } catch (e) {
       const code = codeOf(e);
-      this.set({ closing: { step: code === 'no_signal' ? 'waiting_signal' : 'error', code } });
+      this.set({ local: this.engine?.read() ?? null, closing: { step: code === 'no_signal' ? 'waiting_signal' : 'error', code } });
+      if (transientClose(code)) this.schedule(Math.min(60_000, 2000 * 2 ** Math.min(this.closeAttempts++, 5)));
     } finally { this.closing = false; }
   }
   dismissClosing() { this.set({ closing: null }); }

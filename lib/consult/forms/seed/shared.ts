@@ -1,3 +1,5 @@
+import {frostZones} from '../../frost.ts';
+import {rrpBefore,rrpApplies,rrpYearConflict} from '../../rrp.ts';
 // Plan §7.3 shared modules, as executable data. Labels are the plan's words.
 import type { ModuleDef } from '../../form-types.ts';
 import {
@@ -28,7 +30,7 @@ export const house: ModuleDef = {
     choice('permit_electrical', 'Permit authority — electrical', ['City', 'DLI'], true, { hint: 'DLI is the state electrical inspector.', note: 'prefill sub scope permits', maps_to: { scope_key: 'general.permits', kind: 'client_answer' } }),
     text('alarms_locations', 'Smoke and CO alarms now — locations', true, {
       note: 'all templates including add-ons',
-      flag: { when: answered('alarms_locations'), issue: 'permitted work: review R314/R315; CO within 10 ft of sleeping rooms (299F.51)' },
+      flag: { when: isIn('alarms_missing', ['Missing', 'Unknown']), issue: 'permitted work: review R314/R315; CO within 10 ft of sleeping rooms (299F.51)' },
     }),
     multi('alarms_power', 'Smoke and CO alarms now — hardwired/battery', ['Hardwired', 'Battery'], true),
     choice('alarms_missing', 'Smoke and CO alarms now — missing/unknown', ['None missing', 'Missing', 'Unknown'], true),
@@ -392,8 +394,7 @@ export const moisture: ModuleDef = {
 };
 
 export const PAMPHLET_LINE = 'Because the house was built before 1978, the law requires us to give you this pamphlet about lead-safe work — it\'s called Renovate Right. Could you initial here that you got it?';
-const before1978 = eq('before_1978', true);
-const rrpApplies = all(before1978, any(eq('disturbs_paint', true), eq('window_door_replacement', true)));
+const before1978 = rrpBefore;
 const ASBESTOS = ['9×9 floor tile', 'Popcorn ceiling', 'Pipe or boiler wrap', 'Old duct tape', 'Vermiculite', 'Transite siding'];
 export const era: ModuleDef = {
   key: 'era', version: 1, title: 'Era hazards', repeatable: false, say: [],
@@ -409,6 +410,7 @@ export const era: ModuleDef = {
     date('firm_cert_expiry', 'SJC firm certification — expiry (verify)', rrpApplies),
     choice('kids_pregnant', 'Kids under 6 or pregnant person in home', ['Yes', 'No', 'Declined'], rrpApplies, { hint: 'Yes or no only. No names or medical details.', note: 'containment and cleaning plan; no identity/medical details' }),
     yesno('before_1978', 'Built before 1978?', true, { hint: 'Filled from Year built. Change it if that’s wrong.', note: 'filled from Year built, editable (prefill: derivationCases era.before_1978)' }),
+    text('year_override_reason', 'Why is this not a pre-1978 home despite the year?', rrpYearConflict, {flag:{when:all(rrpYearConflict,{not:answered('era.year_override_reason')}),issue:'Year and pre-1978 answer disagree — record the reason before closing'}}),
     yesno('disturbs_paint', 'Will the work disturb more than 6 sq ft of painted surface in a room, or 20 sq ft outside?', before1978, { note: 'EPA RRP rule (40 CFR 745 Subpart E)' }),
     yesno('pamphlet_given', 'Renovate Right pamphlet given', rrpApplies, {
       flag: { when: eq('pamphlet_given', false), issue: 'Renovate Right not given — give before work starts' },
@@ -457,9 +459,12 @@ export const exterior_site: ModuleDef = {
 export const footing: ModuleDef = {
   key: 'footing', version: 1, title: 'Footings & frost', repeatable: false, say: [],
   fields: [
+    choice('frost_zone', 'County frost zone', frostZones.map(z=>z.label), true, {hint:'Confirm the county in the city’s handout. The city requirement stays editable.',note:'Minn. R. 1303.1600: Zone I northern counties 60 in; Zone II southern counties 42 in.'}),
     len('required_depth', 'Footing depth the city requires', true, {
-      hint: 'Usually 42 in in the metro and 60 in up north. Check the city’s handout.', note: 'default 42 in. MN Rules 1303.1600: 42″ in the southern zone (metro), 60″ in the northern; confirm on the city\'s handout; floating option requires documented Minn. R. 1303.1600 criteria and city approval',
+      hint: 'Southern Minnesota (Zone II): 42 in; northern counties (Zone I): 60 in. Check the city’s handout.', note: 'default 42 in. MN Rules 1303.1600: 42″ in the southern zone (metro), 60″ in the northern; confirm on the city\'s handout; floating option requires documented Minn. R. 1303.1600 criteria and city approval',
     }),
+    len('planned_depth', 'Planned footing depth', true, {flag:{when:lt('depth_margin',0),issue:'Planned footing is shallower than the city requirement — get a written city-approved detail'}}),
+    derived('depth_margin', 'Planned depth minus city requirement', 'number', 'planned_depth - required_depth'),
     choice('footing_type', 'Footing type planned', ['Poured piers', 'Helical piles', 'Full foundation', 'Frost-protected shallow', 'Floating (freestanding, low deck — city must allow)'], true, { flag: { when: any(isIn('footing_type', ['Frost-protected shallow', 'Floating (freestanding, low deck — city must allow)']), lt('required_depth', 42)), issue: 'Shallow footing — written city-approved detail before pricing (Minn. R. 1303.1600)' } }),
     choice('reusable', 'Existing footings reusable?', ['Yes', 'No', 'Unknown'], eq('deck_scope.new_or_replace', 'Replace'), { note: 'R? replacing a deck/porch' }),
     text('old_concrete', 'Old concrete or roots where we\'d dig', false),

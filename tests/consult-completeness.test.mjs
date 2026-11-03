@@ -42,3 +42,11 @@ test('conditions use typed operands and unknown never satisfies inequality', () 
  assert.equal(conditionMatches({field:'year',op:'ne',value:1978},()=>undefined),false);
  assert.equal(conditionMatches({field:'year',op:'lt',value:1978},()=> '1960'),false);
 });
+
+import {rrpFacts} from '../lib/consult/rrp.ts';
+test('explicit pre-1978 on a newer year and skipped disturbance block close without RRP',()=>{
+ for(const values of [{'house.year_built':1985,'era.before_1978':true,'era.disturbs_paint':true},{'house.year_built':1954}]){
+  const x=complete();x.rrp={...x.rrp,...rrpFacts(values,false,'2026-11-03')};
+  const r=consultCompleteness(x);assert.equal(r.complete,false);assert.deepEqual(r.checks.find(c=>c.code==='rrp').open,['rrp']);
+ }
+});

@@ -1,3 +1,4 @@
+import {pinnedDerivations} from '../derive.ts';
 import { mergeTemplateModules } from '../template-merge.ts';
 import { rrpFacts } from '../rrp.ts';
 /**
@@ -206,6 +207,7 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
   const byKey = new Map(modules.map((m) => [m.key, m]));
   const live = liveInstances(s, entries).filter((i) => !i.removed_at);
   const answers = answerMap(s, entries, overlayFrom);
+  const projection = pinnedDerivations(modules, templates, live, [...answers].map(([addr,a])=>({...a,id:addr,instance_id:addr.slice(0,addr.lastIndexOf(":")),field_key:addr.slice(addr.lastIndexOf(":")+1),server_revision:String(a.revision??0)})));
   const conflicts = openConflicts(s, entries);
   const known = knownFields(modules);
   // Global values for cross-module conditions; ambiguous repeats stay arrays (server rule).
@@ -252,6 +254,7 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
     const n = (ordinals.get(m.key) ?? 0) + 1; ordinals.set(m.key, n);
     const values: Record<string, unknown> = { ...global };
     for (const f of m.fields) { const a = answers.get(addrOf(inst.id, f.key)); if (a?.status === 'answered') values[f.key] = a.value; }
+    for (const f of m.fields) { const v=projection.scalar(inst,f.key); if(v!==undefined)values[f.key]=v; }
     const localKnown = new Set([...known, ...m.fields.map((f) => f.key)]);
     const req = (r: boolean | When) => safeCondition(r, localKnown, values);
     const fieldViews: FieldView[] = []; const hidden: FieldView[] = [];
@@ -363,7 +366,7 @@ export function summaryInput(model: VisitModel, display: Display | undefined, vi
   const comeBack: string[] = [];
   for (const s of model.sections) {
     if (!CLIENT_ROOMS.includes(s.module.key)) continue;
-    const answered = s.fields.filter((f) => f.answer?.status === 'answered' && f.mark !== 'open');
+    const answered = s.fields.filter((f) => !['name','level','decision'].includes(f.key) && f.answer?.status === 'answered' && f.mark !== 'open');
     if (!answered.length) { if (s.mark !== 'not_applicable') comeBack.push(s.label); continue; }
     const work: string[] = [];
     if (answered.some((f) => f.def.type === 'length' || f.def.type === 'length_pair')) work.push('Measured');
@@ -430,4 +433,9 @@ export function buildEvidence(model: VisitModel, draft: EvidenceDraft, hasInitia
     ack_reason: hasInitials ? null : trim(draft.ack_reason) || null, promised_date: model.promised,
     no_trades_confirmed: touched.length === 0 && draft.no_trades_confirmed, touched_trades: touched, trade_walks: walks, rrp, flags, skips,
   };
+}
+
+/** A resumed tablet always has a real pane, preferring outstanding work. */
+export function resumeSection(model: VisitModel, requested?: string | null): string | null {
+ return (requested && model.sections.some(s=>s.instance.id===requested) ? requested : null) ?? model.open[0]?.section.instance.id ?? model.sections[0]?.instance.id ?? null;
 }

@@ -118,3 +118,52 @@ test('offline Close cold reload reconnect automatically closes exactly once',asy
  globalThis.fetch=async(_url,init)=>{if(init?.method==='POST'){assert.equal(JSON.parse(init.body).command,'close');closes++;return Response.json({complete:true,checks:[],revision:1});}return Response.json({consult:{revision:1}});};
  try{await next.drain();assert.equal(next.getState().closing.step,'done');assert.equal(cold.read().close_intent,undefined);await next.drain();assert.equal(closes,1);}finally{globalThis.fetch=previous;store.close();}
 });
+
+test('empty-queue Close retries a lost acknowledgement after cold unlock with the exact request',async(t)=>{
+ const {VisitController}=await import('../lib/consult/ui/controller.ts');
+ const {engine,store,key,lease}=await setup();
+ await engine.saveCloseIntent(null);
+ const exact={expected_revision:1,manifest:{device_id:'device',marker:'same-request'}};
+ await engine.saveCloseRequest(exact);engine.lock();
+ const cold=new OfflineEngine(id,store);await cold.unlock(key,lease);
+ const ctl=new VisitController(null,'visit');ctl.engine=cold;ctl.state.local=cold.read();ctl.state.device='device';
+ Object.defineProperty(globalThis.navigator,'onLine',{value:true,configurable:true});
+ const previous=globalThis.fetch;let effects=0,attempts=0;const seen=new Set();
+ globalThis.fetch=async(_url,init)=>{
+  if(!init?.method)return Response.json({consult:{revision:2}});
+  const body=JSON.parse(init.body);assert.equal(body.command,'close');assert.deepEqual(body.input,exact);
+  const k=JSON.stringify(body.input);if(!seen.has(k)){seen.add(k);effects++;}
+  if(++attempts===1)throw new TypeError('Failed to fetch');
+  return Response.json({complete:true,checks:[],revision:2});
+ };
+ t.after(()=>{globalThis.fetch=previous;if(ctl.timer)clearTimeout(ctl.timer);store.close();});
+ await ctl.drain();assert.equal(ctl.state.closing.step,'waiting_signal');assert.ok(ctl.timer);
+ // The actual scheduled callback (no browser online event or user action).
+ let retried;const drain=ctl.drain.bind(ctl);ctl.drain=(...args)=>(retried=drain(...args));
+ const timer=ctl.timer,fire=timer._onTimeout;clearTimeout(timer);fire();await retried;
+ assert.equal(ctl.state.closing.step,'done');assert.equal(attempts,2);assert.equal(effects,1);assert.equal(cold.read().close_intent,undefined);
+});
+
+test('answer exceptions preserve unknown vs network failures; upload-only success stamps Last sent',async()=>{
+ for(const error of [new Error('adapter bug'),new TypeError('Illegal invocation'),'thrown string',new TypeError('Failed to fetch')]){
+  const {engine,store}=await setup(async()=>{throw error;});await engine.capture(await answer(),{});await engine.replay();
+  assert.equal(engine.read().last_send_failure.code==='no_signal',error?.message==='Failed to fetch');store.close();
+ }
+ const {engine,store,key,lease}=await setup(async()=>Response.json({receipt:{file_id:'file',media_id:'media'}}));
+ await engine.capture(await answer(),{});
+ // Accepted answer supplies the original device identity, but only the upload is drained.
+ let v=engine.read();v.queue.entries[0].status='accepted';await engine.commit(v);
+ const bytes=new Blob(['bytes']);const digest=[...new Uint8Array(await crypto.subtle.digest('SHA-256',await bytes.arrayBuffer()))].map(b=>b.toString(16).padStart(2,'0')).join('');
+ await engine.captureBlob(bytes,{hash:digest,event_id:crypto.randomUUID(),kind:'photo',mime:'image/jpeg',instance_id:'room'});
+ await engine.replay();assert.ok(engine.read().last_send);assert.equal(engine.read().last_send_failure,null);
+ engine.lock();await engine.unlock(key,lease);assert.ok(engine.read().last_send);store.close();
+});
+
+test('upload network and adapter exceptions retain honest diagnostics; malformed upload is actionable',async()=>{
+ for(const [error,expected] of [[new TypeError('Failed to fetch'),'no_signal'],[new TypeError('adapter bug'),'adapter bug'],['oops','transport_unknown'],[null,'invalid_upload_response']]){
+  const {engine,store}=await setup(async()=>{if(error===null)return Response.json({});throw error;});const op=await answer();await engine.capture(op,{});let v=engine.read();v.queue.entries[0].status='accepted';await engine.commit(v);
+  const bytes=new Blob(['image']);const digest=[...new Uint8Array(await crypto.subtle.digest('SHA-256',await bytes.arrayBuffer()))].map(b=>b.toString(16).padStart(2,'0')).join('');
+  await engine.captureBlob(bytes,{hash:digest,event_id:crypto.randomUUID(),kind:'photo',mime:'image/jpeg',instance_id:'room'});
+  await assert.rejects(engine.replay());assert.equal(engine.read().last_send_failure.code,expected);assert.ok(engine.read().last_send_failure.detail);store.close();
+ }
+});

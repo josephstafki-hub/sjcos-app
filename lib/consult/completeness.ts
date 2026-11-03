@@ -82,3 +82,5 @@ export function consultCompleteness(input: CompletionInput) {
   };
   return { complete: checks.every((c) => !c.open.length), checks, price_critical: counts('price_critical'), record: counts('record') };
 }
+
+export function openItemCount(counts: {price_critical:{total:number;done:number};record:{total:number;done:number}}):number { return counts.price_critical.total-counts.price_critical.done+counts.record.total-counts.record.done; }

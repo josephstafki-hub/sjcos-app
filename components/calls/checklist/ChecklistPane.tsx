@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, ArrowLeft, ChevronDown, CloudOff, ExternalLink, RotateCw } from "lucide-react";
 import { CoverageMark, coverageWord } from "@/components/ui/CoverageMark";
+import { errorCopy } from "@/lib/checklist-coverage/action-result";
 import { finishChecklist, linkChecklist, loadChecklistSummary } from "@/lib/actions/discovery-checklist";
 import { checklistLeadInfo, type ChecklistLead } from "@/lib/actions/discovery-checklist-ui";
 import { INSURANCE_WARNING, priorToValue, type ChecklistSnapshot } from "@/lib/checklist-coverage/manual";
@@ -187,7 +188,7 @@ export function ChecklistPane({
         call_id: target.call_id !== undefined ? target.call_id : fresh.session.call_id,
         expected_revision: fresh.session.revision, operation_id: crypto.randomUUID(),
       });
-      if (!r.ok) { await sync.reload(); setLinkError("The checklist changed on another device. Try again."); return; }
+      if (!r.ok) { await sync.reload(); setLinkError(errorCopy(r.code)); return; }
       await sync.reload();
       setPicker(null);
     } catch {
@@ -219,6 +220,7 @@ export function ChecklistPane({
         const fresh = await sync.reload();
         if (!fresh) break;
         const r = await finishChecklist({ session_id: sessionId, expected_revision: fresh.session.revision, operation_id: crypto.randomUUID() });
+        if (!r.ok && r.code!=="CHECKLIST_CONFLICT") {setFinishError(errorCopy(r.code)); return;}
         if (r.ok) { await sync.reload(); await openSummary(("summary" in r ? r.summary : undefined) as SummaryData | undefined); return; }
       }
       setFinishError("The checklist changed on another device. Try again.");
@@ -228,6 +230,7 @@ export function ChecklistPane({
   }
 
   // ── states before the checklist is in hand ────────────────────────────
+  if (sync.problem?.kind === "user_switch") return <p role="alert" className="p-4">Sign in again before continuing. Your changes have not been sent.</p>;
   if (!snap) {
     return (
       <div className="flex min-h-0 flex-1 flex-col bg-paper-2">
@@ -304,7 +307,7 @@ export function ChecklistPane({
           <Banners sync={sync} rows={rows} />
         </div>
 
-        <div className="grid gap-x-8 px-4 pb-4 pt-2 @2xl/page:px-5 @6xl/page:grid-cols-[minmax(0,58fr)_minmax(0,42fr)]">
+        <fieldset disabled={sync.editsBlocked} className="min-w-0 grid gap-x-8 px-4 pb-4 pt-2 @2xl/page:px-5 @6xl/page:grid-cols-[minmax(0,58fr)_minmax(0,42fr)]">
           <section aria-labelledby={`${sessionId}-h`}>
             <div className="flex items-baseline justify-between gap-3 border-b border-rule pb-1">
               <h2 id={`${sessionId}-h`} className="font-serif text-[20px] font-semibold leading-7 text-ink">Discovery checklist</h2>
@@ -372,11 +375,11 @@ export function ChecklistPane({
                 className="mt-1 block w-full rounded-md border border-rule bg-card px-3 py-2.5 text-[16px] leading-6 text-ink focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus" />
             </div>
           </aside>
-        </div>
+        </fieldset>
 
         <div className="sticky bottom-0 z-10 border-t border-rule bg-paper-2 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 @2xl/page:px-5">
           {finishError && <p role="alert" className="mb-2 text-[15px] text-flag">{finishError}</p>}
-          <Btn kind="primary" onClick={() => void (s.status === "ended" ? openSummary() : finish())} disabled={finishing || !!sync.conflict || sync.recovered !== null} className="w-full @6xl/page:w-auto @6xl/page:min-w-64">
+          <Btn kind="primary" onClick={() => void (s.status === "ended" ? openSummary() : finish())} disabled={finishing || !!sync.conflict || sync.recovered !== null} className="w-full @3xl/page:w-auto @3xl/page:min-w-64">
             {finishing ? "Finishing…" : s.status === "ended" ? "Summary" : "Finish checklist"}
           </Btn>
         </div>

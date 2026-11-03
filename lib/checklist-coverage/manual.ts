@@ -1,3 +1,4 @@
+import type { ActionFailure } from './action-result.ts';
 import type { ChecklistItem, ItemCoverage, ItemIdentity, CoverageState } from './contract.ts';
 import { safeRevision, COVERAGE_STATES } from './contract.ts';
 export interface ManualOperation { session_id:string; item_id:string; state:CoverageState; value:unknown; reason:string|null; expected_revision:number; operation_id:string }
@@ -6,7 +7,8 @@ export interface ChecklistSnapshot {
  version: {id:string;definition_id:string;version:number;items:ChecklistItem[]};
  rows: {identity:ItemIdentity;coverage:ItemCoverage;spec:ChecklistItem;prior:{value:unknown;fact_key:string}|null}[];
 }
-export type CommandResult = {ok:true;session_id:string;revision:number} | {ok:false;code:'CHECKLIST_CONFLICT';status:409;current:ChecklistSnapshot;proposed:unknown};
+export type CommandResult = ActionFailure | {ok:true;session_id:string;revision:number} | {ok:false;code:'CHECKLIST_CONFLICT';status:409;current:ChecklistSnapshot;proposed:unknown};
+export type FollowupResult = ActionFailure | Extract<CommandResult,{code:'CHECKLIST_CONFLICT'}> | {ok:true;work_item_id:string;knowledge_id:string;never_sent:true};
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function uuid(value:string):string { if (!UUID.test(value)) throw new Error('CHECKLIST_INVALID_ID'); return value; }
 export function validateManualOperation(op:ManualOperation):void {

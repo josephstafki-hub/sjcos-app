@@ -1,6 +1,7 @@
 "use client";
+import { errorCopy } from "@/lib/checklist-coverage/action-result";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { PhoneCall, PhoneIncoming, PhoneOutgoing, Voicemail, AlertCircle, ExternalLink, Plus, X, ArrowLeft, FileText, ListChecks } from "lucide-react";
 import { ConnectionNotice } from "@/components/messages/ConnectionNotice";
 import { Button, PageHeader, Chip } from "@/components/ui";
@@ -128,13 +129,15 @@ export function CallsClient({
 
   // One tap: the checklist exists the moment the button is pressed; the lead
   // and call are linked later from its header (plan §4.2 step 1).
+  const manualStartOp = useRef<string | null>(null);
   function startManual() {
     if (starting) return;
     setStarting(true);
     setStartError(null);
-    void startChecklist({ operation_id: crypto.randomUUID() })
+    void startChecklist({ operation_id: manualStartOp.current ??= crypto.randomUUID() })
       .then((r) => {
-        if (!r.ok) { setStartError("Couldn't start the checklist. Try again."); return; }
+        if (!r.ok) { setStartError(errorCopy(r.code)); return; }
+        manualStartOp.current = null;
         setManualId(r.session_id);
         setSelectedId(null);
         setMobileDetail(true);

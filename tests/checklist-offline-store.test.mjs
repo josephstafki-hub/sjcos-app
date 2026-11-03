@@ -100,3 +100,22 @@ test('denied or full storage rejects so the page can warn and keep edits in memo
  const full=await openPendingStore(fakeIDB({quota:true}),'alice');
  await assert.rejects(()=>full.save(S1,entry('alice')),/Quota/);
 });
+
+test('logout drains pending writes, closes active handles and rejects late writes or opens',async()=>{
+ const idb=fakeIDB();const a=await openPendingStore(idb,'alice');
+ const pending=a.save(S1,entry('alice'));
+ const clearing=clearAllPending(idb);
+ await pending;await clearing;
+ assert.equal(idb.dbs.has('sjcos-calls'),false);assert.equal(idb.live.size,0);
+ await assert.rejects(a.save(S1,entry('alice')),/IDB_SIGNED_OUT/);
+ const opening=openPendingStore(idb,'alice');const clearAgain=clearAllPending(idb);
+ await assert.rejects(opening,/IDB_SIGNED_OUT/);await clearAgain;
+ assert.equal(idb.dbs.has('sjcos-calls'),false);
+});
+
+test('blocked deletion is not reported as completed before the database is deleted',async()=>{
+ const request={};let completed=false;
+ const clearing=clearAllPending({deleteDatabase:()=>request}).then(()=>{completed=true;});
+ request.onblocked();await Promise.resolve();assert.equal(completed,false);
+ request.onsuccess();await clearing;assert.equal(completed,true);
+});

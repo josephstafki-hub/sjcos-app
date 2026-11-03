@@ -80,7 +80,7 @@ export async function Shell({ children, breadcrumb, aiContext }: ShellProps) {
             toolbar that didn't wrap) must never make the whole page pan
             sideways on a phone. Anything genuinely wide (tables) scrolls
             inside its own overflow-x-auto wrapper. */}
-        <div className="@container/page relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto">{children}</div>
+        <div className="@container/page max-sm:mb-[calc(3.5rem+env(safe-area-inset-bottom))] relative min-h-0 flex-1 overflow-x-hidden overflow-y-auto">{children}</div>
       </div>
       <PageAiContext context={aiContext} />
     </div>

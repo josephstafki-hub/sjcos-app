@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useId, useRef, useState } from "react";
 import { AlertTriangle, ArrowDown, ArrowUp } from "lucide-react";
+import { errorCopy } from "@/lib/checklist-coverage/action-result";
 import { loadDiscoveryChecklistSettings, publishDiscoveryChecklist } from "@/lib/actions/discovery-checklist";
 import type { ChecklistItem } from "@/lib/checklist-coverage/contract";
 import { Btn } from "@/components/calls/checklist/Sheet";
@@ -128,7 +129,8 @@ export function DiscoveryChecklistSettings({ initial }: { initial: ChecklistSett
     if (opRef.current?.key !== key) opRef.current = { id: crypto.randomUUID(), key };
     setSaving(true); setMessage(null);
     try {
-      await publishDiscoveryChecklist({ definition_id: data.definition.id, expected_version: data.version.id, ...payload, operation_id: opRef.current.id });
+      const result = await publishDiscoveryChecklist({ definition_id: data.definition.id, expected_version: data.version.id, ...payload, operation_id: opRef.current.id });
+      if(!result.ok) { setMessage({tone:"flag",text:errorCopy(result.code),reload:result.code==="CHECKLIST_VERSION_CONFLICT"}); return; }
       const fresh = (await loadDiscoveryChecklistSettings()) as ChecklistSettingsData;
       setData(fresh); setItems(fresh.version.items);
       setMessage({ tone: "ok", text: "Saved. New checklists use this list; checklists already started keep theirs." });

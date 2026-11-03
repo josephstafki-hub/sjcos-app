@@ -66,11 +66,7 @@ export function MobileNav({ user }: { user: SidebarUser }) {
       <MobileTabBar user={user} />
       {/* Topbar’s next sibling is Shell’s scroll container. Reserve space for
           every account, including staff without the operator panel. */}
-      <style>{`@media (max-width: 639px) {
-        div:has(> [data-mobile-more]) + [class~="@container/page"] {
-          margin-bottom: calc(3.5rem + env(safe-area-inset-bottom));
-        }
-      }`}</style>
+
 
       {open && (
         <div ref={dialogRef} onClickCapture={(event) => { if ((event.target as HTMLElement).closest("a[href]")) setOpen(false); }} role="dialog" aria-label="More navigation" aria-modal="true" className="fixed inset-0 z-50 lg:hidden">

@@ -1,4 +1,5 @@
 "use client";
+import { errorCopy } from "@/lib/checklist-coverage/action-result";
 
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
@@ -54,7 +55,7 @@ export function StartDiscoveryCall({ slug, isOwner, variant = "button" }: { slug
     setBusy(checklistOnly ? "checklist" : "call"); setError(null); setFallback(null);
     try {
       const r = await startDiscoveryCall({ lead_id: c.id, operation_id: opRef.current, checklist_only: checklistOnly });
-      if (!r.session.ok) { setError("Couldn't start the checklist. Try again."); return; }
+      if (!r.session.ok) { setError(errorCopy(r.session.code)); return; }
       const checklistHref = `/calls?checklist=${r.session.session_id}`;
       if (checklistOnly) { router.push(checklistHref); return; }
       if ("error" in r && r.error === "CHECKLIST_NO_PHONE") { setError("This lead has no phone number. Add one with Edit, or use Checklist only."); setFallback(checklistHref); return; }

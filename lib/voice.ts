@@ -546,7 +546,7 @@ export type PlaceCallResult =
 
 /** Dial Joe's cell first; once he answers, the OS dials the client and
  *  bridges (lib/comms/voice-flow.ts). Spends the grant before dialing. */
-export async function placeCall(input: PlaceCallInput): Promise<PlaceCallResult> {
+export async function placeCall(input: PlaceCallInput & {callId?:string}): Promise<PlaceCallResult> {
   const cfg = voiceConfig();
   if (!cfg) {
     return { ok: false, error: connectionCopy("voice").error, blocked: "not_configured" };
@@ -561,7 +561,7 @@ export async function placeCall(input: PlaceCallInput): Promise<PlaceCallResult>
   if (!covers.ok) return { ok: false, error: covers.error, blocked: "grant" };
 
   const match = await matchPhoneToRecord(to);
-  const id = randomUUID();
+  const id = input.callId ?? randomUUID();
   await query(
     `INSERT INTO calls (id, direction, counterparty_number, business_number, owner_number, contact_name, link_type, link_slug,
                         lead_id, project_id, status, grant_id, placed_by)

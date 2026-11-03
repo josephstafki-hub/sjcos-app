@@ -7,7 +7,7 @@
 // this file only wires them to React, the network and browser events.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { loadChecklist, saveChecklistNotes, setChecklistItem } from "@/lib/actions/discovery-checklist";
+import { validateChecklistIdentity, loadChecklist, saveChecklistNotes, setChecklistItem } from "@/lib/actions/discovery-checklist";
 import type { ChecklistSnapshot, CommandResult } from "@/lib/checklist-coverage/manual";
 import type { CoverageState } from "@/lib/checklist-coverage/contract";
 import {
@@ -18,6 +18,8 @@ import { openPendingStore, type PendingStore } from "@/lib/checklist-coverage/of
 import { subscribePanelBus } from "@/components/panel/panelBus";
 import { useBrowserOnline } from "./useClock";
 
+import { errorCopy } from "@/lib/checklist-coverage/action-result";
+import { clearAllPending } from "@/lib/checklist-coverage/offline-store";
 import { SIGNED_IN_KEY, markSignedIn, signedInUser } from "./signed-in";
 export { SIGNED_IN_KEY, markSignedIn, signedInUser };
 
@@ -37,6 +39,7 @@ export interface ChecklistSync {
   conflict: SyncState["conflict"];
   problem: SyncProblem | null;
   sending: boolean;
+  editsBlocked: boolean;
   setItem(input: { item_id: string; state: CoverageState; value: unknown; reason: string | null }): void;
   setNotes(notes: string): void;
   sendRecovered(): void;
@@ -64,6 +67,7 @@ export function useChecklistSync(sessionId: string, userId: string): ChecklistSy
   const [netDown, setNetDown] = useState(false);
   const online = browserOnline && !netDown;
   const [storageDenied, setStorageDenied] = useState(false);
+  const [editsBlocked, setEditsBlocked] = useState(true);
   const [recovered, setRecovered] = useState<QueuedOp[] | null>(null);
   const [problem, setProblem] = useState<SyncProblem | null>(null);
   const [sending, setSending] = useState(false);
@@ -72,6 +76,14 @@ export function useChecklistSync(sessionId: string, userId: string): ChecklistSy
   const storeRef = useRef<Promise<PendingStore<QueuedOp>> | null>(null);
   const createdAtRef = useRef<number | null>(null);
   const inFlight = useRef(false);
+  const recoveryPending = useRef(true);
+  const invalidated = useRef(false);
+  const invalidate = useCallback(() => {
+    invalidated.current = true; halted.current = true;
+    stateRef.current = null; setState(null); setRecovered(null); setSending(false);
+    setProblem({kind:"user_switch"});
+    void clearAllPending(typeof indexedDB === "undefined" ? undefined : indexedDB);
+  }, []);
   const halted = useRef(false); // conflict, user switch or a refused edit: stop sending
   const retryTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // flush() re-schedules itself; it reaches the latest copy through this ref.
@@ -85,9 +97,10 @@ export function useChecklistSync(sessionId: string, userId: string): ChecklistSy
 
   // ── persistence ────────────────────────────────────────────────────────
   const persist = useCallback(async (queue: QueuedOp[]) => {
-    if (!storeRef.current) return;
+    if (!storeRef.current || invalidated.current || recoveryPending.current) return;
     try {
       const store = await storeRef.current;
+      if(invalidated.current || recoveryPending.current) return;
       if (queue.length === 0) { createdAtRef.current = null; await store.remove(sessionId); return; }
       createdAtRef.current ??= Date.now();
       await store.save(sessionId, { user_id: userId, created_at: createdAtRef.current, operations: queue });
@@ -99,7 +112,11 @@ export function useChecklistSync(sessionId: string, userId: string): ChecklistSy
 
   const reload = useCallback(async () => {
     try {
+      const identity = await validateChecklistIdentity(userId);
+      if(!identity.ok) { invalidate(); return null; }
+      if(invalidated.current) return null;
       const fresh = normalizeSnapshot(await loadChecklist(sessionId));
+      if(invalidated.current) return null;
       setLoadError(false);
       const cur = stateRef.current;
       // Never replace what this device still has to send.
@@ -110,17 +127,17 @@ export function useChecklistSync(sessionId: string, userId: string): ChecklistSy
       if (!stateRef.current) setLoadError(true);
       return null;
     }
-  }, [sessionId, commit]);
+  }, [sessionId, userId, invalidate, commit]);
 
   // ── sending ────────────────────────────────────────────────────────────
   const flush = useCallback(async () => {
-    if (inFlight.current || halted.current) return;
+    if (inFlight.current || halted.current || invalidated.current || recoveryPending.current) return;
     const cur = stateRef.current;
     if (!cur || cur.conflict || cur.queue.length === 0) { setSending(false); return; }
     if (typeof navigator !== "undefined" && navigator.onLine === false) { setSending(false); return; }
     const who = signedInUser();
-    if (who && who !== userId) {
-      halted.current = true; setProblem({ kind: "user_switch" }); setSending(false); return;
+    if (who !== null && who !== userId) {
+      invalidate(); return;
     }
     inFlight.current = true;
     setSending(true);
@@ -128,9 +145,10 @@ export function useChecklistSync(sessionId: string, userId: string): ChecklistSy
     commit(sentState);
     const head = sentState.queue[0];
     try {
-      const result: CommandResult = head.kind === "set_item" ? await setChecklistItem(head.op) : await saveChecklistNotes(head.op);
+      const result: CommandResult = head.kind === "set_item" ? await setChecklistItem(head.op, userId) : await saveChecklistNotes(head.op, userId);
       inFlight.current = false;
       setNetDown(false);
+      if(invalidated.current) return;
       const now = stateRef.current!;
       if (result.ok) {
         const next = ackHead(now, result);
@@ -139,6 +157,10 @@ export function useChecklistSync(sessionId: string, userId: string): ChecklistSy
         if (next.queue.length === 0) { setSending(false); void reload(); return; }
         kick();
         return;
+      }
+      if(result.code !== 'CHECKLIST_CONFLICT') {
+        if(result.code==='CHECKLIST_USER_CHANGED' || result.code==='CHECKLIST_FORBIDDEN') { invalidate(); return; }
+        halted.current=true; setSending(false); setProblem({kind:"error",message:errorCopy(result.code)}); return;
       }
       const r = onConflict(now, result.current, newId());
       commit(r.state);
@@ -172,7 +194,7 @@ export function useChecklistSync(sessionId: string, userId: string): ChecklistSy
       halted.current = true;
       setProblem({ kind: "error", message: failure.kind === "code" && failure.code === "CHECKLIST_INVALID_ANSWER" ? "That answer wasn't accepted. Open the row, check it, and save again — or discard the change." : "Couldn't save the last change. It's kept on this page." });
     }
-  }, [commit, persist, reload, userId, kick]);
+  }, [commit, persist, reload, userId, kick, invalidate]);
   useEffect(() => { flushRef.current = flush; }, [flush]);
 
   // ── load + recovery on open ────────────────────────────────────────────
@@ -183,11 +205,12 @@ export function useChecklistSync(sessionId: string, userId: string): ChecklistSy
     storeRef.current = store;
     store.then(async (s) => {
       const entry = await s.load(sessionId);
-      if (cancelled) return;
+      if (cancelled || invalidated.current) return;
       // Edits from an earlier page that never reached the server: offer them,
       // never replay them on their own (plan §4.3).
       if (entry?.operations.length) { createdAtRef.current = entry.created_at; setRecovered(entry.operations); }
-    }).catch(() => { if (!cancelled) setStorageDenied(true); });
+      else { recoveryPending.current = false; setEditsBlocked(false); }
+    }).catch(() => { if (!cancelled) { recoveryPending.current = false; setEditsBlocked(false); setStorageDenied(true); } });
     void Promise.resolve().then(reload);
     return () => { cancelled = true; store.then((s) => s.close()).catch(() => undefined); };
   }, [sessionId, userId, reload]);
@@ -196,12 +219,18 @@ export function useChecklistSync(sessionId: string, userId: string): ChecklistSy
   useEffect(() => {
     const up = () => { setNetDown(false); kick(); };
     const onStorage = (e: StorageEvent) => {
-      if (e.key === SIGNED_IN_KEY && e.newValue !== null && e.newValue !== userId) { halted.current = true; setProblem({ kind: "user_switch" }); }
+      if (e.key === SIGNED_IN_KEY && e.newValue !== userId) invalidate();
     };
+    const channel = typeof BroadcastChannel === "undefined" ? null : new BroadcastChannel("sjcos-checklist-auth");
+    if(channel) channel.onmessage = e => { if(e.data !== userId) invalidate(); };
+    const check = () => { void validateChecklistIdentity(userId).then(r=>{if(!r.ok) invalidate();}).catch(()=>undefined); };
+    const timer = setInterval(check,15000);
+    window.addEventListener("focus",check);
+    window.addEventListener("sjcos-checklist-logout",invalidate);
     window.addEventListener("online", up);
     window.addEventListener("storage", onStorage);
-    return () => { window.removeEventListener("online", up); window.removeEventListener("storage", onStorage); };
-  }, [kick, userId]);
+    return () => { clearInterval(timer); channel?.close(); window.removeEventListener("focus",check); window.removeEventListener("sjcos-checklist-logout",invalidate); window.removeEventListener("online", up); window.removeEventListener("storage", onStorage); };
+  }, [kick, userId, invalidate]);
 
   const unsent = (state?.queue.length ?? 0) + (recovered?.length ?? 0);
   useEffect(() => {
@@ -223,7 +252,7 @@ export function useChecklistSync(sessionId: string, userId: string): ChecklistSy
   // ── commands ───────────────────────────────────────────────────────────
   const setItem: ChecklistSync["setItem"] = useCallback((input) => {
     const cur = stateRef.current;
-    if (!cur) return;
+    if (!cur || recoveryPending.current || invalidated.current) return;
     const next = enqueueSetItem(cur, input, newId(), Date.now());
     commit(next);
     void persist(next.queue);
@@ -232,7 +261,7 @@ export function useChecklistSync(sessionId: string, userId: string): ChecklistSy
 
   const setNotes = useCallback((notes: string) => {
     const cur = stateRef.current;
-    if (!cur) return;
+    if (!cur || recoveryPending.current || invalidated.current) return;
     const next = enqueueNotes(cur, notes, newId(), Date.now());
     if (next === cur) return;
     commit(next);
@@ -245,6 +274,8 @@ export function useChecklistSync(sessionId: string, userId: string): ChecklistSy
     if (!cur || !recovered) return;
     // Recovered edits go first, exactly as saved: same ids, same revisions.
     const next = { ...cur, queue: [...recovered.map((q) => ({ ...q })), ...cur.queue] };
+    recoveryPending.current = false;
+    setEditsBlocked(false);
     setRecovered(null);
     commit(next);
     halted.current = false;
@@ -253,6 +284,8 @@ export function useChecklistSync(sessionId: string, userId: string): ChecklistSy
   }, [recovered, commit, persist, kick]);
 
   const discardRecovered = useCallback(() => {
+    recoveryPending.current = false;
+    setEditsBlocked(false);
     setRecovered(null);
     void persist(stateRef.current?.queue ?? []);
   }, [persist]);
@@ -289,12 +322,12 @@ export function useChecklistSync(sessionId: string, userId: string): ChecklistSy
 
   const whenIdle = useCallback(() => {
     const cur = stateRef.current;
-    return !!cur && cur.queue.length === 0 && !inFlight.current && !cur.conflict && !recovered?.length;
+    return !invalidated.current && !recoveryPending.current && !!cur && cur.queue.length === 0 && !inFlight.current && !cur.conflict && !recovered?.length;
   }, [recovered]);
 
   return {
     snapshot: state?.snapshot ?? null, queue: state?.queue ?? [], loadError, online, storageDenied, recovered,
-    conflict: state?.conflict ?? null, problem, sending,
+    conflict: state?.conflict ?? null, problem, sending, editsBlocked,
     setItem, setNotes, sendRecovered, discardRecovered, keepMine: chooseMine, keepSaved: chooseSaved, discardFailed, retry, reload, whenIdle,
   };
 }

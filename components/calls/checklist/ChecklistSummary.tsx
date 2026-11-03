@@ -3,10 +3,11 @@
 import { useMemo, useRef, useState } from "react";
 import { AlertTriangle, RotateCw } from "lucide-react";
 import { CoverageMark } from "@/components/ui/CoverageMark";
-import { loadChecklist, stageChecklistFollowup } from "@/lib/actions/discovery-checklist";
+import { stageChecklistFollowup } from "@/lib/actions/discovery-checklist";
 import type { ChecklistLead } from "@/lib/actions/discovery-checklist-ui";
 import type { ChecklistSnapshot } from "@/lib/checklist-coverage/manual";
 import { emailCandidates, formatValue, isRefusal, MAX_EMAIL_QUESTIONS } from "@/lib/checklist-coverage/answers";
+import { errorCopy } from "@/lib/checklist-coverage/action-result";
 import { safeRevision } from "@/lib/checklist-coverage/contract";
 import { Btn } from "./Sheet";
 import { minutesBetween } from "./time";
@@ -90,19 +91,15 @@ export function ChecklistSummary({
     if (body.length > 30000) { setDraftError("The email is too long."); return; }
     // One operation id per exact draft, so a retry after a dropped connection
     // stages it once; editing the text makes it a new draft.
-    const key = JSON.stringify([subjectText, body]);
+    const key = JSON.stringify([subjectText, body, s.lead_id, email]);
     if (opRef.current?.key !== key) opRef.current = { id: crypto.randomUUID(), key };
     setStaging(true);
     try {
-      let revision = safeRevision(s.revision);
-      for (let attempt = 0; attempt < 2; attempt++) {
-        const r = await stageChecklistFollowup({ session_id: sessionId, expected_revision: revision, operation_id: opRef.current.id, subject: subjectText.trim(), body });
-        if (r.ok) { setStaged(true); onDraftStaged(); return; }
-        // The checklist moved on another device; staging changes no rows, so retry once on the new revision.
-        revision = safeRevision(Number((await loadChecklist(sessionId)).session.revision));
-        opRef.current = { id: crypto.randomUUID(), key };
-      }
-      setDraftError("The checklist changed on another device. Try again.");
+      const r = await stageChecklistFollowup({ session_id: sessionId, expected_revision: safeRevision(s.revision), operation_id: opRef.current.id, subject: subjectText.trim(), body, reviewed_lead_id:s.lead_id, reviewed_email:email });
+      if(r.ok) { setStaged(true); onDraftStaged(); return; }
+      setDraftError(errorCopy(r.code));
+      if(r.code==='CHECKLIST_CONFLICT' || r.code==='CHECKLIST_RECIPIENT_CHANGED') { opRef.current=null; onRetry(); }
+
     } catch (e) {
       const m = e instanceof Error ? e.message : "";
       setDraftError(/NO_EMAIL/.test(m) ? "Confirm their email first." : /LINK_LEAD/.test(m) ? "Link this checklist to a lead first." : navigator.onLine === false ? "Submitting needs a connection. Your draft is still here." : "Couldn't submit. Your draft is still here — try again.");

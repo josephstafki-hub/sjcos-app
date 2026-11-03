@@ -63,9 +63,13 @@ function tx<R>(db: IDBDatabase, store: string, mode: IDBTransactionMode, run: (s
   });
 }
 
+const liveStores = new Set<IDBDatabase>();
+let generation = 0;
+
 export async function openPendingStore<T>(factory: IDBFactory | undefined | null, userId: string): Promise<PendingStore<T>> {
   if (!factory) throw new Error('IDB_UNAVAILABLE');
   if (!userId) throw new Error('IDB_NO_USER');
+  const openedGeneration = generation;
   const store = storeName(userId);
   let db = await openDb(factory, undefined, store);
   if (!db.objectStoreNames.contains(store)) {
@@ -74,6 +78,8 @@ export async function openPendingStore<T>(factory: IDBFactory | undefined | null
     db = await openDb(factory, next, store);
   }
   const live = db;
+  if(openedGeneration!==generation) { live.close(); throw new Error("IDB_SIGNED_OUT"); }
+  liveStores.add(live);
   return {
     async load(sessionId, now = Date.now()) {
       const entry = await tx(live, store, 'readonly', (s) => s.get(sessionId) as IDBRequest<StoredQueue<T> | undefined>);
@@ -86,25 +92,30 @@ export async function openPendingStore<T>(factory: IDBFactory | undefined | null
       return { ...entry, operations: ops };
     },
     async save(sessionId, entry) {
+      if(openedGeneration!==generation) throw new Error("IDB_SIGNED_OUT");
       if (entry.user_id !== userId) throw new Error('IDB_WRONG_USER');
       await tx(live, store, 'readwrite', (s) => s.put(entry, sessionId));
     },
     async remove(sessionId) {
       await tx(live, store, 'readwrite', (s) => s.delete(sessionId));
     },
-    close() { live.close(); },
+    close() { liveStores.delete(live); live.close(); },
   };
 }
 
 /** Logout: drop every user's unsent checklist edits on this device. */
 export function clearAllPending(factory: IDBFactory | undefined | null): Promise<void> {
+  generation++;
+  for(const db of liveStores) db.close();
+  liveStores.clear();
   if (!factory) return Promise.resolve();
   return new Promise((resolve) => {
     try {
       const req = factory.deleteDatabase(OFFLINE_QUEUE.database);
       req.onsuccess = () => resolve();
       req.onerror = () => resolve();
-      req.onblocked = () => resolve();
+      // Keep the deletion request alive: versionchange closes other tabs.
+      req.onblocked = () => {};
     } catch { resolve(); }
   });
 }

@@ -1,6 +1,7 @@
 "use client";
+import { errorCopy } from "@/lib/checklist-coverage/action-result";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, RotateCw } from "lucide-react";
 import { loadChecklistForCall, startChecklist, unknownCallerChoice } from "@/lib/actions/discovery-checklist";
 import { checklistLeadBySlug, type ChecklistLead } from "@/lib/actions/discovery-checklist-ui";
@@ -52,12 +53,13 @@ export function CallChecklistTab({ call, leadId, linked, userId, onSessionStarte
     return () => { live = false; };
   }, [call.id, attempt]);
 
+  const startOp = useRef<string | null>(null);
   async function start(lead: string | null) {
     setBusy(true); setError(null);
     try {
-      const r = await startChecklist({ call_id: call.id, lead_id: lead, operation_id: crypto.randomUUID() });
+      const r = await startChecklist({ call_id: call.id, lead_id: lead, operation_id: startOp.current ??= crypto.randomUUID() });
       if (r.ok) { setSessionId(r.session_id); onSessionStarted?.(r.session_id); }
-      else setError("Couldn't start the checklist. Try again.");
+      else setError(errorCopy(r.code));
     } catch { setError(navigator.onLine === false ? "Starting a checklist needs a connection." : "Couldn't start the checklist. Try again."); }
     finally { setBusy(false); }
   }
@@ -67,7 +69,7 @@ export function CallChecklistTab({ call, leadId, linked, userId, onSessionStarte
     try {
       const r = await unknownCallerChoice({ call_id: call.id, choice: "link", lead_id: lead.id, operation_id: crypto.randomUUID() });
       if ("ok" in r && r.ok) { setPicking(false); setSessionId(r.session_id); onSessionStarted?.(r.session_id); }
-      else setError("Couldn't link. Try again.");
+      else setError("code" in r ? errorCopy(r.code) : "Couldn't link. Try again.");
     } catch { setError("Couldn't link. Try again."); }
     finally { setBusy(false); }
   }
@@ -76,6 +78,7 @@ export function CallChecklistTab({ call, leadId, linked, userId, onSessionStarte
     setBusy(true); setError(null);
     try {
       const r = await unknownCallerChoice({ call_id: call.id, choice: "new_lead", operation_id: crypto.randomUUID() });
+      if("ok" in r && !r.ok) {setError(errorCopy(r.code)); return;}
       setNewLead({ phone: ("createLead" in r ? r.createLead?.phone : null) ?? call.number });
     } catch { setNewLead({ phone: call.number }); }
     finally { setBusy(false); }
@@ -83,7 +86,7 @@ export function CallChecklistTab({ call, leadId, linked, userId, onSessionStarte
 
   async function notLead() {
     setBusy(true);
-    try { await unknownCallerChoice({ call_id: call.id, choice: "not_lead", operation_id: crypto.randomUUID() }); } catch { /* local choice still applies */ }
+    try { const r = await unknownCallerChoice({ call_id: call.id, choice: "not_lead", operation_id: crypto.randomUUID() }); if("ok" in r && !r.ok) {setError(errorCopy(r.code));setBusy(false);return;} } catch { setError("Couldn't save your choice. Try again.");setBusy(false);return; }
     setNotLead(call.id, true); setHidden(true); setBusy(false);
   }
 

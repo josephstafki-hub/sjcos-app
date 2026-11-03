@@ -20,7 +20,11 @@ function firstName(name: string): string {
   return name.split(/\s+|&/)[0] || name;
 }
 
-export function StartDiscoveryCall({ slug, isOwner, variant = "button" }: { slug: string; isOwner: boolean; variant?: "button" | "menu" }) {
+export function StartDiscoveryCall({ slug, isOwner, variant = "button", calling = true }: {
+  slug: string; isOwner: boolean; variant?: "button" | "menu";
+  /** The business number is set up. Off → no Call now (Calls says "Calling is off"). */
+  calling?: boolean;
+}) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [confirm, setConfirm] = useState<Confirm | null>(null);
@@ -99,7 +103,10 @@ export function StartDiscoveryCall({ slug, isOwner, variant = "button" }: { slug
             <p role="status" className="text-[16px] text-ink-3">Loading…</p>
           ) : (
             <div className="space-y-3">
-              {isOwner && confirm.phone ? (
+              {/* Calling is off (no business number set up): no Call now that can't work. */}
+              {isOwner && !calling ? (
+                <p className="text-[16px] text-ink-2">Calling is off — call from your cell.</p>
+              ) : isOwner && confirm.phone ? (
                 <>
                   <p className="text-[17px] text-ink">Call {firstName(confirm.name)} at {formatUsPhone(confirm.phone)}?</p>
                   <p className="text-[16px] text-ink-2">{confirm.explanation}</p>
@@ -108,8 +115,8 @@ export function StartDiscoveryCall({ slug, isOwner, variant = "button" }: { slug
                 <p className="text-[16px] text-ink-2">{!confirm.phone ? "No phone number on this lead." : `Open a discovery checklist for ${confirm.name}.`}</p>
               )}
               <div className="flex flex-col gap-2 pt-1">
-                {isOwner && <Btn kind="primary" onClick={() => void go(false)} disabled={!!busy || !confirm.phone}>{busy === "call" ? "Ringing your cell…" : "Call now"}</Btn>}
-                <Btn kind={isOwner ? "secondary" : "primary"} onClick={() => void go(true)} disabled={!!busy}>{busy === "checklist" ? "Starting…" : "Checklist only — I'll call from my cell"}</Btn>
+                {isOwner && calling && <Btn kind="primary" onClick={() => void go(false)} disabled={!!busy || !confirm.phone}>{busy === "call" ? "Ringing your cell…" : "Call now"}</Btn>}
+                <Btn kind={isOwner && calling ? "secondary" : "primary"} onClick={() => void go(true)} disabled={!!busy} className="py-2 leading-5">{busy === "checklist" ? "Starting…" : "Checklist only — I'll call from my cell"}</Btn>
                 <Btn kind="ghost" onClick={() => setOpen(false)} disabled={!!busy}>Cancel</Btn>
               </div>
               {error && <p role="alert" className="text-[15px] text-flag">{error}</p>}

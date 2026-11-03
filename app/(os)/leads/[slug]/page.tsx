@@ -45,6 +45,7 @@ import { getRecordOps } from "@/lib/record-ops";
 import { getActiveRunbookInstancesFor } from "@/lib/runbook-engine";
 import { SendPreconButton } from "@/components/leads/SendPreconButton";
 import { StartDiscoveryCall } from "@/components/leads/StartDiscoveryCall";
+import { voiceConfigured } from "@/lib/voice";
 import { can, getCurrentUser } from "@/lib/dal";
 
 export default async function LeadDetailPage({
@@ -438,7 +439,7 @@ export default async function LeadDetailPage({
               : isLost ? <form action={reopen}><Button type="submit">Reopen lead</Button></form>
               : nextStage ? <form action={moveToNextStage} className="min-w-0 flex-1 max-sm:basis-full"><Button type="submit" className="w-full max-w-full !whitespace-normal !h-auto min-h-8 py-1.5 text-left">Move to {nextStage.label}</Button></form>
               : <ConvertLeadButton slug={lead.slug} suggestedName={suggestedProjectName(lead.name, lead.scope)} />}
-            {canCall && <span className="max-sm:basis-full"><StartDiscoveryCall slug={lead.slug} isOwner={viewer?.role === "owner"} /></span>}
+            {canCall && <span className="max-sm:basis-full"><StartDiscoveryCall slug={lead.slug} isOwner={viewer?.role === "owner"} calling={voiceConfigured()} /></span>}
             <LeadContact mode="contact" slug={lead.slug} name={lead.name} phone={lead.phone} email={lead.email} />
             <details className="relative">
               <summary aria-label="More lead actions" className="flex size-8 cursor-pointer list-none items-center justify-center rounded-md border border-rule bg-card text-subheading hover:bg-hover">…</summary>

@@ -11,7 +11,8 @@ import { formatUsPhone } from "@/lib/comms/phone";
 import { callIdentityLabel } from "@/lib/comms/call-identity";
 import type { CallRow } from "@/lib/voice";
 import { startChecklist } from "@/lib/actions/discovery-checklist";
-import { ChecklistPane, type ChecklistCallInfo } from "./checklist/ChecklistPane";
+import { CallState, ChecklistPane, type ChecklistCallInfo } from "./checklist/ChecklistPane";
+import { useClock } from "./checklist/useClock";
 import { CallChecklistTab } from "./checklist/CallChecklistTab";
 import { setOpenChecklist } from "./open-call-store";
 import { chicagoWhen } from "./checklist/time";
@@ -182,16 +183,26 @@ export function CallsClient({
   // the list row so switching calls never shows the previous call's notes.
   const current = detail && detail.call.id === selectedId ? detail : null;
   const c = current?.call ?? calls.find((x) => x.id === selectedId) ?? null;
+  // Ringing or on the line: the header shows the call's state and timer, and
+  // there is nothing to call back yet.
+  const live = !!c && !c.ended && (c.status === "ringing" || c.status === "bridged");
+  const now = useClock(live && c?.status === "bridged");
+  // The header button starts an unlinked checklist. While a call is live or a
+  // checklist is already open, the detail's own button is the only one, so a
+  // tap mid-call never starts a second checklist that isn't tied to the call.
+  const headerStart = !manualId && !live;
 
   return (
-    <div className="flex h-full min-h-0 flex-col [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-focus [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-focus"><div className="border-b border-rule-soft px-4 py-5 @2xl/page:px-5"><PageHeader title="Calls" meta="Calls, recordings, notes and discovery checklists."
-        actions={<>
+    <div className="flex h-full min-h-0 flex-col [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-focus [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-focus">{/* On a phone with a call or checklist open, the pane's own header
+          (← Calls) is enough: the page title would push the rows off screen. */}
+      <div className={`border-b border-rule-soft px-4 py-5 @2xl/page:px-5 ${mobileDetail ? "hidden @3xl/page:block" : ""}`}><PageHeader title="Calls" meta="Calls, recordings, notes and discovery checklists."
+        actions={headerStart ? <>
           <button type="button" onClick={startManual} disabled={starting}
             className="inline-flex min-h-12 items-center gap-2 rounded-md bg-ink px-4 text-[16px] font-semibold text-paper hover:bg-ink-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:opacity-50">
             <ListChecks aria-hidden className="size-4" strokeWidth={1.75} /> {starting ? "Starting…" : "Start checklist"}
           </button>
           {startError && <span role="alert" className="text-[15px] text-flag">{startError}</span>}
-        </>} /></div><div className="flex min-h-0 flex-1">
+        </> : undefined} /></div><div className="flex min-h-0 flex-1">
       <aside className={`w-full flex-none flex-col border-r border-rule bg-paper-2 @3xl/page:w-[280px] ${mobileDetail ? "hidden @3xl/page:flex" : "flex"}`}>
         <div className="flex items-center gap-2 border-b border-rule px-4 py-3">
           <PhoneCall className="size-4 text-ink-3" strokeWidth={1.5} />
@@ -254,16 +265,17 @@ export function CallsClient({
                 <ArrowLeft className="size-4" strokeWidth={1.5} />
               </button>
               <DirIcon c={c} />
-              <span className="text-subheading font-semibold text-ink">{name(c)}</span>
-              <span className="text-meta text-ink-3">{formatUsPhone(c.counterparty_number)}</span>
-              <OutcomeChip c={c} />
+              {/* No name: the name *is* the number — show it once, never split. */}
+              <span className={`text-subheading font-semibold text-ink ${name(c) === formatUsPhone(c.counterparty_number) ? "whitespace-nowrap" : "break-words"}`}>{name(c)}</span>
+              {name(c) !== formatUsPhone(c.counterparty_number) && <span className="whitespace-nowrap text-meta text-ink-3">{formatUsPhone(c.counterparty_number)}</span>}
+              {live ? <CallState call={checklistCall(c)} now={now} /> : <OutcomeChip c={c} />}
               <div className="ml-auto flex items-center gap-2">
                 {c.link_type && c.link_slug && LINK_ROUTE[c.link_type] && (
                   <a href={`/${LINK_ROUTE[c.link_type]}/${c.link_slug}`} className="inline-flex items-center gap-1 text-meta text-ink-3 hover:text-ink">
                     <ExternalLink className="size-3.5" strokeWidth={1.5} /> {c.link_type}
                   </a>
                 )}
-                <button
+                {!live && <button
                   type="button"
                   disabled={!configured || dialing}
                   onClick={() => {
@@ -275,7 +287,7 @@ export function CallsClient({
                   className="inline-flex min-h-8 max-sm:min-h-11 items-center gap-1.5 rounded-md bg-ink px-3 py-1 text-label font-semibold text-paper hover:bg-ink-hover focus-visible:outline-2 focus-visible:outline-focus disabled:opacity-50"
                 >
                   <PhoneCall className="size-3.5" strokeWidth={1.5} /> Call back
-                </button>
+                </button>}
               </div>
             </div>
 

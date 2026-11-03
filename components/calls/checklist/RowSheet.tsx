@@ -6,11 +6,12 @@ import { CoverageMark } from "@/components/ui/CoverageMark";
 import { useDictation } from "@/lib/use-dictation";
 import type { ChecklistItem, CoverageState } from "@/lib/checklist-coverage/contract";
 import { INSURANCE_WARNING } from "@/lib/checklist-coverage/manual";
-import { buildValue, fieldsFor, fieldsFromValue, isInsurance, mainField, type Fields } from "@/lib/checklist-coverage/answers";
+import { buildValue, fieldsFor, fieldsFromValue, isInsurance, mainField, suggestedState, type Fields } from "@/lib/checklist-coverage/answers";
 import type { RowValue } from "@/lib/checklist-coverage/client-queue";
 import { Btn, Sheet } from "./Sheet";
 
 const STATES: CoverageState[] = ["open", "partial", "covered", "not_applicable"];
+const RANK: Record<CoverageState, number> = { open: 0, partial: 1, covered: 2, not_applicable: 3 };
 const INPUT = "mt-1 block w-full min-h-12 rounded-md border bg-paper px-3 py-2.5 text-[16px] leading-6 text-ink placeholder:text-ink-4 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus";
 
 /** Plain text for the plan's "Covered when" notes (they carry **bold** marks). */
@@ -51,13 +52,25 @@ export function RowSheet({
   const [fields, setFields] = useState<Fields>(initial.fields);
   const [reason, setReason] = useState(initial.reason);
   const [reasonError, setReasonError] = useState(false);
+  // Joe tapped a state button in this sheet: from then on the answer never moves it.
+  const [stateTouched, setStateTouched] = useState(false);
   const ids = useId();
   const main = mainField(spec.key);
   const specs = fieldsFor(spec.key);
   const value = buildValue(spec.key, fields);
   const dirty = state !== initial.state || reason !== initial.reason || JSON.stringify(fields) !== JSON.stringify(initial.fields);
 
-  function set(name: string, v: string) { setFields((f) => ({ ...f, [name]: v })); }
+  /** Picking a choice or typing an answer on an Open row moves it to Covered
+   *  (Partly when the answer is only part of it), so Joe doesn't need two more
+   *  taps mid-sentence. Only ever up from Open, never over a state he tapped,
+   *  and clearing the answer doesn't drop it back. */
+  function set(name: string, v: string) {
+    const next = { ...fields, [name]: v };
+    setFields(next);
+    if (stateTouched || initial.state !== "open") return;
+    const suggested = suggestedState(spec.key, buildValue(spec.key, next));
+    if (suggested && RANK[suggested] > RANK[state]) setState(suggested);
+  }
 
   function save() {
     if (state === "not_applicable" && !reason.trim()) { setReasonError(true); document.getElementById(`${ids}-reason`)?.focus(); return; }
@@ -65,7 +78,7 @@ export function RowSheet({
   }
 
   function undo() {
-    if (dirty) { setState(initial.state); setFields(initial.fields); setReason(initial.reason); setReasonError(false); return; }
+    if (dirty) { setState(initial.state); setFields(initial.fields); setReason(initial.reason); setReasonError(false); setStateTouched(false); return; }
     if (undoTo) onSave(undoTo);
   }
 
@@ -77,7 +90,7 @@ export function RowSheet({
       </>}>
       <div role="group" aria-label={`${spec.label} state`} className="grid grid-cols-4 gap-1 rounded-lg bg-paper-2 p-1 max-[400px]:grid-cols-2">
         {STATES.map((s) => (
-          <button key={s} type="button" data-state={s} aria-pressed={state === s} onClick={() => { setState(s); setReasonError(false); }}
+          <button key={s} type="button" data-state={s} aria-pressed={state === s} onClick={() => { setState(s); setStateTouched(true); setReasonError(false); }}
             className={`flex min-h-14 items-center justify-center rounded-md px-1 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus ${state === s ? "bg-card shadow-card ring-2 ring-ink" : "hover:bg-hover"}`}>
             <CoverageMark variant="coverage" state={s} />
           </button>
@@ -100,14 +113,16 @@ export function RowSheet({
           if (f.type === "choice") {
             return (
               <fieldset key={f.name}>
-                <legend className="text-[15px] font-semibold text-ink">{f.label}</legend>
+                {/* "Budget" under the "Budget" sheet title says nothing new: keep it for screen readers only. */}
+                <legend className={f.label.trim().toLowerCase() === spec.label.trim().toLowerCase() ? "sr-only" : "text-[15px] font-semibold text-ink"}>{f.label}</legend>
                 <div className="mt-1 flex flex-wrap gap-2">
                   {f.options.map((o) => {
                     const on = fields[f.name] === o.value;
                     return (
                       <button key={o.value} type="button" aria-pressed={on} onClick={() => set(f.name, on ? "" : o.value)}
                         className={`inline-flex min-h-12 items-center gap-2 rounded-full border px-4 text-[16px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus ${on ? "border-ink bg-ink text-paper" : "border-rule bg-card text-ink hover:bg-paper-2"}`}>
-                        <span aria-hidden className="font-mono">{on ? "●" : "○"}</span>{o.label}
+                        {/* ✓ only on the picked one; ○ already means Open beside these (§6.0). */}
+                        {on && <span aria-hidden>✓</span>}{o.label}
                       </button>
                     );
                   })}

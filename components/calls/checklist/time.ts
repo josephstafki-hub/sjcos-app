@@ -39,3 +39,11 @@ export function minutesBetween(from: string | null | undefined, to: string | nul
   if (!a || !b) return null;
   return Math.max(0, Math.round((b.getTime() - a.getTime()) / 60000));
 }
+
+/** "under 1 min" / "12 min" between two instants, for the summary title. */
+export function durationWords(from: string | null | undefined, to: string | null | undefined): string | null {
+  const a = parse(from), b = parse(to);
+  if (!a || !b) return null;
+  const s = Math.max(0, (b.getTime() - a.getTime()) / 1000);
+  return s < 60 ? "under 1 min" : `${Math.round(s / 60)} min`;
+}

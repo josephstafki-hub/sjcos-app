@@ -18,7 +18,6 @@ import { ChecklistSummary, type SummaryData } from "./ChecklistSummary";
 import { Btn } from "./Sheet";
 import { EditContactModal } from "@/components/leads/LeadContact";
 import { chicagoTime, elapsed } from "./time";
-import { useClock } from "./useClock";
 import { setOpenChecklist } from "../open-call-store";
 
 export interface ChecklistCallInfo {
@@ -107,8 +106,6 @@ export function ChecklistPane({
     return () => { live = false; };
   }, [leadId, leadVersion]);
   const shownLead = lead && lead.id === leadId ? lead : null;
-
-  const now = useClock(!!call && !call.ended);
 
   const rows = useMemo(() => {
     if (!snap) return [];
@@ -253,6 +250,9 @@ export function ChecklistPane({
   }
 
   const status = saveWord(sync);
+  // Edits that are waiting because they can't go out (offline / storage off),
+  // not the split second an online save is in flight.
+  const unsent = !sync.online || sync.storageDenied;
   const s = snap.session;
   const sheetRow = openItem ? rows.find((r) => r.row.identity.item_id === openItem) : null;
   const answers = rows.filter((r) => formatValue(r.row.spec.key, r.view.value));
@@ -260,7 +260,8 @@ export function ChecklistPane({
   if (shownView === "summary") {
     return (
       <div className="flex min-h-0 flex-1 flex-col bg-paper-2">
-        {!call && <ManualHeader onBack={onBack} started={s.started_at} />}
+        {/* The summary title carries "started 7:34 PM"; don't say it twice. */}
+        {!call && <ManualHeader onBack={onBack} started={null} />}
         <ChecklistSummary sessionId={sessionId} snapshot={snap} call={call} lead={shownLead} data={summary} error={summaryError}
           onRetry={() => void openSummary()} onBackToList={() => setView("list")}
           onEditRow={(id) => { setView("list"); setOpenItem(id); }}
@@ -276,9 +277,10 @@ export function ChecklistPane({
     <div className="flex min-h-0 flex-1 flex-col bg-paper-2">
       {!call && <ManualHeader onBack={onBack} started={s.started_at} />}
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <div className="space-y-3 px-4 pt-3 @2xl/page:px-5">
-          {/* Session line: Lead · Call · Saved */}
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[16px]">
+        <div className="px-4 @2xl/page:px-5">
+          {/* Session line: Lead · Call · Saved, then the "By hand" chip on the
+              same wrapping line — kept tight so the rows start high on a phone. */}
+          <div className="flex flex-wrap items-center gap-x-2 text-[16px]">
             <span className="flex min-w-0 items-center">
               <button type="button" onClick={() => { setLinkError(null); setPicker("lead"); }} className={`inline-flex min-h-12 min-w-0 items-center gap-1 rounded-md px-2 -ml-2 hover:bg-hover ${FOCUS}`}>
                 <span className="text-ink-3">Lead:</span> <span className="truncate font-semibold text-ink">{shownLead?.name ?? (s.lead_id ? "…" : "Link later")}</span> <ChevronDown aria-hidden className="size-4 flex-none text-ink-3" />
@@ -296,18 +298,15 @@ export function ChecklistPane({
             {s.call_id && !call && onOpenCall && <Btn kind="ghost" onClick={() => onOpenCall(s.call_id!)}>Open call</Btn>}
             <span aria-hidden className="text-ink-4 max-[480px]:hidden">·</span>
             <span className={`inline-flex min-h-12 items-center font-semibold ${status.tone}`}>{status.word}</span>
+            {/* Under a call, the call's own header carries ● On the line 04:21. */}
+            <span className="inline-flex min-h-7 items-center rounded-full border border-rule bg-card px-3 py-0.5 text-[15px] font-semibold leading-5 text-ink-2">By hand — AI can&apos;t hear this call</span>
+            {s.status === "ended" && <span className="inline-flex min-h-7 items-center text-[15px] text-ink-3">Finished · edits still allowed</span>}
           </div>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="inline-flex min-h-9 items-center rounded-full border border-rule bg-card px-3 text-[15px] font-semibold text-ink-2">By hand — AI can&apos;t hear this call</span>
-            {call && <CallState call={call} now={now} />}
-            {s.status === "ended" && <span className="text-[15px] text-ink-3">Finished · edits still allowed</span>}
-          </div>
-
-          <Banners sync={sync} rows={rows} />
+          <div className="mt-2 space-y-2 empty:hidden"><Banners sync={sync} rows={rows} /></div>
         </div>
 
-        <fieldset disabled={sync.editsBlocked} className="min-w-0 grid gap-x-8 px-4 pb-4 pt-2 @2xl/page:px-5 @6xl/page:grid-cols-[minmax(0,58fr)_minmax(0,42fr)]">
+        <fieldset disabled={sync.editsBlocked} className="min-w-0 grid gap-x-8 px-4 pb-4 pt-3 @2xl/page:px-5 @6xl/page:grid-cols-[minmax(0,58fr)_minmax(0,42fr)]">
           <section aria-labelledby={`${sessionId}-h`}>
             <div className="flex items-baseline justify-between gap-3 border-b border-rule pb-1">
               <h2 id={`${sessionId}-h`} className="font-serif text-[20px] font-semibold leading-7 text-ink">Discovery checklist</h2>
@@ -322,7 +321,7 @@ export function ChecklistPane({
                 const next = nextTapState(v.state);
                 const answer = formatValue(row.spec.key, v.value);
                 return (
-                  <li key={id} className="py-0.5">
+                  <li key={id}>
                     <div className="flex flex-wrap items-center gap-x-2">
                       <button type="button" onClick={() => setOpenItem(id)} aria-haspopup="dialog"
                         className={`flex min-h-12 min-w-0 flex-1 basis-40 flex-col items-start justify-center rounded-md px-2 -ml-2 py-1 text-left hover:bg-hover ${FOCUS}`}>
@@ -338,8 +337,10 @@ export function ChecklistPane({
                       )}
                       <button type="button" onClick={() => tap(id, v)}
                         aria-label={`${row.spec.label}: ${coverageWord(v.state)}${v.pending ? ", not saved yet" : ""}. Mark ${coverageWord(next)}`}
-                        className={`ml-auto inline-flex min-h-12 min-w-[7.5rem] items-center justify-end rounded-md px-2 -mr-2 hover:bg-hover ${FOCUS}`}>
-                        <CoverageMark variant="coverage" state={v.state} className={v.pending ? "underline decoration-dotted decoration-2 underline-offset-4" : ""} />
+                        className={`ml-auto inline-flex min-h-12 min-w-[7.5rem] flex-col items-end justify-center rounded-md px-2 -mr-2 hover:bg-hover ${FOCUS}`}>
+                        <CoverageMark variant="coverage" state={v.state} />
+                        {/* Words, not a dotted underline: only while it really can't send. */}
+                        {v.pending && unsent && <span className="text-[13px] leading-4 text-ink-3">not sent</span>}
                       </button>
                     </div>
                     {isInsurance(row.spec.key, v.value) && (
@@ -349,7 +350,6 @@ export function ChecklistPane({
                 );
               })}
             </ul>
-            {rows.some((r) => r.view.pending) && <p className="mt-1 text-[14px] text-ink-3"><span className="underline decoration-dotted decoration-2 underline-offset-4">Dotted</span> = not saved yet.</p>}
           </section>
 
           <aside className="mt-4 space-y-3 @6xl/page:mt-0">
@@ -377,7 +377,12 @@ export function ChecklistPane({
           </aside>
         </fieldset>
 
-        <div className="sticky bottom-0 z-10 border-t border-rule bg-paper-2 px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 @2xl/page:px-5">
+        {/* On a phone the tab bar below already clears the safe area. */}
+        <div className="sticky bottom-0 z-10 border-t border-rule bg-paper-2 px-4 pb-2 pt-2 @2xl/page:px-5 sm:pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:pt-3">
+          {/* The offline banner scrolls away with the rows; this line stays in view. */}
+          {unsent && sync.queue.length > 0 && (
+            <p className="mb-2 flex items-center gap-2 text-[15px] font-semibold text-ink-2"><CloudOff aria-hidden className="size-4 flex-none" /> {sync.online ? "" : "Offline — "}{changesWord(sync.queue.length)} not sent</p>
+          )}
           {finishError && <p role="alert" className="mb-2 text-[15px] text-flag">{finishError}</p>}
           <Btn kind="primary" onClick={() => void (s.status === "ended" ? openSummary() : finish())} disabled={finishing || !!sync.conflict || sync.recovered !== null} className="w-full @3xl/page:w-auto @3xl/page:min-w-64">
             {finishing ? "Finishing…" : s.status === "ended" ? "Summary" : "Finish checklist"}
@@ -398,18 +403,20 @@ export function ChecklistPane({
 
 function ManualHeader({ onBack, started }: { onBack?: () => void; started: string | null }) {
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-rule bg-paper px-4 py-1.5 @2xl/page:px-5">
+    <div className="flex min-h-12 items-center gap-1 border-b border-rule bg-paper px-4 @2xl/page:gap-2 @2xl/page:px-5">
       {onBack && (
         <button type="button" onClick={onBack} aria-label="Back to calls" className={`-ml-2 inline-flex min-h-12 items-center gap-1 rounded-md px-2 text-[16px] text-ink-2 hover:bg-hover @3xl/page:hidden ${FOCUS}`}>
           <ArrowLeft aria-hidden className="size-4" strokeWidth={1.75} /> Calls
         </button>
       )}
-      <h2 className="font-serif text-[20px] font-semibold leading-7 text-ink">Checklist{started ? <span className="font-sans text-[16px] font-normal text-ink-3"> · started {chicagoTime(started)}</span> : null}</h2>
+      <h2 className="min-w-0 font-serif text-[20px] font-semibold leading-7 text-ink">Checklist{started ? <span className="font-sans text-[16px] font-normal text-ink-3"> · started {chicagoTime(started)}</span> : null}</h2>
     </div>
   );
 }
 
-function CallState({ call, now }: { call: ChecklistCallInfo; now: number | null }) {
+/** "● On the line 04:21" / "Incoming call" / "Your cell rings first" (plan §6.4,
+ *  §6.7) — in the call's detail header, beside the name. */
+export function CallState({ call, now }: { call: ChecklistCallInfo; now: number | null }) {
   if (call.ended) return <span className="text-[15px] text-ink-3">Call ended</span>;
   if (call.status === "ringing") return <span className="text-[15px] font-semibold text-ink">{call.direction === "inbound" ? "Incoming call" : "Your cell rings first"}</span>;
   return (

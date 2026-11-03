@@ -113,3 +113,26 @@ test('refusals and N/A are never offered for the email; at most three start tick
  const {rows:eligible,ticked}=emailCandidates(rows);
  assert.deepEqual(eligible.map(r=>r.item_id),['e','a','c','f']);assert.deepEqual(ticked,['e','a','c']);
 });
+
+test('row sheet suggestion: an answer covers an Open row; part of one is Partly (plan §3.1)',async()=>{
+ const {suggestedState}=await import('../lib/checklist-coverage/answers.ts');
+ assert.equal(suggestedState('budget',null),null);
+ assert.equal(suggestedState('budget',buildValue('budget',{response:'not_set'})),'covered');
+ assert.equal(suggestedState('budget',buildValue('budget',{response:'declined'})),'covered');
+ assert.equal(suggestedState('paying',buildValue('paying',{method:'insurance'})),'covered');
+ assert.equal(suggestedState('property',buildValue('property',{owner:'yes'})),'partial');
+ assert.equal(suggestedState('property',buildValue('property',{owner:'yes',type:'house'})),'partial');
+ assert.equal(suggestedState('property',buildValue('property',{owner:'yes',type:'house',hoa:'no'})),'covered');
+ assert.equal(suggestedState('years_staying',buildValue('years_staying',{occupancy_text:'10 years'})),'partial');
+ assert.equal(suggestedState('address',buildValue('address',{city:'Edina'})),'partial');
+ assert.equal(suggestedState('address',buildValue('address',{street:'4410 Elm St',city:'Edina'})),'covered');
+ assert.equal(suggestedState('next_step',buildValue('next_step',{kind:'visit'})),'partial');
+ assert.equal(suggestedState('next_step',buildValue('next_step',{kind:'visit',date:'2026-11-10'})),'covered');
+ assert.equal(suggestedState('who_decides',buildValue('who_decides',{sole:'true'})),'covered');
+ assert.equal(suggestedState('work',buildValue('work',{scope:'upstairs bath'})),'covered');
+});
+
+test('answer placeholders read as examples, never as a saved answer',async()=>{
+ const {ANSWER_FIELDS}=await import('../lib/checklist-coverage/answers.ts');
+ for(const fields of Object.values(ANSWER_FIELDS)) for(const f of fields) if('placeholder' in f && f.placeholder) assert.match(f.placeholder,/^e\.g\. /);
+});

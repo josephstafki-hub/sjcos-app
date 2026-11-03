@@ -10,7 +10,7 @@ import { emailCandidates, formatValue, isRefusal, MAX_EMAIL_QUESTIONS } from "@/
 import { errorCopy } from "@/lib/checklist-coverage/action-result";
 import { safeRevision } from "@/lib/checklist-coverage/contract";
 import { Btn } from "./Sheet";
-import { minutesBetween } from "./time";
+import { chicagoTime, durationWords } from "./time";
 import type { ChecklistCallInfo } from "./ChecklistPane";
 
 export interface SummaryData {
@@ -59,7 +59,12 @@ export function ChecklistSummary({
 
   const s = snapshot.session;
   const who = data.lead?.name ?? lead?.name ?? call?.label ?? null;
-  const minutes = call ? minutesBetween(call.answered_at ?? call.started_at, s.ended_at) : minutesBetween(s.started_at, s.ended_at);
+  // A hand-ticked checklist with no call has no call length to show: "Checklist
+  // summary · started 7:34 PM", never "Call summary · 0 min".
+  const duration = call ? durationWords(call.answered_at ?? call.started_at, s.ended_at) : null;
+  const title = call
+    ? `Call summary${who ? ` · ${who}` : ""}${duration ? ` · ${duration}` : ""}`
+    : `Checklist summary${who ? ` · ${who}` : ""}${s.started_at ? ` · started ${chicagoTime(s.started_at)}` : ""}`;
   const c = data.counts;
   const open = rows.filter((r) => r.state === "open");
   const partly = rows.filter((r) => r.state === "partial");
@@ -122,15 +127,19 @@ export function ChecklistSummary({
     <div className="min-h-0 flex-1 overflow-y-auto">
       <div className="grid gap-x-8 gap-y-6 px-4 py-4 @2xl/page:px-5 @6xl/page:grid-cols-2">
         <section aria-labelledby={`${sessionId}-sum`}>
-          <h2 id={`${sessionId}-sum`} className="font-serif text-[22px] font-semibold leading-8 text-ink">
-            Call summary{who ? ` · ${who}` : ""}{minutes !== null ? ` · ${minutes} min` : ""}
-          </h2>
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+            <h2 id={`${sessionId}-sum`} className="min-w-0 font-serif text-[22px] font-semibold leading-8 text-ink">{title}</h2>
+            <Btn onClick={onBackToList}>Back to checklist</Btn>
+          </div>
           <p className="mt-1 text-[16px] font-semibold text-ink-2">{c.covered} covered · {c.partial} partly · {c.open} open · {c.not_applicable} N/A</p>
 
           {everything ? (
             <p className="mt-4 flex items-center gap-2 text-[17px] text-ink"><CoverageMark variant="coverage" state="covered" /> Everything covered.</p>
           ) : (
             <div className="mt-4 space-y-4">
+              {candidates.rows.length > 0 && (
+                <p className="text-[15px] text-ink-2" aria-live="polite">Ask up to {MAX_EMAIL_QUESTIONS} in the email · {picked.length} picked</p>
+              )}
               {open.length > 0 && (
                 <div>
                   <h3 className="text-[15px] font-semibold text-ink-3">Open</h3>
@@ -179,7 +188,6 @@ export function ChecklistSummary({
             <div className="mt-4"><h3 className="text-[15px] font-semibold text-ink-3">Notes</h3><p className="mt-1 whitespace-pre-wrap text-[16px] text-ink">{data.notes}</p></div>
           )}
 
-          <div className="mt-5"><Btn onClick={onBackToList}>Back to checklist</Btn></div>
         </section>
 
         {!everything && (

@@ -16,16 +16,16 @@ const YES_NO = (yes: string, no: string) => [{ value: 'true', label: yes }, { va
 
 export const ANSWER_FIELDS: Record<string, FieldSpec[]> = {
   work: [
-    { name: 'scope', type: 'textarea', label: 'Answer', placeholder: 'upstairs bath, tub out, walk-in shower', main: true },
+    { name: 'scope', type: 'textarea', label: 'Answer', placeholder: 'e.g. upstairs bath, tub out, walk-in shower', main: true },
     { name: 'job_type', type: 'text', label: 'Type of job' },
     { name: 'goals', type: 'text', label: "What they'd like instead" },
   ],
   budget: [
-    { name: 'amount_text', type: 'text', label: 'Answer', placeholder: 'around $40–50k', main: true },
+    { name: 'amount_text', type: 'text', label: 'Answer', placeholder: 'e.g. around $40–50k', main: true },
     { name: 'response', type: 'choice', label: 'Budget', options: [{ value: 'stated', label: 'Stated' }, { value: 'not_set', label: 'No budget yet' }, { value: 'declined', label: 'Rather not say' }] },
   ],
   timeline: [
-    { name: 'text', type: 'text', label: 'Answer', placeholder: 'start in spring, done by August', main: true },
+    { name: 'text', type: 'text', label: 'Answer', placeholder: 'e.g. start in spring, done by August', main: true },
     { name: 'start', type: 'date', label: 'Start' },
     { name: 'finish', type: 'date', label: 'Finish by' },
     { name: 'firm', type: 'choice', label: 'Is the date firm?', options: YES_NO('Firm', 'Flexible') },
@@ -164,6 +164,26 @@ export function isRefusal(key: string, value: unknown): boolean {
   if (!value || typeof value !== 'object') return false;
   const v = value as Record<string, unknown>;
   return (key === 'budget' && v.response === 'declined') || (key === 'other_bids' && v.answer === 'declined') || (key === 'paying' && v.method === 'declined');
+}
+
+/** The state an answer suggests when Joe hasn't picked one himself (plan §3.1
+ *  "Covered when" / "Partly when"): picking "No budget yet" or "Rather not say"
+ *  covers Budget; one or two of the three property parts is Partly. Null when
+ *  nothing is entered. The row sheet only ever moves a row up from Open with
+ *  this, never over a state Joe tapped. */
+export function suggestedState(key: string, value: Record<string, unknown> | null): 'partial' | 'covered' | null {
+  if (!value) return null;
+  const has = (k: string) => value[k] !== undefined && value[k] !== null && value[k] !== '';
+  switch (key) {
+    case 'property': return ['owner', 'type', 'hoa'].every(has) ? 'covered' : 'partial';
+    case 'years_staying': return has('occupancy_text') && has('stay_plan_text') ? 'covered' : 'partial';
+    case 'address': return has('street') && has('city') ? 'covered' : 'partial';
+    case 'contact': return has('name') && has('phone_e164') && (has('email') || value.email_declined === true) ? 'covered' : 'partial';
+    case 'timeline': return has('text') || has('start') || has('finish') ? 'covered' : 'partial';
+    case 'who_decides': return value.sole === true || has('people') ? 'covered' : 'partial';
+    case 'next_step': return value.kind === 'visit' ? (has('date') ? 'covered' : 'partial') : has('kind') ? 'covered' : 'partial';
+    default: return 'covered';
+  }
 }
 
 export function isInsurance(key: string, value: unknown): boolean {

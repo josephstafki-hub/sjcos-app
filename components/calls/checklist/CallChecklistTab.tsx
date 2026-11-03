@@ -105,7 +105,7 @@ export function CallChecklistTab({ call, leadId, linked, userId, onSessionStarte
         </div>
       ) : !leadId && !linked ? (
         <section aria-labelledby={`${call.id}-unknown`} className="rounded-lg border border-rule bg-card p-4">
-          <h2 id={`${call.id}-unknown`} className="font-serif text-[20px] font-semibold leading-7 text-ink">Unknown caller — {formatUsPhone(call.number)}</h2>
+          <h2 id={`${call.id}-unknown`} className="font-serif text-[20px] font-semibold leading-7 text-ink">Unknown caller — <span className="whitespace-nowrap">{formatUsPhone(call.number)}</span></h2>
           <div className="mt-3 flex flex-wrap gap-2">
             <Btn onClick={() => { setError(null); setPicking(true); }} disabled={busy}>Link to a lead</Btn>
             <Btn onClick={() => void chooseNewLead()} disabled={busy}>New lead</Btn>

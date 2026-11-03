@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useId, useRef, useState } from "react";
-import { AlertTriangle, ArrowDown, ArrowUp } from "lucide-react";
+import { AlertTriangle, ArrowDown, ArrowUp, ChevronDown } from "lucide-react";
 import { errorCopy } from "@/lib/checklist-coverage/action-result";
 import { loadDiscoveryChecklistSettings, publishDiscoveryChecklist } from "@/lib/actions/discovery-checklist";
 import type { ChecklistItem } from "@/lib/checklist-coverage/contract";
@@ -161,12 +161,15 @@ export function DiscoveryChecklistSettings({ initial }: { initial: ChecklistSett
               <li key={item.id} className={`rounded-lg border bg-card ${e ? "border-flag" : "border-rule"}`}>
                 <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-2">
                   <span className="w-6 text-right font-mono text-[14px] text-ink-3" aria-hidden>{index + 1}</span>
-                  <button type="button" aria-expanded={open} aria-controls={`${ids}-${item.id}`} onClick={() => setOpenRow(open && !e ? null : item.id)}
-                    className="flex min-h-12 min-w-0 flex-1 basis-40 flex-col items-start justify-center rounded-md px-2 -ml-2 text-left hover:bg-hover focus-visible:outline-2 focus-visible:outline-focus">
+                  <span className="flex min-h-12 min-w-0 flex-1 basis-40 flex-col justify-center">
                     <span className="text-[17px] font-semibold text-ink">{item.label || "(no label)"}</span>
-                    <span className="text-[14px] text-ink-3">{item.optional ? (item.enabled ? "On" : "Off") : "Always on"} · Reminders {item.reminder_enabled ? "on" : "off"} · Edit wording</span>
-                  </button>
-                  <span className="flex items-center gap-1">
+                    {/* Status only; the action is its own button. */}
+                    <span className="text-[14px] text-ink-3">{item.optional ? (item.enabled ? "On" : "Off") : "Always on"} · Reminders {item.reminder_enabled ? "on" : "off"}</span>
+                  </span>
+                  <span className="flex flex-wrap items-center gap-1">
+                    <Btn aria-expanded={open} aria-controls={`${ids}-${item.id}`} aria-label={`Edit wording for ${item.label || "this row"}`} onClick={() => setOpenRow(open && !e ? null : item.id)} className="px-3">
+                      Edit wording <ChevronDown aria-hidden className={`size-4 transition-transform motion-reduce:transition-none ${open ? "rotate-180" : ""}`} />
+                    </Btn>
                     <button type="button" onClick={() => move(index, -1)} disabled={index === 0} aria-label={`Move ${item.label} up`}
                       className="inline-flex size-12 items-center justify-center rounded-md border border-rule bg-card text-ink hover:bg-paper-2 focus-visible:outline-2 focus-visible:outline-focus disabled:opacity-40"><ArrowUp aria-hidden className="size-4" /></button>
                     <button type="button" onClick={() => move(index, 1)} disabled={index === items.length - 1} aria-label={`Move ${item.label} down`}
@@ -204,7 +207,7 @@ export function DiscoveryChecklistSettings({ initial }: { initial: ChecklistSett
             {([[false, "On screen only"], [true, "On screen and phone"]] as const).map(([v, label]) => (
               <label key={label} className={`inline-flex min-h-12 cursor-pointer items-center gap-2 rounded-full border px-4 text-[16px] focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-focus ${screenPhone === v ? "border-ink bg-ink text-paper" : "border-rule bg-card text-ink"}`}>
                 <input type="radio" name={`${ids}-dest`} checked={screenPhone === v} onChange={() => setScreenPhone(v)} className="sr-only" />
-                <span aria-hidden className="font-mono">{screenPhone === v ? "●" : "○"}</span>{label}
+                {screenPhone === v && <span aria-hidden>✓</span>}{label}
               </label>
             ))}
           </div>
@@ -223,7 +226,8 @@ export function DiscoveryChecklistSettings({ initial }: { initial: ChecklistSett
         <div className="flex flex-wrap gap-2">
           <Btn kind="primary" onClick={() => void save()} disabled={saving || !dirty}>{saving ? "Saving…" : "Save"}</Btn>
           <Btn onClick={cancel} disabled={saving || !dirty}>Cancel</Btn>
-          <Btn kind="ghost" onClick={restoreWording} disabled={saving} className="ml-auto">Restore default wording</Btn>
+          {/* Left, beside Cancel: the floating Operator pill sits bottom-right on tablet. */}
+          <Btn kind="ghost" onClick={restoreWording} disabled={saving}>Restore default wording</Btn>
         </div>
       </div>
     </div>

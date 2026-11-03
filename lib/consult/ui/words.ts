@@ -352,7 +352,10 @@ export function readyReason(check: ReadyCheck, code: string, neededMb = 50): str
 
 /** §10.2 — the skip sheet lists exactly these, in this order. */
 export const SKIP_REASONS: SkipReason[] = ['Not on this job', 'No access', 'Not safe to measure', 'Client declined', 'Get on return visit', 'Sub/supplier will measure', 'Other'];
+export const skipReasonsFor = (field?: {type?:string;key?:string}): SkipReason[] => field?.type === 'signature' ? ['Client absent','Client declined','Other'] : field?.key === 'estimate_promised' ? ['Joe sets the date','Other'] : SKIP_REASONS;
 export const SKIP_HELP: Record<SkipReason, string> = {
+  'Client absent': 'The client is not here to initial.',
+  'Joe sets the date': 'Joe will set the estimate date.',
   'Not on this job': 'Counts once the job conditions show it isn’t needed.',
   'No access': 'Needs a written assumption or exclusion for the estimate.',
   'Not safe to measure': 'Needs a written assumption or exclusion for the estimate.',

@@ -233,6 +233,7 @@ export function FieldRow({ f, actions, sectionId, last }: { f: FieldView; action
     default:
       input = <TextAnswer key={answerKey(f)} f={f} actions={actions} kind="text" />;
   }
+  if (f.readOnly) return <details><summary>{answered ? "Saved with the client's initials" : "Filled when the client initials."}</summary><p>{answered ? String(f.answer!.value) : ""}</p></details>;
   return (
     <div ref={ref} id={`f-${f.addr}`} className={`border-b-2 border-rule-soft py-4 ${actions.focusAddr === f.addr ? "rounded-md bg-accent-soft/40 px-2" : ""} ${ring ? "consult-ring" : ""}`}>
       {d.say && <p className="mb-1 font-serif text-[1em] italic text-ink-2"><span className="not-italic font-semibold text-ink">{W.say}</span> {d.say}</p>}
@@ -243,6 +244,7 @@ export function FieldRow({ f, actions, sectionId, last }: { f: FieldView; action
         </p>
         <MarkCell f={f} />
       </div>
+      {f.prefilledFrom && <p>{f.prefilledFrom.label} — change it if that’s wrong</p>}
       {d.hint && <p className="text-[0.9em] text-ink-2">{d.hint}</p>}
       {skipped && <p className="mt-1 text-[0.95em] text-ink-2">{f.mark === "not_applicable" ? "N/A · " : "Skipped · "}{f.answer!.skip_reason}{f.skipCounts ? (f.answer!.skip_reason === "Not on this job" ? "" : " — assumption written") : f.returnVisit ? "" : f.answer!.skip_reason === "Not on this job" ? " — the job needs it, so it stays Open" : " — needs a written assumption to count"}{f.answer!.skip_note ? ` · ${f.answer!.skip_note}` : ""}</p>}
       {input}

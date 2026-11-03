@@ -2,7 +2,7 @@ import {deadlineFetch,transportCode} from './transport.ts';
 /** Framework-independent controller. No decrypted shared singleton or automatic rebase. */
 import {ConsultOfflineStore,assertOfflineLease,partitionKey,verifyLease,type SignedLease,type OfflineIdentity,type OfflineLease} from './offline.ts';
 import {applyReceipt,applyServerEpoch,enqueue,nextBatch,type QueueState,type ConsultOp,type OpReceipt} from './queue.ts';
-export interface LocalBlob {hash:string;event_id:string;mime:string;kind:'photo'|'initials';instance_id:string;field_key?:string;shot_key?:string;receipt?:{file_id:string;media_id:string}}
+export interface LocalBlob {summary_text?:string;hash:string;event_id:string;mime:string;kind:'photo'|'initials';instance_id:string;field_key?:string;shot_key?:string;receipt?:{file_id:string;media_id:string}}
 export interface LocalVisit {queue:QueueState;snapshot:unknown;blobs:LocalBlob[];last_send:number|null;close_intent?:{evidence:Record<string,unknown>|null;request?:{expected_revision:number;manifest:unknown}};last_send_failure?:{code:string;at:number;detail?:string}|null}
 export type OfflineRepository=Pick<ConsultOfflineStore,'load'|'save'|'saveBlob'|'loadBlob'|'preflight'|'close'|'deleteBlob'|'blobHashes'>;
 export class OfflineEngine {
@@ -27,7 +27,7 @@ export class OfflineEngine {
  async prepare(value:LocalVisit){if(this.value)throw new Error('local_conflict');await this.store.preflight();await this.commit(value);}
  async saveCloseIntent(evidence:Record<string,unknown>|null){return this.exclusive(async()=>{const v=this.read();if(v)await this.commit({...v,close_intent:{evidence}});});}
  async saveCloseRequest(request:{expected_revision:number;manifest:unknown}){return this.exclusive(async()=>{const v=this.read();if(v?.close_intent)await this.commit({...v,close_intent:{...v.close_intent,request}});});}
- async clearCloseIntent(){return this.exclusive(async()=>{const v=this.read();if(v)await this.commit({...v,close_intent:undefined});});}
+ async clearCloseIntent(request?:{expected_revision:number;manifest:unknown}){return this.exclusive(async()=>{const v=this.read();if(request && JSON.stringify(v?.close_intent?.request)!==JSON.stringify(request))return;if(v)await this.commit({...v,close_intent:undefined});});}
  /** One durable transaction: initialization is either entirely present or absent. */
  async captureBatch(ops:ConsultOp[],projection:Record<string,unknown>){return this.exclusive(async()=>{const v=this.read();if(!v)throw new Error('not_prepared');let queue=v.queue;for(const op of ops)queue=enqueue(queue,op,projection);await this.commit({...v,queue});});}
  async capture(op:ConsultOp,projection:Record<string,unknown>){return this.exclusive(async()=>{const v=this.read();if(!v)throw new Error('not_prepared');await this.commit({...v,queue:enqueue(v.queue,op,projection)});});}
@@ -69,7 +69,7 @@ export class OfflineEngine {
    const bytes=await blob.slice(n*status.part_bytes,(n+1)*status.part_bytes).arrayBuffer();const sha=[...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes))].map(b=>b.toString(16).padStart(2,'0')).join('');
    const part=await this.request(`/api/consult/${this.identity.consult_id}/uploads/${status.upload_id}/parts/${n}`,{method:'PUT',credentials:'same-origin',headers:{'X-Consult-CSRF':'1','X-Part-SHA256':sha},body:bytes});if(!part.ok){await this.transportFailure(part.status);return;}
   }}
-  const committed=status.receipt?null:await this.post(`/uploads/${status.upload_id}/commit`,{event_id:meta.event_id,sha256:meta.hash});if(committed&&!committed.ok){await this.transportFailure(committed.status);return;}
+  const committed=status.receipt?null:await this.post(`/uploads/${status.upload_id}/commit`,{event_id:meta.event_id,sha256:meta.hash,...(meta.summary_text!==undefined?{summary_text:meta.summary_text}:{})});if(committed&&!committed.ok){await this.transportFailure(committed.status);return;}
   const receipt=status.receipt??await committed!.json(),latest=this.read()!;if(!receipt?.file_id||!receipt?.media_id)throw new Error('invalid_upload_receipt');this.lastSendFailure=null;await this.commit({...latest,last_send:Date.now(),last_send_failure:null,blobs:latest.blobs.map(b=>b.event_id===meta.event_id?{...b,receipt}:b)});
  }
  private async transportFailure(status:number){this.lastSendFailure={code:status===401?'signed_out':status===403?'revoked':`upload_${status}`,at:Date.now()};const v=this.read();if(!v)return;await this.commit({...v,last_send_failure:this.lastSendFailure});if([401,403,410,426].includes(status)){const queue={...v.queue,blocked:(status===401?'signed_out':status===403?'revoked':status===410?'deleted':'update_required') as QueueState['blocked'],projection:{}};await this.commit({...v,queue,snapshot:null});this.lock();}}

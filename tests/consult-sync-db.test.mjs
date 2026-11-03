@@ -46,3 +46,57 @@ test('transaction crash rolls back sequence and receipt; invalid per-op receipt 
   await f.save();assert.equal((await f.close()).complete,true);
  },{fresh:true});
 });
+
+test('R6 summary is protected and reason + displayed recap commit atomically',async()=>withTestDb(async(_url,c)=>{
+ const f=await fixture(c);
+ const definition={key:'closing',version:1,title:'Closing',repeatable:false,say:[],fields:[
+ {key:'summary',label:'Summary',type:'text',required:false,tier:'record'},
+ {key:'client_initials',label:'Initials',type:'signature',required:true,tier:'record'}],shots:[],coverage:[]};
+ const form=(await c.query("INSERT INTO consult_form_versions(kind,key,version,definition,checksum,author) VALUES('module','closing',1,$1,'',$2) RETURNING id",[definition,f.owner])).rows[0].id;
+ const {publish}=await import('../lib/consult/protocol.ts');
+ const registry=(await c.query('SELECT id FROM consult_mapping_registries LIMIT 1')).rows[0].id;
+ await publish(c,f.context('publish_form',f.owner,null),{form_id:form,registry_id:registry});
+ await c.query('INSERT INTO consult_form_pins SELECT $1,id,kind,key,version,checksum FROM consult_form_versions WHERE id=$2',[f.consult,form]);
+ const id=randomUUID();await f.send([f.op('create_instance',{},await f.revision(),{instance_id:id,module_key:'closing',label:'Closing'})]);
+ const denied=await f.send([f.op('answer',{status:'answered',value:'tamper'},0,{instance_id:id,field_key:'summary'})]);
+ assert.equal(denied[0].status,422);
+ const recap='What we went over\nBathroom measured';
+ const r=await f.send([f.op('answer',{status:'skipped',skip_reason:'Client absent',skip_note:'Away today',summary_text:recap},0,{instance_id:id,field_key:'client_initials'})]);assert.equal(r[0].status,200);
+ const rows=(await c.query("SELECT field_key,value,skip_reason FROM consult_answers WHERE instance_id=$1 ORDER BY field_key",[id])).rows;
+ assert.deepEqual(rows.map(r=>r.field_key),['client_initials','summary']);assert.equal(rows[1].value,recap);assert.equal(rows[0].skip_reason,'Client absent');
+ const {initConsultUpload,putConsultPart,commitConsultBlob}=await import('../lib/consult/uploads.ts');
+ const sharp=(await import('sharp')).default;
+ const {createHash}=await import('node:crypto');
+ const {mkdtemp,rm}=await import('node:fs/promises');
+ const root=await mkdtemp('/tmp/consult-r6-upload-');
+ try{
+  const bytes=await sharp({create:{width:4,height:4,channels:4,background:'#000'}}).png().toBuffer();
+  const sha=createHash('sha256').update(bytes).digest('hex'),event=randomUUID();
+  const u=await initConsultUpload(c,f.context('upload'),f.consult,{event_id:event,device_id:f.device,device_epoch:1,kind:'initials',mime:'image/png',size:bytes.length,sha256:sha,instance_id:id,field_key:'client_initials'});
+  await putConsultPart(c,f.context('upload'),f.consult,u.upload_id,0,bytes,sha);
+  const input={event_id:event,sha256:sha,summary_text:'Exact text shown with initials'};
+  await c.query('BEGIN');
+  await commitConsultBlob(c,f.context('upload'),f.consult,u.upload_id,input,root);
+  await c.query('ROLLBACK');
+  assert.equal((await c.query("SELECT count(*)::int n FROM consult_media WHERE instance_id=$1",[id])).rows[0].n,0);
+  await c.query('BEGIN');
+  const receipt=await commitConsultBlob(c,f.context('upload'),f.consult,u.upload_id,input,root);await c.query('COMMIT');
+  assert.deepEqual(await commitConsultBlob(c,f.context('upload'),f.consult,u.upload_id,input,root),receipt);
+  await assert.rejects(commitConsultBlob(c,f.context('upload'),f.consult,u.upload_id,{...input,summary_text:'tamper'},root),/idempotency_mismatch/);
+  assert.equal((await c.query("SELECT a.value FROM consult_field_heads h JOIN consult_answers a ON a.id=h.current_answer_id WHERE h.instance_id=$1 AND h.field_key='summary'",[id])).rows[0].value,input.summary_text);
+ }finally{await rm(root,{recursive:true,force:true});}
+
+},{fresh:true}));
+
+test('R6 server Close counts year-derived pre-1978 as answered',async()=>withTestDb(async(_url,c)=>{
+ const f=await fixture(c);await f.send([f.op()]);await f.save();
+ const {seedModules}=await import('../lib/consult/forms/seed.ts');
+ const {publish}=await import('../lib/consult/protocol.ts');
+ const definition=seedModules.find(m=>m.key==='era');
+ const registry=(await c.query('SELECT id FROM consult_mapping_registries LIMIT 1')).rows[0].id;
+ const form=(await c.query("INSERT INTO consult_form_versions(kind,key,version,definition,checksum,author) VALUES('module','era',1,$1,'',$2) RETURNING id",[definition,f.owner])).rows[0].id;
+ await publish(c,f.context('publish_form',f.owner,null),{form_id:form,registry_id:registry});
+ await c.query('INSERT INTO consult_form_pins SELECT $1,id,kind,key,version,checksum FROM consult_form_versions WHERE id=$2',[f.consult,form]);
+ await f.send([f.op('create_instance',{},await f.revision(),{instance_id:randomUUID(),module_key:'era',label:'Era hazards'})]);
+ assert.equal((await f.close()).complete,true);
+},{fresh:true}));

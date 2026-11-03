@@ -14,7 +14,7 @@ export function mergeTemplateModules(templates: TemplateDef[], values: Record<st
  }
  const wanted=values['basement_scope.rooms_wanted'];
  if(templates.some(t=>t.key==='basement')&&Array.isArray(wanted)&&wanted.includes('Bath')){const slot=result.find(x=>x.module==='selections');if(slot){const extra=selectionDecisions.bath.map(decision=>({decision:`Basement bath — ${decision}`}));slot.presets=[...(slot.presets??[]),...extra];slot.min=(slot.min??0)+extra.length;}}
- const catalog = ['visit','house','access','room','bath_scope','kitchen_scope','addition_scope','basement_scope','deck_scope','whole_scope','general_scope','garage_scope','openings_scope','flooring_scope','garage','openings','flooring','egress','kitchen_wall','kitchen_wall_item','kitchen_appliance','plumb_fixture','window','door','panel','water','hvac','hvac_vent','hvac_exhaust_fan','structure','moisture','era','exterior_site','footing','selections','closing'];
+ const catalog = ['visit','house','access','room','bath_scope','plumb_fixture','kitchen_scope','addition_scope','basement_scope','deck_scope','whole_scope','general_scope','garage_scope','openings_scope','flooring_scope','garage','openings','flooring','egress','kitchen_wall','kitchen_wall_item','kitchen_appliance','window','door','panel','water','hvac','hvac_vent','hvac_exhaust_fan','structure','moisture','era','exterior_site','footing','selections','closing'];
  const rank=(key:string)=>{const i=catalog.indexOf(key);return i<0?catalog.indexOf('selections')-0.5:i;};
  return result.sort((a,b)=>rank(a.module)-rank(b.module)||a.module.localeCompare(b.module));
 }

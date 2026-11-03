@@ -27,7 +27,7 @@ export const CLOSING_JOE: ScriptLine[] = [
 ];
 /** Staff closing: adds this line after line 2. */
 export const STAFF_CLOSING_LINE = 'Joe prices the estimate from everything I measured today, and he may call you with a question or two.';
-export const CLOSING_STAFF: ScriptLine[] = [...CLOSING_JOE.slice(0, 2), { n: '2b', text: STAFF_CLOSING_LINE }, ...CLOSING_JOE.slice(2)];
+export const CLOSING_STAFF: ScriptLine[] = [...CLOSING_JOE.slice(0, 2).map(l=>l.n==='2'?{...l,text:l.text.replace('Next, I price this','Next, Joe prices this')}:l), { n: '2b', text: STAFF_CLOSING_LINE }, ...CLOSING_JOE.slice(2)];
 
 export const SCRIPT_RULES = {
   opening: 'Shown on the Start screen, one card per line, Next advances; field-entry Next differs as §6.3 defines.',
@@ -42,6 +42,7 @@ export const TEMPLATE_DURATIONS: Record<string, string> = {
 };
 
 export const LEAD_SAFE_PAMPHLET = {
+  unknown_year_text: "We don't know for sure the house was built in 1978 or later, so we give you this pamphlet about lead-safe work — it's called Renovate Right. Could you initial here that you got it?",
   when: 'house built before 1978, work disturbs paint — shown inside the Era hazards module',
   text: 'Because the house was built before 1978, the law requires us to give you this pamphlet about lead-safe work — it\'s called Renovate Right. Could you initial here that you got it?',
   direction: 'client initials on SignaturePad',

@@ -7,14 +7,14 @@
 import { useState } from "react";
 import type { RiskAssumption, SkipReason } from "@/lib/consult/completeness";
 import { hasRiskAssumption } from "@/lib/consult/completeness";
-import { SKIP_HELP, SKIP_REASONS, W, plainWords } from "@/lib/consult/ui/words";
+import { SKIP_HELP, skipReasonsFor, W, plainWords } from "@/lib/consult/ui/words";
 import { Btn, Choice, Sheet, TextInput } from "./primitives";
 
 export interface SkipValue { reason: SkipReason; note?: string; assumption?: RiskAssumption; trade_walk_decided?: boolean }
 const NEEDS_ASSUMPTION: SkipReason[] = ["No access", "Not safe to measure", "Client declined", "Sub/supplier will measure", "Other"];
 const blank = (): RiskAssumption => ({ text: "", responsible_trade: "", verification_point: "", adjustment_route: "precon_change", quantity: null, unit: null, exclusion: null });
 
-export function SkipSheet({ open, label, tier, onSave, onClose, initial, isShot, saveError }: { saveError?: string | null; open: boolean; label: string; tier: "price_critical" | "record"; initial?: SkipValue; isShot?: boolean; onSave: (v: SkipValue) => Promise<void> | void; onClose: () => void }) {
+export function SkipSheet({ open, label, tier, onSave, onClose, initial, isShot, saveError, field }: { field?: {type?:string;key?:string}; saveError?: string | null; open: boolean; label: string; tier: "price_critical" | "record"; initial?: SkipValue; isShot?: boolean; onSave: (v: SkipValue) => Promise<void> | void; onClose: () => void }) {
   // Mounted fresh for each field (conditional render), so props seed the state once.
   const [reason, setReason] = useState<SkipReason | null>(initial?.reason ?? null);
   const [note, setNote] = useState(initial?.note ?? "");
@@ -22,7 +22,7 @@ export function SkipSheet({ open, label, tier, onSave, onClose, initial, isShot,
   const [qty, setQty] = useState(initial?.assumption?.quantity != null ? String(initial.assumption.quantity) : "");
   const [walk, setWalk] = useState(!!initial?.trade_walk_decided);
   const [saving, setSaving] = useState(false);
-  const wantsAssumption = !!reason && tier === "price_critical" && NEEDS_ASSUMPTION.includes(reason);
+  const wantsAssumption = !!reason && field?.type !== "signature" && field?.key !== "estimate_promised" && tier === "price_critical" && NEEDS_ASSUMPTION.includes(reason);
   const assumption: RiskAssumption = { ...a, quantity: qty.trim() && Number.isFinite(Number(qty)) ? Number(qty) : null, unit: a.unit?.trim() ? a.unit : null, exclusion: a.exclusion?.trim() ? a.exclusion : null };
   const written = hasRiskAssumption(assumption);
   const noteMissing = reason === "Other" && !note.trim();
@@ -39,7 +39,7 @@ export function SkipSheet({ open, label, tier, onSave, onClose, initial, isShot,
         <legend className="mb-2 text-[1em] font-semibold text-ink">{W.skipWhy}</legend>
         {saveError && <p role="alert" className="font-semibold text-flag">{plainWords(saveError)}</p>}
         <div className="grid gap-3">
-          {SKIP_REASONS.filter((r) => !(isShot && r === "Not on this job")).map((r) => (
+          {skipReasonsFor(field).filter((r) => !(isShot && r === "Not on this job")).map((r) => (
             <button key={r} type="button" role="radio" aria-checked={reason === r} onClick={() => setReason(r)}
               className={`min-h-14 rounded-md border-2 px-3 py-2 text-left focus-visible:outline-3 focus-visible:outline-focus ${reason === r ? "border-accent bg-accent-soft" : "border-rule bg-card hover:bg-paper-2"}`}>
               <span className="block font-semibold text-ink"><span aria-hidden className="mr-1.5 font-mono">{reason === r ? "●" : "○"}</span>{r}</span>

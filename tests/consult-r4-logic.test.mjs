@@ -210,3 +210,31 @@ test('R5 section and wrap count the same required fields across tiers; unknown-y
  assert.equal(closeAction('flag_decisions'),'review_flags');
  assert.match(m.sections.find(s=>s.module.key==='era').fields.find(f=>f.key==='pamphlet_given').def.say,/We don’t know for sure/);
 });
+
+for (const fails of [false,true]) test('R6 held Close cannot touch replacement engine after lock/unlock: '+(fails?'failure':'success'),async t=>{
+ const {controller,engine}=await setup(t),c=controller();
+ Object.defineProperty(navigator,'onLine',{value:true,configurable:true});
+ await engine.saveCloseIntent(null);c.refresh=async()=>{};
+ let release,entered;const held=new Promise(r=>release=r),started=new Promise(r=>entered=r);
+ const original=globalThis.fetch;t.after(()=>{globalThis.fetch=original;});
+ globalThis.fetch=async()=>{entered();await held;if(fails)throw new Error('no_signal');return new Response(JSON.stringify({complete:true}),{status:200});};
+ const old=c.resumeClose();await started;c.lock();
+ let clears=0;const intent={evidence:{new:true}};
+ c.engine={read:()=>({close_intent:intent}),clearCloseIntent:async()=>{clears++;}};
+ c.state.local={close_intent:intent};c.state.closing={step:'sending'};
+ const newToken={};c.closeToken=newToken;c.closing=true;
+ release();await old;
+ assert.equal(clears,0);assert.equal(c.engine.read().close_intent,intent);
+ assert.equal(c.state.closing.step,'sending');assert.equal(c.closeToken,newToken);assert.equal(c.closing,true);
+});
+test('R6 year prefill is selected, sourced and covered in every device tally',()=>{
+ const s=snapshot();s.instances=[{id:'house',module_key:'house',removed_at:null},{id:'era',module_key:'era',removed_at:null}];
+ s.heads=[{id:'year',instance_id:'house',field_key:'year_built',status:'answered',value:1985,server_revision:1}];
+ const model=buildModel(s,[],[],emptyDraft()),section=model.sections.find(s=>s.module.key==='era'),f=section.fields.find(f=>f.key==='before_1978');
+ assert.equal(f.answer.value,false);assert.equal(f.mark,'covered');assert.equal(f.prefilledFrom.label,'From Year built (1985)');
+ assert.ok(!model.open.some(o=>o.item.addr===f.addr));assert.equal(section.pc.done,section.pc.total);
+});
+test('R6 exactly the explicitly specified cabinet/cutout/floor fields use sixteenths',()=>{
+ const fields=seedModules.flatMap(m=>m.fields.filter(f=>f.precision===1/16).map(f=>m.key+'.'+f.key)).sort();
+ assert.deepEqual(fields,['flooring.worst_dip','kitchen_appliance.cutout_depth','kitchen_appliance.cutout_height','kitchen_appliance.cutout_width','kitchen_scope.island_depth','kitchen_scope.island_length','kitchen_scope.sink_base_width','kitchen_wall.base_run','kitchen_wall.length_counter','kitchen_wall.length_ceiling','kitchen_wall.upper_run'].sort());
+});

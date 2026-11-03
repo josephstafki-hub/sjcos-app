@@ -1,4 +1,6 @@
 "use client";
+
+import {clientRecapText} from '@/lib/consult/client-summary';
 /**
  * Field app root for /consult/[id] (online, server-rendered boot) and the offline
  * shell (/consult/offline.html → capture.js, boot = null). One controller per visit.
@@ -149,7 +151,7 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
       return <div className="consult-root consult-fixed overflow-y-auto" data-scroll data-sun={sun ? "1" : undefined}><ClientView summary={summaryInput(model, display, centralTime(snap?.consult.scheduled_at ?? nowIso(), { month: "short", day: "numeric" }), formal)} pamphlet={client.field === "pamphlet_initials"} hasInitials={st.local.blobs.some(b=>b.kind==="initials"&&b.instance_id===client.instance&&b.field_key===client.field)}
         onInitials={async (png, summaryText) => { await ctl.photo(png, { instance_id: client.instance, field_key: client.field, kind: "initials" }, W.initials, summaryText); }}
         verifyPin={(pin) => ctl.verifyPin(pin)}
-        onHandBack={() => { setClient(null); setResume(client.instance); }} /></div>;
+        onHandBack={(text) => { if(client.field==="client_initials") ctl.shownSummary=text; setClient(null); setResume(client.instance); }} /></div>;
     }
     const setupMissing = model.started && !st.local.close_intent && !st.local.queue.blocked && !["complete", "needs_finishing", "cancelled"].includes(model.status) && model.slots.some((s) => s.required && !s.parent && s.live < s.minimum);
     const banners = (
@@ -177,13 +179,21 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
       body = <>{banners}<VisitScreen key={resume ?? "visit"} startAt={resume} saveError={st.code} prefill={snap?.prefill} visitorNotes={snap?.visitor_notes} model={model} display={display} thumbs={st.thumbs} online={st.online} draft={st.draft} refused={refusedEntries(entries).length} hasInitials={!!initials} userName={userName} staff={!!display?.visitor_staff} lastSaved={st.lastSaved} startAction={after} onStartAction={() => setAfter(null)}
         forgotClose={status === "in_progress" && visitDay < today}
         api={{
-          answer: (i, f, label, p, d) => ctl.answer(i, f, label, p, d),
+          answer: (i, f, label, p, d) => ctl.answer(i, f, label, f==="client_initials"&&p.status==="skipped"?{...p,summary_text:ctl.shownSummary ?? clientRecapText(summaryInput(model,display,visitDay,model.promised ?? ""))}:p, d),
           addInstance: (m, label, parent) => ctl.addInstance(m, label, parent),
           removeInstance: (i, label) => ctl.removeInstance(i, label),
           photo: (file, meta, label) => ctl.photo(file, meta, label),
           resolve: (i, f, rev, cur, prop, p, label) => ctl.resolve(i, f, rev, cur, prop, p, label),
           discard: (id, reason) => ctl.discard(id, reason),
-          setDraft: (d) => ctl.setDraft(d),
+          ackSummary: ctl.shownSummary ?? clientRecapText(summaryInput(model,display,visitDay,model.promised ?? "")),
+          setDraft: async (d) => {
+            if(d.ack_reason && d.ack_reason!==st.draft.ack_reason){
+              const instance=await ctl.ensureClosing();
+              const text=ctl.shownSummary ?? clientRecapText(summaryInput(model,display,visitDay,model.promised ?? ""));
+              await ctl.answer(instance,"client_initials","No initials",{status:"skipped",skip_reason:d.ack_reason==="Client absent"?"Client absent":d.ack_reason==="Client declined"?"Client declined":"Other",skip_note:d.ack_reason,summary_text:text});
+            }
+            return ctl.setDraft(d);
+          },
           close: () => void ctl.close(buildEvidence(model, st.draft, !!initials)),
           ensureClosing: () => ctl.ensureClosing(),
           showToClient: (f) => { if(f) setClient({instance:f.addr.split(":")[0],field:f.key}); else void ctl.ensureClosing().then(instance=>setClient({instance,field:"client_initials"})); },

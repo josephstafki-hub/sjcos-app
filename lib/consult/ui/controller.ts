@@ -397,7 +397,10 @@ export class VisitController {
     return section.instance.id;
   }
 
+  shownSummary: string | null = null;
   async answer(instance_id: string, field_key: string, label: string, payload: AnswerPayload, draft?: EvidenceDraft) {
+    if (field_key === "summary") throw new Error("summary_read_only");
+    if (field_key === "client_initials" && payload.status === "skipped" && this.shownSummary) payload = {...payload,summary_text:this.shownSummary};
     const op = await this.commit((q, b) => answerOp(q, this.state.device, b, instance_id, field_key, payload), label, draft);
     if (field_key === 'frost_zone' && payload.status === 'answered') { const zone=frostZones.find(z=>z.label===payload.value); if(zone) await this.answer(instance_id,'required_depth','Footing depth the city requires',{status:'answered',value:zone.depth}); }
     await this.ensureRequiredInstances();
@@ -408,6 +411,7 @@ export class VisitController {
   }
   removeInstance(instance_id: string, label: string) { return this.commit((q, b) => removeInstanceOp(q, this.state.device, b, instance_id), label); }
   resolve(instance_id: string, field_key: string, currentRevision: number, current: string, proposed: string, answer: AnswerPayload, label: string) {
+    if(field_key==='summary')return Promise.reject(new Error('summary_read_only'));
     return this.commit((q) => resolveOp(q, this.state.device, instance_id, field_key, currentRevision, current, proposed, 'Picked on the visit device', answer), label);
   }
   discard(eventId: string, reason: string) {
@@ -422,8 +426,8 @@ export class VisitController {
     if (this.state.storageFull) throw new Error('storage_full');
     const blob = meta.kind === 'initials' ? file : await preparePhoto(file);
     const hash = await sha256(blob);
-    const metadata: LocalBlob = { hash, event_id: uuid(), mime: meta.kind === 'initials' ? 'image/png' : blob.type === 'image/png' || blob.type === 'image/webp' ? blob.type : 'image/jpeg', kind: meta.kind ?? 'photo', instance_id: meta.instance_id, ...(meta.field_key ? { field_key: meta.field_key } : {}), ...(meta.shot_key ? { shot_key: meta.shot_key } : {}) };
-    try { const local=this.engine.read()!; const baseline=this.baseline(); const op=summaryText!==undefined&&meta.field_key==="client_initials"?await answerOp(local.queue,this.state.device,baseline,meta.instance_id,"summary",{status:"answered",value:summaryText}):undefined; await this.engine.captureBlob(blob, metadata,op,this.projection()); } catch (e) { if (/storage|quota/i.test(codeOf(e))) this.set({ storageFull: true }); throw e; }
+    const metadata: LocalBlob = { hash, event_id: uuid(), mime: meta.kind === 'initials' ? 'image/png' : blob.type === 'image/png' || blob.type === 'image/webp' ? blob.type : 'image/jpeg', kind: meta.kind ?? 'photo', instance_id: meta.instance_id, ...(meta.field_key ? { field_key: meta.field_key } : {}), ...(summaryText!==undefined&&meta.field_key==="client_initials"?{summary_text:summaryText}:{}), ...(meta.shot_key ? { shot_key: meta.shot_key } : {}) };
+    try { await this.engine.captureBlob(blob, metadata,undefined,this.projection()); } catch (e) { if (/storage|quota/i.test(codeOf(e))) this.set({ storageFull: true }); throw e; }
     try { navigator.vibrate?.(10); } catch { /* not supported */ }
     this.set({ local: this.engine.read(), lastSaved: label, thumbs: { ...this.state.thumbs, [hash]: URL.createObjectURL(blob) } });
     this.schedule(0);
@@ -490,6 +494,7 @@ export class VisitController {
     const epoch = this.memoryEpoch;
     try {
       const r = await deadlineFetch(fetch,`/api/consult/${this.state.consultId}`, { credentials: 'same-origin', cache: 'no-store' });
+      if (epoch !== this.memoryEpoch) return;
       if (r.status === 401 || r.status === 403) { this.deny(r.status === 401 ? 'signed_out' : 'revoked'); return; }
       if (!r.ok) return;
       const fresh = (await r.json()) as Snapshot;
@@ -498,13 +503,15 @@ export class VisitController {
       if (epoch !== this.memoryEpoch) return;
       this.set({ fresh, freshSeq, online: true });
       if (this.state.local) await this.ensureRequiredInstances();
-    } catch (e) { if (offlineError(e)) this.set({ online: false }); else this.set({lastSendFailure:{code:codeOf(e),at:Date.now()}}); }
+    } catch (e) { if (epoch !== this.memoryEpoch) return; if (offlineError(e)) this.set({ online: false }); else this.set({lastSendFailure:{code:codeOf(e),at:Date.now()}}); }
   }
 
   /** §5.5 close: drain → evidence → exact manifest → server Complete / Needs finishing. */
   async close(evidence: Record<string, unknown> | null) {
     if (!this.engine) return;
-    if (!this.engine.read()?.close_intent) await this.engine.saveCloseIntent(evidence);
+    const engine=this.engine, epoch=this.memoryEpoch;
+    if (!this.engine.read()?.close_intent) await engine.saveCloseIntent(evidence);
+    if(this.engine!==engine||this.memoryEpoch!==epoch)return;
     this.set({ local: this.engine.read(), closing: { step: 'sending' } });
     if (!navigator.onLine) { this.set({closing:{step:'waiting_signal'}}); return; }
     if (this.closeTimer) clearTimeout(this.closeTimer);
@@ -512,11 +519,19 @@ export class VisitController {
       if (['sending','closing'].includes(this.state.closing?.step ?? '')) this.set({closing:{step:'error',code:'close_timeout'}});
     },20_000);
     await this.drain(true);
+    if(this.engine!==engine||this.memoryEpoch!==epoch)return;
     if (this.engine?.read()?.close_intent) await this.resumeClose();
   }
+  private closeToken: object | null = null;
   private async resumeClose() {
     if (!this.engine || this.closing) return;
-    const evidence = this.engine.read()?.close_intent?.evidence ?? null;
+    const engine = this.engine, epoch = this.memoryEpoch, token = {};
+    this.closeToken = token;
+    const owns = () => {
+      if(this.closeToken!==token||this.memoryEpoch!==epoch||this.engine!==engine||this.disposed)return false;
+      try { engine.read(); return true; } catch { this.lock(); return false; }
+    };
+    const evidence = engine.read()?.close_intent?.evidence ?? null;
     this.closing = true;
     if (!navigator.onLine) { this.closing = false; this.set({ closing: { step: 'waiting_signal' } }); return; }
     const local = this.engine.read();
@@ -525,26 +540,33 @@ export class VisitController {
     this.set({ closing: { step: 'closing' } });
     try {
       await this.refresh();
+      if (!owns()) return;
       let revision = Number((this.state.fresh ?? local.snapshot as Snapshot).consult.revision);
       if (evidence && !local.close_intent?.request) {
-        try { const r = await post(this.state.consultId, 'evidence', { device: this.state.device, epoch: local.queue.device_epoch, expected_revision: revision, evidence }); revision = Number(r.revision); }
+        try { const r = await post(this.state.consultId, 'evidence', { device: this.state.device, epoch: local.queue.device_epoch, expected_revision: revision, evidence }); if (!owns()) return; revision = Number(r.revision); }
         catch (e) { throw e; }
       }
       const blobs = manifestBlobs(local.blobs);
       const manifest = { ...closeManifest({ ...local.queue, blocked: null }, this.state.device, blobs.photos, blobs.initials), local_pending: 0 };
       const request = local.close_intent?.request ?? { expected_revision: revision, manifest };
-      await this.engine!.saveCloseRequest(request);
+      if (!owns()) return;
+      await engine.saveCloseRequest(request);
+      if (!owns()) return;
       const result = (await post(this.state.consultId, 'close', request)) as unknown as CloseResult;
+      if (!owns()) return;
       await this.refresh();
-      await this.engine?.clearCloseIntent();
+      if (!owns()) return;
+      await engine.clearCloseIntent(request);
+      if (!owns()) return;
       this.closeAttempts = 0;
       if(this.closeTimer)clearTimeout(this.closeTimer);
       this.set({ local: this.engine?.read() ?? null, closing: { step: 'done', result } });
     } catch (e) {
+      if (!owns()) return;
       const code = codeOf(e);
       this.set({ local: this.engine?.read() ?? null, closing: { step: code === 'no_signal' ? 'waiting_signal' : 'error', code } });
       if (transientClose(code)) this.schedule(Math.min(60_000, 2000 * 2 ** Math.min(this.closeAttempts++, 5)));
-    } finally { this.closing = false; }
+    } finally { if (owns()) { this.closing = false; this.closeToken = null; } }
   }
   dismissClosing() { this.set({ closing: null }); }
 
@@ -576,7 +598,7 @@ export class VisitController {
   }
   /** "Lock notes on this device": drop decrypted memory, keep ciphertext for the same user. */
   private deny(code: string) { this.lock(); this.set({ phase: 'blocked', blocked: code === 'revoked' || code === 'device_access_denied' ? 'revoked' : 'signed_out', code }); }
-  lock() { this.memoryEpoch++; if(this.closeTimer)clearTimeout(this.closeTimer); if (this.expiryTimer) clearTimeout(this.expiryTimer); this.engine?.lock(); this.engine = null; this.key = null; this.lease = null; for (const url of Object.values(this.state.thumbs)) URL.revokeObjectURL(url); this.set({ local: null, fresh: null, freshSeq: 0, draft: emptyDraft(), boot: null, thumbs: {}, closing: null, lastSaved: null, phase: this.state.enrolled ? 'unlock' : 'get_ready' }); }
+  lock() { this.shownSummary = null; this.closeToken = null; this.closing = false; this.memoryEpoch++; if(this.closeTimer)clearTimeout(this.closeTimer); if (this.expiryTimer) clearTimeout(this.expiryTimer); this.engine?.lock(); this.engine = null; this.key = null; this.lease = null; for (const url of Object.values(this.state.thumbs)) URL.revokeObjectURL(url); this.set({ local: null, fresh: null, freshSeq: 0, draft: emptyDraft(), boot: null, thumbs: {}, closing: null, lastSaved: null, phase: this.state.enrolled ? 'unlock' : 'get_ready' }); }
   dispose() {
     this.lock();
     this.disposed = true;

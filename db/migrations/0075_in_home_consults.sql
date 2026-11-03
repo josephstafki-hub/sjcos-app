@@ -76,7 +76,7 @@ CREATE TABLE consult_events (
 CREATE TABLE consult_answers (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), consult_id uuid NOT NULL, instance_id uuid NOT NULL, field_key text NOT NULL,
  status text NOT NULL CHECK(status IN ('answered','skipped','cleared')), value jsonb, unit text,
- skip_reason text CHECK(skip_reason IN ('Not on this job','No access','Not safe to measure','Client declined','Get on return visit','Sub/supplier will measure','Other')), skip_note text,
+ skip_reason text CHECK(skip_reason IN ('Not on this job','No access','Not safe to measure','Client absent','Joe sets the date','Client declined','Get on return visit','Sub/supplier will measure','Other')), skip_note text,
  source text NOT NULL CHECK(source IN ('typed','office','prefill')), actor uuid NOT NULL REFERENCES users(id),
  device_id uuid, device_epoch bigint, event_id uuid NOT NULL, base_revision bigint NOT NULL CHECK(base_revision>=0),
  server_revision bigint NOT NULL CHECK(server_revision>0), generation bigint NOT NULL CHECK(generation>0),
@@ -311,6 +311,7 @@ BEGIN
  JOIN consult_form_versions v ON v.id=p.form_id, jsonb_array_elements(v.definition->'fields') fd
  WHERE i.consult_id=target AND i.id=address AND i.removed_at IS NULL AND fd->>'key'=field;
  IF f IS NULL THEN RAISE EXCEPTION 'unknown pinned field'; END IF;
+ IF field='summary' AND EXISTS(SELECT 1 FROM consult_instances WHERE id=address AND module_key='closing') THEN RAISE EXCEPTION 'summary_read_only'; END IF;
  IF operation->>'unit' IS DISTINCT FROM f->>'unit' THEN RAISE EXCEPTION 'invalid unit'; END IF;
  IF operation->>'status'='answered' THEN
   IF f->>'type'='length_pair' THEN

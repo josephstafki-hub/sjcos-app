@@ -395,7 +395,7 @@ export const moisture: ModuleDef = {
 };
 
 export const PAMPHLET_LINE = 'Because the house was built before 1978, the law requires us to give you this pamphlet about lead-safe work — it\'s called Renovate Right. Could you initial here that you got it?';
-export const PAMPHLET_UNKNOWN_YEAR_LINE = curly("We don't know for sure the house was built after 1978, so we give you this pamphlet about lead-safe work — it's called Renovate Right. Could you initial here that you got it?");
+export const PAMPHLET_UNKNOWN_YEAR_LINE = curly("We don't know for sure the house was built in 1978 or later, so we give you this pamphlet about lead-safe work — it's called Renovate Right. Could you initial here that you got it?");
 const before1978 = rrpBefore;
 const ASBESTOS = ['9×9 floor tile', 'Popcorn ceiling', 'Pipe or boiler wrap', 'Old duct tape', 'Vermiculite', 'Transite siding'];
 export const era: ModuleDef = {
@@ -412,7 +412,7 @@ export const era: ModuleDef = {
     date('firm_cert_expiry', 'SJC firm certification — expiry (verify)', rrpApplies),
     choice('kids_pregnant', 'Kids under 6 or pregnant person in home', ['Yes', 'No', 'Declined'], rrpApplies, { hint: 'Yes or no only. No names or medical details.', note: 'containment and cleaning plan; no identity/medical details' }),
     yesno('before_1978', 'Built before 1978?', true, { hint: 'Filled from Year built. Change it if that’s wrong.', note: 'filled from Year built, editable (prefill: derivationCases era.before_1978)' }),
-    text('year_override_reason', 'Why is this not a pre-1978 home despite the year?', rrpYearConflict, {flag:{when:all(rrpYearConflict,{not:answered('era.year_override_reason')}),issue:'Year and pre-1978 answer disagree — record the reason before closing'}}),
+    text('year_override_reason', 'How do we know it was built in 1978 or later?', rrpYearConflict, {flag:{when:all(rrpYearConflict,{not:answered('era.year_override_reason')}),issue:'Year and pre-1978 answer disagree — record the reason before closing'}}),
     yesno('disturbs_paint', 'Will the work disturb more than 6 sq ft of painted surface in a room, or 20 sq ft outside?', before1978, { note: 'EPA RRP rule (40 CFR 745 Subpart E)' }),
     yesno('pamphlet_given', 'Renovate Right pamphlet given', rrpApplies, {
       flag: { when: eq('pamphlet_given', false), issue: 'Renovate Right not given — give before work starts' },

@@ -29,6 +29,7 @@ export interface VisitApi {
   setDraft: (d: EvidenceDraft) => Promise<boolean>;
   close: () => void;
   ensureClosing: () => Promise<string>;
+  ackSummary?: string;
   showToClient: (field?: FieldView) => void;
 }
 
@@ -230,7 +231,7 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
       <div className="mt-3 rounded-lg border-2 border-rule bg-card p-5 shadow-card">
         <p className="font-serif text-[1.25em] leading-snug text-ink">“{opening[openingStep] ?? ""}”</p>
       </div>
-      {/photos/i.test(opening[openingStep] ?? "") && photosField && <FieldRow f={photosField} actions={actions} sectionId={houseInst!.instance.id} />}
+      {/photos/i.test(opening[openingStep] ?? "") && photosField && <FieldRow f={{...photosField,def:{...photosField.def,say:undefined}}} actions={actions} sectionId={houseInst!.instance.id} />}
       {/anything you want to make sure/i.test(opening[openingStep] ?? "") && clientList && <FieldRow f={clientList} actions={actions} sectionId={houseInst!.instance.id} />}
       <BottomBar
         left={<span className="flex items-center gap-2">
@@ -364,12 +365,12 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
 
       {keypad && <Keypad open def={keypad.f.def} label={keypad.f.def.label} initial={keypad.f.answer?.status === "answered" ? keypad.f.answer.value : undefined} last={section ? lastValue(section, keypad.f) : undefined}
         onClose={() => setKeypad(null)} onSave={async (value) => { await actions.answer(keypad.f, { status: "answered", value, unit: keypad.f.def.unit }); setKeypad(null); }} />}
-      {skip && <SkipSheet open label={skip.field?.def.label ?? skip.shot?.def.label ?? ""} tier={skip.field?.def.tier ?? skip.shot?.def.tier ?? "price_critical"} isShot={!!skip.shot}
+      {skip && <SkipSheet field={skip.field?.def} open label={skip.field?.def.label ?? skip.shot?.def.label ?? ""} tier={skip.field?.def.tier ?? skip.shot?.def.tier ?? "price_critical"} isShot={!!skip.shot}
         saveError={saveError} initial={draft.skips[skip.field?.addr ?? skip.shot?.addr ?? ""]} onClose={() => setSkip(null)}
         onSave={async (v: SkipValue) => {
           const key = skip.field?.addr ?? skip.shot!.addr;
           const next = { ...draft, skips: { ...draft.skips, [key]: v } };
-          if (skip.field) { const inst = skip.field.addr.split(":")[0]; await wrap(api.answer(inst, skip.field.key, skip.field.def.label, { status: "skipped", skip_reason: v.reason, skip_note: v.note, unit: skip.field.def.unit }, next)); }
+          if (skip.field) { const inst = skip.field.addr.split(":")[0]; if(skip.field.key==="client_initials") next.ack_reason=[v.reason,v.note].filter(Boolean).join(" · "); await wrap(api.answer(inst, skip.field.key, skip.field.def.label, { status: "skipped", skip_reason: v.reason, skip_note: v.note, unit: skip.field.def.unit }, next)); }
           else if(!await api.setDraft(next)) return;
           setSkip(null);
         }} />}
@@ -380,7 +381,7 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
       {sheet === "flags" && <FlagSheet open onClose={() => setSheet("wrap")} model={model} draft={draft} saveError={saveError} onSave={api.setDraft} />}
       {sheet === "trades" && <TradeSheet open onClose={() => setSheet("wrap")} model={model} draft={draft} saveError={saveError} onSave={api.setDraft} />}
       {sheet === "rrp" && <RrpSheet model={model} onGo={() => {setSheet(null);const id=model.sections.find(s=>s.module.key==="era")?.instance.id;if(id)openSection(id);}} open onClose={() => setSheet("wrap")} draft={draft} saveError={saveError} onSave={api.setDraft} />}
-      {sheet === "ack" && <AckSheet open onClose={() => setSheet("wrap")} draft={draft} saveError={saveError} onSave={api.setDraft} />}
+      {sheet === "ack" && <AckSheet summaryText={api.ackSummary} open onClose={() => setSheet("wrap")} draft={draft} saveError={saveError} onSave={api.setDraft} />}
       {/* r4 R4-2: the leave check is a bottom sheet beside the thumb that tapped ‹ Sections / Next, never a
           banner at the top of a long section. */}
       {leave && (() => { const from = model.sections.find((s) => s.instance.id === leave.from); if (!from) return null; const l = leaveList(model, from.instance.id); return (

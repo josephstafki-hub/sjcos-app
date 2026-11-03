@@ -184,13 +184,14 @@ export function RrpSheet({ model, onGo, open, onClose, draft, onSave, saveError 
   );
 }
 
-export function AckSheet({ open, onClose, draft, onSave, saveError }: { open: boolean; onClose: () => void; draft: EvidenceDraft; saveError?: string | null; onSave: (d: EvidenceDraft) => Promise<boolean> }) {
+export function AckSheet({ open, onClose, draft, onSave, saveError, summaryText }: { summaryText?: string; open: boolean; onClose: () => void; draft: EvidenceDraft; saveError?: string | null; onSave: (d: EvidenceDraft) => Promise<boolean> }) {
   const [why, setWhy] = useState(draft.ack_reason ?? "");
   return (
     <Sheet open={open} onClose={onClose} title={W.noInitialsWhy} footer={<><Btn onClick={onClose}>{W.cancel}</Btn><Btn tone="primary" disabled={!why.trim()} onClick={async () => { if(await onSave({ ...draft, ack_reason: why.trim() })) onClose(); }}>{W.save}</Btn></>}>
       {saveError && <Banner kind="action">{plainWords(saveError)}</Banner>}
       <div className="grid gap-3">
-        <Choice options={[W.noInitialsAbsent, W.noInitialsDeclined]} value={why === W.noInitialsAbsent || why === W.noInitialsDeclined ? why : null} onPick={setWhy} columns={2} />
+        {summaryText && <details><summary>Summary saved with this reason</summary><p className="whitespace-pre-wrap">{summaryText}</p></details>}
+        <Choice options={[W.noInitialsAbsent, W.noInitialsDeclined, "Other"]} value={why === W.noInitialsAbsent || why === W.noInitialsDeclined ? why : null} onPick={setWhy} columns={2} />
         <TextInput label={W.reason} value={why} onChange={setWhy} />
       </div>
     </Sheet>

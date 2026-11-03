@@ -33,7 +33,7 @@ export const FLAG_HINTS: Record<string, string> = {
   'moisture.signs': 'Signs of water — we’ll need to find the source and keep it dry.',
   'moisture.grade_slope': 'The ground or gutters send water toward the house.',
   'era.window_door_replacement': 'Window or door replacement on a pre-1978 house — lead-safe rules apply.',
-  'era.year_override_reason': 'The year built and the pre-1978 answer disagree — write down why.',
+  'era.year_override_reason': 'How do we know it was built in 1978 or later? Write down how we know.',
   'era.pamphlet_given': 'The Renovate Right pamphlet has to be given before work starts.',
   'era.asbestos': 'Possible asbestos — it gets tested before any demo.',
   'era.knob_tube': 'Old knob-and-tube wiring seen — the electrician looks.',

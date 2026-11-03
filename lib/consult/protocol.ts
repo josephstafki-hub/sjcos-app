@@ -1,3 +1,4 @@
+import {saveAcknowledgedSummary} from './summary.ts';
 import {evaluatedFlags} from './flags.ts';
 import { mergeTemplateModules } from './template-merge.ts';
 import { rrpFacts } from './rrp.ts';
@@ -17,7 +18,7 @@ import type { ModuleDef, TemplateDef } from './form-types.ts';
 const uuid=z.string().uuid(), rev=z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER);
 const day=z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(s=>{const d=new Date(s+'T00:00:00Z');return Number.isFinite(+d)&&d.toISOString().slice(0,10)===s;});
 const note=z.string().trim().min(1).max(8000);
-const skip=z.enum(['Not on this job','No access','Not safe to measure','Client declined','Get on return visit','Sub/supplier will measure','Other']);
+const skip=z.enum(['Not on this job','No access','Not safe to measure','Client absent','Joe sets the date','Client declined','Get on return visit','Sub/supplier will measure','Other']);
 const assumption=z.strictObject({text:note,responsible_trade:note,verification_point:note,adjustment_route:z.enum(['precon_change','change_order']),quantity:z.number().finite().nonnegative().nullable(),unit:note.nullable(),exclusion:note.nullable()});
 export const evidenceSchema=z.strictObject({
  photos_ok:z.boolean(),manual_confirmed:z.literal(true),handed_back:z.literal(true),ack_reason:note.nullable(),promised_date:day,
@@ -31,7 +32,7 @@ export const evidenceSchema=z.strictObject({
 export const decisionSchema=evidenceSchema.pick({skips:true,flags:true,trade_walks:true,no_trades_confirmed:true,rrp:true,ack_reason:true}).extend({trade_walks:z.array(z.strictObject({trade:z.string().max(8000),needed:z.boolean().nullable(),reason:z.string().max(8000)})).max(50),flags:z.record(z.string(),z.strictObject({disposition:z.enum(['price_it','allowance','sub_must_look','not_an_issue']),note:z.string().max(8000)})),rrp:evidenceSchema.shape.rrp.extend({redelivery_day:z.string().max(10).optional()})});
 const address=z.strictObject({instance_id:uuid,field_key:z.string().regex(/^[a-z][a-z0-9_]*$/)});
 const opSchema=z.strictObject({protocol_version:z.literal(1),client_event_id:uuid,device_id:uuid,device_epoch:rev.min(1),seq:rev.min(1),base_revision:rev,generation:rev.min(1),type:z.enum(['start','answer','clear','create_instance','remove_instance','resolve','discard_rejection','decisions']),target:z.unknown(),payload:z.unknown(),payload_sha256:z.string().regex(/^[a-f0-9]{64}$/)});
-const answerPayload=z.strictObject({status:z.enum(['answered','skipped','cleared']),value:z.unknown().optional(),unit:z.string().optional(),skip_reason:skip.optional(),skip_note:z.string().max(8000).optional()});
+const answerPayload=z.strictObject({summary_text:z.string().min(1).max(32000).optional(),status:z.enum(['answered','skipped','cleared']),value:z.unknown().optional(),unit:z.string().optional(),skip_reason:skip.optional(),skip_note:z.string().max(8000).optional()});
 const instanceTarget=z.strictObject({instance_id:uuid,module_key:z.string(),parent_id:uuid.optional(),label:note});
 const manifestSchema=z.strictObject({device:uuid,epoch:rev.min(1),last_seq:rev,required_blob_hashes:z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(10000),initials_hash:z.string().regex(/^[a-f0-9]{64}$/).nullable().optional(),initials_hashes:z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(10000).optional(),local_pending:z.literal(0)});
 export const hash=(value:unknown)=>createHash('sha256').update(canonicalJson(value)).digest('hex');
@@ -190,6 +191,11 @@ export async function batch(c:PoolClient,context:Context,target:string,input:unk
    const pinned=s.instances.find(i=>i.id===a.instance_id&&!i.removed_at);
    const def=s.pins.find(p=>p.kind==='module'&&p.definition.key===pinned?.module_key)?.definition as ModuleDef|undefined;
    const field=def?.fields.find(f=>f.key===a.field_key);
+   if(def?.key==='closing'&&a.field_key==='summary')throw new Error('summary_read_only');
+   if(p.status==='skipped' && field?.type==='signature' && !['Client absent','Client declined','Other'].includes(p.skip_reason??''))throw new Error('invalid_skip_reason');
+   if(p.status==='skipped' && def?.key==='closing' && a.field_key==='estimate_promised' && !['Joe sets the date','Other'].includes(p.skip_reason??''))throw new Error('invalid_skip_reason');
+   if(p.summary_text!==undefined&&await one(c,"SELECT id FROM consult_media WHERE consult_id=$1 AND instance_id=$2 AND field_key='client_initials' AND removed_at IS NULL",[target,a.instance_id]))throw new Error('initials_already_saved');
+   if(p.summary_text!==undefined&&!(def?.key==='closing'&&a.field_key==='client_initials'&&p.status==='skipped'))throw new Error('invalid_summary');
    if(p.status==='answered'){
     if(field?.maps_to?.kind==='new_work')z.strictObject({origin:z.enum(['client_requested_optional','found_condition_required']),text:note}).parse(p.value);
     if(field?.maps_to?.kind!=='new_work'&&field?.type==='text'&&(typeof p.value!=='string'||!p.value.trim()))throw new Error('text_required');
@@ -200,6 +206,7 @@ export async function batch(c:PoolClient,context:Context,target:string,input:unk
    if(def?.context_module||def?.key==='visit'||field?.derive_cases||field?.derive)throw new Error('derived_field_protected');
    const operation={...p,...a,...(op.type==='resolve'?{resolution:op.payload}:{}),generation:op.generation,base_revision:op.base_revision};
    const result=(await one<{v:{code:string;revision:number;answer_id:string}}>(c,'SELECT consult_capture_answer($1,$2,$3,$4,$5,$6) v',[await scoped(c,context,'capture_answer',target),target,op.device_id,op.device_epoch,op.client_event_id,operation])).v;
+   if(result.code==='accepted'&&p.summary_text!==undefined)await saveAcknowledgedSummary(c,target,a.instance_id,actor,p.summary_text);
    receipt={...receipt,revision:Number(result.revision)};
    if(result.code==='conflict'){
     const pair=await one(c,`SELECT to_jsonb(x)||jsonb_build_object('current',to_jsonb(a),'proposed',to_jsonb(b)) pair FROM consult_conflicts x JOIN consult_answers a ON a.id=x.current_answer_id JOIN consult_answers b ON b.id=x.proposed_answer_id WHERE x.consult_id=$1 AND x.proposed_answer_id=$2`,[target,result.answer_id]);
@@ -277,10 +284,11 @@ export async function completion(c:PoolClient,context:Context,target:string){
   const localKnown=new Set([...known,...m.fields.map(f=>f.key)]);
   const required=(r:ModuleDef['fields'][number]['required'])=>compileCondition(r,localKnown)(values);
   for(const f of m.fields){const key=`${i.id}:${f.key}`, a=s.heads.find(a=>a.instance_id===i.id&&a.field_key===f.key);
+   const prefilled=m.key==='era'&&f.key==='before_1978'&&(!a||a.status==='cleared')&&typeof projection.scalar(i,f.key)==='boolean';
    const sk=e?.skips[key];
    // A signature field can't be typed (capture_answer refuses it); committed initials media for that exact field answers it.
    const signed=f.type==='signature'&&media.some(p=>p.instance_id===i.id&&p.kind==='initials'&&p.field_key===f.key);
-   fields.push({key,tier:f.tier,required:!['name','level','decision'].includes(f.key)&&required(f.required),applicable:true,mapped:!!f.maps_to,answered:a?.status==='answered'||signed,valid:signed||(a?.status==='answered'&&a.value!==null&&a.value!==''&&(!Array.isArray(a.value)||a.value.length>0)),skip:a?.status==='skipped'?{reason:a.skip_reason as NonNullable<CompletionItem['skip']>['reason'],note:a.skip_note??undefined,...(sk?.reason===a.skip_reason?sk:{}),condition_validated:typeof f.required!=='boolean'&&!required(f.required)}:undefined});
+   fields.push({key,tier:f.tier,required:!['name','level','decision'].includes(f.key)&&required(f.required),applicable:true,mapped:!!f.maps_to,answered:prefilled||a?.status==='answered'||signed,valid:prefilled||signed||(a?.status==='answered'&&a.value!==null&&a.value!==''&&(!Array.isArray(a.value)||a.value.length>0)),skip:a?.status==='skipped'?{reason:a.skip_reason as NonNullable<CompletionItem['skip']>['reason'],note:a.skip_note??undefined,...(sk?.reason===a.skip_reason?sk:{}),condition_validated:typeof f.required!=='boolean'&&!required(f.required)}:undefined});
    for(const flag of evaluatedFlags(f,key,values)){const flagKey=flag.key;const d=e?.flags[flagKey];flags.push({key:flagKey,disposition:d?.disposition??null,note:d?.note??'',actor:d?row.actor:null,at:d?String(row.updated_at):null});}
   }
   for(const shot of [...m.shots,...m.fields.flatMap(f=>f.shots??[])]){

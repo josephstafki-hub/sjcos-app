@@ -1,6 +1,6 @@
 import { compileCondition } from './forms/conditions.ts';
 import type { When } from './form-types.ts';
-export type SkipReason = 'Not on this job' | 'No access' | 'Not safe to measure' | 'Client declined' | 'Get on return visit' | 'Sub/supplier will measure' | 'Other';
+export type SkipReason = 'Not on this job' | 'No access' | 'Not safe to measure' | 'Client absent' | 'Joe sets the date' | 'Client declined' | 'Get on return visit' | 'Sub/supplier will measure' | 'Other';
 export interface RiskAssumption {
   text: string; responsible_trade: string; verification_point: string;
   adjustment_route: 'precon_change' | 'change_order';
@@ -18,10 +18,12 @@ export function hasRiskAssumption(a?: RiskAssumption): boolean {
 }
 export function countingSkip(item: CompletionItem): boolean {
   const skip = item.skip;
-  if (!skip || !['Not on this job','No access','Not safe to measure','Client declined','Get on return visit','Sub/supplier will measure','Other'].includes(skip.reason)) return false;
+  if (!skip || !['Not on this job','No access','Not safe to measure','Client absent','Joe sets the date','Client declined','Get on return visit','Sub/supplier will measure','Other'].includes(skip.reason)) return false;
   if (skip.reason === 'Get on return visit') return false;
   if (skip.reason === 'Not on this job') return skip.condition_validated === true;
   if (skip.reason === 'Other' && !skip.note?.trim()) return false;
+  if (/(?:^|:)(?:client_initials|pamphlet_initials)$/.test(item.key) && ['Client absent','Client declined','Other'].includes(skip.reason)) return true;
+  if (/(?:^|:)estimate_promised$/.test(item.key) && ['Joe sets the date','Other'].includes(skip.reason)) return true;
   if (item.tier === 'record') return true;
   if (skip.reason === 'Sub/supplier will measure' && !skip.trade_walk_decided) return false;
   return hasRiskAssumption(skip.assumption);

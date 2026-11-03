@@ -47,6 +47,7 @@ export interface ConflictView { key: string; instance_id: string; field_key: str
 export interface ShotView { key: string; def: ShotDef; required: boolean; mark: Mark; skip?: AnswerView['skip_reason']; blobs: LocalBlob[]; addr: string }
 export interface FieldView {
   key: string; addr: string; def: FieldDef; required: boolean; applicable: boolean; mark: Mark;
+  prefilledFrom?: { field: string; value: unknown; label: string }; readOnly?: boolean;
   answer?: AnswerView; conflict?: ConflictView; returnVisit: boolean; skipNote?: string; skipCounts: boolean;
   shots: ShotView[]; flags: { key: string; issue: string; hint: string }[]; initials?: LocalBlob;
 }
@@ -334,7 +335,12 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
     for (const f of m.fields) {
 
       const addr = addrOf(inst.id, f.key);
-      const a = answers.get(addr);
+      const summaryBlob=m.key==='closing'&&f.key==='summary'?blobs.find(b=>b.instance_id===inst.id&&b.field_key==='client_initials'&&b.summary_text):undefined;
+      const skipSummary=m.key==='closing'&&f.key==='summary'?entries.filter(e=>e.op.type==='answer'&&(e.op.target as {instance_id:string;field_key:string})?.instance_id===inst.id&&(e.op.payload as {summary_text?:string})?.summary_text).at(-1):undefined;
+      const recap=summaryBlob?.summary_text ?? (skipSummary?.op.payload as {summary_text?:string}|undefined)?.summary_text;
+      const stored: AnswerView | undefined = recap?{status:'answered',value:recap,local:'pending'}:answers.get(addr);
+      const prefilled = m.key === 'era' && f.key === 'before_1978' && (!stored || stored.status === 'cleared') && typeof projection.scalar(inst,f.key) === 'boolean';
+      const a: AnswerView | undefined = prefilled ? {status:'answered',value:projection.scalar(inst,f.key),local:'server'} : stored;
       const conditional = typeof f.required !== 'boolean';
       const required = req(f.required);
       const applicable = !conditional || required || (a !== undefined && a.status !== 'cleared');
@@ -351,7 +357,7 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
       if (f.type === 'length_pair' && answered && Array.isArray(a?.value) && a!.value.some((v) => typeof v !== 'number')) mark = 'partial';
       const flags: FieldView['flags'] = [];
       for (const flag of evaluatedFlags(f,addr,values)) flags.push({key:flag.key,issue:flag.issue,hint:flag.hint??visitorFlagText(flag.issue)});
-      const view: FieldView = { key: f.key, addr, def: f.key==='pamphlet_given'&&m.key==='era'&&typeof global['house.year_built']!=='number'?{...f,say:PAMPHLET_UNKNOWN_YEAR_LINE}:f, required, applicable, mark, answer: a, conflict, returnVisit: a?.status === 'skipped' && a.skip_reason === 'Get on return visit', skipNote: a?.skip_note, skipCounts: counts, shots, flags, initials };
+      const view: FieldView = { key: f.key, addr, readOnly: m.key==='closing'&&f.key==='summary', ...(prefilled?{prefilledFrom:{field:'house.year_built',value:global['house.year_built'],label:`From Year built (${global['house.year_built']})`}}:{}), def: f.key==='pamphlet_given'&&m.key==='era'&&typeof global['house.year_built']!=='number'&&global['era.before_1978']!==true?{...f,say:PAMPHLET_UNKNOWN_YEAR_LINE}:f, required, applicable, mark, answer: a, conflict, returnVisit: a?.status === 'skipped' && a.skip_reason === 'Get on return visit', skipNote: a?.skip_note, skipCounts: counts, shots, flags, initials };
       for (const fl of flags) allFlags.push({ ...fl, section, field: view });
       if (isDerived(f) || !applicable) { hidden.push(view); continue; }
       fieldViews.push(view);
@@ -364,7 +370,7 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
       if (conflict) section.conflict = true;
       if (view.returnVisit) section.returnVisit = true;
     }
-    section.shots = m.shots.map(shotView);
+    section.shots = m.shots.filter(s=>!(m.key==='era'&&s.key==='suspect_material'&&typeof global['house.year_built']==='number'&&(global['house.year_built'] as number)>1980)).map(shotView);
     for (const s of section.shots) if (s.required) { const done = s.mark !== 'open'; count(s.def.tier, done, s.mark === 'not_applicable'); if (!done) allOpen.push({ section, item: s, kind: 'shot', partly: false }); }
     section.fields = fieldViews; section.hidden = hidden;
     section.label = instanceLabel(m, inst, n, answers);

@@ -23,11 +23,12 @@ export function createInstanceOp(q: QueueState, device: string, b: Baseline, mod
 }
 export const removeInstanceOp = (q: QueueState, device: string, b: Baseline, instance_id: string) => envelope(q, device, 'remove_instance', { instance_id } as unknown as ConsultOp['target'], {}, b.rev);
 
-export interface AnswerPayload { status: 'answered' | 'skipped' | 'cleared'; value?: unknown; unit?: string; skip_reason?: SkipReason; skip_note?: string }
+export interface AnswerPayload { summary_text?: string; status: 'answered' | 'skipped' | 'cleared'; value?: unknown; unit?: string; skip_reason?: SkipReason; skip_note?: string }
 function clean(p: AnswerPayload): AnswerPayload {
   const out: AnswerPayload = { status: p.status };
   if (p.status === 'answered') out.value = p.value;
   if (p.unit) out.unit = p.unit;
+  if (p.summary_text !== undefined) out.summary_text = p.summary_text;
   if (p.status === 'skipped') { out.skip_reason = p.skip_reason; if (p.skip_note?.trim()) out.skip_note = p.skip_note.trim(); }
   return out;
 }

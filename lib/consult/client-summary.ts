@@ -21,3 +21,14 @@ export function clientSummary(input:ClientSummary):ClientSummary {
 export function handBackAllowed(held_ms:number,pin_verified:boolean):boolean {
   return pin_verified || (Number.isFinite(held_ms) && held_ms>=2000);
 }
+
+/** Text preview used when the visitor records why initials were unavailable. */
+export function clientRecapText(input:ClientSummary):string {
+ const s=clientSummary(input);
+ return ["What we went over",s.client_name,s.visit_date,
+ ...s.rooms.flatMap(r=>[r.name,r.work.join(' · ')]),
+ ...s.still_to_decide.flatMap(g=>['Still to decide',g.group,...g.items.slice(0,STILL_TO_DECIDE_SHOWN),...(g.items.length>STILL_TO_DECIDE_SHOWN?['More choices in the estimate']:[])]),
+ ...(s.come_back?.length?['Not measured today: '+s.come_back.join(', ')]:[]),
+ ...s.open_questions,'Next',s.formal_estimate_date?'Joe sends your formal estimate by '+s.formal_estimate_date+'.':'Joe will confirm the estimate date.',
+ 'This is what we talked about today. It is not a contract or a price.'].filter(Boolean).join('\n');
+}

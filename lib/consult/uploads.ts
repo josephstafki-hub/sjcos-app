@@ -1,6 +1,7 @@
 /** All calls require the caller's open transaction; acknowledge only after COMMIT.
  * Parts are bounded DB staging, never exposed through generic signed URLs. */
 import type {PoolClient} from 'pg';
+import {saveAcknowledgedSummary} from './summary.ts';
 import {createHash,randomUUID} from 'node:crypto';
 import {mkdir,open,rename,readFile,readdir,stat,unlink} from 'node:fs/promises';
 import path from 'node:path';
@@ -62,11 +63,16 @@ export async function putConsultPart(c:PoolClient,ctx:ConsultContext,id:string,u
 }
 export async function commitConsultBlob(c:PoolClient,ctx:ConsultContext,id:string,uid:string,input:unknown,root=path.join(process.cwd(),'uploads')){
  await c.query('SELECT pg_advisory_xact_lock(771077)');
- const v=z.strictObject({event_id:uuid,sha256:sha}).parse(input);
+ const v=z.strictObject({event_id:uuid,sha256:sha,summary_text:z.string().min(1).max(32000).optional()}).parse(input);
  const {u,row,actor}=await upload(c,ctx,id,uid);
  if(v.sha256!==u.sha256||v.event_id!==u.event_id)throw new Error('idempotency_mismatch');
  if(u.kind==='photo'&&!row.allowed_photos)throw new Error('photo_permission_required');
- if(u.status==='committed')return u.commit_receipt;
+ if(u.status==='committed'){
+  if(u.commit_receipt?.summary_hash && u.commit_receipt.summary_hash!==digest(Buffer.from(v.summary_text??'')))throw new Error('idempotency_mismatch');
+  return u.commit_receipt;
+ }
+ if(u.kind==='initials'&&u.field_key==='client_initials'&&!v.summary_text)throw new Error('summary_required');
+ if(v.summary_text!==undefined&&(u.kind!=='initials'||u.field_key!=='client_initials'))throw new Error('invalid_summary');
  if(row.status==='complete')throw new Error('complete_locked');
  if(Number(u.generation)!==Number(row.completion_generation)||Number(u.epoch)!==Number(Number(row.consent_epoch)||1))throw new Error('rebase_required');
  const parts=(await c.query('SELECT n,bytes FROM consult_upload_parts WHERE upload_id=$1 ORDER BY n',[uid])).rows;
@@ -92,10 +98,11 @@ export async function commitConsultBlob(c:PoolClient,ctx:ConsultContext,id:strin
  const project=(await c.query('SELECT slug FROM projects WHERE id=$1',[row.project_id])).rows[0];
  await c.query(`INSERT INTO files(id,project_key,type,name,tag,modified_label,size_label,storage_path,mime_type,sha256,classification)
  VALUES($1,$2,'img',$3,'In-home consultation','Today',$4,$3,$5,$6,$7)`,[fileId,project.slug,name,String(safe.length),mime,safeHash,u.kind==='photo'?'consult_photo':'consult_initials']);
- const receipt={file_id:fileId,media_id:uid};
+ const receipt={file_id:fileId,media_id:uid,...(v.summary_text!==undefined?{summary_hash:digest(Buffer.from(v.summary_text))}:{})};
  await c.query("UPDATE consult_uploads SET status='committed',file_id=$2,commit_receipt=$3 WHERE id=$1",[uid,fileId,receipt]);
  await c.query(`INSERT INTO consult_events(consult_id,event_id,actor,source,type,payload,payload_hash,server_revision,generation) VALUES($1,$2,$3,'typed','upload',$4,$5,$6,$7)`,[id,u.event_id,actor,receipt,u.sha256,Number(row.revision)+1,row.completion_generation]);
  await c.query(`INSERT INTO consult_media(id,consult_id,instance_id,field_key,shot_key,kind,file_id,sha256,taken_at,actor,event_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now(),$9,$10)`,[uid,id,u.instance_id,u.field_key,u.shot_key,u.kind,fileId,u.sha256,actor,u.event_id]);
+ if(v.summary_text!==undefined)await saveAcknowledgedSummary(c,id,u.instance_id,actor,v.summary_text);
  if(u.kind==='initials'&&u.field_key==='client_initials'&&(await c.query("SELECT id FROM consult_instances WHERE consult_id=$1 AND id=$2 AND module_key='closing' AND removed_at IS NULL",[id,u.instance_id])).rowCount)await c.query('UPDATE consults SET client_ack_media_id=$2 WHERE id=$1',[id,uid]);
  await c.query('UPDATE consults SET revision=revision+1 WHERE id=$1',[id]);
  await c.query('DELETE FROM consult_upload_parts WHERE upload_id=$1',[uid]);return receipt;

@@ -22,7 +22,7 @@ function dataUrlToBlob(url: string): Blob {
 }
 
 export function ClientView({ summary, pamphlet = false, hasInitials, onInitials, onHandBack, verifyPin }: {
-  summary: ClientSummary; pamphlet?: boolean; hasInitials: boolean; onInitials: (png: Blob, summaryText: string) => Promise<void>; onHandBack: () => void; verifyPin: (pin: string) => Promise<boolean>;
+  summary: ClientSummary; pamphlet?: boolean; hasInitials: boolean; onInitials: (png: Blob, summaryText: string) => Promise<void>; onHandBack: (summaryText: string) => void; verifyPin: (pin: string) => Promise<boolean>;
 }) {
   const s = clientSummary(summary); // allowlist: nothing else reaches this view
   const pad = useRef<SignaturePadHandle>(null);
@@ -45,7 +45,7 @@ export function ClientView({ summary, pamphlet = false, hasInitials, onInitials,
   const tick = () => {
     if (start.current === null) return;
     const ms = clock() - start.current; setHeld(ms);
-    if (handBackAllowed(ms, false)) { start.current = null; setHeld(0); onHandBack(); return; }
+    if (handBackAllowed(ms, false)) { start.current = null; setHeld(0); onHandBack(recap.current?.innerText ?? ""); return; }
     raf.current = requestAnimationFrame(tick);
   };
   const begin = () => { if (start.current !== null) return; start.current = clock(); raf.current = requestAnimationFrame(tick); };
@@ -117,7 +117,7 @@ export function ClientView({ summary, pamphlet = false, hasInitials, onInitials,
             <span id="hold-help" className="sr-only">Press and hold for two seconds. Letting go cancels.</span>
             <div role="progressbar" aria-label="Hand back hold" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} className="sr-only" />
             {!pinMode ? <Btn wide onClick={() => setPinMode(true)}>{W.usePin}</Btn> : (
-              <form className="grid gap-3" onSubmit={async (e) => { e.preventDefault(); setChecking(true); let ok = false; try { ok = await verifyPin(pin); } finally { setChecking(false); } setPinErr(!ok); if (!ok) setPin(""); if (ok && handBackAllowed(0, true)) onHandBack(); }}>
+              <form className="grid gap-3" onSubmit={async (e) => { e.preventDefault(); setChecking(true); let ok = false; try { ok = await verifyPin(pin); } finally { setChecking(false); } setPinErr(!ok); if (!ok) setPin(""); if (ok && handBackAllowed(0, true)) onHandBack(recap.current?.innerText ?? ""); }}>
                 <TextInput label={W.handBackPin} value={pin} onChange={(v) => { setPin(v.replace(/\D/g, "").slice(0, 12)); if (pinErr) setPinErr(false); }} type="password" inputMode="numeric" autoFocus />
                 {pinErr && <p role="alert" className="font-semibold text-flag">! {W.pinWrongHandBack}</p>}
                 <Btn tone="accent" wide type="submit" disabled={!/^\d{6,12}$/.test(pin) || checking}>{W.handBackWithPin}</Btn>

@@ -13,8 +13,19 @@ import { Btn, Sheet } from "./primitives";
 
 type Mode = "ftin" | "decft" | "m";
 const FRACTIONS = ["1/8", "1/4", "3/8", "1/2", "5/8", "3/4", "7/8"];
-/** Keys show the single glyph (r3 C1): "1/81/4…" ran together at 320 px. */
-const GLYPH: Record<string, string> = { "1/8": "⅛", "1/4": "¼", "3/8": "⅜", "1/2": "½", "5/8": "⅝", "3/4": "¾", "7/8": "⅞" };
+/** One fraction per key, built from the UI font's own digits (r4 C1): the Unicode ¼ ½ ¾ came from
+ *  Mulish and ⅛ ⅜ ⅝ ⅞ from a fallback font, so the keys differed in weight. Every key now draws
+ *  the same raised numerator, slash and denominator in one font. */
+function FracGlyph({ f }: { f: string }) {
+  const [n, d] = f.split("/");
+  return (
+    <span aria-hidden className="inline-flex items-baseline font-sans font-bold leading-none">
+      <span className="relative -top-[0.32em] text-[0.72em]">{n}</span>
+      <span className="mx-[0.04em] text-[0.95em] font-semibold">/</span>
+      <span className="text-[0.72em]">{d}</span>
+    </span>
+  );
+}
 
 function precisionOf(def: FieldDef) { return def.precision && [1 / 16, 1 / 8, 1 / 4, 1 / 2, 1].includes(def.precision) ? def.precision : 1 / 8; }
 export function showLength(value: unknown, def: FieldDef): string {
@@ -103,8 +114,8 @@ export function Keypad({ open, def, label, initial, last, onSave, onClose }: { o
 
   // Tablet portrait keeps the docked sheet inside 58 dvh with 56 px keys (r3 C12: the fraction
   // row was clipped by the footer at 64 px).
-  const key = (k: string, text = k, aria?: string, cls = "font-mono text-[1.35em]") => (
-    <button key={k} type="button" onClick={() => press(k)} aria-label={aria ?? text}
+  const key = (k: string, text: React.ReactNode = k, aria?: string, cls = "font-mono text-[1.35em]") => (
+    <button key={k} type="button" onClick={() => press(k)} aria-label={aria ?? (typeof text === "string" ? text : k)}
       className={`min-h-16 min-w-11 rounded-md border-2 border-rule bg-card md:max-lg:min-h-14 [@media(max-height:700px)]:min-h-12 ${cls} font-semibold text-ink hover:bg-paper-2 focus-visible:outline-3 focus-visible:outline-focus active:bg-paper-3`}>{text}</button>
   );
   const status = !text.trim() ? (initial !== undefined ? `Now ${showLength(initial, def)}` : "Type the measurement")
@@ -119,8 +130,8 @@ export function Keypad({ open, def, label, initial, last, onSave, onClose }: { o
         {last !== undefined && <Btn onClick={() => { void (async () => { setSaving(true); try { await onSave(last); } finally { setSaving(false); } })(); }}>{W.sameAsLast} · {showLength(last, def)}</Btn>}
         <Btn tone="primary" onClick={() => void save()} disabled={!canSave} className="min-w-[8em]">{W.save}</Btn>
       </>}>
-      <div aria-live="polite" className="mb-3 rounded-md border-2 border-rule bg-paper px-3 py-2">
-        <p className="min-h-[1.4em] break-words font-mono text-[1.6em] font-semibold text-ink">{prettyLength(text) || " "}</p>
+      <div aria-live="polite" className="mb-3 rounded-md border-2 border-rule bg-paper px-3 py-2 [@media(max-height:700px)]:mb-2 [@media(max-height:700px)]:py-1">
+        <p className="min-h-[1.4em] break-words font-mono text-[1.6em] font-semibold text-ink [@media(max-height:700px)]:text-[1.4em]">{prettyLength(text) || " "}</p>
         <p className={`text-[0.95em] ${reading && !reading.ok && text.trim() && amb === null ? "font-semibold text-flag" : "text-ink-2"}`}>{reading && !reading.ok && text.trim() && amb === null ? "! " : ""}{status}</p>
         {warn && <p className="mt-1 text-[0.95em] font-semibold text-flag">! {warn}</p>}
       </div>
@@ -130,13 +141,13 @@ export function Keypad({ open, def, label, initial, last, onSave, onClose }: { o
           <Btn tone={unitPick === "ft" ? "primary" : "secondary"} role="radio" aria-checked={unitPick === "ft"} onClick={() => setUnitPick("ft")}>{amb}′ · feet</Btn>
         </div>
       )}
-      <div className="mb-3 grid grid-cols-3 gap-2" role="radiogroup" aria-label="Laser mode">
+      <div className="mb-3 grid grid-cols-3 gap-2 [@media(max-height:700px)]:mb-2" role="radiogroup" aria-label="Laser mode">
         {([["ftin", W.laserFtIn], ["decft", W.laserDecFt], ["m", W.laserMetric]] as const).map(([m, l]) => (
           <button key={m} type="button" role="radio" aria-checked={mode === m} onClick={() => { setMode(m); setUnitPick(null); }}
-            className={`min-h-14 rounded-md border-2 md:max-lg:min-h-12 text-[0.95em] font-semibold ${mode === m ? "border-accent bg-accent-soft text-ink" : "border-rule bg-card text-ink-2"}`}>{l}</button>
+            className={`min-h-14 rounded-md border-2 md:max-lg:min-h-12 [@media(max-height:700px)]:min-h-11 text-[0.95em] font-semibold ${mode === m ? "border-accent bg-accent-soft text-ink" : "border-rule bg-card text-ink-2"}`}>{l}</button>
         ))}
       </div>
-      <div className="grid grid-cols-4 gap-2">
+      <div className="grid grid-cols-4 gap-2 [@media(max-height:700px)]:gap-1.5">
         {key("7")}{key("8")}{key("9")}{mode === "ftin" ? key("ft", "ft", "feet") : <span />}
         {key("4")}{key("5")}{key("6")}{mode === "ftin" ? key("in", "in", "inches") : <span />}
         {key("1")}{key("2")}{key("3")}{key("del", "⌫", "Delete")}
@@ -144,8 +155,8 @@ export function Keypad({ open, def, label, initial, last, onSave, onClose }: { o
       </div>
       {mode === "ftin" && (
         // Seven across only where each key stays ≥ 44 px; narrower phones get 4 + 3 rows.
-        <div className="mt-2 grid grid-cols-4 gap-2 min-[400px]:grid-cols-7">
-          {FRACTIONS.map((f) => key(f, GLYPH[f], `${f} inch`, "font-sans text-[1.6em] leading-none"))}
+        <div className="mt-2 grid grid-cols-4 gap-2 min-[400px]:grid-cols-7 [@media(max-height:700px)]:mt-1.5 [@media(max-height:700px)]:gap-1.5">
+          {FRACTIONS.map((f) => key(f, <FracGlyph f={f} />, `${f} inch`, "text-[1.45em]"))}
         </div>
       )}
     </Sheet>

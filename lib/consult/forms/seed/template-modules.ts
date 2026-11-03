@@ -13,7 +13,7 @@ export const BATH_SAY = [
 ];
 const shower = isIn('tub_shower_plan', ['Tub → shower', 'New tub-shower', 'Shower only']);
 export const bath_scope: ModuleDef = {
-  key: 'bath_scope', version: 1, title: 'Bathroom', repeatable: true, instance_label: 'Bath {n} — {bath_type}', say: BATH_SAY,
+  key: 'bath_scope', version: 1, title: 'Bathroom work', repeatable: true, instance_label: 'Bathroom work {n} — {bath_type}', say: BATH_SAY,
   fields: [
     choice('existing_tub_material', 'Existing tub material', ['Cast iron', 'Steel', 'Acrylic-fiberglass', 'Tile base', 'No tub'], true, {
       flag: { when: eq('existing_tub_material', 'Cast iron'), issue: 'cast iron: 2-person demo / break-up' },
@@ -106,7 +106,7 @@ const ducted = ne('hood_exit', 'None — recirculating');
 const JOISTS = ['Front–back', 'Side–side'];
 const CIRCUIT = ['Yes', 'No', 'Can\'t tell'];
 export const kitchen_scope: ModuleDef = {
-  key: 'kitchen_scope', version: 1, title: 'Kitchen', repeatable: false, say: KITCHEN_SAY,
+  key: 'kitchen_scope', version: 1, title: 'Kitchen work', repeatable: false, say: KITCHEN_SAY,
   fields: [
     choice('hood_exit', 'Hood duct route — exit', ['Wall', 'Roof', 'None — recirculating'], true, {
       note: '> 300 cfm → hvac makeup-air inputs (appliance venting, dryer, other fans, year) become required; HVAC sub calculates under Minn. R. 1346.0501, not an IRC mechanical rule',

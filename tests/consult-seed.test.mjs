@@ -9,6 +9,7 @@ import * as seed from '../lib/consult/forms/seed.ts';
 import { compileCondition } from '../lib/consult/forms/conditions.ts';
 import { formulaReferences } from '../lib/consult/forms/formula.ts';
 import { consultCompleteness } from '../lib/consult/completeness.ts';
+import { curly } from '../lib/consult/typography.ts';
 
 const EXPECTED_FIELDS = {
   visit: 'templates R P|add_ons O Rec|device O Rec',
@@ -132,7 +133,8 @@ const reqCode = (m, f) => (f.derive || caseKeys.has(`${m.key}.${f.key}`) ? 'D' :
 const shotCode = (s) => (s.required === true ? 'R' : s.required === false ? 'O' : 'C');
 const allTemplates = [...seed.templates, ...seed.addOns];
 const plan = readFileSync(new URL('../docs/plans/in-home-consult-plan.md', import.meta.url), 'utf8');
-const norm = (s) => s.replace(/^> ?/gm, '').replace(/[*`]/g, '').replace(/\s+/g, ' ');
+// Seed display text is typeset with curly punctuation (r4 R4-9); the plan is plain ASCII quotes.
+const norm = (s) => s.replace(/^> ?/gm, '').replace(/[*`]/g, '').replace(/[’‘]/g, "'").replace(/[“”]/g, '"').replace(/\s+/g, ' ');
 const planText = norm(plan);
 
 test('every module, template and add-on is present, and validate.ts accepts the whole seed', () => {
@@ -180,7 +182,7 @@ test('code rows carry the round-2/3 fixes: egress, makeup air, tempered glass, t
   assert.match(f('hvac', 'dryer').note, /1346\.0501/); assert.match(f('hvac', 'other_exhaust_fan_count').note, /vented central vacuum/);
   assert.deepEqual(f('hvac', 'dryer').required, { any: [{ field: 'hood_cfm', op: 'gt', value: 300 }, { field: 'visit.templates', op: 'in', value: ['kitchen', 'basement', 'whole'] }] });
   assert.match(f('era', 'pamphlet_given').note, /within 60 days before work starts/);
-  assert.equal(f('era', 'pamphlet_given').say, seed.LEAD_SAFE_PAMPHLET.text);
+  assert.equal(f('era', 'pamphlet_given').say, curly(seed.LEAD_SAFE_PAMPHLET.text));
   assert.match(f('era', 'disturbs_paint').note, /40 CFR 745 Subpart E/);
   assert.equal(f('house', 'alarms_locations').required, true);
   assert.match(f('footing', 'required_depth').note, /1303\.1600: 42″ in the southern zone \(metro\), 60″ in the northern/);
@@ -197,7 +199,7 @@ test('field labels use the plan\'s words (seed-added helpers listed explicitly)'
   for (const m of seed.seedModules) for (const f of m.fields) {
     if (SEED_ADDED.has(`${m.key}.${f.key}`)) continue;
     // r3 C13: labels print curly quotes (“Ahead”); the plan writes straight ones.
-    const base = f.label.split(' — ')[0].replace(/[*`]/g, '').replace(/[“”]/g, '"');
+    const base = f.label.split(' — ')[0].replace(/[*`]/g, '').replace(/[“”]/g, '"').replace(/[’‘]/g, "'");
     if (!planText.toLowerCase().includes(base.toLowerCase())) missing.push(`${m.key}.${f.key}: ${base}`);
   }
   assert.deepEqual(missing, []);
@@ -208,7 +210,7 @@ test('scripts are verbatim: opening/closing for Joe and staff, section scripts, 
   assert.ok(planText.includes(norm(seed.STAFF_OPENING_LINE)) && planText.includes(norm(seed.STAFF_CLOSING_LINE)));
   assert.deepEqual(seed.OPENING_STAFF.map((l) => l.n), ['1–2', '3', '4', '4b', '5', '6']);
   assert.deepEqual(seed.CLOSING_STAFF.map((l) => l.n), ['1', '2', '2b', '3', '4', '5', '6']);
-  for (const t of seed.templates) { assert.deepEqual(t.opening, seed.OPENING_JOE.map((l) => l.text)); assert.deepEqual(t.closing, seed.CLOSING_JOE.map((l) => l.text)); }
+  for (const t of seed.templates) { assert.deepEqual(t.opening, seed.OPENING_JOE.map((l) => curly(l.text))); assert.deepEqual(t.closing, seed.CLOSING_JOE.map((l) => curly(l.text))); }
   for (const m of seed.seedModules) for (const line of m.say) assert.ok(planText.includes(norm(line)), `${m.key}: ${line}`);
   for (const k of ['bath_scope', 'kitchen_scope', 'addition_scope', 'basement_scope', 'deck_scope', 'whole_scope']) assert.ok(byKey[k].say.length >= 5, k);
   assert.equal(seed.CONSENT.notice_version, 'consult-2026-11-v2');

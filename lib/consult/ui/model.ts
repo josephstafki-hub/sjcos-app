@@ -199,10 +199,21 @@ export function areaOf(label?: string | null): string | null {
 /** "Kitchen wall 1" already says Kitchen; "Bath 1" already says Bathroom (r3 C11). */
 const saysArea = (base: string, area: string) => { const b = base.toLowerCase(), a = area.toLowerCase(); return b.includes(a) || a.startsWith(b.split(/\s+/)[0]); };
 
+/** Modules that serve the whole house: their rows never carry an area ("Electrical panel 1", not
+ *  "Panel 1 — Kitchen", r4 R4-8). */
+export const HOUSE_WIDE = new Set(['panel', 'hvac_vent', 'hvac_exhaust_fan', 'water', 'hvac', 'era', 'exterior_site', 'footing']);
+/** The noun a repeat's rows use, so its add button says the same word: "Room 1 — Bath" ↔ "+ Room". */
+export function moduleNoun(m: ModuleDef): string {
+  const p = m.instance_label ?? '';
+  const at = p.indexOf(' {n}');
+  return m.repeatable && at > 0 && !/\{/.test(p.slice(0, at)) ? p.slice(0, at) : m.title;
+}
+
 /** Display label: the instance_label pattern with {n} and field values filled in. */
 export function instanceLabel(m: ModuleDef, inst: SnapInstance, ordinal: number, answers: Map<string, AnswerView>): string {
   if (!m.repeatable) return m.title;
   const pattern = m.instance_label ?? `${m.title} {n}`;
+  const area = HOUSE_WIDE.has(m.key) ? null : areaOf(inst.label);
   let missing = false;
   const text = pattern.replace(/\{([a-z_]+)\}/g, (_, key: string) => {
     if (key === 'n') return String(ordinal);
@@ -220,10 +231,11 @@ export function instanceLabel(m: ModuleDef, inst: SnapInstance, ordinal: number,
     }
     const clean = text.replace(/\s+—\s*$/, '').trim();
     // Rooms made for an area keep it until they are named: "Room 1 — Bath", "Room 2 — Kitchen".
-    const area = areaOf(inst.label);
     if (clean && area && !saysArea(clean, area)) return `${clean} — ${area}`;
-    return clean || inst.label || `${m.title} ${ordinal}`;
+    return clean || (HOUSE_WIDE.has(m.key) ? '' : inst.label) || `${moduleNoun(m)} ${ordinal}`;
   }
+  // A pattern with only {n} ("Structure check {n}") keeps the area it was made for, like every other repeat.
+  if (area && !/\{(?!n\})/.test(pattern) && !saysArea(text, area)) return `${text} — ${area}`;
   return text;
 }
 

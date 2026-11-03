@@ -12,6 +12,7 @@ import { moduleParents, selectionDecisions } from './seed/templates.ts';
 import { OPENING_STAFF, CLOSING_STAFF } from './seed/scripts.ts';
 import { derivationCases } from './seed/derivations.ts';
 import { FLAG_HINTS } from './seed/flag-hints.ts';
+import { curly } from '../typography.ts';
 
 export * from './seed/scripts.ts';
 export {
@@ -31,10 +32,17 @@ for(const module of seedModules){
  if(moduleParents[module.key])module.parent_module=moduleParents[module.key];
  for(const field of module.fields){const rule=derivationCases.find(d=>d.kind==='derived'&&d.module===module.key&&d.field===field.key);if(rule)field.derive_cases=rule.cases;
   // Visitor sentence for each flag; the office `issue` keeps its citations (r3 C5).
-  [...(field.flag?[field.flag]:[]),...(field.flags??[])].forEach((flag,i)=>{const hint=FLAG_HINTS[`${module.key}.${field.key}${i?`#${i}`:''}`];if(hint)flag.hint=hint;});}
+  [...(field.flag?[field.flag]:[]),...(field.flags??[])].forEach((flag,i)=>{const hint=FLAG_HINTS[`${module.key}.${field.key}${i?`#${i}`:''}`];if(hint)flag.hint=curly(hint);});
+  // r4 R4-9: what the visitor and client read is typeset once, here (values and options stay as stored).
+  field.label=curly(field.label);if(field.hint)field.hint=curly(field.hint);if(field.say)field.say=curly(field.say);
+  for(const shot of field.shots??[]){shot.label=curly(shot.label);if(shot.hint)shot.hint=curly(shot.hint);}}
+ module.title=curly(module.title);module.say=module.say.map(curly);
+ for(const shot of module.shots){shot.label=curly(shot.label);if(shot.hint)shot.hint=curly(shot.hint);}
+ for(const c of module.coverage)c.text=curly(c.text);
 }
 for(const template of [...templates,...addOns]){
- template.opening_staff=OPENING_STAFF.map(l=>l.text);template.closing_staff=CLOSING_STAFF.map(l=>l.text);
+ template.opening=template.opening.map(curly);template.closing=template.closing.map(curly);
+ template.opening_staff=OPENING_STAFF.map(l=>curly(l.text));template.closing_staff=CLOSING_STAFF.map(l=>curly(l.text));
  const decisions=selectionDecisions[template.key as keyof typeof selectionDecisions];
  const selections=template.modules.find(m=>m.module==='selections');if(selections&&decisions)selections.presets=decisions.map(decision=>({decision}));
 }

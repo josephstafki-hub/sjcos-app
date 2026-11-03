@@ -114,10 +114,10 @@ test('every error code maps to plain words; no internal terms on screen', () => 
   const codes = ['no_signal', 'signed_out', 'offline_locked', 'revoked', 'device_access_denied', 'deleted', 'update_required', 'storage_full', 'storage_unavailable', 'invalid_pin', 'pin_retry_later', 'not_prepared', 'capture_disabled', 'conflict', 'rebase_required', 'complete_locked', 'manifest_sequence_gap', 'manifest_blob_missing', 'unresolved_rejections', 'invalid_operation', 'owner_required', 'csrf', 'missing_precache', 'checksum_mismatch', 'snapshot_unavailable', 'something_new'];
   for (const c of codes) { const w = plainWords(c, { name: 'Abigail', field: 'Ceiling' }); assert.ok(w.length > 10, c); assert.doesNotMatch(w, /\b(sync|lease|precache|token|manifest|rebase|CSRF|IDB|queue)\b/i, c); }
   assert.match(plainWords('signed_out', { name: 'Abigail' }), /Sign in as Abigail to send them/);
-  assert.equal(readyReason('saving_on_device', 'storage_unavailable'), "this browser won't save here (private mode or storage off)");
+  assert.equal(readyReason('saving_on_device', 'storage_unavailable'), "this browser won’t save here (private mode or storage off)");
   assert.equal(readyReason('saving_on_device', 'storage_full', 50), 'not enough space — free up 50 MB');
-  assert.equal(readyReason('forms', 'checksum_mismatch'), "couldn't download the forms");
-  assert.equal(readyReason('offline_pages', 'missing_precache'), "couldn't download the offline pages");
+  assert.equal(readyReason('forms', 'checksum_mismatch'), "couldn’t download the forms");
+  assert.equal(readyReason('offline_pages', 'missing_precache'), "couldn’t download the offline pages");
   assert.equal(readyReason('offline_lease', 'offline_locked'), 'sign-in for offline use failed — sign in again');
   assert.equal(Object.keys(CHECK_WORDS).length, 11);
   assert.deepEqual(SKIP_REASONS, ['Not on this job', 'No access', 'Not safe to measure', 'Client declined', 'Get on return visit', 'Sub/supplier will measure', 'Other']);

@@ -12,6 +12,7 @@ import type { AnswerPayload } from "@/lib/consult/ui/ops";
 import { W, plainWords } from "@/lib/consult/ui/words";
 import { Btn, Choice } from "./primitives";
 import { showLength } from "./Keypad";
+import { curly } from "@/lib/consult/typography";
 
 export interface FieldActions {
   answer: (f: FieldView, p: AnswerPayload) => Promise<void>;
@@ -168,7 +169,7 @@ export function FieldRow({ f, actions, sectionId, last }: { f: FieldView; action
       input = <div className="mt-2"><Choice options={[true, false] as const} value={answered ? (f.answer!.value as boolean) : null} onPick={(v) => void actions.answer(f, { status: "answered", value: v, unit: d.unit })} labels={(v) => (v ? W.yes : W.no)} columns={2} /></div>;
       break;
     case "choice":
-      input = <div className="mt-2"><Choice options={d.options ?? []} value={answered ? (f.answer!.value as string) : null} onPick={(v) => void actions.answer(f, { status: "answered", value: v, unit: d.unit })} /></div>;
+      input = <div className="mt-2"><Choice options={d.options ?? []} value={answered ? (f.answer!.value as string) : null} onPick={(v) => void actions.answer(f, { status: "answered", value: v, unit: d.unit })} labels={curly} /></div>;
       break;
     case "multi": {
       const set = answered && Array.isArray(f.answer!.value) ? (f.answer!.value as string[]) : [];
@@ -180,7 +181,7 @@ export function FieldRow({ f, actions, sectionId, last }: { f: FieldView; action
             return (
               <button key={o} type="button" aria-pressed={on} onClick={() => void actions.answer(f, next.length ? { status: "answered", value: next, unit: d.unit } : { status: "cleared", unit: d.unit })}
                 className={`min-h-14 rounded-md border-2 px-3 py-2 text-left font-semibold leading-tight focus-visible:outline-3 focus-visible:outline-focus ${on ? "border-accent bg-accent-soft text-ink" : "border-rule bg-card text-ink-2 hover:bg-paper-2"}`}>
-                <span aria-hidden className="mr-1.5 font-mono">{on ? "☑" : "☐"}</span>{o}
+                <span aria-hidden className="mr-1.5 font-mono">{on ? "☑" : "☐"}</span>{curly(o)}
               </button>
             );
           })}

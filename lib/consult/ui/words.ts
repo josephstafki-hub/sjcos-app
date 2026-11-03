@@ -27,7 +27,7 @@ export const W = {
   installHint: 'Add to Home Screen for easier access.',
   keepDevice: 'Keep this device until notes are sent.',
   openOnce: 'Open once with signal before the visit.',
-  notPreparedYet: "This device hasn't been made ready yet.",
+  notPreparedYet: "This device hasn’t been made ready yet.",
   usePaper: 'Or use paper and enter the answers here after the visit.',
   tryAgain: 'Try again',
   signIn: 'Sign in',
@@ -37,7 +37,7 @@ export const W = {
   pinChoose: 'Choose a PIN for this device',
   pinChooseHelp: 'You type it to open this visit without signal. 6 to 12 digits.',
   pinConfirm: 'Type the PIN again',
-  pinMismatch: "The two PINs don't match.",
+  pinMismatch: "The two PINs don’t match.",
   pinShort: 'Use 6 to 12 digits.',
   pinEnter: 'PIN for this device',
   unlockLead: 'Unlock this device to open your prepared visit.',
@@ -117,15 +117,15 @@ export const W = {
   laserDecFt: 'decimal ft',
   laserMetric: 'm',
   unitAmbiguous: 'Is that inches or feet?',
-  outOfRange: "That doesn't look right for this field — check the number.",
-  invalidLength: "That isn't a length this keypad can read.",
+  outOfRange: "That doesn’t look right for this field — check the number.",
+  invalidLength: "That isn’t a length this keypad can read.",
   // Photos §6.3
   takePhoto: 'Take photo',
   retake: 'Retake',
   photoSaved: 'Saved on device',
   photoUploading: 'Uploading',
   photoUploaded: 'Uploaded ✓',
-  photoRefused: 'This photo couldn\'t be sent ({reason}). [Retake]',
+  photoRefused: 'This photo couldn’t be sent ({reason}). [Retake]',
   photosOff: 'The client said no to photos — skip each shot with a reason.',
   // Leave check §5.3/§6.3
   leaveStill: '{section} still needs',
@@ -152,6 +152,13 @@ export const W = {
   tradeWalksLine: 'Trade walks: {trade} — needs a decision',
   conflictsLine: 'Conflicts: {field} — changed on another device',
   visitClosedSending: 'Visit closed — sending',
+  closeChecking: 'All sent ✓ · Checking the visit with the office. Keep this screen open.',
+  closeWaitingN: '⇅ {n} waiting to send · Keep this screen open.',
+  stillClosing: 'Still closing…',
+  stillClosingBody: 'The office hasn’t answered yet. Nothing is lost — your visit is saved on this device.',
+  settingUp: 'Setting up sections…',
+  setupNotDone: 'Some sections aren’t set up yet.',
+  setupAgain: 'Set up sections',
   closeWaiting: 'Close visit is saved on this device and finishes by itself when it can send.',
   complete: 'Complete',
   needsFinishing: 'Needs finishing',
@@ -160,7 +167,7 @@ export const W = {
   otherDevicesWaiting: '{n} other devices haven’t sent yet — Joe can recover them.',
   conflictsToPick: 'A conflict is left to pick.',
   visitCutShort: 'Visit closed — {n} open items. A Finish consultation to-do was made.',
-  notClosed: "This visit wasn't closed.",
+  notClosed: "This visit wasn’t closed.",
   orKeepWorking: 'or keep working.',
   promisedBy: 'Formal estimate promised by',
   promisedMissing: 'Formal estimate date — not picked yet',
@@ -231,7 +238,7 @@ export const W = {
   reopenReason: 'Why reopen it?',
   applyFindings: 'Apply findings',
   findingsApplied: 'Findings applied ✓ {when}',
-  findingsFailed: "Couldn't apply findings to the scope — [Try again]",
+  findingsFailed: "Couldn’t apply findings to the scope — [Try again]",
   findingsWaiting: 'Applying findings…',
   visitInterrupted: 'Visit interrupted',
   notSyncedYet: '{photos} still on {name}’s device',
@@ -294,10 +301,10 @@ export const READY_LABEL: Record<ReadyCheck, string> = {
 
 /** §5.7 Get ready reasons — exact words. */
 export const READY_REASON = {
-  storage: "this browser won't save here (private mode or storage off)",
+  storage: "this browser won’t save here (private mode or storage off)",
   space: 'not enough space — free up {n} MB',
-  forms: "couldn't download the forms",
-  pages: "couldn't download the offline pages",
+  forms: "couldn’t download the forms",
+  pages: "couldn’t download the offline pages",
   signin: 'sign-in for offline use failed — sign in again',
   otherDevice: 'This visit is set up on another device. Use that one, or ask Joe to move it here.',
 } as const;
@@ -311,7 +318,7 @@ export function readyReason(check: ReadyCheck, code: string, neededMb = 50): str
   if (check === 'forms' || code === 'checksum_mismatch' || code === 'missing_forms') return READY_REASON.forms;
   if (check === 'offline_pages' || /precache|manifest|update_required|capture_blocked|no_worker/.test(code)) return READY_REASON.pages;
   if (check === 'saving_on_device') return READY_REASON.storage;
-  if (check === 'visit_details' && code === 'snapshot_unavailable') return "couldn't download the visit details";
+  if (check === 'visit_details' && code === 'snapshot_unavailable') return "couldn’t download the visit details";
   if (/^(signed_out|offline_locked|lease_.*|unauthorized)$/.test(code)) return READY_REASON.signin;
   return plainWords(code);
 }
@@ -375,10 +382,10 @@ export function plainWords(code: string | undefined | null, ctx: { name?: string
     case 'deleted': return 'This visit was removed from the office. Nothing more can be sent from this device.';
     case 'update_required': return 'Update ready — reload between rooms.';
     case 'storage_full': return fill(W.storageFull, { field: ctx.field ?? '—' });
-    case 'storage_blocked': case 'storage_unavailable': return "This browser won't save here (private mode or storage off).";
-    case 'invalid_pin': return "That PIN doesn't match. Try again.";
+    case 'storage_blocked': case 'storage_unavailable': return "This browser won’t save here (private mode or storage off).";
+    case 'invalid_pin': return "That PIN doesn’t match. Try again.";
     case 'pin_retry_later': return 'Too many tries. Wait a minute, then try the PIN again.';
-    case 'not_prepared': return "This device hasn't been made ready yet. Open once with signal before the visit.";
+    case 'not_prepared': return "This device hasn’t been made ready yet. Open once with signal before the visit.";
     case 'capture_disabled': case 'capture_blocked': return 'In-home consultations are switched off right now. Use paper and enter the answers here later.';
     case 'conflict': return 'This changed in the office since you opened it. Reload to see the latest.';
     case 'rebase_required': return 'This visit was reopened since this answer was typed. Pick which value to keep.';
@@ -386,7 +393,7 @@ export function plainWords(code: string | undefined | null, ctx: { name?: string
     case 'visit_not_started': return 'Start the visit first.';
     case 'manifest_sequence_gap': case 'unresolved_rejections': return 'Some answers haven’t reached the office yet. Send now, then close again.';
     case 'manifest_blob_missing': case 'manifest_initials_missing': return 'Some photos haven’t reached the office yet. Send now, then close again.';
-    case 'invalid_operation': return "This answer couldn't be saved in the office. Check it and enter it again.";
+    case 'invalid_operation': return "This answer couldn’t be saved in the office. Check it and enter it again.";
     case 'out_of_range': return W.outOfRange;
     case 'length_precision': return 'Lengths save to the nearest 1/16″.';
     case 'text_required': return 'Type an answer, or skip this field with a reason.';
@@ -402,11 +409,11 @@ export function plainWords(code: string | undefined | null, ctx: { name?: string
     case 'csrf': return 'Reload this page, then try again.';
     case 'consult_key_unavailable': return 'The office server isn’t ready. Try again in a minute.';
     case 'local_conflict': return 'This visit is open in another tab. Close the other tab, then reload.';
-    case 'missing_precache': case 'checksum_mismatch': case 'invalid_manifest': return "Couldn't download the offline pages.";
-    case 'snapshot_unavailable': return "Couldn't download the visit details.";
+    case 'missing_precache': case 'checksum_mismatch': case 'invalid_manifest': return "Couldn’t download the offline pages.";
+    case 'snapshot_unavailable': return "Couldn’t download the visit details.";
     case 'unknown_proposal': case 'proposal_mismatch': return 'That value was already decided.';
     case 'stale_snapshot': return 'This device has an older copy of the visit. Reload.';
-    case 'findings_failed': return "Couldn't apply findings to the scope — Try again";
+    case 'findings_failed': return "Couldn’t apply findings to the scope — Try again";
     default: return 'Something went wrong. Your answers are still saved on this device. Try again.';
   }
 }

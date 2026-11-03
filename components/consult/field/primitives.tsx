@@ -79,12 +79,13 @@ export function Sheet({ open, onClose, title, children, footer, side = false, do
     <div className={`fixed inset-0 z-50 flex items-end justify-center lg:items-stretch lg:justify-end ${dock ? "bg-ink/20" : "bg-ink/40 md:items-center"}`} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={labelledBy ?? id}
         className={`flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-xl border-2 border-rule bg-card shadow-modal ${dock ? "md:max-h-[58dvh] md:border-x-0 md:border-b-0 lg:max-h-none lg:max-w-[560px] lg:rounded-xl lg:border-2" : "md:max-w-[560px] md:rounded-xl"} ${side ? "lg:h-full lg:max-h-none lg:max-w-[480px] lg:rounded-none lg:border-y-0 lg:border-r-0" : ""}`}>
-        <div className="flex items-center gap-3 border-b-2 border-rule-soft px-4 py-2">
+        {/* r4 C1: on short screens (320×700) the docked keypad tightens its chrome so both fraction rows sit above Save. */}
+        <div className={`flex items-center gap-3 border-b-2 border-rule-soft px-4 py-2 ${dock ? "[@media(max-height:700px)]:py-1" : ""}`}>
           <h2 id={labelledBy ?? id} className="min-w-0 flex-1 font-serif text-[1.15em] font-semibold text-ink">{title}</h2>
           <Btn tone="quiet" onClick={onClose} aria-label="Close" className="px-3">Close</Btn>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">{children}</div>
-        {footer && <div className="flex flex-wrap justify-end gap-3 border-t-2 border-rule-soft px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">{footer}</div>}
+        <div className={`min-h-0 flex-1 overflow-y-auto px-4 py-4 ${dock ? "[@media(max-height:700px)]:py-3" : ""}`}>{children}</div>
+        {footer && <div className={`flex flex-wrap justify-end gap-3 border-t-2 border-rule-soft px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] ${dock ? "[@media(max-height:700px)]:py-2 [@media(max-height:700px)]:pb-[max(0.5rem,env(safe-area-inset-bottom))]" : ""}`}>{footer}</div>}
       </div>
     </div>
   );

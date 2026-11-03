@@ -207,7 +207,7 @@ export const door: ModuleDef = {
 
 const LOADS = ['Induction/electric range', 'Heated floor', 'Hood requiring makeup-air assessment', 'EV charger', 'Hot tub', 'Mini-split', 'Sauna', 'None'];
 export const panel: ModuleDef = {
-  key: 'panel', version: 1, title: 'Electrical panel', repeatable: true, instance_label: 'Panel {n} — {location}',
+  key: 'panel', version: 1, title: 'Electrical panel', repeatable: true, instance_label: 'Electrical panel {n} — {location}',
   say: ['Never take the panel cover off. Open the door only; photograph the label and the breakers.'],
   fields: [
     text('location', 'Panel location', true),
@@ -328,7 +328,7 @@ export const hvac: ModuleDef = {
 /** Child rows of `hvac` › "How each fuel-burning appliance vents (one row per appliance)". */
 const newExhaust = any(answered('hvac.hood_cfm'), tpl('bath', 'kitchen'), isIn('basement_scope.rooms_wanted', ['Bath']), isIn('addition_scope.rooms', ['Bath', 'Kitchen extension']));
 export const hvac_vent: ModuleDef = {
-  key: 'hvac_vent', version: 1, title: 'How each fuel-burning appliance vents', repeatable: true, instance_label: 'Appliance {n} — {appliance}', say: [],
+  key: 'hvac_vent', version: 1, title: 'How each fuel-burning appliance vents', repeatable: true, instance_label: 'Vented appliance {n} — {appliance}', say: [],
   fields: [
     choice('appliance', 'Appliance', ['Furnace', 'Boiler', 'Water heater', 'Fireplace or stove', 'Gas dryer', 'Other'], true),
     choice('fuel', 'Fuel', ['Electric — no venting', 'Natural gas', 'Propane', 'Oil', 'Wood', 'Pellet'], true),

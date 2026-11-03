@@ -48,6 +48,8 @@ export function ScheduleDialog({ projectId, client, options, ownerId }: { projec
   const timing = visitTiming(ordered.map((t) => t.key));
   const estimate = templates.length === 0 || !timing.duration ? "" : `${fill(W.estimatedVisit, { duration: timing.duration })}${ordered.length > 1 ? ` (${ordered.map((t) => `${t.title} ${componentDuration(timing.components.find((c) => c.key === t.key)?.minutes ?? [0, 0])}`).join(" + ")})` : ""}${timing.suggestSplit && !templates.includes("whole") ? `; ${W.offerSplit}` : ""}`;
   const ready = !!who && /^\d{4}-\d{2}-\d{2}$/.test(date) && /^\d{2}:\d{2}$/.test(time) && templates.length > 0;
+  // r4: a disabled Schedule always says why, beside the button.
+  const why = !who ? "Pick who goes" : !/^\d{4}-\d{2}-\d{2}$/.test(date) ? "Pick a date" : !/^\d{2}:\d{2}$/.test(time) ? "Pick a time" : templates.length === 0 ? "Pick at least one template" : "";
   const submit = async () => {
     if (!ready) return;
     setBusy(true); setErr(null);
@@ -84,9 +86,10 @@ export function ScheduleDialog({ projectId, client, options, ownerId }: { projec
               {estimate && <p className="text-body text-ink" aria-live="polite">{estimate}</p>}
               {err && <p role="alert" className="font-semibold text-flag">! {err}</p>}
             </div>
-            <div className="mt-5 flex justify-end gap-3">
+            <div className="mt-5 flex flex-wrap items-center justify-end gap-3">
+              {why && <p id="sched-why" className="mr-auto text-body text-ink-2" aria-live="polite"><span aria-hidden className="font-mono">○ </span>{why}</p>}
               <Button variant="secondary" size="lg" onClick={() => setOpen(false)}>{W.cancel}</Button>
-              <Button size="lg" onClick={() => void submit()} disabled={!ready || busy}>{busy ? "Scheduling…" : W.schedule}</Button>
+              <Button size="lg" onClick={() => void submit()} disabled={!ready || busy} aria-describedby={why ? "sched-why" : undefined}>{busy ? "Scheduling…" : W.schedule}</Button>
             </div>
           </div>
         </div>

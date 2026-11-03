@@ -52,7 +52,9 @@ function StatusBar({ unsent, photos, answers, online, lastSend, failure, onSend,
   const [tried, setTried] = useState<{ at: number; lastSend: number | null } | null>(null);
   const failed = !!failure;
   const stuck = failed && online && failure!.code !== "no_signal";
-  const outcome = !tried || sending ? null : (lastSend ?? 0) > (tried.lastSend ?? 0) ? "sent" : "not_sent";
+  // r4 R4-10: "sending…" only while something is waiting — a check with nothing queued says nothing.
+  const busy = sending && unsent > 0;
+  const outcome = !tried || busy ? null : (lastSend ?? 0) > (tried.lastSend ?? 0) ? "sent" : unsent === 0 ? "sent" : "not_sent";
   const send = () => { setTried({ at: Date.now(), lastSend }); onSend(); };
   return (
     <header className="sticky top-0 z-40 border-b-2 border-rule bg-paper-2">
@@ -60,12 +62,12 @@ function StatusBar({ unsent, photos, answers, online, lastSend, failure, onSend,
         <button type="button" onClick={() => setSheet(true)} aria-label={`${W.notesOff}. ${unsent} waiting to send. ${online ? W.online : W.offlineLine}.${failed ? ` ${W.lastTry}: ${plainWords(failure!.code)}` : ""} Open send details.`}
           className="flex min-h-14 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left font-semibold text-ink hover:bg-hover focus-visible:outline-3 focus-visible:outline-offset-[-3px] focus-visible:outline-focus">
           <span aria-hidden className="font-mono">○</span>
-          <span className="min-w-0 truncate">{W.notesOff} · <span className="font-mono">⇅ {unsent}</span>{stuck ? <span className="text-flag"> · <span aria-hidden>⚠ </span>{W.notSent}</span> : <span className={wide ? "" : "max-md:hidden"}>{online ? ` · ${W.online}` : ""}</span>}{sending ? <span className="text-ink-3"> · {W.sendingNow}</span> : null}</span>
+          <span className="min-w-0 truncate">{W.notesOff} · <span className="font-mono">⇅ {unsent}</span>{stuck ? <span className="text-flag"> · <span aria-hidden>⚠ </span>{W.notSent}</span> : <span className={wide ? "" : "max-md:hidden"}>{online ? ` · ${W.online}` : ""}</span>}{busy ? <span className="text-ink-3"> · {W.sendingNow}</span> : null}</span>
         </button>
         <MoreMenu onExit={onExit} />
       </div>
       {!online && <p role="status" className="border-t-2 border-info bg-info-soft px-4 py-1.5 text-[0.95em] font-semibold text-ink"><span aria-hidden>⇣ </span>{W.offlineLine}</p>}
-      <Sheet open={sheet} onClose={() => { setSheet(false); setTried(null); }} title={W.sending} footer={<Btn tone="primary" onClick={send} disabled={sending || unsent === 0}>{sending ? `${W.sendingWord}…` : failed ? W.tryAgain : W.sendNow}</Btn>}>
+      <Sheet open={sheet} onClose={() => { setSheet(false); setTried(null); }} title={W.sending} footer={<Btn tone="primary" onClick={send} disabled={sending || unsent === 0}>{busy ? `${W.sendingWord}…` : failed ? W.tryAgain : W.sendNow}</Btn>}>
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-ink">
           <dt className="text-ink-2">{W.notes}</dt><dd>{W.notesOff}</dd>
           <dt className="text-ink-2">{W.answersWaiting}</dt><dd className="font-mono">{answers}</dd>
@@ -75,10 +77,10 @@ function StatusBar({ unsent, photos, answers, online, lastSend, failure, onSend,
           <dt className="text-ink-2">{W.signal}</dt><dd>{online ? W.online : W.noSignal}</dd>
         </dl>
         <p role="status" aria-live="polite" className="mt-3 min-h-[1.5em] font-semibold text-ink">
-          {sending ? `${W.sendingWord}…` : outcome === "sent" ? `✓ ${W.lastSent} ${clock(lastSend!)}${unsent ? ` · ⇅ ${unsent} ${W.stillWaiting}` : ""}` : outcome === "not_sent" ? <><span aria-hidden className="text-flag">⚠ </span>{W.nothingWentOut}</> : unsent === 0 ? W.nothingWaiting : ""}
+          {busy ? `${W.sendingWord}…` : outcome === "sent" && lastSend ? `✓ ${W.lastSent} ${clock(lastSend)}${unsent ? ` · ⇅ ${unsent} ${W.stillWaiting}` : ""}` : outcome === "not_sent" ? <><span aria-hidden className="text-flag">⚠ </span>{W.nothingWentOut}</> : unsent === 0 ? W.nothingWaiting : ""}
         </p>
         {!online && <p className="mt-3 text-ink">{W.offlineStrip}</p>}
-        {online && sending && unsent > 0 && weakLink() && <p className="mt-3 text-ink-2">{W.weakSignal}</p>}
+        {online && busy && weakLink() && <p className="mt-3 text-ink-2">{W.weakSignal}</p>}
       </Sheet>
     </header>
   );
@@ -146,6 +148,7 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
         verifyPin={(pin) => ctl.verifyPin(pin)}
         onHandBack={() => { setClient(null); setResume(client.instance); }} /></div>;
     }
+    const setupMissing = model.started && !st.local.close_intent && !st.local.queue.blocked && !["complete", "needs_finishing", "cancelled"].includes(model.status) && model.slots.some((s) => s.required && !s.parent && s.live < s.minimum);
     const banners = (
       <div className="grid gap-3 px-4 pt-3 empty:hidden">
         {st.storageFull && <Banner kind="action">{fill(W.storageFull, { field: st.lastSaved ?? "—" })}</Banner>}
@@ -153,6 +156,9 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
         {st.code === "signed_out" && <Banner kind="action" actions={<LinkBtn href={`/login?next=${encodeURIComponent(`/consult/${consultId}`)}`}>{W.signIn}</LinkBtn>}>{plainWords("signed_out", { name: userName })}</Banner>}
         {/* A close made without signal is kept (close_intent) and resumes by itself; keep working never cancels it. */}
         {!st.closing && st.local.close_intent && <Banner kind="status" actions={st.online ? <Btn onClick={() => void ctl.drain(true)}>{W.sendNow}</Btn> : undefined}>{W.closeWaiting}</Banner>}
+        {/* r4: required sections are set up on start and on every load (an interrupted start finishes here). */}
+        {st.busy && <Banner kind="status">{W.settingUp}</Banner>}
+        {!st.busy && setupMissing && <Banner kind="status" actions={<Btn tone="primary" onClick={() => void ctl.ensureRequiredInstances().catch(() => undefined)}>{st.code ? W.tryAgain : W.setupAgain}</Btn>}>{W.setupNotDone}{st.code ? ` ${plainWords(st.code, { name: userName })}` : ""}</Banner>}
         {failureDue && st.code !== "signed_out" && st.online && !st.sending && failure && unsent > 0 && <Banner kind="action" actions={<Btn tone="primary" onClick={() => void ctl.drain(true)}>{W.tryAgain}</Btn>}>{fill(W.notSentSince, { time: clock(st.local.last_send ?? failure.at) })} {plainWords(failure.code, { name: userName })}</Banner>}
       </div>
     );

@@ -54,7 +54,7 @@ test('rooms made for an area keep it: visitor "Room 1 — Bath", client "the bat
   const m = buildModel(snapshot(tpl('bath', 'kitchen'), [r1, r2, r3, wall, bath], [head(r3, 'level', 'Main')]), [], [], emptyDraft());
   const label = (i) => m.sections.find((x) => x.instance.id === i.id).label;
   assert.equal(label(r1), 'Room 1 — Bath'); assert.equal(label(r2), 'Room 2 — Kitchen');
-  assert.equal(label(wall), 'Kitchen wall 1'); assert.equal(label(bath), 'Bath 1');
+  assert.equal(label(wall), 'Kitchen wall 1'); assert.equal(label(bath), 'Bathroom work 1', 'the scope row is not a second "Bath" beside the room (r4 R4-8)');
   const sum = summaryInput(m, { client: 'C' }, '', '');
   assert.deepEqual(sum.come_back, ['the bathroom', 'the kitchen']);
 });

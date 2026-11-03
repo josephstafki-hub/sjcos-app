@@ -17,7 +17,7 @@ import { getReady } from '../get-ready.ts';
 import { enqueue, closeManifest, type QueueState } from '../queue.ts';
 import { registerConsultWorker, type PrecacheManifest } from '../service-worker.ts';
 import type { ReadyCheck, CheckResult } from '../readiness.ts';
-import { baselineOf, buildModel, emptyDraft, manifestBlobs, predictRevisions, unsentCount, type Baseline, type Display, type EvidenceDraft, type Snapshot } from './model.ts';
+import { HOUSE_WIDE, baselineOf, buildModel, emptyDraft, manifestBlobs, moduleNoun, predictRevisions, unsentCount, type Baseline, type Display, type EvidenceDraft, type Snapshot } from './model.ts';
 import { decisionsOp, answerOp, createInstanceOp, discardOp, removeInstanceOp, resolveOp, startOp, uuid, type AnswerPayload } from './ops.ts';
 
 export interface Boot {
@@ -360,10 +360,11 @@ export class VisitController {
           const need = Math.max(slot.minimum, presets.length) - slot.live;
           for (let i = 0; i < need; i++) {
             const preset = presets[slot.live + i] as Record<string, unknown> | undefined;
-            const area = model.templates.flatMap(t=>Array.from({length:t.modules.find(m=>m.module===slot.module.key)?.min??0},()=>t.title))[slot.live+i];
-            // "Room dimensions 1 — Bath"; never "Kitchen wall 1 — Kitchen" (r3 C11). Bath is the one area word.
-            const areaWord = (area ?? model.templates[0]?.title ?? "") === "Bathroom" ? "Bath" : (area ?? model.templates[0]?.title ?? "");
-            const base = `${slot.module.title} ${slot.live + i + 1}`;
+            // r4 R4-8: the area of the template this instance exists for ("Room 1 — Bath", "Room 2 — Kitchen");
+            // none for house-wide modules ("Electrical panel 1") or past the templates' minimums.
+            const area = HOUSE_WIDE.has(slot.module.key) ? undefined : model.templates.flatMap(t=>Array.from({length:t.modules.find(m=>m.module===slot.module.key)?.min??0},()=>t.title))[slot.live+i];
+            const areaWord = area === "Bathroom" ? "Bath" : (area ?? "");
+            const base = `${moduleNoun(slot.module)} ${slot.live + i + 1}`;
             const label = preset?.decision ? String(preset.decision) : slot.module.repeatable ? (areaWord && !base.toLowerCase().includes(areaWord.toLowerCase()) ? `${base} — ${areaWord}` : base) : slot.module.title;
             const op = await append((q, b) => createInstanceOp(q, this.state.device, b, slot.module.key, label, parentId), label);
             const defaults: Record<string, unknown> = slot.module.key === 'era' ? Object.fromEntries(Object.entries({firm_cert_number:snap.prefill?.firm_cert_number,firm_cert_expiry:snap.prefill?.firm_cert_expiry}).filter(([,v])=>!!v)) : {};

@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CoverageMark } from "@/components/ui/CoverageMark";
 import type { FieldView, SectionView, ShotView, VisitModel, EvidenceDraft, Display } from "@/lib/consult/ui/model";
-import { leaveLine, leaveList, nextOpen, resumeSection, spokenSelections } from "@/lib/consult/ui/model";
+import { leaveLine, leaveList, moduleNoun, nextOpen, resumeSection, spokenSelections } from "@/lib/consult/ui/model";
 import type { AnswerPayload } from "@/lib/consult/ui/ops";
 import { W, fill, plainWords, spokenDuration, visitDuration } from "@/lib/consult/ui/words";
 import { Banner, Btn, Eyebrow, Sheet } from "./primitives";
@@ -74,15 +74,17 @@ function SectionRows({ model, active, onOpen, onAdd, compact }: { model: VisitMo
           </li>
         ))}
         {missing.map((slot) => (
-          <li key={`missing-${slot.module.key}`} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b-2 border-rule-soft px-2 py-2">
-            <span><span className="font-semibold text-ink">{slot.module.title}</span> <span className="font-mono text-[0.9em] text-ink-2">{slot.live}/{slot.minimum}</span><br /><CoverageMark variant="coverage" state="open" size="sm" />{slot.label && <span className="ml-2 text-[0.85em] text-ink-3">{slot.label}</span>}</span>
-            <Btn onClick={() => onAdd(slot.module.key)}>{fill(W.addInstance, { name: slot.module.title.toLowerCase() })}</Btn>
+          // r4 R4-8: stacked — name and count, the hint at full width, then the button at full width.
+          <li key={`missing-${slot.module.key}`} className="grid gap-2 border-b-2 border-rule-soft px-2 py-3">
+            <span className="flex flex-wrap items-baseline justify-between gap-x-3"><span className="font-semibold text-ink">{moduleNoun(slot.module)}</span><span className="flex items-center gap-2"><span className="font-mono text-[0.9em] text-ink-2">{slot.live}/{slot.minimum}</span><CoverageMark variant="coverage" state="open" size="sm" /></span></span>
+            {slot.label && <span className="text-[0.85em] text-ink-3">{slot.label}</span>}
+            <Btn wide onClick={() => onAdd(slot.module.key)}>{fill(W.addInstance, { name: moduleNoun(slot.module).toLowerCase() })}</Btn>
           </li>
         ))}
       </ul>
       {extra.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-3">
-          {extra.map((slot) => <Btn key={slot.module.key} tone="secondary" onClick={() => onAdd(slot.module.key)}>+ {slot.module.title}</Btn>)}
+          {extra.map((slot) => <Btn key={slot.module.key} tone="secondary" onClick={() => onAdd(slot.module.key)}>+ {moduleNoun(slot.module)}</Btn>)}
         </div>
       )}
     </div>
@@ -132,7 +134,7 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
   const addInstance = (moduleKey: string, parent?: string | null) => {
     const m = model.modules.find((x) => x.key === moduleKey); if (!m) return;
     const n = model.sections.filter((s) => s.module.key === moduleKey).length + 1;
-    void wrap(api.addInstance(moduleKey, m.repeatable ? `${m.title} ${n}` : m.title, parent ?? null));
+    void wrap(api.addInstance(moduleKey, m.repeatable ? `${moduleNoun(m)} ${n}` : m.title, parent ?? null));
   };
   const lastValue = (s: SectionView, f: FieldView) => {
     const idx = model.sections.indexOf(s);
@@ -234,14 +236,6 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
         {prefill?.discovery_notes.map((i,n)=><p key={`d${n}`}>{i.summary}</p>)}
         {section.module.key==='house' && prefill?.year_built && <><Btn onClick={()=>void api.answer(section.instance.id,'year_built','Year built',{status:'answered',value:Number(prefill.year_built)})}>Still right ✓ · {prefill.year_built}</Btn><Btn onClick={()=>setFocusAddr(`${section.instance.id}:year_built`)}>Correct</Btn></>}
       </details>}
-      {leave && leave.from === section.instance.id && (() => { const l = leaveList(model, section.instance.id); return (
-        <div className="mt-3"><Banner kind="action" actions={<><Btn onClick={() => { setLeave(null); const h = nextOpen(model, section.instance.id); if (h) setFocusAddr(h.addr); }}>{W.goBack}</Btn><Btn tone="primary" onClick={() => { const go = leave.go; setLeave(null); go(); }}>{W.leaveForNow}</Btn></>}>
-          <p className="font-semibold">{fill(W.leaveStill, { section: section.label })}</p>
-          <ul className="mt-1 grid gap-1">
-            {l.open.length > 0 && <li><span className="font-semibold">{W.leaveOpen}</span> {leaveLine(l.open)}</li>}
-            {l.partly.length > 0 && <li><span className="font-semibold">{W.leavePartly}</span> {leaveLine(l.partly)}</li>}
-          </ul>
-        </Banner></div>); })()}
       {section.module.say.length > 0 && (
         <div className="mt-3 rounded-lg border-2 border-rule-soft bg-card p-3 lg:hidden">
           {section.module.say.map((l, i) => <p key={i} className="font-serif italic text-ink-2"><span className="not-italic font-semibold text-ink">{W.say}</span> {l}</p>)}
@@ -256,8 +250,9 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
           <div className="mt-3"><Btn tone="primary" onClick={() => api.showToClient()}>{W.showToClient}</Btn></div>
         </div>
       )}
-      <div className="md:grid md:grid-cols-2 md:gap-x-6 lg:block xl:grid">
-        {section.fields.map((f) => <div key={f.addr} className={f.def.type === "text" || f.def.type === "multi" || f.shots.length || f.def.say ? "md:col-span-2" : ""}><FieldRow f={f} actions={actions} sectionId={section.instance.id} last={lastValue(section, f)} /></div>)}
+      {/* r4 R4-6: one column on tablet portrait (no half-width field beside empty space); two only from 1280 px. */}
+      <div className="xl:grid xl:grid-cols-2 xl:gap-x-6">
+        {section.fields.map((f) => <div key={f.addr} className={f.def.type === "text" || f.def.type === "multi" || f.shots.length || f.def.say || f.def.hint || (f.def.options?.length ?? 0) > 2 ? "xl:col-span-2" : ""}><FieldRow f={f} actions={actions} sectionId={section.instance.id} last={lastValue(section, f)} /></div>)}
       </div>
       {section.shots.map((s) => <PhotoRow key={s.key} shot={s} actions={actions} sectionId={section.instance.id} />)}
       {section.hidden.length > 0 && (
@@ -268,7 +263,7 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
       )}
       {model.slots.filter((s) => s.parent === section.module.key).length > 0 && (
         <div className="mt-4 flex flex-wrap gap-3">
-          {model.slots.filter((s) => s.parent === section.module.key).map((slot) => <Btn key={slot.module.key} onClick={() => addInstance(slot.module.key, section.instance.id)}>+ {slot.module.title}</Btn>)}
+          {model.slots.filter((s) => s.parent === section.module.key).map((slot) => <Btn key={slot.module.key} onClick={() => addInstance(slot.module.key, section.instance.id)}>+ {moduleNoun(slot.module)}</Btn>)}
         </div>
       )}
       {section.children.length > 0 && (
@@ -287,7 +282,7 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
   // *next* line (never the same one twice); on the list there is no script, so no heading either.
   const paneScript = view === "opening"
     ? (opening[openingStep + 1] ? [opening[openingStep + 1]] : [])
-    : view === "section" && section ? (section.module.say.length ? section.module.say : section.fields.filter((f) => f.def.say).slice(0, 2).map((f) => f.def.say!)) : [];
+    : view === "section" && section ? section.module.say : [];
   const body = view === "opening" ? openingView : view === "section" && section ? sectionView : listView;
   return (
     <>
@@ -327,6 +322,16 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
       {sheet === "trades" && <TradeSheet open onClose={() => setSheet("wrap")} model={model} draft={draft} saveError={saveError} onSave={api.setDraft} />}
       {sheet === "rrp" && <RrpSheet model={model} onGo={() => {setSheet(null);const id=model.sections.find(s=>s.module.key==="era")?.instance.id;if(id)openSection(id);}} open onClose={() => setSheet("wrap")} draft={draft} saveError={saveError} onSave={api.setDraft} />}
       {sheet === "ack" && <AckSheet open onClose={() => setSheet("wrap")} draft={draft} saveError={saveError} onSave={api.setDraft} />}
+      {/* r4 R4-2: the leave check is a bottom sheet beside the thumb that tapped ‹ Sections / Next, never a
+          banner at the top of a long section. */}
+      {leave && (() => { const from = model.sections.find((s) => s.instance.id === leave.from); if (!from) return null; const l = leaveList(model, from.instance.id); return (
+        <Sheet open dock onClose={() => setLeave(null)} title={fill(W.leaveStill, { section: from.label })}
+          footer={<><Btn onClick={() => { setLeave(null); const h = nextOpen(model, from.instance.id); if (h) setFocusAddr(h.addr); }}>{W.goBack}</Btn><Btn tone="primary" onClick={() => { const go = leave.go; setLeave(null); go(); }}>{W.leaveForNow}</Btn></>}>
+          <ul className="grid gap-2 text-ink">
+            {l.open.length > 0 && <li><span className="font-semibold">{W.leaveOpen}</span> {leaveLine(l.open)}</li>}
+            {l.partly.length > 0 && <li><span className="font-semibold">{W.leavePartly}</span> {leaveLine(l.partly)}</li>}
+          </ul>
+        </Sheet>); })()}
       <Sheet open={!!remove} onClose={() => setRemove(null)} title={remove ? fill(W.removeInstance, { name: remove.label }) : ""}
         footer={<><Btn onClick={() => setRemove(null)}>{W.cancel}</Btn><Btn tone="danger" onClick={() => { const r = remove!; setRemove(null); setView("list"); void wrap(api.removeInstance(r.instance.id, r.label)); }}>{W.remove}</Btn></>}>
         <p className="text-ink">{remove ? fill(W.removeConfirm, { name: remove.label }) : ""}</p>

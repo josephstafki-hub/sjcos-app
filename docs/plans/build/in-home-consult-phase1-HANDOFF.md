@@ -395,9 +395,10 @@ no first-kind/first-unit fallback and no UI for authoring these bindings.
   HEIC conversion, explicit request rate caps, partial-part expiry cleanup and permission
   withdrawal after external export. Existing original-photo attachment paths are closed,
   but the shared fixture's full DB reproduction (flags/exclusions/new work) is unfinished.
-- Parallel seed builder owns seed files and their tests. At last typecheck, five missing
-  `maps_to` properties in its `templates.ts` prevented a clean full-worktree tsc; this
-  continuation does not edit those paths. No typecheck errors remained in our own files.
+- Parallel seed builder owns seed files and their tests. During development, five missing
+  `maps_to` properties in its `templates.ts` prevented a clean full-worktree tsc. The
+  parallel builder corrected them; final full-worktree locked tsc exits 0. This
+  continuation did not edit or commit seed paths.
 
 ### Validation
 
@@ -409,6 +410,6 @@ consult-scope-facts (2), estimating-db (9), db-roles-manifest-db (6),
 db-roles-paths-db (2). Initial development failures were corrected; a stale disposable
 migration ledger was discarded and regressions were rerun on a new consult cluster.
 `db-roles-scan --diff` exits 0, with only documented withheld permissions.
-Locked/niced tsc exits 2 for the parallel seed errors described above.
+Final locked/niced tsc exits 0; earlier seed errors were corrected by its builder.
 No push, deployment, live/QA connection, browser, Next command or service operation.
 Disposable consult cluster stopped before handback.

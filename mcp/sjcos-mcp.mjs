@@ -78,6 +78,7 @@ import { registerFloorTools } from "./floor-tools.mjs";
 import { openJobsSnapshot, registerFinancialsTools } from "./financials-tools.mjs";
 import { pricingAndPaperwork, registerEstimateTools } from "./estimate-tools.mjs";
 import { registerChatgptTools } from "./chatgpt-tools.mjs";
+import { registerChecklistTools } from "./checklist-tools.mjs";
 import { registerGrantTools } from "./grants-tools.mjs";
 import { registerCommsTools } from "./comms-tools.mjs";
 import { registerRunbookTools } from "./runbook-tools.mjs";
@@ -2943,6 +2944,7 @@ server.registerTool(
   // Owner-granted sends + the request/check/list tools around them. These are
   // the only tools that can reach a real inbox, and each one needs an owner
   // grant id for its exact target. See mcp/grants-tools.mjs.
+  registerChecklistTools(server, { json, checklistCall: (action, payload) => internalCall("checklist", action, payload, "Is the sjcos service running?") });
   registerGrantTools(server, { json, grantsCall, rows });
 
   // SMS threads + phone calls, READ ONLY here (texting and dialing are the

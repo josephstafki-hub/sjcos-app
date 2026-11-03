@@ -33,6 +33,7 @@ const ASK: Record<FactKey, string> = {
   goals: "what's driving the project (more space, updating the look, fixing something)",
   service_area: "",
   job_type: "",
+  contact_info: "", decision_makers: "", referral_source: "", other_bids: "", house_history: "", property: "", paying_with: "",
 };
 
 export function draftMissingFactsEmail(firstName: string, keys: FactKey[], opts: { alreadyAskedOnce?: boolean } = {}): { subject: string; body: string } {

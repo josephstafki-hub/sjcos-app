@@ -10,7 +10,11 @@ export class OfflineEngine {
  private mutations:Promise<unknown>=Promise.resolve();
  private exclusive<T>(work:()=>Promise<T>):Promise<T>{const next=this.mutations.then(work);this.mutations=next.catch(()=>undefined);return next;}
  readonly identity:OfflineIdentity;private store:OfflineRepository;private request:typeof fetch;
- constructor(identity:OfflineIdentity,store:OfflineRepository,request:typeof fetch=fetch){this.identity=identity;this.store=store;this.request=request;}
+ constructor(identity:OfflineIdentity,store:OfflineRepository,request:typeof fetch=fetch){
+  this.identity=identity;this.store=store;
+  // Browser fetch requires a Window/undefined receiver, never this engine.
+  this.request=(...args)=>request(...args);
+ }
  async unlockSigned(key:CryptoKey,signed:SignedLease,device:string,trusted:JsonWebKey){const lease=await verifyLease(signed,this.identity,device,trusted);const result=await this.unlock(key,lease);this.device=device;return result;}
  /** Low-level seam for verified leases; UI uses unlockSigned. */
  async unlock(key:CryptoKey,lease:OfflineLease){this.lock();assertOfflineLease(this.identity,lease);this.key=key;this.lease=lease;const saved=await this.store.load<LocalVisit>(this.identity,lease,key);this.revision=saved?.revision??0;this.value=saved?.value??null;if(this.value?.queue.blocked==='revoked'){this.lock();throw new Error('offline_quarantined');}return this.read();}
@@ -35,16 +39,19 @@ export class OfflineEngine {
  recoveryManifest(){const v=this.read();return {identity:this.identity,partition:partitionKey(this.identity),ops:v?.queue.entries.filter(e=>e.status!=='accepted').map(e=>e.op)??[],blobs:v?.blobs??[]};}
  private async post(path:string,body:unknown,method='POST',headers:Record<string,string>={}){return this.request(`/api/consult/${this.identity.consult_id}${path}`,{method,credentials:'same-origin',cache:'no-store',headers:{'X-Consult-CSRF':'1','Content-Type':'application/json',...headers},body:JSON.stringify(body)});}
  private async receipts(receipts:OpReceipt[]){const v=this.read();if(!v)return;let queue=v.queue;const failure=receipts.find(r=>r.status!==200);if(!failure)this.lastSendFailure=null;if(failure)this.lastSendFailure={code:failure.error_code??(failure.status===0?'no_signal':'send_failed'),at:Date.now()};for(const r of receipts)queue=applyReceipt(queue,r,Date.now());await this.commit({...v,queue,last_send_failure:this.lastSendFailure,last_send:receipts.some(r=>r.status>=200&&r.status<300)?Date.now():v.last_send,...(queue.blocked?{snapshot:null}: {})});if(queue.blocked==='signed_out'||queue.blocked==='revoked')this.lock();}
- async replay(){return this.exclusive(async()=>{try{await this.replayWrite();}catch(e){this.lastSendFailure={code:e instanceof Error?e.message:'unknown',at:Date.now()};const v=this.key?this.read():null;if(v)await this.commit({...v,last_send_failure:this.lastSendFailure});throw e;}});}
+ async replay(){return this.exclusive(async()=>{try{await this.replayWrite();}catch(e){this.lastSendFailure={code:e instanceof Error?e.message:'unknown',at:Date.now()};let v:LocalVisit|null=null;try{v=this.key?this.read():null;}catch{/* locked lease: memory diagnostic remains visible */}if(v)await this.commit({...v,last_send_failure:this.lastSendFailure});throw e;}});}
+ private async stoppedSend(code:string){this.lastSendFailure={code,at:Date.now()};if(this.key){const v=this.read();if(v)await this.commit({...v,last_send_failure:this.lastSendFailure});}}
  private async replayWrite(){
-  if(this.running)return;this.running=true;
-  try{const v=this.read();if(!v||v.queue.blocked)return;
+  if(this.running){await this.stoppedSend('send_in_progress');return;}this.running=true;
+  try{const v=this.read();if(!v||v.queue.blocked){await this.stoppedSend(v?.queue.blocked??'not_prepared');return;}
    const ops=nextBatch(v.queue,Date.now());
-   if(ops.length){let response:Response;try{response=await this.post('',{command:'ops',input:{nonce:crypto.randomUUID(),ops}});}catch{await this.receipts(ops.map(o=>({id:o.client_event_id,status:0})));return;}
+   if(!ops.length){const first=v.queue.entries.find(e=>e.status!=='accepted');if(first){await this.stoppedSend(first.status==='pending'?(first.next_at>Date.now()?'retry_wait':'op_too_large'):(first.error_code??`queue_${first.status}`));return;}}
+   if(ops.length){let response:Response;try{response=await this.post('',{command:'ops',input:{nonce:crypto.randomUUID(),ops}});}catch(e){await this.receipts(ops.map(o=>({id:o.client_event_id,status:0,error_code:e instanceof TypeError&&/Illegal invocation/i.test(e.message)?'transport_invocation':'no_signal'})));return;}
     const result=await response.json();const receipts:OpReceipt[]=response.ok?result:ops.map(o=>({id:o.client_event_id,status:response.status,error_code:result.error_code}));
     if(!Array.isArray(receipts)||receipts.length!==ops.length||new Set(receipts.map(r=>r.id)).size!==ops.length||receipts.some(r=>!ops.some(o=>o.client_event_id===r.id)))throw new Error('invalid_receipts');await this.receipts(receipts);
    }
-   if(!this.key)return;const current=this.read();if(!current||current.queue.blocked)return;
+   if(!this.key)return; // receipts already recorded the lock reason
+   const current=this.read();if(!current||current.queue.blocked){await this.stoppedSend(current?.queue.blocked??'not_prepared');return;}
    for(const blob of current.blobs.filter(b=>!b.receipt)){await this.upload(blob);}
   }finally{this.running=false;}
  }

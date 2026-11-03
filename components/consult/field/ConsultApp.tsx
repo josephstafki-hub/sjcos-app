@@ -38,7 +38,7 @@ function useAfter(at: number | null | undefined, ms: number): boolean {
 /** §6.2 status bar: one 56 px row. Focus rings sit inside the row (offset −3 px) so none is clipped. */
 function StatusBar({ unsent, photos, answers, online, lastSend, failure, onSend, sending, onExit, wide }: { unsent: number; photos: number; answers: number; online: boolean; lastSend: number | null; failure: { code: string; at: number } | null; onSend: () => void; sending: boolean; onExit: () => void; wide?: boolean }) {
   const [sheet, setSheet] = useState(false);
-  const failed = sendFailed(failure);
+  const failed = !!failure;
   return (
     <header className="sticky top-0 z-40 border-b-2 border-rule bg-paper-2">
       <div className="flex min-h-14 items-center gap-2 pl-2 pr-1">
@@ -50,13 +50,13 @@ function StatusBar({ unsent, photos, answers, online, lastSend, failure, onSend,
         <MoreMenu onExit={onExit} />
       </div>
       {!online && <p role="status" className="border-t-2 border-info bg-info-soft px-4 py-1.5 text-[0.95em] font-semibold text-ink"><span aria-hidden>⇣ </span>{W.offlineLine}</p>}
-      <Sheet open={sheet} onClose={() => setSheet(false)} title={W.sending} footer={<Btn tone="primary" onClick={() => { onSend(); }} disabled={!online || sending || unsent === 0}>{failed ? W.tryAgain : W.sendNow}</Btn>}>
+      <Sheet open={sheet} onClose={() => setSheet(false)} title={W.sending} footer={<Btn tone="primary" onClick={() => { onSend(); }} disabled={sending || unsent === 0}>{failed ? W.tryAgain : W.sendNow}</Btn>}>
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-ink">
           <dt className="text-ink-2">{W.notes}</dt><dd>{W.notesOff}</dd>
           <dt className="text-ink-2">{W.answersWaiting}</dt><dd className="font-mono">{answers}</dd>
           <dt className="text-ink-2">{W.photosWaiting}</dt><dd className="font-mono">{photos}</dd>
           <dt className="text-ink-2">{W.lastSent}</dt><dd>{lastSend ? clock(lastSend) : W.notYet}</dd>
-          {failed && <><dt className="text-ink-2">{W.lastTry}</dt><dd className="text-ink"><span aria-hidden className="font-bold text-flag">⚠ </span>{clock(failure!.at)} — {plainWords(failure!.code)}</dd></>}
+          {failed && <><dt className="text-ink-2">{W.lastTry}</dt><dd className="text-ink"><span aria-hidden className="font-bold text-flag">⚠ </span>{clock(failure!.at)} — {plainWords(failure!.code)} <code>({failure!.code})</code></dd></>}
           <dt className="text-ink-2">{W.signal}</dt><dd>{online ? W.online : W.noSignal}</dd>
         </dl>
         {!online && <p className="mt-3 text-ink">{W.offlineStrip}</p>}

@@ -376,8 +376,13 @@ export class VisitController {
 
   /** Send now / online / timer. One drain at a time; batches until nothing sendable is left. */
   async drain(force = false) {
-    if (!this.engine || this.draining || this.disposed) return;
-    if (!navigator.onLine && !force) { this.set({ online: false }); return; }
+    if (!this.engine || this.draining || this.disposed) {
+      const stopped = this.disposed ? 'controller_disposed' : !this.engine ? 'not_prepared' : 'send_in_progress';
+      this.state = { ...this.state, lastSendFailure: { code: stopped, at: Date.now() } };
+      if (!this.disposed) this.set({ lastSendFailure: this.state.lastSendFailure });
+      return;
+    }
+    if (!navigator.onLine && !force) { this.set({ online: false, lastSendFailure: { code: 'no_signal', at: Date.now() } }); return; }
     this.draining = true; this.set({ sending: true });
     try {
       for (let i = 0; i < 20; i++) {

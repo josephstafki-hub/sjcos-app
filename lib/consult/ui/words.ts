@@ -337,6 +337,11 @@ export const FLAG_CHOICES = [
 export function plainWords(code: string | undefined | null, ctx: { name?: string; field?: string } = {}): string {
   const c = code ?? '';
   switch (c) {
+    case 'send_in_progress': return 'A send is already running. Wait for it to finish.';
+    case 'controller_disposed': return 'This visit was closed. Open it again to send.';
+    case 'retry_wait': return 'Saved on this device. Waiting briefly before trying again.';
+    case 'op_too_large': return 'An answer is too large to send. Ask Joe to help recover it.';
+    case 'transport_invocation': return 'Sending could not start. Reload and try again.';
     case 'no_signal': case 'network': return 'No signal. Saved on this device; sends when signal returns.';
     case 'signed_out': return fill('Signed out — your answers are safe on this device. Sign in as {name} to send them.', { name: ctx.name ?? 'yourself' });
     case 'offline_locked': return fill('Signed out — your answers are safe on this device. Sign in as {name} to send them.', { name: ctx.name ?? 'yourself' });

@@ -40,8 +40,10 @@ export function Topbar({ breadcrumb = "TODAY", unread = 0, leading }: TopbarProp
         <ol className={`flex items-center gap-2 whitespace-nowrap font-mono text-micro uppercase text-ink-3 ${inbox?"@max-[40rem]/shell:hidden":""}`}>
           {segments.map((segment, index) => {
             // The last crumb is this page; middle crumbs follow the path.
-            const href = BREADCRUMB_ROUTES[segment.toLowerCase()]
+            let href = BREADCRUMB_ROUTES[segment.toLowerCase()]
               ?? (index < segments.length - 1 && index < pathParts.length ? `/${pathParts.slice(0, index + 1).join("/")}` : pathname);
+            // Consultation is a grouping crumb, not a /projects/[slug]/consult route.
+            if (/^\/projects\/[^/]+\/consult$/.test(href)) href = `/projects/${pathParts[1]}?tab=Overview#consult-card-h`;
             return <li key={`${index}-${segment}`} className="flex items-center gap-2">
               {index > 0 && <span aria-hidden className="text-ink-4">/</span>}
               <Link href={href} aria-current={index === segments.length - 1 && href === pathname ? "page" : undefined}

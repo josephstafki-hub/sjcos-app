@@ -3,7 +3,7 @@ import {deadlineFetch,transportCode} from './transport.ts';
 import {ConsultOfflineStore,assertOfflineLease,partitionKey,verifyLease,type SignedLease,type OfflineIdentity,type OfflineLease} from './offline.ts';
 import {applyReceipt,applyServerEpoch,enqueue,nextBatch,type QueueState,type ConsultOp,type OpReceipt} from './queue.ts';
 export interface LocalBlob {summary_text?:string;hash:string;event_id:string;mime:string;kind:'photo'|'initials';instance_id:string;field_key?:string;shot_key?:string;receipt?:{file_id:string;media_id:string}}
-export interface LocalVisit {queue:QueueState;snapshot:unknown;blobs:LocalBlob[];last_send:number|null;close_intent?:{started_at?:number;evidence:Record<string,unknown>|null;request?:{expected_revision:number;manifest:unknown}};last_send_failure?:{code:string;at:number;detail?:string}|null}
+export interface LocalVisit {queue:QueueState;snapshot:unknown;blobs:LocalBlob[];last_send:number|null;close_intent?:{started_at?:number;baseline_hash?:string;evidence:Record<string,unknown>|null;request?:{expected_revision:number;manifest:unknown}};last_send_failure?:{code:string;at:number;detail?:string}|null}
 export type OfflineRepository=Pick<ConsultOfflineStore,'load'|'save'|'saveBlob'|'loadBlob'|'preflight'|'close'|'deleteBlob'|'blobHashes'>;
 export class OfflineEngine {
  lastSendFailure:{code:string;at:number;detail?:string}|null=null;
@@ -25,7 +25,7 @@ export class OfflineEngine {
  read():LocalVisit|null{this.access();if(this.value?.queue.blocked==='deleted')return {...structuredClone(this.value),snapshot:null,blobs:[],queue:{...this.value.queue,projection:{},entries:[]}};return this.value?structuredClone(this.value):null;}
  private async commit(value:LocalVisit){const {key,lease}=this.access();const revision=await this.store.save(this.identity,lease,key,this.revision,value);this.access();this.revision=revision;this.value=structuredClone(value);}
  async prepare(value:LocalVisit){if(this.value)throw new Error('local_conflict');await this.store.preflight();await this.commit(value);}
- async saveCloseIntent(evidence:Record<string,unknown>|null){return this.exclusive(async()=>{const v=this.read();if(v)await this.commit({...v,close_intent:{evidence,started_at:Date.now()}});});}
+ async saveCloseIntent(evidence:Record<string,unknown>|null){return this.exclusive(async()=>{const v=this.read();if(v)await this.commit({...v,close_intent:{evidence,baseline_hash:(v.snapshot as {close_evidence_hash?:string})?.close_evidence_hash,started_at:Date.now()}});});}
  async saveCloseRequest(request:{expected_revision:number;manifest:unknown}){return this.exclusive(async()=>{const v=this.read();if(v?.close_intent)await this.commit({...v,close_intent:{...v.close_intent,request}});});}
  /** r10 R10-1: after the office refused a close, drop the refused request but keep the intent, so the next try builds a fresh one. */
  async clearCloseRequest(){return this.exclusive(async()=>{const v=this.read();if(v?.close_intent?.request){const {request:_drop,...rest}=v.close_intent;void _drop;await this.commit({...v,close_intent:rest});}});}
@@ -37,6 +37,19 @@ export class OfflineEngine {
  async evictSyncedBlobs(){const v=this.read();if(!v)return;for(const b of v.blobs)if(b.receipt&&!v.blobs.some(p=>p.hash===b.hash&&!p.receipt))await this.store.deleteBlob(this.identity,b.hash);}
  async captureBlob(blob:Blob,metadata:LocalBlob,op?:ConsultOp,projection:Record<string,unknown>={}){return this.exclusive(()=>this.captureBlobWrite(blob,metadata,op,projection));}
  private async captureBlobWrite(blob:Blob,metadata:LocalBlob,op?:ConsultOp,projection:Record<string,unknown>={}){const v=this.read(),{key,lease}=this.access();if(!v||v.queue.blocked)throw new Error('offline_locked');await this.store.saveBlob(this.identity,lease,key,metadata.hash,blob);await this.commit({...v,queue:op?enqueue(v.queue,op,projection):v.queue,blobs:[...v.blobs.filter(b=>b.event_id!==metadata.event_id),metadata]});}
+ /** Replace the durable baseline atomically with queue rebasing; original operations and blobs survive. */
+ async refreshSnapshot(snapshot:{consult:{revision:string|number;completion_generation:string|number;deletion_epoch?:string|number}}){return this.exclusive(async()=>{
+  const v=this.read();if(!v||v.queue.blocked)return;
+  const old=v.snapshot as typeof snapshot|null;
+  if(old?.consult && Number(snapshot.consult.revision)<Number(old.consult.revision))return;
+  const generation=Number(snapshot.consult.completion_generation??v.queue.generation),deletion=Number(snapshot.consult.deletion_epoch??v.queue.deletion_epoch);
+  if(generation<v.queue.generation||deletion<v.queue.deletion_epoch)return;
+  let queue=applyServerEpoch(v.queue,generation,v.queue.device_epoch,deletion);
+  // Epoch rebasing marks unsent operations as conflicts; retain their projection for local drafts.
+  if(!queue.blocked)queue={...queue,projection:v.queue.entries.some(e=>e.status!=='accepted')?v.queue.projection:{}};
+  const close_intent=v.close_intent ? {...v.close_intent,baseline_hash:v.close_intent.baseline_hash??(v.snapshot as {close_evidence_hash?:string})?.close_evidence_hash} : undefined;
+  await this.commit({...v,close_intent,snapshot:queue.blocked==='deleted'?null:snapshot,queue,...(queue.blocked==='deleted'?{blobs:[]}: {})});
+ });}
  async resumeAuthorized(snapshot:unknown){const v=this.read();if(!v)return;if(v.queue.blocked==='signed_out')await this.commit({...v,snapshot,queue:{...v.queue,blocked:null,entries:v.queue.entries.map(e=>e.status==='locked'&&e.error_code==='signed_out'?{...e,status:'pending',error_code:undefined}:e)}});}
  async epochs(generation:number,device:number,deletion:number){const v=this.read();if(!v)return;await this.commit({...v,queue:applyServerEpoch(v.queue,generation,device,deletion),...(deletion>v.queue.deletion_epoch?{snapshot:null,blobs:[]}: {})});}
  /** Owner recovery must stage original operations as proposals with original authors.

@@ -179,7 +179,7 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
           // r10 R10-1: a refused close is dropped (reload / back / go to field / keep working) or rebuilt (send now, try again).
           if (fix === "send_now" || fix === "retry") { void ctl.closeAgain(); return; }
           void ctl.abandonClose().then(() => {
-            if (fix === "reload") location.reload();
+            if (fix === "reload") void ctl.refresh().then(() => location.reload());
             else if (fix === "back_to_visits") location.href = "/consult/";
             else if (fix === "go_to_field") setAfter("go_conflict");
           });

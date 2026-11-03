@@ -152,7 +152,7 @@ export class VisitController {
 
   private onOnline = () => { this.set({ online: true }); void this.refresh().then(() => this.drain()); };
   private onOffline = () => this.set({ online: false });
-  private onHide = () => { if (document.visibilityState === 'hidden') void this.drain(); };
+  private onHide = () => { if (document.visibilityState === 'hidden') void this.drain(); else void this.refresh().then(() => this.drain()); };
 
   async init() {
     this.disposed = false;
@@ -494,8 +494,14 @@ export class VisitController {
   private closeAttempts = 0;
   private schedule(ms: number) { if (this.timer) clearTimeout(this.timer); this.timer = setTimeout(() => { void this.drain(); }, ms); }
 
-  /** Fresh authorized snapshot for display/baseline; never replaces durable pending state. */
-  async refresh() {
+  /** Refresh the durable baseline while retaining local operations, drafts and evidence intent. */
+  private refreshPromise: Promise<void> | null = null;
+  refresh(): Promise<void> {
+    if (this.refreshPromise) return this.refreshPromise;
+    this.refreshPromise = this.refreshWork().finally(() => { this.refreshPromise = null; });
+    return this.refreshPromise;
+  }
+  private async refreshWork() {
     const epoch = this.memoryEpoch;
     try {
       const r = await deadlineFetch(fetch,`/api/consult/${this.state.consultId}`, { credentials: 'same-origin', cache: 'no-store' });
@@ -506,7 +512,11 @@ export class VisitController {
       const entries = this.state.local?.queue.entries ?? [];
       const freshSeq = entries.filter((e) => e.status === 'accepted').reduce((m, e) => Math.max(m, e.op.seq), 0);
       if (epoch !== this.memoryEpoch) return;
-      this.set({ fresh, freshSeq, online: true });
+      await this.engine?.refreshSnapshot(fresh);
+      if (epoch !== this.memoryEpoch) return;
+      const local = this.engine?.read();
+      this.set({ fresh, freshSeq, online: true, ...(local ? {local,
+        draft: (local.queue.projection as {draft?:EvidenceDraft}).draft ?? fresh.decisions ?? emptyDraft()} : {}) });
       if (this.state.local) await this.ensureRequiredInstances();
     } catch (e) { if (epoch !== this.memoryEpoch) return; if (offlineError(e)) this.set({ online: false }); else this.set({lastSendFailure:{code:codeOf(e),at:Date.now()}}); }
   }
@@ -537,16 +547,20 @@ export class VisitController {
     const evidence = engine.read()?.close_intent?.evidence ?? null;
     this.closing = true;
     if (!navigator.onLine) { this.closing = false; this.set({ closing: { step: 'waiting_signal' } }); return; }
-    const local = this.engine.read();
+    let local = this.engine.read();
     if (!local) { this.closing = false; return; }
     if (unsentCount(local.queue.entries) > 0 || local.blobs.some((b) => !b.receipt)) { this.set({ closing: { step: navigator.onLine ? 'error' : 'waiting_signal', code: 'manifest_sequence_gap' } }); this.closing = false; return; }
     this.set({ closing: { step: 'closing' } });
     try {
       await this.refresh();
       if (!owns()) return;
+      local = engine.read()!;
+      if (unsentCount(local.queue.entries)>0) throw new Error('rebase_required');
+      if(evidence && !local.close_intent?.request && local.close_intent?.baseline_hash && local.close_intent.baseline_hash !== (local.snapshot as Snapshot).close_evidence_hash) throw new Error('evidence_conflict');
       let revision = Number((this.state.fresh ?? local.snapshot as Snapshot).consult.revision);
+      const localSnapshot = local.snapshot as Snapshot;
       if (evidence && !local.close_intent?.request) {
-        try { const r = await post(this.state.consultId, 'evidence', { device: this.state.device, epoch: local.queue.device_epoch, expected_revision: revision, generation: local.queue.generation, baseline_hash: (local.snapshot as Snapshot).close_evidence_hash, evidence: Object.fromEntries(Object.entries(evidence).filter(([key,value]) => canonicalJson(value) !== canonicalJson((local.snapshot as Snapshot).close_evidence?.[key] ?? null))) }); if (!owns()) return; revision = Number(r.revision); }
+        try { const r = await post(this.state.consultId, 'evidence', { device: this.state.device, epoch: local.queue.device_epoch, expected_revision: revision, generation: local.queue.generation, baseline_hash: localSnapshot.close_evidence_hash, evidence: Object.fromEntries(Object.entries(evidence).filter(([key,value]) => canonicalJson(value) !== canonicalJson(localSnapshot.close_evidence?.[key] ?? null))) }); if (!owns()) return; revision = Number(r.revision); }
         catch (e) { throw e; }
       }
       const blobs = manifestBlobs(local.blobs);

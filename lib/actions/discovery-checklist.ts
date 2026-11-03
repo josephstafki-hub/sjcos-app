@@ -88,7 +88,10 @@ export async function loadChecklistSummary(sessionId:string) {
  const snapshot=await loadChecklist(sessionId);
  const lead=snapshot.session.lead_id?await queryOne<{email:string|null;name:string}>('SELECT email,name FROM leads WHERE id=$1',[snapshot.session.lead_id]):null;
  const drafts=await query<{id:string;status:string;approval_status:string}>(`SELECT id,status,approval_status FROM work_items WHERE source_kind='manual' AND source_id=$1 AND title='Discovery call follow-up' ORDER BY created_at DESC`,[sessionId]);
- return {...checklistSummary(snapshot),lead,drafts:drafts.rows,noEmailCopy:lead?.email?null:'Confirm their email first'};
+ // Who is reading: the owner approves follow-ups himself, so his copy says
+ // "your approval"; staff are told Joe approves it.
+ const viewer=(await getCurrentUser())?.role==='owner'?'owner' as const:'staff' as const;
+ return {...checklistSummary(snapshot),lead,drafts:drafts.rows,noEmailCopy:lead?.email?null:'Confirm their email first',viewer};
 }
 export async function loadLeadChecklistFacts(leadId:string) {
  await requireAccess('comms');uuid(leadId);

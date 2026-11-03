@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
-import { checklistLeadBySlug, checklistRecentCalls, type ChecklistCallOption, type ChecklistLead } from "@/lib/actions/discovery-checklist-ui";
+import { useEffect, useId, useRef, useState } from "react";
+import { checklistLeadBySlug, checklistRecentCalls, type ChecklistCallOption, type ChecklistLead, type ChecklistLeadOption } from "@/lib/actions/discovery-checklist-ui";
 import { createLeadFromInbox } from "@/lib/actions/leads";
 import { formatUsPhone } from "@/lib/comms/phone";
 import { Btn, Sheet } from "./Sheet";
@@ -10,51 +10,74 @@ import { chicagoWhen } from "./time";
 // The picker's lead list comes from a GET route, not a server action: on the
 // Calls page server actions run one at a time behind the checklist's own sync,
 // and the first page has to be there the moment the picker opens. The empty
-// search is fetched ahead (prefetchChecklistLeads) and kept for a minute.
-const recent = new Map<string, { at: number; leads: Promise<ChecklistLead[]> }>();
+// search is fetched ahead (prefetchChecklistLeads) and shown at once; when
+// that copy is more than a few seconds old the picker re-reads it behind the
+// scenes, and making a lead here drops it, so a lead created a moment ago is
+// never missing from Recent leads.
+const recent = new Map<string, { at: number; leads: Promise<ChecklistLeadOption[]> }>();
+const KEEP_MS = 60_000;
+const FRESH_MS = 5_000;
 
-async function fetchLeads(text: string, callNumber: string | null): Promise<ChecklistLead[]> {
+async function fetchLeads(text: string, callNumber: string | null): Promise<ChecklistLeadOption[]> {
   const params = new URLSearchParams({ q: text });
   if (callNumber) params.set("phone", callNumber);
   const res = await fetch(`/api/calls/checklist-leads?${params}`, { cache: "no-store", credentials: "same-origin" });
   if (!res.ok) throw new Error(`leads ${res.status}`);
-  const body = (await res.json()) as { ok: boolean; leads?: ChecklistLead[] };
+  const body = (await res.json()) as { ok: boolean; leads?: ChecklistLeadOption[] };
   if (!body.ok || !body.leads) throw new Error("leads");
   return body.leads;
 }
 
 /** Start loading the picker's first page (recent leads, the caller's lead
  *  first) before Joe opens it. Safe to call on every render. */
-export function prefetchChecklistLeads(callNumber: string | null): Promise<ChecklistLead[]> {
+export function prefetchChecklistLeads(callNumber: string | null, maxAge = KEEP_MS): Promise<ChecklistLeadOption[]> {
   const key = callNumber ?? "";
   const hit = recent.get(key);
-  if (hit && Date.now() - hit.at < 60_000) return hit.leads;
+  if (hit && Date.now() - hit.at < maxAge) return hit.leads;
   const leads = fetchLeads("", callNumber);
-  recent.set(key, { at: Date.now(), leads });
-  leads.catch(() => recent.delete(key));
+  const entry = { at: Date.now(), leads };
+  recent.set(key, entry);
+  leads.catch(() => { if (recent.get(key) === entry) recent.delete(key); });
   return leads;
+}
+
+/** A lead was just made: the next Recent leads is read fresh. */
+export function forgetChecklistLeads() {
+  recent.clear();
 }
 
 /** Find a lead, then confirm the link (plan §4.2 step 2). */
 export function LeadPicker({ onPick, onClose, busy, error, confirmWord = "Link", callNumber = null, onNewLead }: {
-  onPick: (lead: ChecklistLead) => void; onClose: () => void; busy?: boolean; error?: string | null; confirmWord?: string;
+  onPick: (lead: ChecklistLeadOption) => void; onClose: () => void; busy?: boolean; error?: string | null; confirmWord?: string;
   /** Not in the list: make the lead (prefilled with the call's number) instead. */
   onNewLead?: () => void;
   /** The number on the call this checklist is for: the lead with it comes first. */
   callNumber?: string | null;
 }) {
   const [text, setText] = useState("");
-  const [results, setResults] = useState<ChecklistLead[] | null>(null);
+  const [results, setResults] = useState<ChecklistLeadOption[] | null>(null);
   const [failed, setFailed] = useState(false);
-  const [chosen, setChosen] = useState<ChecklistLead | null>(null);
+  const [chosen, setChosen] = useState<ChecklistLeadOption | null>(null);
   const [attempt, setAttempt] = useState(0);
   const inputId = useId();
+  const inputRef = useRef<HTMLInputElement>(null);
+  // With a mouse and keyboard the next thing Joe does is type a name, so the
+  // search gets focus. On touch, focus stays on ✕: an on-screen keyboard
+  // popping up would cover Recent leads.
+  const [typeFirst] = useState(() => typeof window !== "undefined" && !!window.matchMedia?.("(pointer: fine)").matches);
 
   useEffect(() => {
     let live = true;
-    const run = () => (text.trim() ? fetchLeads(text, callNumber) : prefetchChecklistLeads(callNumber))
-      .then((r) => { if (live) { setResults(r); setFailed(false); } })
-      .catch(() => { if (live) setFailed(true); });
+    const show = (r: ChecklistLeadOption[]) => { if (live) { setResults(r); setFailed(false); } };
+    const run = () => {
+      if (text.trim()) { fetchLeads(text, callNumber).then(show).catch(() => { if (live) setFailed(true); }); return; }
+      // The kept copy at once, then a fresh read if it's more than a few seconds old.
+      const kept = prefetchChecklistLeads(callNumber);
+      const fresh = prefetchChecklistLeads(callNumber, FRESH_MS);
+      let freshIn = false;
+      kept.then((r) => { if (!freshIn) show(r); }).catch(() => undefined);
+      fresh.then((r) => { freshIn = true; show(r); }).catch(() => { if (live) setFailed(true); });
+    };
     const t = setTimeout(run, text.trim() ? 250 : 0);
     return () => { live = false; clearTimeout(t); };
   }, [text, attempt, callNumber]);
@@ -70,9 +93,9 @@ export function LeadPicker({ onPick, onClose, busy, error, confirmWord = "Link",
   }
 
   return (
-    <Sheet layout="dialog" title="Link to a lead" onClose={onClose} initialFocus="input">
+    <Sheet layout="dialog" title="Link to a lead" onClose={onClose} initialFocus={typeFirst ? inputRef : undefined}>
       <label htmlFor={inputId} className="text-[15px] font-semibold">Name, project or phone</label>
-      <input id={inputId} type="search" value={text} onChange={(e) => setText(e.target.value)} autoComplete="off"
+      <input ref={inputRef} id={inputId} type="search" value={text} onChange={(e) => setText(e.target.value)} autoComplete="off"
         className="mt-1 block min-h-12 w-full rounded-md border border-rule bg-paper px-3 text-[16px] focus-visible:outline-2 focus-visible:outline-focus" />
       <div className="mt-3" aria-live="polite">
         {failed ? <p className="text-[15px] text-flag">Couldn&apos;t load leads. <button type="button" className="min-h-12 underline" onClick={() => { recent.clear(); setAttempt((n) => n + 1); }}>Retry</button></p>
@@ -146,6 +169,7 @@ export function NewLeadSheet({ phone, onClose, onCreated }: { phone: string; onC
     setSaving(true); setError(null);
     try {
       const { slug } = await createLeadFromInbox(form);
+      forgetChecklistLeads();
       const lead = slug ? await checklistLeadBySlug(slug) : null;
       if (!lead) throw new Error("no lead");
       await onCreated(lead);

@@ -8,16 +8,18 @@
 import { can, getCurrentUser, requireAccess } from "@/lib/dal";
 import { query, queryOne } from "@/lib/db";
 import { activeCallSnapshot } from "./discovery-checklist";
-import { searchChecklistLeads } from "@/lib/checklist-lead-search";
+import { searchChecklistLeads, type ChecklistLeadResult } from "@/lib/checklist-lead-search";
 
 export interface ChecklistLead { id: string; slug: string; name: string; scope: string; phone: string | null; email: string | null; on_call?: boolean }
+/** A row in the "Link to a lead" picker: only what it shows and links by. */
+export type ChecklistLeadOption = ChecklistLeadResult;
 export interface ChecklistCallOption { id: string; label: string; number: string; started_at: string; direction: string }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Lead search as a server action (the picker itself uses the GET route
  *  /api/calls/checklist-leads, which doesn't queue behind the sync). */
-export async function checklistLeadSearch(text: string, callNumber?: string | null): Promise<ChecklistLead[]> {
+export async function checklistLeadSearch(text: string, callNumber?: string | null): Promise<ChecklistLeadResult[]> {
   await requireAccess("comms");
   return searchChecklistLeads(text, callNumber);
 }

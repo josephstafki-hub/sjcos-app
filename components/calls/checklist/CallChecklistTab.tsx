@@ -4,7 +4,6 @@ import { errorCopy } from "@/lib/checklist-coverage/action-result";
 import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, RotateCw } from "lucide-react";
 import { loadChecklistForCall, startChecklist, unknownCallerChoice } from "@/lib/actions/discovery-checklist";
-import type { ChecklistLead } from "@/lib/actions/discovery-checklist-ui";
 import { formatUsPhone } from "@/lib/comms/phone";
 import { ChecklistPane, type ChecklistCallInfo } from "./ChecklistPane";
 import { LeadPicker, NewLeadSheet, prefetchChecklistLeads } from "./Pickers";
@@ -70,7 +69,7 @@ export function CallChecklistTab({ call, leadId, linked, userId, onSessionStarte
     finally { setBusy(false); }
   }
 
-  async function linkLead(lead: ChecklistLead) {
+  async function linkLead(lead: { id: string }) {
     setBusy(true); setError(null);
     try {
       const r = await unknownCallerChoice({ call_id: call.id, choice: "link", lead_id: lead.id, operation_id: crypto.randomUUID() });

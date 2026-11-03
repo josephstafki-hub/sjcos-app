@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
 import { AlertTriangle, RotateCw } from "lucide-react";
 import { CoverageMark } from "@/components/ui/CoverageMark";
@@ -9,6 +10,7 @@ import type { ChecklistSnapshot } from "@/lib/checklist-coverage/manual";
 import { emailCandidates, formatValue, isRefusal, MAX_EMAIL_QUESTIONS } from "@/lib/checklist-coverage/answers";
 import { errorCopy } from "@/lib/checklist-coverage/action-result";
 import { safeRevision } from "@/lib/checklist-coverage/contract";
+import { earlierDrafts, followupCopy } from "@/lib/checklist-coverage/followup-copy";
 import { Btn } from "./Sheet";
 import { chicagoTime, durationWords } from "./time";
 import type { ChecklistCallInfo } from "./ChecklistPane";
@@ -22,9 +24,10 @@ export interface SummaryData {
   lead: { email: string | null; name: string } | null;
   drafts: { id: string; status: string; approval_status: string }[];
   noEmailCopy: string | null;
+  /** Who is reading: the owner approves follow-ups himself. */
+  viewer?: "owner" | "staff";
 }
 
-const APPROVAL_WORD: Record<string, string> = { requested: "waiting for approval in Today", approved: "approved", rejected: "sent back", not_requested: "not submitted" };
 const INPUT = "mt-1 block w-full rounded-md border border-rule bg-card px-3 text-[16px] leading-6 text-ink focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus";
 
 export function ChecklistSummary({
@@ -45,7 +48,9 @@ export function ChecklistSummary({
   const [body, setBody] = useState("");
   const [draftError, setDraftError] = useState<string | null>(null);
   const [staging, setStaging] = useState(false);
+  /** Submitted in this view; the follow-ups that were there before it. */
   const [staged, setStaged] = useState(false);
+  const [draftsBefore, setDraftsBefore] = useState<string[] | null>(null);
   const opRef = useRef<{ id: string; key: string } | null>(null);
 
   if (error) {
@@ -62,17 +67,14 @@ export function ChecklistSummary({
   // A hand-ticked checklist with no call has no call length to show: "Checklist
   // summary · started 7:34 PM", never "Call summary · 0 min".
   const duration = call ? durationWords(call.answered_at ?? call.started_at, s.ended_at) : null;
-  // Parts are kept whole when the title wraps on a phone: a line never ends on
-  // "·" (it's glued to the next part) and "8:11 PM" never splits.
+  // The title stays short ("Checklist summary"); who and when go on a smaller
+  // line under it. Each part is kept whole, and each "·" sits in the left
+  // padding of the part after it; the line is pulled left by that padding
+  // inside an overflow-hidden box, so the "·" before whichever part starts a
+  // line is clipped — a wrapped line never starts or ends on "·".
   const time = !call && s.started_at ? chicagoTime(s.started_at) : "";
-  const title = (
-    <>
-      {call ? "Call summary" : "Checklist summary"}
-      {who && <> <span>·&nbsp;{who}</span></>}
-      {duration && <> <span className="whitespace-nowrap">· {duration}</span></>}
-      {time && <> <span className="whitespace-nowrap">· started {time}</span></>}
-    </>
-  );
+  const title = call ? "Call summary" : "Checklist summary";
+  const byline = [who, duration, time ? `started ${time}` : null].filter((p): p is string => !!p);
   const c = data.counts;
   const open = rows.filter((r) => r.state === "open");
   const partly = rows.filter((r) => r.state === "partial");
@@ -81,6 +83,8 @@ export function ChecklistSummary({
   const subjectText = subject ?? data.subject;
   const email = data.lead?.email ?? null;
   const everything = data.everythingCovered;
+  const copy = followupCopy(data.viewer);
+  const listed = earlierDrafts(data.drafts, staged, draftsBefore);
 
   function toggle(id: string) {
     setTicked((t) => {
@@ -109,7 +113,7 @@ export function ChecklistSummary({
     setStaging(true);
     try {
       const r = await stageChecklistFollowup({ session_id: sessionId, expected_revision: safeRevision(s.revision), operation_id: opRef.current.id, subject: subjectText.trim(), body, reviewed_lead_id:s.lead_id, reviewed_email:email });
-      if(r.ok) { setStaged(true); onDraftStaged(); return; }
+      if(r.ok) { setDraftsBefore(data?.drafts.map((d) => d.id) ?? []); setStaged(true); onDraftStaged(); return; }
       setDraftError(errorCopy(r.code));
       if(r.code==='CHECKLIST_CONFLICT' || r.code==='CHECKLIST_RECIPIENT_CHANGED') { opRef.current=null; onRetry(); }
 
@@ -137,7 +141,18 @@ export function ChecklistSummary({
       <div className="grid gap-x-8 gap-y-6 px-4 pb-20 pt-4 @2xl/page:px-5 @6xl/page:grid-cols-2">
         <section aria-labelledby={`${sessionId}-sum`}>
           <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-            <h2 id={`${sessionId}-sum`} className="min-w-0 font-serif text-[22px] font-semibold leading-8 text-ink">{title}</h2>
+            <div className="min-w-0">
+              <h2 id={`${sessionId}-sum`} className="font-serif text-[22px] font-semibold leading-8 text-ink">{title}</h2>
+              {byline.length > 0 && (
+                <div className="overflow-hidden">
+                  <p className="-ml-4 flex flex-wrap text-meta text-ink-2">
+                    {byline.map((part, i) => (
+                      <span key={i} className={`relative min-w-0 pl-4 before:absolute before:left-1.5 before:text-ink-3 before:content-['·'] ${i === 0 ? "break-words" : "whitespace-nowrap"}`}>{part}</span>
+                    ))}
+                  </p>
+                </div>
+              )}
+            </div>
             <Btn onClick={onBackToList}>Back to checklist</Btn>
           </div>
           <p className="mt-1 text-[16px] font-semibold text-ink-2">{c.covered} covered · {c.partial} partly · {c.open} open · {c.not_applicable} N/A</p>
@@ -202,9 +217,9 @@ export function ChecklistSummary({
         {!everything && (
           <section aria-labelledby={`${sessionId}-draft`} className="@6xl/page:border-l @6xl/page:border-rule @6xl/page:pl-8">
             <h2 id={`${sessionId}-draft`} className="font-serif text-[20px] font-semibold leading-7 text-ink">Follow-up draft</h2>
-            {data.drafts.length > 0 && (
+            {listed.length > 0 && (
               <ul className="mt-2 space-y-1 text-[15px] text-ink-2">
-                {data.drafts.map((d) => <li key={d.id}>Follow-up submitted — {APPROVAL_WORD[d.approval_status] ?? d.approval_status}.</li>)}
+                {listed.map((d) => <li key={d.id}>Follow-up submitted — {copy.status(d.approval_status)}.</li>)}
               </ul>
             )}
             {!s.lead_id ? (
@@ -215,7 +230,10 @@ export function ChecklistSummary({
                 {lead && onEditLeadEmail && <Btn onClick={() => onEditLeadEmail(lead)}>Add email</Btn>}
               </div>
             ) : staged ? (
-              <p role="status" className="mt-3 text-[16px] text-ink">Submitted for approval. Joe approves it in Today; approval sends it.</p>
+              <p role="status" className="mt-3 text-[16px] text-ink">
+                {copy.submitted}
+                {data.viewer === "owner" && <> <Link href="/today" className="inline-flex min-h-12 items-center font-semibold text-accent-2 underline focus-visible:outline-2 focus-visible:outline-focus">Open Today</Link></>}
+              </p>
             ) : (
               <div className="mt-3 space-y-3">
                 <p className="text-[16px]"><span className="text-ink-3">To:</span> <span className="break-all font-semibold">{email}</span></p>
@@ -234,7 +252,7 @@ export function ChecklistSummary({
                 </label>
                 {draftError && <p role="alert" className="flex items-center gap-1.5 text-[15px] text-flag"><AlertTriangle aria-hidden className="size-4" /> {draftError}</p>}
                 <Btn kind="primary" onClick={() => void submit()} disabled={staging} className="w-full @xl/page:w-auto">{staging ? "Submitting…" : "Submit for approval"}</Btn>
-                <p className="text-[15px] text-ink-3">Joe approves it in Today; approval sends it.</p>
+                <p className="text-[15px] text-ink-3">{copy.hint}</p>
               </div>
             )}
           </section>

@@ -2,6 +2,9 @@ import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {registerHooks} from 'node:module';
 const stored=[],updates=[];
+globalThis.__prompts=[];
+// The job's record: a kitchen refresh in St Paul for Pat Larkin at 12 Elm St.
+globalThis.__facts={work:'Kitchen Refresh',city:'St Paul',scope:[],lines:[{section:'Cabinets',text:'Install maple island and pantry cabinets'},{section:'Countertops',text:'Install quartz counters — Cambria Beaumont'}],changes:[],privateWords:['Pat Larkin','Pat Larkin','12 Elm St, St Paul, MN 55101']};
 globalThis.__marketingDb={
  query:async(sql,args)=>{if(sql.includes('INSERT INTO marketing_drafts'))stored.push(args);if(sql.includes('UPDATE marketing_drafts'))updates.push([sql,...args]);return {rows:[{id:42}],rowCount:globalThis.__rowCount??1};},
  queryOne:async(sql)=>sql.includes('FROM projects')?{id:'project',name:'Kitchen',scope:'Cabinets',city:'St Paul'}:sql.includes('count(*)')?{n:1}:null,
@@ -11,10 +14,9 @@ registerHooks({resolve(s,c,n){
  if(s==='@/lib/dal')return {url:'data:text/javascript,export const requireAccess=async()=>({role:"owner"});',shortCircuit:true};
  if(s==='@/lib/db')return {url:'data:text/javascript,export const query=globalThis.__marketingDb.query;export const queryOne=globalThis.__marketingDb.queryOne;',shortCircuit:true};
  if(s==='@/lib/commands/db')return {url:'data:text/javascript,export const runDirect=async()=>{throw new Error("Unexpected publication write");};export const userPrincipal=()=>{throw new Error("Unexpected publication principal");};export const withTransaction=async(fn)=>fn(async(sql,args)=>(await globalThis.__marketingDb.query(sql,args)).rows);',shortCircuit:true};
- if(s==='@/lib/closeout/marketing')return {url:'data:text/javascript,export const noteDraftEdited=async()=>{};export const getDraft=async()=>null;export const grantPublicationRights=async()=>{};export const withdrawPublicationRights=async()=>{};export const setDraftPost=async()=>({rejectedPhotoIds:[]});export const stagePublication=async()=>{};',shortCircuit:true};
+ if(s==='@/lib/closeout/marketing')return {url:'data:text/javascript,export const getDraft=async()=>null;export const grantPublicationRights=async()=>{};export const withdrawPublicationRights=async()=>{};export const loadJobFacts=async()=>globalThis.__facts;',shortCircuit:true};
  if(s==='@/lib/upload-store')return {url:'data:text/javascript,export const storeUpload=async()=>{throw new Error("Unexpected upload");};',shortCircuit:true};
- if(s==='@/lib/publisher/server')return {url:'data:text/javascript,export const retryPost=async()=>({ok:true});export const savePostingAccounts=async()=>({ok:true});export const settlePost=async()=>({ok:true});',shortCircuit:true};
- if(s==='@/lib/ai')return {url:'data:text/javascript,export const ai={ask:async()=>({answer:globalThis.__aiCopy})};',shortCircuit:true};
+ if(s==='@/lib/ai')return {url:'data:text/javascript,export const ai={ask:async(i)=>{globalThis.__prompts.push(i.prompt);const a=globalThis.__aiCopy;return {answer:Array.isArray(a)?a.shift():a};}};',shortCircuit:true};
  if(s.startsWith('@/'))return n(new URL('../'+s.slice(2)+'.ts',import.meta.url).href,c);
  return n(s,c);
 }});
@@ -26,10 +28,10 @@ test('manual and both completion paths store prose rather than an AI envelope',a
  assert.equal(stored[0][3],'First paragraph.\n\nSecond paragraph.');
  assert.equal(stored[0][2],'A kitchen');
  await autoDraftBlogOnCompletion('kitchen');
- assert.equal(stored[1][2],'First paragraph.\n\nSecond paragraph.');
+ assert.equal(stored[1][3],'First paragraph.\n\nSecond paragraph.');
  globalThis.__aiCopy=JSON.stringify({post:'Finished a kitchen.',hashtags:['carpentry','remodel']});
  await autoDraftSocialOnCompletion('kitchen');
- assert.equal(stored[2][2],'Finished a kitchen.\n\n#carpentry #remodel');
+ assert.equal(stored[2][3],'Finished a kitchen.\n\n#carpentry #remodel');
 });
 
 test('editing repaired copy preserves an editable headline alongside the prose',async()=>{
@@ -37,12 +39,54 @@ test('editing repaired copy preserves an editable headline alongside the prose',
  assert.equal(r.ok,true);assert.deepEqual(updates.at(-1).slice(1),[42,'Edited paragraphs.','A better kitchen']);
 });
 
-test('Move to drafts only reopens a post marked posted by hand, never one the posting agent put up',async()=>{
+test('Move to drafts reopens a post marked posted',async()=>{
  globalThis.__rowCount=1;
  assert.equal((await markDraft(7)).ok,true);
- assert.match(updates.at(-1)[0],/publication_intent_id IS NULL/);
+ assert.match(updates.at(-1)[0],/status = 'draft' WHERE id = \$1 AND status = 'posted'/);
  globalThis.__rowCount=0;
  const r=await markDraft(8);
- assert.equal(r.ok,false);assert.match(r.error,/posting agent put this one up/);
+ assert.equal(r.ok,false);assert.match(r.error,/isn't marked posted/);
  globalThis.__rowCount=undefined;
+});
+
+test('the model sees only the job record: no client name, no street, no prices',async()=>{
+ globalThis.__prompts.length=0;
+ globalThis.__aiCopy='New maple island and pantry cabinets with Cambria quartz counters for a homeowner in St Paul. #carpentry #kitchen #remodel';
+ await generateDraft('kitchen','social');
+ const prompt=globalThis.__prompts[0];
+ assert.match(prompt,/Work: Kitchen Refresh/);
+ assert.match(prompt,/Install quartz counters — Cambria Beaumont/);
+ assert.match(prompt,/City: St Paul/);
+ assert.doesNotMatch(prompt,/Larkin|Elm St|12 Elm/);
+ assert.equal(stored.at(-1)[2],'Kitchen Refresh in St Paul','headline is the work and city, never the client');
+ assert.match(stored.at(-1)[3],/maple island/);
+});
+
+test('Louiselle: a draft that invents rooms is sent back once, then replaced by a plain template from the record',async()=>{
+ globalThis.__prompts.length=0;
+ const invented='We completed kitchen upgrades, bathroom remodeling, and room additions at this home in St Paul!';
+ globalThis.__aiCopy=[invented,invented];
+ await generateDraft('kitchen','blog');
+ assert.equal(globalThis.__prompts.length,2,'one retry');
+ assert.match(globalThis.__prompts[1],/mentions a bathroom, which isn't part of this job/);
+ assert.match(globalThis.__prompts[1],/mentions an addition, which isn't part of this job/);
+ const body=stored.at(-1)[3];
+ assert.doesNotMatch(body,/bathroom|addition/i);
+ assert.match(body,/kitchen refresh in St Paul/);
+ assert.match(body,/Install maple island and pantry cabinets/);
+});
+
+test('a retry that fixes the draft is kept; a draft naming the client or street never is',async()=>{
+ globalThis.__aiCopy=['Thanks Pat Larkin for having us at 12 Elm St!','A maple island and quartz counters for a homeowner in St Paul. #kitchen'];
+ await generateDraft('kitchen','social');
+ assert.equal(stored.at(-1)[3],'A maple island and quartz counters for a homeowner in St Paul. #kitchen');
+ globalThis.__aiCopy=['Thanks Pat Larkin!','Thanks again, Larkin family!'];
+ await generateDraft('kitchen','social');
+ assert.doesNotMatch(stored.at(-1)[3],/Larkin|Elm/);
+});
+
+test('no model (mock echo or error) → the plain template, not the echo',async()=>{
+ globalThis.__aiCopy='You asked: "Write a short social media post". (Assistant is running in mock mode right now.)';
+ await generateDraft('kitchen','social');
+ assert.match(stored.at(-1)[3],/^We just wrapped up a kitchen refresh in St Paul/);
 });

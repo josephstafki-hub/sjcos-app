@@ -237,7 +237,7 @@ export async function completion(c:PoolClient,context:Context,target:string){
  const global:Record<string,unknown>={};
  // Ambiguous repeat values never pick a winner for a cross-module condition.
  for(const m of modules)for(const f of m.fields){const values=live.filter(i=>i.module_key===m.key).flatMap(i=>s.heads.filter(a=>a.instance_id===i.id&&a.field_key===f.key&&a.status==='answered').map(a=>a.value));if(values.length)global[`${m.key}.${f.key}`]=values.length===1?values[0]:values;}
- const media=(await c.query('SELECT id,instance_id,shot_key,sha256,kind FROM consult_media WHERE consult_id=$1 AND removed_at IS NULL',[target])).rows;
+ const media=(await c.query('SELECT id,instance_id,field_key,shot_key,sha256,kind FROM consult_media WHERE consult_id=$1 AND removed_at IS NULL',[target])).rows;
  const fields:CompletionItem[]=[], photos:CompletionItem[]=[],flags:CompletionInput['flags']=[];
  for(const i of live){const m=modules.find(m=>m.key===i.module_key);if(!m)throw new Error('unknown_module');
   const values={...global};for(const a of s.heads.filter(a=>a.instance_id===i.id&&a.status==='answered'))values[a.field_key]=a.value;for(const f of m.fields){const derived=projection.scalar(i,f.key);if(derived!==undefined)values[f.key]=derived;}
@@ -245,7 +245,9 @@ export async function completion(c:PoolClient,context:Context,target:string){
   const required=(r:ModuleDef['fields'][number]['required'])=>compileCondition(r,localKnown)(values);
   for(const f of m.fields){const key=`${i.id}:${f.key}`, a=s.heads.find(a=>a.instance_id===i.id&&a.field_key===f.key);
    const sk=e?.skips[key];
-   fields.push({key,tier:f.tier,required:required(f.required),applicable:true,mapped:!!f.maps_to,answered:a?.status==='answered',valid:a?.status==='answered'&&a.value!==null&&a.value!==''&&(!Array.isArray(a.value)||a.value.length>0),skip:a?.status==='skipped'?{reason:a.skip_reason as NonNullable<CompletionItem['skip']>['reason'],note:a.skip_note??undefined,...(sk?.reason===a.skip_reason?sk:{}),condition_validated:typeof f.required!=='boolean'&&!required(f.required)}:undefined});
+   // A signature field can't be typed (capture_answer refuses it); committed initials media for that exact field answers it.
+   const signed=f.type==='signature'&&media.some(p=>p.instance_id===i.id&&p.kind==='initials'&&p.field_key===f.key);
+   fields.push({key,tier:f.tier,required:required(f.required),applicable:true,mapped:!!f.maps_to,answered:a?.status==='answered'||signed,valid:signed||(a?.status==='answered'&&a.value!==null&&a.value!==''&&(!Array.isArray(a.value)||a.value.length>0)),skip:a?.status==='skipped'?{reason:a.skip_reason as NonNullable<CompletionItem['skip']>['reason'],note:a.skip_note??undefined,...(sk?.reason===a.skip_reason?sk:{}),condition_validated:typeof f.required!=='boolean'&&!required(f.required)}:undefined});
    for(const [index,flag] of [...(f.flag?[f.flag]:[]),...(f.flags??[])].entries())if(required(flag.when)){const flagKey=index?`${key}:${index}`:key;const d=e?.flags[flagKey];flags.push({key:flagKey,disposition:d?.disposition??null,note:d?.note??'',actor:d?row.actor:null,at:d?String(row.updated_at):null});}
   }
   for(const shot of [...m.shots,...m.fields.flatMap(f=>f.shots??[])]){

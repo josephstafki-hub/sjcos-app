@@ -1,0 +1,5 @@
+import {test} from 'node:test';import assert from 'node:assert/strict';
+import {offlineReadiness,readinessLabels} from '../lib/consult/readiness.ts';
+import {failureCopy,controlCopy} from '../lib/consult/copy.ts';
+test('Ready offline requires first five checks; microphone never blocks manual visit',()=>{const checks=Object.fromEntries(Object.keys(readinessLabels).map(k=>[k,{state:'done'}]));checks.microphone={state:'problem'};assert.equal(offlineReadiness(checks).ready,true);for(const key of Object.keys(checks).filter(k=>k!=='microphone')){const failed={...checks,[key]:{state:'problem'}};assert.equal(offlineReadiness(failed).ready,false,key);assert.equal(offlineReadiness(failed).label,'Not ready');}});
+test('copy catalog retains failure/visitor controls including no-review and no-audio decisions',()=>{assert.equal(failureCopy.length,20);assert.ok(controlCopy.some(c=>c.copy.includes('Apply findings')));assert.ok(failureCopy.some(c=>c.copy.includes("Couldn't transcribe the consent answer")));});

@@ -1,8 +1,9 @@
+import {sameBathroom} from './flags.ts';
 import {conflictSideLabel} from './ui/words.ts';
 import {saveAcknowledgedSummary} from './summary.ts';
 import {evaluatedFlags,flagInputs} from './flags.ts';
 import { mergeTemplateModules } from './template-merge.ts';
-import { rrpFacts } from './rrp.ts';
+import { rrpFacts, certificationWarnings } from './rrp.ts';
 /** Owner-connection transaction service. Caller authenticates freshly and supplies a
  * server-minted person envelope. Never expose an envelope or this client to browsers. */
 import {pinnedDerivations} from './derive.ts';
@@ -64,7 +65,8 @@ export async function snapshot(c:PoolClient,context:Context,target:string):Promi
  const amounts=JSON.parse(context.payload).role==='owner'||JSON.parse(context.payload).areas?.includes('estimates');
  const quantities=(value:unknown)=>Array.isArray(value)?value.slice(0,200).map(q=>({label:q.label,qty:q.qty,unit:q.unit,...(q.basis!==undefined?{basis:q.basis}:{})})):[];
  const firmSettings=Object.fromEntries((await c.query("SELECT key,value FROM app_settings WHERE key IN ('rrp_firm_cert_number','rrp_firm_cert_expiry')")).rows.map(r=>[r.key,r.value]));
- const prefill={start_date:(await one<{start_date:string|null}>(c,'SELECT start_date::text start_date FROM projects WHERE id=$1',[project])).start_date,firm_cert_number:firmSettings.rrp_firm_cert_number??null,firm_cert_expiry:firmSettings.rrp_firm_cert_expiry??null,intake,year_built:intake.find(i=>/year.*built/i.test(i.question))?.answer??null,
+ const finish=(await one<{target_end_date:string|null}>(c,'SELECT target_end_date::text FROM projects WHERE id=$1',[project])).target_end_date;
+ const prefill={target_end_date:finish,start_date:(await one<{start_date:string|null}>(c,'SELECT start_date::text start_date FROM projects WHERE id=$1',[project])).start_date,firm_cert_number:firmSettings.rrp_firm_cert_number??null,firm_cert_expiry:firmSettings.rrp_firm_cert_expiry??null,intake,year_built:intake.find(i=>/year.*built/i.test(i.question))?.answer??null,
  rough_estimate:(rough?.line_items??[]).slice(0,200).map(l=>({label:l.label,...(amounts?{value:l.value}: {})})),
  scope_items:(await c.query("SELECT key,title,room,trade,quantities FROM scope_items WHERE project_id=$1 AND status NOT IN ('excluded','superseded') ORDER BY key LIMIT 200",[project])).rows.map(i=>({...i,quantities:quantities(i.quantities)})),
  plan_items:(await c.query("SELECT item->>'prompt' prompt,item->>'scope_key' scope_key,item->>'unit' unit,item->>'location' location FROM site_visit_plans p CROSS JOIN LATERAL jsonb_array_elements(p.items) item WHERE project_id=$1 AND p.status<>'superseded' AND item->>'status'='open' AND p.id=coalesce((SELECT site_visit_plan_id FROM consults WHERE id=$2),(SELECT id FROM site_visit_plans WHERE project_id=$1 AND status<>'superseded' ORDER BY revision DESC LIMIT 1)) ORDER BY p.revision DESC LIMIT 200",[project,target])).rows,
@@ -77,7 +79,10 @@ export async function snapshot(c:PoolClient,context:Context,target:string):Promi
  const decisions=latest?.type==='decisions'?latest.payload.payload:closeEvidence?decisionSchema.parse(Object.fromEntries(Object.entries(closeEvidence).filter(([key])=>key in decisionSchema.shape))):null;
 
  const media=(await c.query("SELECT m.sha256 hash,m.event_id,m.kind,m.instance_id,m.field_key,m.shot_key,f.mime_type mime,jsonb_build_object('file_id',m.file_id,'media_id',m.id) receipt FROM consult_media m JOIN files f ON f.id=m.file_id WHERE m.consult_id=$1 AND m.removed_at IS NULL AND m.kind IN ('photo','initials') ORDER BY m.created_at",[target])).rows.map(m=>({...m,...(!m.field_key?{field_key:undefined}:{}),...(!m.shot_key?{shot_key:undefined}:{})}));
- return {...result,proposals,findings_job,display,prefill,visitor_notes,decisions,close_evidence:closeEvidence,media} as Snapshot;
+ const reopened=await latestReopen(c,target);
+ const certValues:Record<string,unknown>={};for(const h of result.heads)if(h.status==='answered'&&result.instances.some(i=>i.id===h.instance_id&&i.module_key==='era'&&!i.removed_at))certValues[`era.${h.field_key}`]=h.value;
+ const certification_warnings=certificationWarnings(certValues,finish);
+ return {...result,reopened,certification_warnings,proposals,findings_job,display,prefill,visitor_notes,decisions,close_evidence:closeEvidence,media} as Snapshot;
 }
 async function scoped(c:PoolClient,context:Context,operation:string,target:string|null):Promise<Context>{
  const claims=JSON.parse(context.payload);return (await one<{v:Context}>(c,'SELECT consult_mint_context($1,$2) v',[{...claims,operation,consult_id:target},context.key_id])).v;
@@ -293,7 +298,7 @@ export async function completion(c:PoolClient,context:Context,target:string){
  const fields:CompletionItem[]=[], photos:CompletionItem[]=[],flags:CompletionInput['flags']=[];
  for(const i of live){const m=modules.find(m=>m.key===i.module_key);if(!m)throw new Error('unknown_module');
   const values={...global};for(const a of s.heads.filter(a=>a.instance_id===i.id&&a.status==='answered'))values[a.field_key]=a.value;for(const f of m.fields){const derived=projection.scalar(i,f.key);if(derived!==undefined)values[f.key]=derived;}
-  values['toilet_fixture_plans']=live.filter(fixture=>fixture.module_key==='plumb_fixture').flatMap(fixture=>{const get=(key:string)=>s.heads.find(a=>a.instance_id===fixture.id&&a.field_key===key&&a.status==='answered')?.value;return get('fixture')==='Toilet'?[get('plan')]:[];});
+  values['toilet_fixture_plans']=live.filter(fixture=>fixture.module_key==='plumb_fixture' && sameBathroom(i,fixture)).flatMap(fixture=>{const get=(key:string)=>s.heads.find(a=>a.instance_id===fixture.id&&a.field_key===key&&a.status==='answered')?.value;return get('fixture')==='Toilet'?[get('plan')]:[];});
     const localKnown=new Set([...known,...m.fields.map(f=>f.key)]);
   const required=(r:ModuleDef['fields'][number]['required'])=>compileCondition(r,localKnown)(values);
   for(const f of m.fields){const key=`${i.id}:${f.key}`, a=s.heads.find(a=>a.instance_id===i.id&&a.field_key===f.key);
@@ -479,4 +484,9 @@ export async function command(c:PoolClient,context:Context,target:string,kind:st
   await c.query('UPDATE consult_devices SET close_manifest=NULL,close_ack_at=NULL WHERE consult_id=$1 AND revoked_at IS NULL',[target]);await audit(c,target,actor,'reopen',v);return r;
  }
  throw new Error('unknown_command');
+}
+
+export async function latestReopen(c:Pick<PoolClient,'query'>,target:string):Promise<{who:string;when:string;reason:string}|null>{
+ const r=await c.query(`SELECT u.name AS who,e.created_at AS when,e.payload->>'reason' AS reason FROM consult_events e JOIN users u ON u.id=e.actor JOIN consults v ON v.id=e.consult_id WHERE e.consult_id=$1 AND e.type='reopen' AND v.closed_at IS NULL ORDER BY e.server_revision DESC,e.created_at DESC LIMIT 1`,[target]);
+ return r.rows[0]??null;
 }

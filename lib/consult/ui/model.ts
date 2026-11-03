@@ -1,10 +1,11 @@
+import {sameBathroom} from '../flags.ts';
 import {conflictSideLabel} from './words.ts';
 import {PAMPHLET_UNKNOWN_YEAR_LINE} from '../forms/seed/shared.ts';
 import {evaluatedFlags,flagInputs} from '../flags.ts';
 import {pinnedDerivations} from '../derive.ts';
 import { mergeTemplateModules } from '../template-merge.ts';
 import { SELECTION_NAMES } from '../forms/seed/templates.ts';
-import { rrpFacts } from '../rrp.ts';
+import { rrpFacts, certificationWarnings } from '../rrp.ts';
 /**
  * Pure view model for the in-home consultation field app (plan §6.1–§6.4, §10.2–§10.3).
  * Inputs: the stored/fresh server snapshot, the durable local queue and blob metadata,
@@ -26,11 +27,13 @@ export interface Snapshot {
   consult: { id: string; project_id: string; status: string; revision: string | number; completion_generation: string | number; conducted_by: string; scheduled_at: string; deletion_epoch?: string | number; promised_date?: string | null; closed_at?: string | null; completed_at?: string | null; completeness_cache?: unknown };
   pins: { kind: string; key?: string; version?: number; checksum?: string; definition: ModuleDef | TemplateDef }[];
   instances: SnapInstance[]; heads: SnapHead[]; conflicts: SnapConflict[];
+  reopened?: {who:string;when:string;reason:string}|null;
+  certification_warnings?: string[];
   proposals?: unknown[];
   findings_job?: { generation: string | number; status: string; attempts: number; last_error: string | null; result: unknown } | null;
   display?: Display;
   close_evidence?: Record<string,unknown> | null; visitor_notes?: string; decisions?: EvidenceDraft | null;
-  prefill?: {start_date?: string | null;firm_cert_number?: string | null; firm_cert_expiry?: string | null;year_built: string | null; intake: {question:string;answer:string}[]; rough_estimate:{label:string;value?:unknown}[]; scope_items:{key:string;title:string;room:string;trade:string;quantities:{label:string;qty:number|null;unit:string;basis?:string}[]}[]; plan_items:{prompt:string;location:string}[]; photos:{id:string;name:string}[]; discovery_notes:{summary:string}[]};
+  prefill?: {target_end_date?:string|null;start_date?: string | null;firm_cert_number?: string | null; firm_cert_expiry?: string | null;year_built: string | null; intake: {question:string;answer:string}[]; rough_estimate:{label:string;value?:unknown}[]; scope_items:{key:string;title:string;room:string;trade:string;quantities:{label:string;qty:number|null;unit:string;basis?:string}[]}[]; plan_items:{prompt:string;location:string}[]; photos:{id:string;name:string}[]; discovery_notes:{summary:string}[]};
 }
 export interface EvidenceDraft {
   skips: Record<string, { reason: SkipReason; note?: string; assumption?: RiskAssumption; trade_walk_decided?: boolean }>;
@@ -63,7 +66,7 @@ export interface VisitModel {
   pc: { done: number; total: number; skipped: number }; record: { done: number; total: number; skipped: number };
   open: { section: SectionView; item: FieldView | ShotView; kind: 'field' | 'shot'; partly: boolean }[];
   flags: { kind?:string; key: string; issue: string; hint: string; address: string; measured: {field:string;value:unknown;unit?:string;address:string}[]; section: SectionView; field: FieldView }[];
-  conflicts: ConflictView[]; touchedTrades: string[]; rrpApplies: boolean; rrp: ReturnType<typeof rrpFacts>;
+  conflicts: ConflictView[]; touchedTrades: string[]; certificationWarnings:string[]; rrpApplies: boolean; rrp: ReturnType<typeof rrpFacts>;
   values: Record<string, unknown>; photosOk: boolean | null; promised: string | null;
   started: boolean; status: string; generation: number;
   /** r8 domain E4: quantities that feed the estimate with no measured answer behind them. */
@@ -330,7 +333,7 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
     const values: Record<string, unknown> = { ...global };
     for (const f of m.fields) { const a = answers.get(addrOf(inst.id, f.key)); if (a?.status === 'answered') values[f.key] = a.value; }
     for (const f of m.fields) { const v=projection.scalar(inst,f.key); if(v!==undefined)values[f.key]=v; }
-    values['toilet_fixture_plans']=live.filter(fixture=>fixture.module_key==='plumb_fixture').flatMap(fixture=>{const get=(key:string)=>answers.get(addrOf(fixture.id,key))?.value;return get('fixture')==='Toilet'?[get('plan')]:[];});
+    values['toilet_fixture_plans']=live.filter(fixture=>fixture.module_key==='plumb_fixture' && sameBathroom(inst,fixture)).flatMap(fixture=>{const get=(key:string)=>answers.get(addrOf(fixture.id,key))?.value;return get('fixture')==='Toilet'?[get('plan')]:[];});
     const localKnown = new Set([...known, ...m.fields.map((f) => f.key)]);
     const req = (r: boolean | When) => safeCondition(r, localKnown, values);
     const fieldViews: FieldView[] = []; const hidden: FieldView[] = [];
@@ -412,7 +415,7 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
   rrp.receipt ||= sections.some(sec=>sec.module.key==='era'&&sec.fields.some(f=>['pamphlet_given','pamphlet_initials'].includes(f.key)&&f.answer?.status==='skipped'&&!!f.answer.skip_note?.trim()&&f.skipCounts));
   return {
     modules, templates, sections, slots, pc: tally.pc, record: tally.record, open: allOpen, flags: allFlags, conflicts,
-    touchedTrades: [...touched], rrp, rrpApplies: rrpFacts(global, false, String(s.consult.scheduled_at), s.prefill?.start_date).applies, values: global, photosOk,
+    touchedTrades: [...touched], certificationWarnings:certificationWarnings(global,s.prefill?.target_end_date), rrp, rrpApplies: rrpFacts(global, false, String(s.consult.scheduled_at), s.prefill?.start_date).applies, values: global, photosOk,
     promised: typeof promisedRaw === 'string' ? promisedRaw : null, started, status, generation: Number(s.consult.completion_generation),
     unmeasured: projection.derived.filter((d) => d.definition.maps_to && !(d.result && d.result.answer_revisions.length > 0)).length,
   };

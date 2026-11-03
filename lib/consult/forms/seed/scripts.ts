@@ -73,7 +73,7 @@ export const CONSENT = {
 
 // Changed after counsel’s approval — confirm with counsel.
 export const CLOSING_NO_DATE_JOE = "Next, I price this with our trade partners and suppliers. I’ll call you with the date you’ll have the formal estimate. It shows each part of the work, the allowances for the things you’re still choosing, and what isn’t included.";
-export const CLOSING_NO_DATE_STAFF = "Next, Joe prices this with our trade partners and suppliers. He’ll call you with the date you’ll have the formal estimate. It shows each part of the work, the allowances for the things you’re still choosing, and what isn’t included.";
+export const CLOSING_NO_DATE_STAFF = "Next, Joe prices this with our trade partners and suppliers. He’ll be in touch to tell you when you’ll have the formal estimate. It shows each part of the work, the allowances for the things you’re still choosing, and what isn’t included.";
 export function closingScriptLine(line:string, staff:boolean, skip?:{status:string;skip_reason?:string|null;skip_note?:string|null}):string {
  const skipped=skip?.status==='skipped'&&(skip.skip_reason==='Joe sets the date'||(skip.skip_reason==='Other'&&!!skip.skip_note?.trim()));
  return skipped&&line.includes('{estimate_date}')?(staff?CLOSING_NO_DATE_STAFF:CLOSING_NO_DATE_JOE):line;

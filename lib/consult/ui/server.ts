@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 import { pool, query, queryOne } from "@/lib/db";
 import { readSession } from "@/lib/session";
 import type { CurrentUser } from "@/lib/dal";
-import { snapshot } from "@/lib/consult/protocol";
+import { snapshot, latestReopen } from "@/lib/consult/protocol";
 import { buildModel, emptyDraft, type Display, type Snapshot } from "./model";
 import type { Boot } from "./controller";
 import type { ListVisit } from "@/components/consult/field/VisitList";
@@ -113,7 +113,7 @@ export interface LookOverExtra {
   provenance: Record<string, { actor: string; source: string; device: string | null; at: string }>;
   conflicts: Record<string, { current: { id: string; value: unknown; status: string; revision: number; actor: string; at: string; unit?:string|null; device_id?:string|null; person?:string; source_label?:string; available?:boolean; skip_reason?:string|null; skip_note?:string|null }; proposed: { id: string; value: unknown; status: string; actor: string; at: string; unit?:string|null; device_id?:string|null; person?:string; source_label?:string; available?:boolean; skip_reason?:string|null; skip_note?:string|null } }>;
   pendingDevice: { photos: number } | null;
-  closedAt: string | null; completedAt: string | null; reopenReason: string | null; completeness: unknown;
+  closedAt: string | null; completedAt: string | null; reopenReason: string | null; reopened: {who:string;when:string;reason:string}|null; completeness: unknown;
   autoApply: boolean;
 }
 export async function lookOverExtra(id: string): Promise<LookOverExtra> {
@@ -131,7 +131,7 @@ export async function lookOverExtra(id: string): Promise<LookOverExtra> {
   const provenance: LookOverExtra["provenance"] = {};
   for (const p of prov) provenance[`${p.instance_id}:${p.field_key}`] = { actor: p.actor, source: p.source, device: p.device_id, at: String(p.created_at) };
   const pendingPhotos = await queryOne<{ n: number }>(`SELECT count(*)::int AS n FROM consult_uploads WHERE consult_id=$1 AND status NOT IN ('committed','expired')`, [id]).catch(() => null);
-  return { media, evidence: ev?.evidence ?? null, provenance, conflicts, pendingDevice: pendingPhotos?.n ? { photos: pendingPhotos.n } : null, closedAt: row?.closed_at ?? null, completedAt: row?.completed_at ?? null, reopenReason: row?.reopen_reason ?? null, completeness: row?.completeness_cache ?? null, autoApply: await flag("consult_auto_apply_findings") };
+  return { reopened: await latestReopen({query} as Parameters<typeof latestReopen>[0],id), media, evidence: ev?.evidence ?? null, provenance, conflicts, pendingDevice: pendingPhotos?.n ? { photos: pendingPhotos.n } : null, closedAt: row?.closed_at ?? null, completedAt: row?.completed_at ?? null, reopenReason: row?.reopen_reason ?? null, completeness: row?.completeness_cache ?? null, autoApply: await flag("consult_auto_apply_findings") };
 }
 
 /** Devices that captured this visit (owner look-over: move / recover). Plain ids and names only. */

@@ -12,3 +12,11 @@ export function rrpFacts(values: Record<string, unknown>, initials: boolean, vis
  const current = (key: string) => typeof values[key] === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(values[key] as string) && (values[key] as string) >= day;
  return { applies, receipt: values['era.pamphlet_given'] === true && initials, firm_current: current('era.firm_cert_expiry'), renovator_current: current('era.renovator_expiry') };
 }
+
+/** Advisory only: expiry during the planned job never changes the close gate. */
+export function certificationWarnings(values:Record<string,unknown>, finish?:string|null):string[]{
+ if(!finish)return [];
+ return [['era.firm_cert_expiry','Firm'],['era.renovator_expiry','Renovator']].flatMap(([key,label])=>{
+ const date=values[key];return typeof date==='string' && /^\d{4}-\d{2}-\d{2}$/.test(date) && date<finish.slice(0,10)?[`${label} certification expires ${date}, before the planned finish`]:[];
+ });
+}

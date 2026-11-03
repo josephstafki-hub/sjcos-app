@@ -47,8 +47,10 @@ export function Banner({ kind, children, actions, role }: { kind: "action" | "st
   );
 }
 
-/** Bottom sheet on phone, right sheet from 1024 px (`side`), centred card otherwise. */
-export function Sheet({ open, onClose, title, children, footer, side = false, labelledBy }: { open: boolean; onClose: () => void; title: ReactNode; children: ReactNode; footer?: ReactNode; side?: boolean; labelledBy?: string }) {
+/** Bottom sheet on phone, right sheet from 1024 px (`side`), centred card otherwise.
+ *  `dock` keeps it a lower-half bottom sheet on tablet portrait too (the keypad: the field it
+ *  fills stays visible above it, §6). */
+export function Sheet({ open, onClose, title, children, footer, side = false, dock = false, labelledBy }: { open: boolean; onClose: () => void; title: ReactNode; children: ReactNode; footer?: ReactNode; side?: boolean; dock?: boolean; labelledBy?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const id = useId();
   const opener = useRef<Element | null>(null);
@@ -74,9 +76,9 @@ export function Sheet({ open, onClose, title, children, footer, side = false, la
   }, [open]);
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-ink/40 md:items-center lg:items-stretch lg:justify-end" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+    <div className={`fixed inset-0 z-50 flex items-end justify-center lg:items-stretch lg:justify-end ${dock ? "bg-ink/20" : "bg-ink/40 md:items-center"}`} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={labelledBy ?? id}
-        className={`flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-xl border-2 border-rule bg-card shadow-modal md:max-w-[560px] md:rounded-xl ${side ? "lg:h-full lg:max-h-none lg:max-w-[480px] lg:rounded-none lg:border-y-0 lg:border-r-0" : ""}`}>
+        className={`flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-xl border-2 border-rule bg-card shadow-modal ${dock ? "md:max-h-[58dvh] md:border-x-0 md:border-b-0 lg:max-h-none lg:max-w-[560px] lg:rounded-xl lg:border-2" : "md:max-w-[560px] md:rounded-xl"} ${side ? "lg:h-full lg:max-h-none lg:max-w-[480px] lg:rounded-none lg:border-y-0 lg:border-r-0" : ""}`}>
         <div className="flex items-center gap-3 border-b-2 border-rule-soft px-4 py-2">
           <h2 id={labelledBy ?? id} className="min-w-0 flex-1 font-serif text-[1.15em] font-semibold text-ink">{title}</h2>
           <Btn tone="quiet" onClick={onClose} aria-label="Close" className="px-3">Close</Btn>

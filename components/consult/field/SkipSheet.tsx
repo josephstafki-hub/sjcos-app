@@ -42,7 +42,7 @@ export function SkipSheet({ open, label, tier, onSave, onClose, initial, isShot,
           {SKIP_REASONS.filter((r) => !(isShot && r === "Not on this job")).map((r) => (
             <button key={r} type="button" role="radio" aria-checked={reason === r} onClick={() => setReason(r)}
               className={`min-h-14 rounded-md border-2 px-3 py-2 text-left focus-visible:outline-3 focus-visible:outline-focus ${reason === r ? "border-accent bg-accent-soft" : "border-rule bg-card hover:bg-paper-2"}`}>
-              <span className="block font-semibold text-ink"><span aria-hidden className="mr-1.5 font-mono">{reason === r ? "●" : "○"}</span>{r}{r === "Get on return visit" && <span className="ml-1 font-normal text-info">· ⤳ Return visit</span>}</span>
+              <span className="block font-semibold text-ink"><span aria-hidden className="mr-1.5 font-mono">{reason === r ? "●" : "○"}</span>{r}</span>
               <span className="block text-[0.9em] text-ink-2">{SKIP_HELP[r]}</span>
             </button>
           ))}

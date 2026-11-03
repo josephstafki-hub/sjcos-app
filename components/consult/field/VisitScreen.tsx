@@ -35,10 +35,12 @@ const fillScript = (line: string, display: Display | undefined, model: VisitMode
     .replace("{name}", display?.visitor_name ?? "").replace("{estimate_date}", model.promised ? centralTime(`${model.promised}T12:00:00-06:00`, { weekday: "long", month: "long", day: "numeric" }) : "the date you pick below")
     .replace("{open_selections}", model.sections.filter((s) => s.module.key === "selections" && !s.fields.some((f) => f.key === "status" && f.answer?.value === "Exact product picked")).map((s) => s.label).join(", ") || "none");
 
-/** §6.1 thumb zone: the primary action bottom-right, 56 px, fixed on phone and tablet portrait, inline from 1024 px. */
+/** §6.1 thumb zone: the primary action bottom-right, 56 px. Fixed on phone and tablet portrait;
+ *  from 1024 px it is sticky at the bottom of the scrolling right pane (the section is a flex column
+ *  at least the pane's height, so a short opening card still puts Next at the bottom). */
 function BottomBar({ left, right }: { left?: React.ReactNode; right: React.ReactNode }) {
   return (
-    <div className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-between gap-3 border-t-2 border-rule-soft bg-paper px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:static lg:mt-6 lg:border-0 lg:bg-transparent lg:px-0">
+    <div className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-between gap-3 border-t-2 border-rule-soft bg-paper px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:sticky lg:inset-x-auto lg:mt-auto lg:-mx-4 lg:pb-3">
       {left ?? <span />}
       {right}
     </div>
@@ -136,7 +138,11 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
   const actions: FieldActions = {
     thumbs, online, photosOk: model.photosOk, focusAddr, showToClient: api.showToClient,
     answer: async (f, p) => { const inst = f.addr.split(":")[0]; await wrap(api.answer(inst, f.key, f.def.label, p)); },
-    keypad: (f) => setKeypad({ f }),
+    keypad: (f) => {
+      setKeypad({ f });
+      // Below 1024 px the keypad covers the lower half: bring the field it fills into the top half.
+      if (typeof window !== "undefined" && window.innerWidth < 1024) requestAnimationFrame(() => document.getElementById(`f-${f.addr}`)?.scrollIntoView({ block: "start", behavior: "smooth" }));
+    },
     skip: (t) => setSkip(t),
     photo: async (shot, file, fieldKey) => { await api.photo(file, { instance_id: shot.addr.split(":")[0], shot_key: shot.key, ...(fieldKey ? { field_key: fieldKey } : {}) }, shot.def.label); },
     discard: async (id) => { await wrap(api.discard(id, "Entered again on the visit device")); },
@@ -167,8 +173,12 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
   const visitLength = visitDuration(model.templates.map((t) => t.key));
   const openingLine = visitLength ? fill(W.openingLine, { duration: visitLength }) : W.openingLine.split(" · ")[0];
   const openingView = (
-    <section className="px-4 pb-28 pt-5 lg:pb-8" aria-labelledby="opening-h">
-      <Eyebrow>{W.opening} · {openingStep + 1} of {opening.length || 1}</Eyebrow>
+    <section className="px-4 pb-28 pt-5 lg:flex lg:min-h-full lg:flex-col lg:pb-0" aria-labelledby="opening-h">
+      <div className="flex items-center justify-between gap-3">
+        <Eyebrow>{W.opening} · {openingStep + 1} of {opening.length || 1}</Eyebrow>
+        {/* Narrow phones (<420 px): the bar holds only ‹ Sections and Next ›, so Back sits up here. */}
+        {openingStep > 0 && <Btn tone="quiet" className="hidden max-[420px]:inline-flex" onClick={() => setOpeningStep(openingStep - 1)}>{W.previous}</Btn>}
+      </div>
       <h1 id="opening-h" className="mt-1 font-serif text-[1.15em] font-semibold text-ink">{openingLine}</h1>
       <div className="mt-3 rounded-lg border-2 border-rule bg-card p-5 shadow-card">
         <p className="font-serif text-[1.25em] leading-snug text-ink">“{opening[openingStep] ?? ""}”</p>
@@ -176,7 +186,11 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
       {/photos/i.test(opening[openingStep] ?? "") && photosField && <FieldRow f={photosField} actions={actions} sectionId={houseInst!.instance.id} />}
       {/anything you want to make sure/i.test(opening[openingStep] ?? "") && clientList && <FieldRow f={clientList} actions={actions} sectionId={houseInst!.instance.id} />}
       <BottomBar
-        left={openingStep > 0 ? <Btn onClick={() => setOpeningStep(openingStep - 1)}>{W.previous}</Btn> : <Btn className="lg:hidden" onClick={() => setView("list")}>‹ {W.sections}</Btn>}
+        left={<span className="flex items-center gap-2">
+          {/* ‹ Sections at every opening step (the client may walk off to the kitchen mid-script). */}
+          <Btn className="lg:hidden" onClick={() => setView("list")}>‹ {W.sections}</Btn>
+          {openingStep > 0 && <Btn tone="quiet" className="px-3 max-[420px]:hidden" onClick={() => setOpeningStep(openingStep - 1)}>{W.previous}</Btn>}
+        </span>}
         right={<Btn tone="primary" className="ml-auto min-w-[8em]" onClick={() => (openingStep + 1 < opening.length ? setOpeningStep(openingStep + 1) : setView("list"))}>{W.next}</Btn>} />
     </section>
   );
@@ -195,7 +209,7 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
   );
 
   const sectionView = section && (
-    <section className="px-4 pb-28 pt-4 lg:pb-8" aria-labelledby="sec-h">
+    <section className="px-4 pb-28 pt-4 lg:flex lg:min-h-full lg:flex-col lg:pb-0" aria-labelledby="sec-h">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <Eyebrow>{display?.client}</Eyebrow>
@@ -237,7 +251,7 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
       {section.shots.map((s) => <PhotoRow key={s.key} shot={s} actions={actions} sectionId={section.instance.id} />)}
       {section.hidden.length > 0 && (
         <details className="mt-4 rounded-md border-2 border-rule-soft bg-paper px-3 py-2">
-          <summary className="min-h-12 cursor-pointer py-3 font-semibold text-ink-2">— N/A · Not on this job ({section.hidden.length})</summary>
+          <summary className="min-h-12 cursor-pointer py-3 font-semibold text-ink-2">Not on this job · {section.hidden.length}</summary>
           <ul className="pb-2">{section.hidden.map((f) => <li key={f.addr} className="flex justify-between gap-3 py-1 text-ink-2"><span>{f.def.label}</span><CoverageMark variant="coverage" state="not_applicable" size="sm" /></li>)}</ul>
         </details>
       )}
@@ -252,6 +266,7 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
       {section.module.repeatable && section.children.length === 0 && (
         <div className="mt-6"><Btn tone="quiet" onClick={() => setRemove(section)}>{fill(W.removeInstance, { name: section.label })}</Btn></div>
       )}
+      <div className="lg:h-6" aria-hidden />
       <BottomBar left={<Btn className="lg:hidden" onClick={() => guard(() => setView("list"))}>‹ {W.sections}</Btn>}
         right={<Btn tone="primary" className="ml-auto min-w-[8em]" onClick={next}>{W.next}</Btn>} />
     </section>
@@ -266,7 +281,7 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
   return (
     <>
       {err && <div className="px-4 pt-3"><Banner kind="action" actions={<Btn onClick={() => setErr(null)}>{W.close}</Btn>}>{plainWords(err, { field: lastSaved ?? "—", name: userName })}</Banner></div>}
-      <div className="lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[360px_minmax(0,1fr)]">
+      <div className="lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[360px_minmax(0,1fr)] lg:grid-rows-[minmax(0,1fr)]">
         <aside className="hidden border-r-2 border-rule-soft lg:block lg:overflow-y-auto" aria-label={W.sections}>
           <div className="px-4 py-4">
             {paneScript.length > 0 && <>
@@ -279,7 +294,7 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
             <div className="mt-4 grid gap-3"><Btn onClick={() => { setOpeningStep(0); setView("opening"); }}>{W.opening}</Btn><Btn tone="primary" onClick={() => setSheet("wrap")}>{W.beforeYouWrap}</Btn></div>
           </div>
         </aside>
-        <div ref={main} className="min-w-0 lg:overflow-y-auto">{view === "list" ? <><div className="lg:hidden">{listView}</div><div className="hidden px-6 py-10 text-ink-2 lg:block">Pick a section on the left to start.</div></> : body}</div>
+        <div ref={main} className="min-w-0 lg:overflow-y-auto">{view === "list" ? <><div className="lg:hidden">{listView}</div><div className="hidden px-6 py-10 text-ink-2 lg:block">Pick a section on the left to start.</div></> : body}{keypad && <div aria-hidden className="h-[60dvh] lg:hidden" />}</div>
       </div>
 
       {keypad && <Keypad open def={keypad.f.def} label={keypad.f.def.label} initial={keypad.f.answer?.status === "answered" ? keypad.f.answer.value : undefined} last={section ? lastValue(section, keypad.f) : undefined}

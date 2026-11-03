@@ -30,6 +30,9 @@ export function ScreenHead({ title, back = "/consult/", right }: { title: string
   );
 }
 
+/** A reason reads as its own sentence under the row: capital first, full stop last (r2 N9). */
+const asSentence = (t: string) => { const x = t.trim(); return x ? `${x[0].toUpperCase()}${x.slice(1)}${/[.!?]$/.test(x) ? "" : "."}` : x; };
+
 function Rows({ checks, result }: { checks: Partial<Record<ReadyCheck, CheckResult>>; result: ReadyResult }) {
   return (
     <ul className="mt-4 grid gap-1" aria-label="Checks">
@@ -41,7 +44,7 @@ function Rows({ checks, result }: { checks: Partial<Record<ReadyCheck, CheckResu
             <CoverageMark variant="ready" state={state} />
             <span className={`min-w-0 ${state === "problem" ? "font-semibold text-flag" : "text-ink"}`}>
               {READY_LABEL[key]}{c?.state === "checking" && <span className="text-ink-3"> · checking…</span>}
-              {state === "problem" && c?.reason && <span className="block font-normal text-ink">— {readyReason(key, c.reason)}</span>}
+              {state === "problem" && c?.reason && <span className="mt-0.5 block font-normal text-ink">{asSentence(readyReason(key, c.reason))}</span>}
             </span>
           </li>
         );
@@ -86,6 +89,7 @@ export function GetReadyCard({ title, result, checks, enrolled, expires, code, r
   // A refused PIN never ran a check: stay on the PIN step with the inline line, checks "Not yet".
   const pinRefused = result === "not_ready" && (readyCode === "pin_invalid" || checks.offline_lease?.reason === "pin_invalid");
   // Device-key step failed for a reason other than sign-in: a new PIN is the way forward, not the same one again.
+  const otherDevice = code === "device_access_denied" || readyCode === "device_access_denied" || Object.values(checks).some((c) => c?.reason === "device_access_denied");
   const leaseFailed = !!checks.offline_lease?.reason && !signinCode(checks.offline_lease.reason) && checks.offline_lease.reason !== "device_access_denied";
   return (
     <div className="mx-auto w-full max-w-[560px]">
@@ -122,6 +126,11 @@ export function GetReadyCard({ title, result, checks, enrolled, expires, code, r
           <div className="mt-5 grid gap-3">
             {signedOut
               ? <LinkBtn tone="primary" wide href={`/login?next=${encodeURIComponent(typeof location === "undefined" ? "/consult/" : location.pathname)}`}>{W.signIn}</LinkBtn>
+              : otherDevice ? <>
+                {/* Trying again here can't succeed until Joe moves the visit: going back is the action. */}
+                <LinkBtn tone="primary" wide href="/consult/">{W.backToVisits}</LinkBtn>
+                {pin && <Btn tone="quiet" wide onClick={() => onGetReady(pin)}>{W.tryAgain}</Btn>}
+              </>
               : pin && !leaseFailed ? <Btn tone="primary" wide onClick={() => onGetReady(pin)}>{W.tryAgain}</Btn> : <PinChoice enrolled={enrolled} onGo={run} busy={!!busy} />}
           </div>
         </>}

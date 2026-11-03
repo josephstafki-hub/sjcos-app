@@ -8,11 +8,12 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { SignaturePad, type SignaturePadHandle } from "@/components/esign/SignaturePad";
-import { clientSummary, handBackAllowed, type ClientSummary } from "@/lib/consult/client-summary";
+import { STILL_TO_DECIDE_SHOWN, clientSummary, handBackAllowed, type ClientSummary } from "@/lib/consult/client-summary";
 import { W, fill } from "@/lib/consult/ui/words";
 import { Btn, TextInput } from "./primitives";
 
 const clock = () => performance.now();
+const EYEBROW = "font-mono text-[0.7em] font-semibold uppercase tracking-[0.14em] text-accent";
 function dataUrlToBlob(url: string): Blob {
   const [head, data] = url.split(","); const mime = /data:([^;]+)/.exec(head)?.[1] ?? "image/png";
   const bin = atob(data); const bytes = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -29,7 +30,7 @@ export function ClientView({ summary, pamphlet = false, hasInitials, onInitials,
   const [saving, setSaving] = useState(false);
   const [held, setHeld] = useState(0);
   const [pinMode, setPinMode] = useState(false);
-  const [pin, setPin] = useState(""); const [pinErr, setPinErr] = useState(false);
+  const [pin, setPin] = useState(""); const [pinErr, setPinErr] = useState(false); const [checking, setChecking] = useState(false);
   const start = useRef<number | null>(null); const raf = useRef<number | null>(null);
 
   // Back trap: the client can't navigate into visitor screens.
@@ -64,17 +65,33 @@ export function ClientView({ summary, pamphlet = false, hasInitials, onInitials,
           <h1 className="font-serif text-[1.5em] font-semibold leading-tight text-ink">{pamphlet ? "Renovate Right receipt" : W.whatWeWentOver}</h1>
           <p className="mt-1 text-ink-2">{s.client_name}{s.visit_date ? ` · ${s.visit_date}` : ""}</p>
           {pamphlet ? <p className="mt-5">I received the Renovate Right pamphlet about lead-safe renovation work.</p> : <>
-          <ul className="mt-5 grid gap-4">
+          {s.rooms.length > 0 && <ul className="mt-5 grid gap-4">
             {s.rooms.map((r, i) => (
               <li key={i}>
-                <p className="font-mono text-[0.7em] font-semibold uppercase tracking-[0.14em] text-accent">{r.name}</p>
-                <p>{r.work.length ? r.work.join(" · ") : "Measured and looked over"}</p>
+                <p className={EYEBROW}>{r.name}</p>
+                <p>{r.work.join(" · ")}</p>
               </li>
             ))}
-          </ul>
-          {s.still_to_decide.length > 0 && <div className="mt-5"><p className="font-mono text-[0.7em] font-semibold uppercase tracking-[0.14em] text-accent">{W.stillToDecide}</p><p>{s.still_to_decide.join(" · ")}</p></div>}
-          {s.open_questions.length > 0 && <div className="mt-5"><p className="font-mono text-[0.7em] font-semibold uppercase tracking-[0.14em] text-accent">{W.openQuestions}</p><ul className="list-disc pl-6">{s.open_questions.map((q, i) => <li key={i}>{q}</li>)}</ul></div>}
-          <div className="mt-5"><p className="font-mono text-[0.7em] font-semibold uppercase tracking-[0.14em] text-accent">{W.nextStep}</p><p>{s.formal_estimate_date ? fill(W.nextFormal, { date: s.formal_estimate_date }) : "formal estimate"}</p></div>
+          </ul>}
+          {(s.come_back?.length ?? 0) > 0 && <p className="mt-5 text-ink-2">{W.comeBackTo}: {s.come_back!.join(", ")}.</p>}
+          {s.still_to_decide.length > 0 && (
+            <div className="mt-6">
+              <h2 className={EYEBROW}>{W.stillToDecide}</h2>
+              <div className="mt-2 grid gap-3">
+                {s.still_to_decide.map((g) => (
+                  <div key={g.group}>
+                    <p className="font-semibold">{g.group}</p>
+                    <ul className="list-disc pl-6">
+                      {g.items.slice(0, STILL_TO_DECIDE_SHOWN).map((x, i) => <li key={i}>{x}</li>)}
+                      {g.items.length > STILL_TO_DECIDE_SHOWN && <li className="list-none text-ink-2">{fill(W.moreForEstimate, { n: g.items.length - STILL_TO_DECIDE_SHOWN })}</li>}
+                    </ul>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {s.open_questions.length > 0 && <div className="mt-5"><p className={EYEBROW}>{W.openQuestions}</p><ul className="list-disc pl-6">{s.open_questions.map((q, i) => <li key={i}>{q}</li>)}</ul></div>}
+          <div className="mt-5"><p className={EYEBROW}>{W.nextStep}</p><p>{s.formal_estimate_date ? fill(W.nextFormal, { date: s.formal_estimate_date }) : "formal estimate"}</p></div>
           <p className="mt-5 text-[0.85em] text-ink-2">This is what we talked about today. It is not a contract or a price.</p></>}
         </section>
         <section className="grid content-start gap-4">
@@ -96,10 +113,10 @@ export function ClientView({ summary, pamphlet = false, hasInitials, onInitials,
             <span id="hold-help" className="sr-only">Press and hold for two seconds. Letting go cancels.</span>
             <div role="progressbar" aria-label="Hand back hold" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} className="sr-only" />
             {!pinMode ? <Btn wide onClick={() => setPinMode(true)}>{W.usePin}</Btn> : (
-              <form className="grid gap-3" onSubmit={async (e) => { e.preventDefault(); const ok = await verifyPin(pin); setPinErr(!ok); if (ok && handBackAllowed(0, true)) onHandBack(); }}>
-                <TextInput label={W.handBackPin} value={pin} onChange={(v) => setPin(v.replace(/\D/g, "").slice(0, 8))} type="password" inputMode="numeric" autoFocus />
-                {pinErr && <p role="alert" className="font-semibold text-flag">! That PIN doesn&apos;t match.</p>}
-                <Btn tone="accent" wide type="submit" disabled={!/^\d{4,8}$/.test(pin)}>{W.handBackHold.split(" — ")[0]}</Btn>
+              <form className="grid gap-3" onSubmit={async (e) => { e.preventDefault(); setChecking(true); let ok = false; try { ok = await verifyPin(pin); } finally { setChecking(false); } setPinErr(!ok); if (!ok) setPin(""); if (ok && handBackAllowed(0, true)) onHandBack(); }}>
+                <TextInput label={W.handBackPin} value={pin} onChange={(v) => { setPin(v.replace(/\D/g, "").slice(0, 12)); if (pinErr) setPinErr(false); }} type="password" inputMode="numeric" autoFocus />
+                {pinErr && <p role="alert" className="font-semibold text-flag">! That PIN doesn&apos;t match. Try again, or hold Hand back.</p>}
+                <Btn tone="accent" wide type="submit" disabled={!/^\d{6,12}$/.test(pin) || checking}>{W.handBackHold.split(" — ")[0]}</Btn>
               </form>
             )}
           </div>

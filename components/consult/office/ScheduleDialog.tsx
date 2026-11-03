@@ -28,7 +28,7 @@ function centralOffset(date: string): string {
 
 const box = "min-h-12 rounded-md border-2 px-3 text-left font-semibold";
 function Tick({ on, label, onClick }: { on: boolean; label: string; onClick: () => void }) {
-  return <button type="button" role="checkbox" aria-checked={on} onClick={onClick} className={`${box} ${on ? "border-accent bg-accent-soft text-ink" : "border-rule bg-card text-ink-2 hover:bg-paper-2"}`}><span aria-hidden className="mr-1.5 font-mono">{on ? "☑" : "☐"}</span>{label}</button>;
+  return <button type="button" role="checkbox" aria-checked={on} onClick={onClick} className={`${box} ${on ? "border-accent bg-accent-soft text-ink" : "border-rule bg-card text-ink-2 hover:border-ink-3 hover:text-ink"}`}><span aria-hidden className="mr-1.5 font-mono">{on ? "☑" : "☐"}</span>{label}</button>;
 }
 
 export function ScheduleDialog({ projectId, client, options, ownerId }: { projectId: string; client: string; options: ScheduleOptions; ownerId: string }) {
@@ -120,7 +120,8 @@ export function AssignControl({ consultId, revision, visitors, current }: { cons
       <p id={`move-h-${consultId}`} className="text-body font-semibold text-ink">{W.moveTitle}</p>
       <p className="text-meta text-ink-3">{W.moveLead}</p>
       <label className="block text-body"><span className="font-semibold text-ink">{W.whoGoes}</span>
-        <select value={who} onChange={(e) => setWho(e.target.value)} className={field}>{visitors.map((v) => <option key={v.id} value={v.id}>{v.name}{v.id === current ? " — goes now" : ""}</option>)}</select></label>
+        <select value={who} onChange={(e) => setWho(e.target.value)} className={field} aria-describedby={`move-now-${consultId}`}>{visitors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}</select>
+        <span id={`move-now-${consultId}`} className="mt-1 block text-meta text-ink-3">{visitors.find((v) => v.id === current)?.name ?? "No one"} (goes now)</span></label>
       <label className="block text-body"><span className="font-semibold text-ink">{W.moveReason}{reasonRequired && <span className="text-flag" aria-label={W.required}> *</span>}</span>
         <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} className={`${field} py-2 ${needReason && !reason.trim() ? "border-flag" : ""}`} aria-invalid={needReason && !reason.trim() ? true : undefined} /></label>
       {err && <p role="alert" className="text-body font-semibold text-flag">! {err}</p>}

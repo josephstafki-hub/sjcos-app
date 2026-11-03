@@ -6,7 +6,7 @@
  * Hardware keyboard: digits . ' " x space, Backspace, Enter = Save, Escape = Close.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { formatLength, parseLength, parseLengthPair } from "@/lib/consult/length";
+import { formatLength, parseLength, parseLengthPair, prettyLength } from "@/lib/consult/length";
 import type { FieldDef } from "@/lib/consult/form-types";
 import { W, fill } from "@/lib/consult/ui/words";
 import { Btn, Sheet } from "./primitives";
@@ -101,22 +101,22 @@ export function Keypad({ open, def, label, initial, last, onSave, onClose }: { o
 
   const key = (k: string, text = k, aria?: string) => (
     <button key={k} type="button" onClick={() => press(k)} aria-label={aria ?? text}
-      className="min-h-16 rounded-md border-2 border-rule bg-card font-mono text-[1.35em] font-semibold text-ink hover:bg-paper-2 focus-visible:outline-3 focus-visible:outline-focus active:bg-paper-3">{text}</button>
+      className="min-h-16 rounded-md border-2 border-rule bg-card font-mono [@media(max-height:700px)]:min-h-12 text-[1.35em] font-semibold text-ink hover:bg-paper-2 focus-visible:outline-3 focus-visible:outline-focus active:bg-paper-3">{text}</button>
   );
   const status = !text.trim() ? (initial !== undefined ? `Now ${showLength(initial, def)}` : "Type the measurement")
     : amb !== null && !unitPick ? W.unitAmbiguous
-    : reading?.ok ? fill(W.readsAs, { value: reading.display })
+    : reading?.ok ? fill(W.readsAs, { value: prettyLength(reading.display) })
     : reading?.error === "need_second" ? "Add the height after ×"
     : reading?.error === "out_of_range" ? W.outOfRange : W.invalidLength;
 
   return (
-    <Sheet open={open} onClose={onClose} title={label}
+    <Sheet open={open} onClose={onClose} title={label} dock
       footer={<>
         {last !== undefined && <Btn onClick={() => { void (async () => { setSaving(true); try { await onSave(last); } finally { setSaving(false); } })(); }}>{W.sameAsLast} · {showLength(last, def)}</Btn>}
         <Btn tone="primary" onClick={() => void save()} disabled={!canSave} className="min-w-[8em]">{W.save}</Btn>
       </>}>
       <div aria-live="polite" className="mb-3 rounded-md border-2 border-rule bg-paper px-3 py-2">
-        <p className="min-h-[1.4em] break-words font-mono text-[1.6em] font-semibold text-ink">{text || " "}</p>
+        <p className="min-h-[1.4em] break-words font-mono text-[1.6em] font-semibold text-ink">{prettyLength(text) || " "}</p>
         <p className={`text-[0.95em] ${reading && !reading.ok && text.trim() && amb === null ? "font-semibold text-flag" : "text-ink-2"}`}>{reading && !reading.ok && text.trim() && amb === null ? "! " : ""}{status}</p>
         {warn && <p className="mt-1 text-[0.95em] font-semibold text-flag">! {warn}</p>}
       </div>
@@ -139,7 +139,7 @@ export function Keypad({ open, def, label, initial, last, onSave, onClose }: { o
         {key(".")}{key("0")}{pair ? key("x", "×", "times — next value") : <span />}{key("space", "␣", "Space")}
       </div>
       {mode === "ftin" && (
-        <div className="mt-2 grid grid-cols-4 gap-2 sm:grid-cols-7">
+        <div className="mt-2 grid grid-cols-7 gap-1.5 sm:gap-2">
           {FRACTIONS.map((f) => key(f, f, `${f} inch`))}
         </div>
       )}

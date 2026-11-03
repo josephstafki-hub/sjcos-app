@@ -68,8 +68,8 @@ export function VisitList({ visits, owner }: { visits: ListVisit[] | null; owner
       {upcoming.length > 0 && <section className="mt-6"><Eyebrow>{W.upcoming}</Eyebrow><ul>{upcoming.map((v) => <Row key={v.id} v={v} prepared={prepared(v.id)} now={now} />)}</ul></section>}
       {earlier.length > 0 && <section className="mt-6"><Eyebrow>{W.earlier}</Eyebrow><ul>{earlier.map((v) => <Row key={v.id} v={v} prepared={prepared(v.id)} now={now} />)}</ul></section>}
       {visits !== null && list.length === 0 && <p className="mt-2 text-ink-2">{W.noVisits}</p>}
-      {/* The way out sits under the list on one line, never squeezed beside the title. */}
-      <div className="mt-8 border-t-2 border-rule-soft pt-4"><LinkBtn wide tone="quiet" href={owner ? "/today" : "/"} className="whitespace-nowrap">‹ {W.back}</LinkBtn></div>
+      {/* The way out sits under the list on one line, never squeezed beside the title; the last row's rule is the only rule (no empty band). */}
+      <div className="mt-6"><LinkBtn wide tone="quiet" href={owner ? "/today" : "/"} className="whitespace-nowrap">‹ {W.back}</LinkBtn></div>
     </div>
   );
 }

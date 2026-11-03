@@ -189,6 +189,9 @@ export function instanceLabel(m: ModuleDef, inst: SnapInstance, ordinal: number,
     missing = true; return '';
   });
   if (missing) {
+    // A pattern without {n} ("Wall {letter}", "{decision}") would collapse to a bare word: use the
+    // created label or "<Title> <n>" ("Kitchen wall 2") instead, so repeat instances stay named.
+    if (!pattern.includes('{n}')) return inst.label || `${m.title} ${ordinal}`;
     const clean = text.replace(/\s+—\s*$/, '').trim();
     return clean || inst.label || `${m.title} ${ordinal}`;
   }
@@ -348,17 +351,43 @@ export function leaveList(model: VisitModel, sectionId: string): { open: string[
   return { open: items.filter((o) => !o.partly).map(name), partly: items.filter((o) => o.partly).map(name) };
 }
 
-/** Allowlisted client summary (§6.4): rooms + work words, still-to-decide, open questions, formal estimate date. */
+/** Rooms and areas the client sees on "What we went over" (kitchen walls are cabinet detail, not rooms). */
+const CLIENT_ROOMS = ['room', 'bath_scope', 'kitchen_scope', 'addition_scope', 'basement_scope', 'deck_scope', 'whole_scope', 'general_scope'];
+/** "Existing valve — Keep/Replace/Unknown" → "existing valve"; drops option lists and (asides). */
+const plainLabel = (label: string) => label.replace(/\s*\(.*?\)\s*/g, ' ').replace(/\s+—\s+[^—]*\/[^—]*$/, '').trim().toLowerCase();
+
+/** Allowlisted client summary (§6.4): only what was actually covered, rooms by their own names,
+ *  still-to-decide grouped by room, open questions, formal estimate date. Never a stock sentence. */
 export function summaryInput(model: VisitModel, display: Display | undefined, visitDate: string, formalDate: string) {
   const rooms: { name: string; work: string[] }[] = [];
+  const comeBack: string[] = [];
   for (const s of model.sections) {
-    if (!['room', 'bath_scope', 'kitchen_scope', 'kitchen_wall', 'addition_scope', 'basement_scope', 'deck_scope', 'whole_scope', 'general_scope'].includes(s.module.key)) continue;
-    const work = s.fields.filter((f) => f.answer?.status === 'answered' && f.def.type === 'choice' && f.def.maps_to && f.def.tier === 'price_critical').map((f) => `${f.def.label.toLowerCase()}: ${String(f.answer!.value).toLowerCase()}`).slice(0, 6);
-    rooms.push({ name: s.label, work });
+    if (!CLIENT_ROOMS.includes(s.module.key)) continue;
+    const answered = s.fields.filter((f) => f.answer?.status === 'answered' && f.mark !== 'open');
+    if (!answered.length) { if (s.mark !== 'not_applicable') comeBack.push(s.label); continue; }
+    const work: string[] = [];
+    if (answered.some((f) => f.def.type === 'length' || f.def.type === 'length_pair')) work.push('Measured');
+    for (const f of answered) {
+      if (f.def.type !== 'choice' || !f.def.maps_to || f.def.tier !== 'price_critical') continue;
+      work.push(`${plainLabel(f.def.label)}: ${String(f.answer!.value).toLowerCase()}`);
+    }
+    if (work.length === 0) work.push('Looked over');
+    rooms.push({ name: s.label, work: work.slice(0, 6) });
   }
-  const stillToDecide = model.sections.filter((s) => s.module.key === 'selections').filter((s) => { const st = s.fields.find((f) => f.key === 'status'); return !st?.answer || st.answer.value !== 'Exact product picked'; }).map((s) => s.label);
+  const single = model.templates.length === 1 ? (model.templates[0].title === 'Bathroom' ? 'Bath' : model.templates[0].title) : 'Other';
+  const groups = new Map<string, string[]>();
+  for (const s of model.sections) {
+    if (s.module.key !== 'selections') continue;
+    const st = s.fields.find((f) => f.key === 'status');
+    if (st?.answer?.value === 'Exact product picked') continue;
+    const at = s.label.indexOf(' — ');
+    const group = at > 0 ? s.label.slice(0, at) : single;
+    const item = at > 0 ? s.label.slice(at + 3) : s.label;
+    groups.set(group, [...(groups.get(group) ?? []), item]);
+  }
+  const stillToDecide = [...groups].map(([group, items]) => ({ group, items }));
   const questions = model.sections.filter((s) => s.module.key === 'closing').flatMap((s) => s.fields.filter((f) => f.key === 'client_questions' && f.answer?.status === 'answered').map((f) => String(f.answer!.value)));
-  return { client_name: display?.client ?? '', visit_date: visitDate, rooms, still_to_decide: stillToDecide, open_questions: questions, formal_estimate_date: formalDate };
+  return { client_name: display?.client ?? '', visit_date: visitDate, rooms, come_back: comeBack, still_to_decide: stillToDecide, open_questions: questions, formal_estimate_date: formalDate };
 }
 
 /** Required blob hashes for the exact close manifest: every photo this device holds for live instances. */

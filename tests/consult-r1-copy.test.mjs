@@ -23,8 +23,8 @@ test('office duration sums in hours with a correct unit', () => {
 });
 
 test('Get ready reasons: other device has its own words; only sign-in codes say sign in', () => {
-  assert.equal(readyReason('offline_lease', 'device_access_denied'), 'this visit is set up on another device — use that one, or ask Joe to move it here');
-  assert.equal(readyReason('saving_on_device', 'device_access_denied'), 'this visit is set up on another device — use that one, or ask Joe to move it here');
+  assert.equal(readyReason('offline_lease', 'device_access_denied'), 'This visit is set up on another device. Use that one, or ask Joe to move it here.');
+  assert.equal(readyReason('saving_on_device', 'device_access_denied'), 'This visit is set up on another device. Use that one, or ask Joe to move it here.');
   assert.equal(readyReason('offline_lease', 'pin_invalid'), W.pinShort);
   assert.equal(W.pinShort, 'Use 6 to 12 digits.');
   assert.match(W.pinChooseHelp, /6 to 12 digits/);

@@ -113,6 +113,7 @@ export default async function ConsultLookOver({ params, searchParams }: { params
         <div className="grid gap-6 @[600px]/page:grid-cols-[220px_minmax(0,1fr)] @[1040px]/page:grid-cols-[240px_minmax(0,1fr)_320px]">
           <nav aria-label={W.sections} className="min-w-0 @[600px]/page:row-span-2 @[1040px]/page:row-span-1">
             <p className="eyebrow mb-2">{W.sections}</p>
+            {model.sections.length === 0 && <p className="text-body text-ink-3">No sections yet — the visit hasn’t started.</p>}
             <ul className="grid gap-1">
               {model.sections.map((x) => (
                 <li key={x.instance.id}>
@@ -124,7 +125,8 @@ export default async function ConsultLookOver({ params, searchParams }: { params
                 </li>
               ))}
             </ul>
-            <dl className="mt-4 grid gap-1 text-body text-ink-2">
+            <p className="eyebrow mb-2 mt-6">Status</p>
+            <dl className="grid gap-1 text-body text-ink-2">
               <div>Client ack {initials ? "✓ initials" : ev?.ack_reason ? `· ${ev.ack_reason}` : "· not yet"}</div>
               <div>Sent from device {extra.closedAt ? "✓" : "· not yet"}</div>
               <div>Notes · off (manual visit)</div>
@@ -147,7 +149,7 @@ export default async function ConsultLookOver({ params, searchParams }: { params
               <ul className="divide-y divide-rule-soft">
                 {section.fields.map((f) => {
                   const p = extra.provenance[f.addr]; const c = extra.conflicts[f.addr];
-                  const v = f.answer?.status === "answered" ? show(f.answer.value, f.def) : f.answer?.status === "skipped" ? `— N/A · ${f.answer.skip_reason}${f.skipCounts && f.answer.skip_reason !== "Not on this job" ? " — assumption written" : ""}` : "";
+                  const v = f.answer?.status === "answered" ? show(f.answer.value, f.def) : f.answer?.status === "skipped" ? `${f.mark === "not_applicable" ? "N/A" : "Skipped"} · ${f.answer.skip_reason}${f.skipCounts && f.answer.skip_reason !== "Not on this job" ? " — assumption written" : ""}` : "";
                   return (
                     <li key={f.addr} id={`f-${f.addr}`} className="grid gap-1 py-2 @[520px]/sec:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] @[520px]/sec:items-baseline @[520px]/sec:gap-4">
                       <span className="text-body font-semibold text-ink">{f.def.label}{f.required && <span className="text-flag" aria-label={W.required}> *</span>}</span>
@@ -161,8 +163,8 @@ export default async function ConsultLookOver({ params, searchParams }: { params
                   );
                 })}
               </ul>
-              {section.hidden.length > 0 && <p className="mt-2 text-meta text-ink-3">— N/A · Not on this job: {section.hidden.map((f) => f.def.label).join(", ")}</p>}
-            </> : <p className="text-body text-ink-3">No sections yet — the visit hasn’t started.</p>}
+              {section.hidden.length > 0 && <p className="mt-2 text-meta text-ink-3">Not on this job: {section.hidden.map((f) => f.def.label).join(", ")}</p>}
+            </> : null}
 
             <div className="mt-6 rounded-lg border border-rule bg-card p-4">
               <p className="eyebrow">{W.feeds}</p>

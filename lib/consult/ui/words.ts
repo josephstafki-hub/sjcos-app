@@ -63,6 +63,13 @@ export const W = {
   notes: 'Notes',
   weakSignal: 'Sending answers and photos first.',
   notSentSince: 'Not sent since {time}.',
+  sendingWord: 'Sending',
+  notSent: 'Not sent',
+  backToVisits: '‹ Back to visits',
+  nothingWentOut: 'Nothing went out — your answers are safe on this device.',
+  nothingWaiting: 'Nothing waiting to send.',
+  stillWaiting: 'still waiting',
+  codeForJoe: 'For Joe:',
   // Opening / sections
   opening: 'Opening',
   openingLine: 'Today is the detailed visit · about {duration}',
@@ -133,6 +140,8 @@ export const W = {
   closeVisitNeeds: 'Close visit — needs finishing',
   allClear: 'All price-critical items checked.',
   goToField: 'Go to field',
+  goToSection: 'Go to section',
+  nOpenInSection: '{n} open',
   reviewFlags: 'Review flags',
   decide: 'Decide',
   flagsLine: 'Flags: {n} needs a decision',
@@ -186,6 +195,8 @@ export const W = {
   showToClient: 'Show to client',
   whatWeWentOver: 'What we went over today',
   stillToDecide: 'Still to decide',
+  comeBackTo: 'We\'ll come back to',
+  moreForEstimate: '+ {n} more for the estimate',
   openQuestions: 'Open questions',
   nextStep: 'Next',
   nextFormal: 'formal estimate {date}',
@@ -233,7 +244,7 @@ export const W = {
   moveLead: 'Pick who goes. To move it to another device, keep the same person and give the reason.',
   moveReason: 'Why move it (the old device may still hold unsent answers)',
   moveSave: 'Move visit',
-  recoverTitle: 'Recover answers from this device',
+  recoverTitle: 'Recover answers from a set-aside device',
   recoverLead: 'Use this on the original device. Type the visitor’s PIN; the answers go back in under their name for a person to accept.',
   recoverPin: 'Visitor’s PIN on this device',
   recoverReason: 'Why recover them',
@@ -278,7 +289,7 @@ export const READY_REASON = {
   forms: "couldn't download the forms",
   pages: "couldn't download the offline pages",
   signin: 'sign-in for offline use failed — sign in again',
-  otherDevice: 'this visit is set up on another device — use that one, or ask Joe to move it here',
+  otherDevice: 'This visit is set up on another device. Use that one, or ask Joe to move it here.',
 } as const;
 
 /** Which §5.7 reason a Get ready failure code gets, by the check it failed in. */
@@ -337,6 +348,7 @@ export const FLAG_CHOICES = [
 export function plainWords(code: string | undefined | null, ctx: { name?: string; field?: string } = {}): string {
   const c = code ?? '';
   switch (c) {
+    case 'send_stuck': return 'Nothing went out — your answers are safe on this device.';
     case 'send_in_progress': return 'A send is already running. Wait for it to finish.';
     case 'controller_disposed': return 'This visit was closed. Open it again to send.';
     case 'retry_wait': return 'Saved on this device. Waiting briefly before trying again.';

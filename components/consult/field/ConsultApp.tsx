@@ -35,30 +35,50 @@ function useAfter(at: number | null | undefined, ms: number): boolean {
   return due !== null && due <= 0;
 }
 
+/** Two minutes online with answers waiting and nothing sent is a failure in itself (r2 N6): the
+ *  screen must not depend on a send reporting an error. Returns when "stuck" began, or null. */
+const STUCK_MS = 120_000;
+function useStuckSince(online: boolean, unsent: number, lastSend: number | null): number | null {
+  const [waitingFrom, setWaitingFrom] = useState<number | null>(null);
+  const waiting = unsent > 0;
+  useEffect(() => { setWaitingFrom((w) => (waiting ? w ?? Date.now() : null)); }, [waiting]);
+  const since = waitingFrom === null ? null : Math.max(waitingFrom, lastSend ?? 0);
+  const due = useAfter(online && since !== null ? since : null, STUCK_MS);
+  return due && since !== null ? since + STUCK_MS : null;
+}
+
 /** §6.2 status bar: one 56 px row. Focus rings sit inside the row (offset −3 px) so none is clipped. */
 function StatusBar({ unsent, photos, answers, online, lastSend, failure, onSend, sending, onExit, wide }: { unsent: number; photos: number; answers: number; online: boolean; lastSend: number | null; failure: { code: string; at: number } | null; onSend: () => void; sending: boolean; onExit: () => void; wide?: boolean }) {
   const [sheet, setSheet] = useState(false);
+  // Send now always says what happened: "Sending…", then Last sent or "Nothing went out".
+  const [tried, setTried] = useState<{ at: number; lastSend: number | null } | null>(null);
   const failed = !!failure;
+  const stuck = failed && online && failure!.code !== "no_signal";
+  const outcome = !tried || sending ? null : (lastSend ?? 0) > (tried.lastSend ?? 0) ? "sent" : "not_sent";
+  const send = () => { setTried({ at: Date.now(), lastSend }); onSend(); };
   return (
     <header className="sticky top-0 z-40 border-b-2 border-rule bg-paper-2">
       <div className="flex min-h-14 items-center gap-2 pl-2 pr-1">
         <button type="button" onClick={() => setSheet(true)} aria-label={`${W.notesOff}. ${unsent} waiting to send. ${online ? W.online : W.offlineLine}.${failed ? ` ${W.lastTry}: ${plainWords(failure!.code)}` : ""} Open send details.`}
           className="flex min-h-14 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left font-semibold text-ink hover:bg-hover focus-visible:outline-3 focus-visible:outline-offset-[-3px] focus-visible:outline-focus">
           <span aria-hidden className="font-mono">○</span>
-          <span className="min-w-0 truncate">{W.notesOff} · <span className="font-mono">⇅ {unsent}</span><span className={wide ? "" : "max-md:hidden"}>{online ? ` · ${W.online}` : ""}</span>{sending ? <span className="text-ink-3"> · {W.sendingNow}</span> : null}</span>
+          <span className="min-w-0 truncate">{W.notesOff} · <span className="font-mono">⇅ {unsent}</span>{stuck ? <span className="text-flag"> · <span aria-hidden>⚠ </span>{W.notSent}</span> : <span className={wide ? "" : "max-md:hidden"}>{online ? ` · ${W.online}` : ""}</span>}{sending ? <span className="text-ink-3"> · {W.sendingNow}</span> : null}</span>
         </button>
         <MoreMenu onExit={onExit} />
       </div>
       {!online && <p role="status" className="border-t-2 border-info bg-info-soft px-4 py-1.5 text-[0.95em] font-semibold text-ink"><span aria-hidden>⇣ </span>{W.offlineLine}</p>}
-      <Sheet open={sheet} onClose={() => setSheet(false)} title={W.sending} footer={<Btn tone="primary" onClick={() => { onSend(); }} disabled={sending || unsent === 0}>{failed ? W.tryAgain : W.sendNow}</Btn>}>
+      <Sheet open={sheet} onClose={() => { setSheet(false); setTried(null); }} title={W.sending} footer={<Btn tone="primary" onClick={send} disabled={sending || unsent === 0}>{sending ? `${W.sendingWord}…` : failed ? W.tryAgain : W.sendNow}</Btn>}>
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-ink">
           <dt className="text-ink-2">{W.notes}</dt><dd>{W.notesOff}</dd>
           <dt className="text-ink-2">{W.answersWaiting}</dt><dd className="font-mono">{answers}</dd>
           <dt className="text-ink-2">{W.photosWaiting}</dt><dd className="font-mono">{photos}</dd>
           <dt className="text-ink-2">{W.lastSent}</dt><dd>{lastSend ? clock(lastSend) : W.notYet}</dd>
-          {failed && <><dt className="text-ink-2">{W.lastTry}</dt><dd className="text-ink"><span aria-hidden className="font-bold text-flag">⚠ </span>{clock(failure!.at)} — {plainWords(failure!.code)} <code>({failure!.code})</code></dd></>}
+          {failed && <><dt className="text-ink-2">{W.lastTry}</dt><dd className="text-ink"><span aria-hidden className="font-bold text-flag">⚠ </span>{clock(failure!.at)} · {plainWords(failure!.code)}{!/^(send_stuck|no_signal)$/.test(failure!.code) && <span className="block font-mono text-[0.8em] text-ink-3">{W.codeForJoe} {failure!.code}</span>}</dd></>}
           <dt className="text-ink-2">{W.signal}</dt><dd>{online ? W.online : W.noSignal}</dd>
         </dl>
+        <p role="status" aria-live="polite" className="mt-3 min-h-[1.5em] font-semibold text-ink">
+          {sending ? `${W.sendingWord}…` : outcome === "sent" ? `✓ ${W.lastSent} ${clock(lastSend!)}${unsent ? ` · ⇅ ${unsent} ${W.stillWaiting}` : ""}` : outcome === "not_sent" ? <><span aria-hidden className="text-flag">⚠ </span>{W.nothingWentOut}</> : unsent === 0 ? W.nothingWaiting : ""}
+        </p>
         {!online && <p className="mt-3 text-ink">{W.offlineStrip}</p>}
         {online && sending && unsent > 0 && weakLink() && <p className="mt-3 text-ink-2">{W.weakSignal}</p>}
       </Sheet>
@@ -77,7 +97,6 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
   useEffect(() => { void ctl.init(); return () => ctl.dispose(); }, [ctl]);
   useEffect(() => { const q = matchMedia("(min-width: 1024px)"); const f = () => setWide(q.matches); f(); q.addEventListener("change", f); return () => q.removeEventListener("change", f); }, []);
   useWakeLock(st.phase === "visit");
-  const failureDue = useAfter(sendFailed(st.lastSendFailure) ? st.lastSendFailure!.at : null, 60_000);
 
   const snap = st.local ? ctl.snapshot() : null;
   const display = snap?.display ?? boot?.display;
@@ -86,6 +105,10 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
   const unsentOps = unsentCount(entries);
   const unsentPhotos = st.local?.blobs.filter((b) => !b.receipt).length ?? 0;
   const unsent = unsentOps + unsentPhotos;
+  const stuckAt = useStuckSince(st.online && st.phase === "visit", unsent, st.local?.last_send ?? null);
+  // A reported failure wins; otherwise a silent stall online is shown as "Nothing went out".
+  const failure = sendFailed(st.lastSendFailure) ? st.lastSendFailure : stuckAt !== null && !st.sending ? { code: "send_stuck", at: stuckAt } : st.lastSendFailure;
+  const failureDue = useAfter(sendFailed(failure) ? failure!.at : null, 60_000);
   const userName = boot?.user.name ?? display?.visitor_name ?? "yourself";
   const home = boot?.home ?? (display?.slug ? `/projects/${display.slug}` : "/");
   // One time format everywhere: the label is always made by centralTime from the stored visit time.
@@ -132,7 +155,7 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
         {st.code === "signed_out" && <Banner kind="action" actions={<LinkBtn href={`/login?next=${encodeURIComponent(`/consult/${consultId}`)}`}>{W.signIn}</LinkBtn>}>{plainWords("signed_out", { name: userName })}</Banner>}
         {/* A close made without signal is kept (close_intent) and resumes by itself; keep working never cancels it. */}
         {!st.closing && st.local.close_intent && <Banner kind="status" actions={st.online ? <Btn onClick={() => void ctl.drain(true)}>{W.sendNow}</Btn> : undefined}>{W.closeWaiting}</Banner>}
-        {failureDue && st.code !== "signed_out" && st.online && !st.sending && st.lastSendFailure && <Banner kind="action" actions={<Btn tone="primary" onClick={() => void ctl.drain(true)}>{W.tryAgain}</Btn>}>{fill(W.notSentSince, { time: clock(st.lastSendFailure.at) })} {plainWords(st.lastSendFailure.code, { name: userName })}</Banner>}
+        {failureDue && st.code !== "signed_out" && st.online && !st.sending && failure && unsent > 0 && <Banner kind="action" actions={<Btn tone="primary" onClick={() => void ctl.drain(true)}>{W.tryAgain}</Btn>}>{fill(W.notSentSince, { time: clock(st.local.last_send ?? failure.at) })} {plainWords(failure.code, { name: userName })}</Banner>}
       </div>
     );
     if (!model.started) {
@@ -161,9 +184,11 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
   } else body = <div className="mx-auto max-w-[560px]"><ScreenHead title={title} right={more} /><p className="px-4 py-6 text-ink-2" role="status">Opening…</p></div>;
 
   return (
-    <div className="consult-root flex min-h-dvh flex-col bg-paper text-ink" data-sun={sun ? "1" : undefined}>
-      {st.phase === "visit" && st.local && model?.started && <StatusBar unsent={unsent} photos={unsentPhotos} answers={unsentOps} online={st.online} lastSend={st.local.last_send} failure={st.lastSendFailure} onSend={() => void ctl.drain(true)} sending={st.sending} onExit={leave} wide={wide} />}
-      <main className="flex min-h-0 flex-1 flex-col">{body}</main>
+    // From 1024 px the app is exactly one screen tall so the right pane scrolls by itself and its
+    // bottom bar (Next ›) stays pinned in the thumb zone (§6.1, r2 N4); other screens scroll in <main>.
+    <div className="consult-root flex min-h-dvh flex-col bg-paper text-ink lg:h-dvh" data-sun={sun ? "1" : undefined}>
+      {st.phase === "visit" && st.local && model?.started && <StatusBar unsent={unsent} photos={unsentPhotos} answers={unsentOps} online={st.online} lastSend={st.local.last_send} failure={failure} onSend={() => void ctl.drain(true)} sending={st.sending} onExit={leave} wide={wide} />}
+      <main className="flex min-h-0 flex-1 flex-col lg:overflow-y-auto">{body}</main>
       <Sheet open={exit} onClose={() => setExit(false)} title={W.back}
         footer={<><Btn onClick={() => setExit(false)}>{W.keepWorking}</Btn><Btn onClick={() => { ctl.lock(); location.href = home; }}>Lock notes on this device</Btn><Btn tone="primary" disabled={!st.online} onClick={() => void ctl.drain(true)}>{W.sendNow}</Btn></>}>
         <p className="text-ink">{fill(W.itemsWaiting, { n: unsent })} — they stay on this device until they are sent.</p>

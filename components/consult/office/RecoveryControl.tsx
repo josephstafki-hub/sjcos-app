@@ -52,8 +52,8 @@ export function RecoveryControl({ consultId, devices }: { consultId: string; dev
   if (!open_.length) return null;
   return (
     <div className="rounded-md border border-rule bg-card p-3">
-      <p className="text-body font-semibold text-ink">{W.recoverTitle}</p>
-      <p className="mt-1 text-meta text-ink-3">{open_.map((d) => d.user_name).filter((n, i, a) => a.indexOf(n) === i).join(", ")} · {open_.length === 1 ? "1 set-aside device may still hold unsent answers" : `${open_.length} set-aside devices may still hold unsent answers`}</p>
+      <p className="text-body font-semibold text-ink">{W.recoverTitle} · {open_.length} waiting</p>
+      <p className="mt-1 text-meta text-ink-3">{open_.map((d) => d.user_name).filter((n, i, a) => a.indexOf(n) === i).join(", ")} · {open_.length === 1 ? "unsent answers may still be on that device" : "unsent answers may still be on those devices"}</p>
       {!open ? <div className="mt-2"><Button variant="secondary" size="lg" onClick={() => setOpen(true)}>{W.recoverGo}…</Button></div> : (
         <form className="mt-2 grid gap-3" onSubmit={(e) => { e.preventDefault(); void recover(); }}>
           <p className="text-meta text-ink-3">{W.recoverLead}</p>

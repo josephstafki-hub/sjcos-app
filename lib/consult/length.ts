@@ -61,3 +61,9 @@ export function parseLengthPair(input: string, options: readonly [LengthOptions,
   const width = parseLength(parts[0], options[0]), height = parseLength(parts[1], options[1]);
   return width.ok && height.ok ? { ok: true as const, inches: [width.inches, height.inches] as [number, number], display: `${width.display} × ${height.display}` } : { ok: false as const, error: 'invalid_length_pair' as const, width, height };
 }
+
+const VULGAR: Record<string, string> = { "1/8": "⅛", "1/4": "¼", "3/8": "⅜", "1/2": "½", "5/8": "⅝", "3/4": "¾", "7/8": "⅞" };
+/** §6.6 typography: 8′ 1¼″ — primes, never straight quotes; common fractions as one glyph. */
+export function prettyLength(t: string): string {
+  return t.replace(/'/g, "′").replace(/"/g, "″").replace(/(\d) (\d\/\d)(?=″|$|\s|×)/g, (m, d: string, f: string) => (VULGAR[f] ? `${d}${VULGAR[f]}` : m));
+}

@@ -14,6 +14,13 @@ import { Banner, Btn, Choice, Sheet, TextInput } from "./primitives";
 
 const itemLabel = (o: VisitModel["open"][number]) => (o.kind === "field" ? (o.item as FieldView).def.label : `Photo · ${(o.item as ShotView).def.label}`);
 const itemAddr = (o: VisitModel["open"][number]) => (o.kind === "field" ? (o.item as FieldView).addr : (o.item as ShotView).addr);
+const WRAP_GROUP_MAX = 5;
+/** Open items grouped by section, in visit order (first appearance). */
+function groupBySection(list: VisitModel["open"]) {
+  const out: { section: VisitModel["open"][number]["section"]; items: VisitModel["open"] }[] = [];
+  for (const o of list) { const g = out.find((x) => x.section.instance.id === o.section.instance.id); if (g) g.items.push(o); else out.push({ section: o.section, items: [o] }); }
+  return out;
+}
 
 export function WrapSheet({ open, onClose, model, draft, hasInitials, refused, onGo, onFlags, onTrades, onRrp, onClient, onAck, onCloseVisit }: {
   open: boolean; onClose: () => void; model: VisitModel; draft: EvidenceDraft; hasInitials: boolean; refused: number;
@@ -33,20 +40,35 @@ export function WrapSheet({ open, onClose, model, draft, hasInitials, refused, o
     <Sheet open={open} onClose={onClose} side title={title}
       footer={<><Btn onClick={onClose}>{W.keepWorking}</Btn><Btn tone="primary" onClick={onCloseVisit} disabled={model.conflicts.length > 0 || refused > 0}>{blocking ? W.closeVisitNeeds : W.closeVisit}</Btn></>}>
       {required.length === 0 && partly.length === 0 && <p className="mb-3 font-semibold text-accent-2">✓ {W.allClear}</p>}
-      <ul className="grid gap-2">
-        {[...required, ...partly].map((o) => {
-          const f = o.kind === "field" ? (o.item as FieldView) : null;
+      {/* §5.5 / §6.9: grouped by section. A section with more than 5 open collapses to one row. */}
+      <div className="grid gap-4">
+        {groupBySection([...required, ...partly]).sort((a, b) => model.sections.indexOf(a.section) - model.sections.indexOf(b.section)).map(({ section, items }) => {
+          const sid = section.instance.id;
+          const big = items.length > WRAP_GROUP_MAX;
           return (
-            <li key={`${o.section.instance.id}:${itemAddr(o)}`} className="grid gap-2 border-b-2 border-rule-soft py-2 sm:grid-cols-[1fr_auto] sm:items-center">
-              <div className="min-w-0">
-                <p className="text-ink"><span className="text-ink-2">{o.section.label} · </span>{itemLabel(o)}<span aria-label={W.required} className="text-flag"> *</span></p>
-                <span className="flex flex-wrap gap-2"><CoverageMark variant="coverage" state={o.partly ? "partial" : "open"} />{f?.returnVisit && <CoverageMark variant="coverage" state="return_visit" />}</span>
+            <section key={sid} aria-label={section.label} className="border-b-2 border-rule-soft pb-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="min-w-0 font-semibold text-ink">{section.label} <span className="font-mono text-[0.9em] font-normal text-ink-2">· {fill(W.nOpenInSection, { n: items.length })}</span></h3>
+                {big && <Btn onClick={() => onGo(sid, itemAddr(items[0]))}>{W.goToSection}</Btn>}
               </div>
-              {!f?.returnVisit && <Btn onClick={() => onGo(o.section.instance.id, itemAddr(o))}>{W.goToField}</Btn>}
-            </li>
+              {!big && <ul className="mt-1 grid gap-1">
+                {items.map((o) => {
+                  const f = o.kind === "field" ? (o.item as FieldView) : null;
+                  return (
+                    <li key={`${sid}:${itemAddr(o)}`} className="grid gap-2 py-1 sm:grid-cols-[1fr_auto] sm:items-center">
+                      <div className="min-w-0">
+                        <p className="text-ink">{itemLabel(o)}<span aria-label={W.required} className="text-flag"> *</span></p>
+                        <span className="flex flex-wrap gap-2"><CoverageMark variant="coverage" state={o.partly ? "partial" : "open"} />{f?.returnVisit && <CoverageMark variant="coverage" state="return_visit" />}</span>
+                      </div>
+                      {!f?.returnVisit && <Btn onClick={() => onGo(sid, itemAddr(o))}>{W.goToField}</Btn>}
+                    </li>
+                  );
+                })}
+              </ul>}
+            </section>
           );
         })}
-      </ul>
+      </div>
       <div className="mt-4 grid gap-3">
         {model.flags.length > 0 && <Line text={undecidedFlags.length ? fill(undecidedFlags.length === 1 ? W.flagsLine : W.flagsLinePlural, { n: undecidedFlags.length }) : `Flags: all ${model.flags.length} decided ✓`} action={<Btn onClick={onFlags}>{W.reviewFlags}</Btn>} warn={undecidedFlags.length > 0} />}
         <Line text={trades.length ? (undecidedTrades.length ? fill(W.tradeWalksLine, { trade: undecidedTrades.join(", ") }) : "Trade walks: all decided ✓") : draft.no_trades_confirmed ? "Trade walks: none — no trade is touched ✓" : "Trade walks: confirm none is needed"} action={<Btn onClick={onTrades}>{W.decide}</Btn>} warn={tradesOpen} />

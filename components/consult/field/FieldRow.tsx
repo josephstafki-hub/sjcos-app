@@ -9,10 +9,11 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { CoverageMark } from "@/components/ui/CoverageMark";
 import type { FieldView, ShotView } from "@/lib/consult/ui/model";
 import type { AnswerPayload } from "@/lib/consult/ui/ops";
-import { W, conflictSideLabel, fill, plainWords, skipLine, skippedNotNA } from "@/lib/consult/ui/words";
+import { W, conflictSideLabel, plainWords, skipLine, skippedNotNA } from "@/lib/consult/ui/words";
 import { Box, Btn, Choice, scrollInPane } from "./primitives";
 import { showLength } from "./Keypad";
 import { curly } from "@/lib/consult/typography";
+import { MeasureText } from "../MeasureText";
 
 export interface FieldActions {
   answer: (f: FieldView, p: AnswerPayload) => Promise<void>;
@@ -146,8 +147,15 @@ export function PhotoRow({ shot, actions, fieldKey, sectionId }: { shot: ShotVie
   );
 }
 
+/** r9 R9-1: "Pick 18″ · …" — a measured value in the field's own face (mono), so the button reads as the field does. */
+function PickText({ value, mono }: { value: string; mono?: boolean }) {
+  const [before, after = ""] = W.pick.split("{value}");
+  return <>{before}{mono ? <span className="font-mono">{value}</span> : value}{after}</>;
+}
+
 function ConflictPicker({ f, actions }: { f: FieldView; actions: FieldActions }) {
   const c = f.conflict!;
+  const mono = (status?: string) => f.def.type.startsWith("length") && (!status || status === "answered");
   const show = (v: unknown, status?: string) => (status && status !== "answered" ? (status === "skipped" ? "skipped" : "cleared") : f.def.type.startsWith("length") ? showLength(v, f.def) : v === true ? W.yes : v === false ? W.no : String(v ?? "—"));
   // r8 R8-2: each side is named by who typed it and when (conflictSideLabel — the same words as the
   // office): "this device · 3:58 pm", "Abigail", "Abigail · 3:52 pm", "office · Joe". Never a device code.
@@ -162,8 +170,8 @@ function ConflictPicker({ f, actions }: { f: FieldView; actions: FieldActions })
       <p className="text-[0.95em] text-ink">{c.rebase ? plainWords("rebase_required") : W.conflictBody}</p>
       {/* r8 R8-1: one column, labels wrap inside their buttons at any width. */}
       <div className="mt-2 grid gap-3">
-        {offer(c.current) && <Btn className="h-auto w-full min-w-0 justify-start! py-3 text-left whitespace-normal" onClick={() => actions.resolve(f, "current")}>{fill(W.pick, { value: show(c.current!.value, c.current!.status) })} · {from(c.current!, c.proposed, false)}</Btn>}
-        {!c.rebase && offer(c.proposed) && <Btn className="h-auto w-full min-w-0 justify-start! py-3 text-left whitespace-normal" onClick={() => actions.resolve(f, "proposed")}>{fill(W.pick, { value: show(c.proposed!.value, c.proposed!.status) })} · {from(c.proposed!, c.current, !c.proposed!.device)}</Btn>}
+        {offer(c.current) && <Btn className="h-auto w-full min-w-0 justify-start! py-3 text-left whitespace-normal" onClick={() => actions.resolve(f, "current")}><span><PickText value={show(c.current!.value, c.current!.status)} mono={mono(c.current!.status)} /> · {from(c.current!, c.proposed, false)}</span></Btn>}
+        {!c.rebase && offer(c.proposed) && <Btn className="h-auto w-full min-w-0 justify-start! py-3 text-left whitespace-normal" onClick={() => actions.resolve(f, "proposed")}><span><PickText value={show(c.proposed!.value, c.proposed!.status)} mono={mono(c.proposed!.status)} /> · {from(c.proposed!, c.current, !c.proposed!.device)}</span></Btn>}
         <Btn className="h-auto w-full min-w-0 justify-start! py-3 text-left whitespace-normal" onClick={() => actions.resolve(f, "other")}>{W.enterAnother}</Btn>
       </div>
     </div>
@@ -296,8 +304,8 @@ export function FieldRow({ f, actions, sectionId, last }: { f: FieldView; action
       )}
       {f.conflict && <ConflictPicker f={f} actions={actions} />}
       {f.flags.map((fl) => fl.kind === "advisory"
-        ? <p key={fl.key} className="mt-2 text-[0.95em] font-semibold text-ink-2"><span aria-hidden>⚐ </span>Flag · {fl.hint} {W.advisoryTail}</p>
-        : <p key={fl.key} className="mt-2 text-[0.95em] font-semibold text-flag">⚑ Flag · {fl.hint} Decide in {W.beforeYouWrap}.</p>)}
+        ? <p key={fl.key} className="mt-2 text-[0.95em] font-semibold text-ink-2"><span aria-hidden>⚐ </span>Flag · <MeasureText text={fl.hint} /> {W.advisoryTail}</p>
+        : <p key={fl.key} className="mt-2 text-[0.95em] font-semibold text-flag">⚑ Flag · <MeasureText text={fl.hint} /> Decide in {W.beforeYouWrap}.</p>)}
       {f.shots.map((s) => <PhotoRow key={s.key} shot={s} actions={actions} fieldKey={f.key} sectionId={sectionId} />)}
       <div className="mt-2 flex flex-wrap gap-3">
         {last !== undefined && !answered && (d.type === "length" || d.type === "length_pair") && <Btn onClick={() => void actions.answer(f, { status: "answered", value: last, unit: d.unit })}>{W.sameAsLast} · {showLength(last, d)}</Btn>}

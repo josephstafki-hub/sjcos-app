@@ -18,6 +18,10 @@ export function clientSummary(input:ClientSummary):ClientSummary {
     still_to_decide:(input.still_to_decide??[]).map(g=>({group:String(g.group),items:[...g.items].map(String)})),
     open_questions:[...input.open_questions],formal_estimate_date:input.formal_estimate_date};
 }
+/** r9 extra: "the bathroom, the kitchen and one more room" — the screen and the recap say it the same way. */
+export function sayList(xs:string[]):string {
+ return xs.length<2?xs.join(''):`${xs.slice(0,-1).join(', ')} and ${xs[xs.length-1]}`;
+}
 export function handBackAllowed(held_ms:number,pin_verified:boolean):boolean {
   return pin_verified || (Number.isFinite(held_ms) && held_ms>=2000);
 }
@@ -28,7 +32,7 @@ export function clientRecapText(input:ClientSummary):string {
  return ["What we went over",s.client_name,s.visit_date,
  ...s.rooms.flatMap(r=>[r.name,r.work.join(' · ')]),
  ...s.still_to_decide.flatMap(g=>['Still to decide',g.group,...g.items.slice(0,STILL_TO_DECIDE_SHOWN),...(g.items.length>STILL_TO_DECIDE_SHOWN?['More choices in the estimate']:[])]),
- ...(s.come_back?.length?['Not measured today: '+s.come_back.join(', ')]:[]),
+ ...(s.come_back?.length?['Not measured today: '+sayList(s.come_back)]:[]),
  ...s.open_questions,'Next',s.formal_estimate_date?'Joe sends your formal estimate by '+s.formal_estimate_date+'.':'Joe will confirm the estimate date.',
  'This is what we talked about today. It is not a contract or a price.'].filter(Boolean).join('\n');
 }

@@ -41,7 +41,7 @@ test('R7-3: conflict sides say where they came from and a blank side is not offe
   assert.match(row, /side\.available !== false && !\(side\.status === "answered" && side\.value === undefined\)/);
   const office = src('components/consult/office/LookOverActions.tsx');
   assert.match(office, /\{current\.available && <Button/);
-  assert.match(office, /fill\(W\.pick, \{ value: current\.text \}\)\} · \{current\.from\}/);
+  assert.match(office, /<PickText value=\{current\.text\} [^/]*\/> · \{current\.from\}/); // r9: value in mono, same words
 });
 
 test('R7-4: the inches-or-feet question takes the laser-mode row’s place', () => {

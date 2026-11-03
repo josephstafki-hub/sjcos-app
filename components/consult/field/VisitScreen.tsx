@@ -17,7 +17,7 @@ import { Banner, Btn, Eyebrow, Sheet, scrollInPane } from "./primitives";
 import { FieldRow, MarkCell, PhotoRow, type FieldActions } from "./FieldRow";
 import { Keypad } from "./Keypad";
 import { SkipSheet, type SkipValue } from "./SkipSheet";
-import { AckSheet, FlagSheet, RrpSheet, TradeSheet, WrapSheet } from "./WrapClose";
+import { AckSheet, FlagSheet, ReopenedNote, RrpSheet, TradeSheet, WrapSheet } from "./WrapClose";
 import { centralTime } from "./GetReady";
 
 export interface VisitApi {
@@ -98,7 +98,9 @@ function SectionRows({ model, active, onOpen, onAdd, compact }: { model: VisitMo
   );
 }
 
-export function VisitScreen({ device, model, display, api, thumbs, online, draft, refused, hasInitials, userName, staff, lastSaved, forgotClose, startAt, prefill, visitorNotes, saveError, startAction, onStartAction }: {
+export function VisitScreen({ device, model, display, api, thumbs, online, draft, refused, hasInitials, userName, staff, lastSaved, forgotClose, startAt, prefill, visitorNotes, saveError, startAction, onStartAction, reopened: reopenedSnap }: {
+  /** r9 R9-3: who reopened this visit, when and why — until it is closed again. */
+  reopened?: import("@/lib/consult/ui/model").Snapshot["reopened"];
   startAction?: string | null; onStartAction?: () => void;
   /** This device's id, so a conflict side typed here says "this device" (r7 R7-3). */
   device?: string;
@@ -127,6 +129,7 @@ export function VisitScreen({ device, model, display, api, thumbs, online, draft
   // skipped with a reason — a staff visitor may not know Joe's date) Show to client waits for it.
   const dateField = model.sections.find((s) => s.module.key === "closing")?.fields.find((f) => f.key === "estimate_promised");
   const needDate = !model.promised && dateField?.answer?.status !== "skipped";
+  const reopened = model.status === "complete" || model.status === "incomplete" ? null : reopenedSnap ?? null;
 
   // In-tool Back returns to the section list; from the list it stays in the tool.
   const viewRef = useRef(view);
@@ -231,7 +234,8 @@ export function VisitScreen({ device, model, display, api, thumbs, online, draft
       <div className="flex items-center justify-between gap-3">
         <Eyebrow>{W.opening} · {openingStep + 1} of {opening.length || 1}</Eyebrow>
         {/* Narrow phones (<420 px): the bar holds only ‹ Sections and Next ›, so Back sits up here. */}
-        {openingStep > 0 && <Btn tone="quiet" className="hidden max-[420px]:inline-flex" onClick={() => setOpeningStep(openingStep - 1)}>{W.previous}</Btn>}
+        {/* r9 extra: card 1 keeps the row's height (an invisible Back), so the heading doesn't move on Next. */}
+        <Btn tone="quiet" className={`hidden max-[420px]:inline-flex ${openingStep > 0 ? "" : "invisible"}`} aria-hidden={openingStep > 0 ? undefined : true} tabIndex={openingStep > 0 ? undefined : -1} disabled={openingStep === 0} onClick={() => setOpeningStep(openingStep - 1)}>{W.previous}</Btn>
       </div>
       <h1 id="opening-h" className="mt-1 font-serif text-[1.15em] font-semibold text-ink">{openingLine}</h1>
       <div className="mt-3 rounded-lg border-2 border-rule bg-card p-5 shadow-card">
@@ -254,6 +258,7 @@ export function VisitScreen({ device, model, display, api, thumbs, online, draft
     <section className="px-4 py-4" aria-labelledby="list-h">
       <h1 id="list-h" className="font-serif text-[1.3em] font-semibold text-ink">{head}</h1>
       <p className="font-mono text-[0.9em] text-ink-2">{counts(model)}</p>
+      <ReopenedNote reopened={reopened} className="mt-3" />
       {forgotClose && <div className="mt-3"><Banner kind="action" actions={<Btn tone="primary" onClick={() => setSheet("wrap")}>{W.closeVisit}</Btn>}>{W.notClosed} {W.orKeepWorking}</Banner></div>}
       <div className="mt-3"><SectionRows model={model} active={active} onOpen={(id) => openSection(id)} onAdd={(m) => addInstance(m)} /></div>
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -363,6 +368,7 @@ export function VisitScreen({ device, model, display, api, thumbs, online, draft
             </>}
             <Eyebrow>{W.sections}</Eyebrow>
             <p className="font-mono text-[0.85em] text-ink-2">{counts(model)}</p>
+            <ReopenedNote reopened={reopened} className="mt-2" />
             <div className="mt-2"><SectionRows compact model={model} active={active} onOpen={(id) => guard(() => openSection(id))} onAdd={(m) => addInstance(m)} /></div>
             <div className="mt-4 grid gap-3"><Btn onClick={() => { setOpeningStep(0); setView("opening"); }}>{W.opening}</Btn><Btn tone="primary" onClick={() => setSheet("wrap")}>{W.beforeYouWrap}</Btn></div>
           </div>
@@ -381,7 +387,7 @@ export function VisitScreen({ device, model, display, api, thumbs, online, draft
           else if(!await api.setDraft(next)) return;
           setSkip(null);
         }} />}
-      <WrapSheet open={sheet === "wrap"} onClose={() => setSheet(null)} model={model} draft={draft} hasInitials={hasInitials} refused={refused} needDate={needDate}
+      <WrapSheet open={sheet === "wrap"} onClose={() => setSheet(null)} model={model} draft={draft} hasInitials={hasInitials} refused={refused} needDate={needDate} reopened={reopened}
         onGo={(id, addr) => { setSheet(null); openSection(id, addr); }} onFlags={() => setSheet("flags")} onTrades={() => setSheet("trades")} onRrp={() => setSheet("rrp")} onClient={() => { setSheet(null); api.showToClient(); }} onAck={() => setSheet("ack")}
         onCloseVisit={() => { setSheet(null); api.close(); }}
         onPromised={pickDate} />

@@ -173,6 +173,12 @@ export const W = {
   flagsLinePlural: 'Flags: {n} need a decision',
   tradeWalksLine: 'Trade walks: {trade} — needs a decision',
   conflictsLine: 'Conflicts: {field} — changed on another device',
+  // r9 R9-2: one conflict is said singular; the close button and the line above it say why it waits.
+  conflictLine: 'Conflict: {field} — changed on another device',
+  closeVisitPickConflict: 'Close visit — pick the conflict first',
+  closeVisitPickConflicts: 'Close visit — pick the conflicts first',
+  conflictBeforeClose: '{n} conflict to pick before you close',
+  conflictsBeforeClose: '{n} conflicts to pick before you close',
   visitClosedSending: 'Visit closed — sending',
   // r6 extra: with no signal the heading says when it sends, not that it is sending.
   visitClosedOffline: 'Visit closed — will send when signal returns',
@@ -242,6 +248,8 @@ export const W = {
   rrpRenovatorOpen: 'Certified renovator expiry is missing or before the visit day.',
   rrpGoEra: 'Go to Era hazards',
   rrpReview: 'Review',
+  // r9: certification expiring before the planned finish — advice for Joe, never a close block.
+  certWarningsHead: 'Before the planned finish',
   rrpRecorded: 'Renovate Right: recorded ✓',
   rrpNeeds: 'Renovate Right: {list}',
   rrpShortReceipt: 'receipt not recorded',
@@ -610,7 +618,7 @@ export function spokenDuration(keys: string[]): string {
 }
 
 /** One label for field, office and offline conflict sides. Times are job-local. */
-export function conflictSideLabel(side: {server_revision?: string|number; person?: string; actor?: string|null; device_id?: string|null; device?: string|null; created_at?: string|Date}, other?: {server_revision?: string|number; person?: string; actor?: string|null; created_at?: string|Date}, thisDevice?: string): string {
+export function conflictSideLabel(side: {id?: string; server_revision?: string|number; person?: string; actor?: string|null; device_id?: string|null; device?: string|null; created_at?: string|Date}, other?: {id?: string; server_revision?: string|number; person?: string; actor?: string|null; created_at?: string|Date}, thisDevice?: string): string {
  const first = side.person?.trim().split(/\s+/)[0] || 'Visitor';
  const time = (at?: string|Date) => at && Number.isFinite(new Date(at).getTime()) ? new Date(at).toLocaleTimeString('en-US',{timeZone:'America/Chicago',hour:'numeric',minute:'2-digit',hour12:true}).toLowerCase() : '';
  const device=side.device_id ?? side.device;
@@ -620,7 +628,17 @@ export function conflictSideLabel(side: {server_revision?: string|number; person
  const same=other && (side.actor && other.actor ? side.actor===other.actor : !!side.person && side.person===other.person);
  if(!same)return first;
  const tie=clock && clock===time(other.created_at);
- const delta=new Date(side.created_at!).getTime()-new Date(other?.created_at??'').getTime() || (Number(side.server_revision??0)-Number(other?.server_revision??0));
+ // r9 R9-1: strict order — time, then server revision, then id — so exactly one side is "earlier".
+ const delta=new Date(side.created_at!).getTime()-new Date(other?.created_at??'').getTime() || (Number(side.server_revision??0)-Number(other?.server_revision??0)) || (side.id && other?.id && side.id!==other.id ? (side.id<other.id?-1:1) : 0);
  const order=tie && delta ? (delta<0?' · earlier':' · later') : '';
  return `${first}${clock?' · '+clock:''}${order}`;
+}
+
+/** r9 R9-3: "Reopened by Joe · Nov 3, 4:40 pm" — said above the section list and on Before you wrap
+ *  (and on the office look-over) until the visit is closed again. Times are job-local. */
+export function reopenedHead(r: {who?: string|null; when?: string|Date|null}): string {
+ const first = r.who?.trim().split(/\s+/)[0] || 'Joe';
+ const d = r.when ? new Date(r.when) : null;
+ const when = d && Number.isFinite(d.getTime()) ? new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}).format(d).replace(/[\s\u202f]?AM$/,' am').replace(/[\s\u202f]?PM$/,' pm') : '';
+ return `Reopened by ${first}${when ? ` · ${when}` : ''}`;
 }

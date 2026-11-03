@@ -8,7 +8,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { SignaturePad, type SignaturePadHandle } from "@/components/esign/SignaturePad";
-import { STILL_TO_DECIDE_SHOWN, clientSummary, handBackAllowed, type ClientSummary } from "@/lib/consult/client-summary";
+import { STILL_TO_DECIDE_SHOWN, clientSummary, handBackAllowed, sayList, type ClientSummary } from "@/lib/consult/client-summary";
 import { W, fill, plainWords } from "@/lib/consult/ui/words";
 import { clientArea } from "@/lib/consult/ui/model";
 import { Btn, TextInput } from "./primitives";
@@ -92,7 +92,7 @@ export function ClientView({ summary, pamphlet = false, hasInitials, onInitials,
             </div>
           )}
           {/* r5: what was not measured comes after what is still to decide — never the first thing read. */}
-          {(s.come_back?.length ?? 0) > 0 && <p className="mt-5 text-ink-2">{W.notMeasuredToday}: {s.come_back!.join(", ")}.</p>}
+          {(s.come_back?.length ?? 0) > 0 && <p className="mt-5 text-ink-2">{W.notMeasuredToday}: {sayList(s.come_back!)}.</p>}
           {s.open_questions.length > 0 && <div className="mt-5"><p className={EYEBROW}>{W.openQuestions}</p><ul className="list-disc pl-6">{s.open_questions.map((q, i) => <li key={i}>{q}</li>)}</ul></div>}
           <div className="mt-5"><p className={EYEBROW}>{W.nextStep}</p><p>{s.formal_estimate_date ? fill(W.nextFormal, { date: s.formal_estimate_date }) : W.nextFormalNoDate}</p></div>
           <p className="mt-5 text-[0.85em] text-ink-2">This is what we talked about today. It is not a contract or a price.</p></>}

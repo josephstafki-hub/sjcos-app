@@ -10,10 +10,11 @@ import { pinnedDerivations } from "@/lib/consult/derive";
 import { openCheckPhrase, openItemCount } from "@/lib/consult/completeness";
 import { displayLength } from "@/lib/consult/length";
 import type { LocalBlob } from "@/lib/consult/offline-engine";
-import { W, checkedAt, conflictSideLabel, fill, plainWords, quantitiesLine, skipLine, skippedNotNA, statusLabel } from "@/lib/consult/ui/words";
+import { W, checkedAt, conflictSideLabel, fill, plainWords, quantitiesLine, reopenedHead, skipLine, skippedNotNA, statusLabel } from "@/lib/consult/ui/words";
 import { ApplyFindings, OfficeConflict, ReopenButton } from "@/components/consult/office/LookOverActions";
 import { AssignControl } from "@/components/consult/office/ScheduleDialog";
 import { RecoveryControl } from "@/components/consult/office/RecoveryControl";
+import { MeasureText } from "@/components/consult/MeasureText";
 import { scopeLabelRegistry } from "@/lib/consult/forms/seed/templates";
 import { SCOPE_RULES } from "@/lib/estimating/rules";
 
@@ -146,7 +147,8 @@ export default async function ConsultLookOver({ params, searchParams }: { params
             </ul>
           </section>
         )}
-        {extra.reopenReason && status !== "complete" && <p className="mb-4 text-body text-ink-2">Reopened: {extra.reopenReason}</p>}
+        {/* r9 R9-3: who reopened it, when and why — calm, and gone after the next close. */}
+        {extra.reopened?.reason?.trim() && status !== "complete" && status !== "incomplete" && <p role="note" className="mb-4 rounded-lg border border-rule-soft bg-card px-4 py-2 text-body text-ink"><span className="font-semibold">{reopenedHead(extra.reopened)}</span> — {extra.reopened.reason.trim()}</p>}
 
         {/* Columns follow the content area, not the window (the Operator panel can take half the screen):
             one column, then sections | section with evidence under it, then three columns. */}
@@ -160,7 +162,8 @@ export default async function ConsultLookOver({ params, searchParams }: { params
                   <Link href={sectionLink(x)} aria-current={x === section ? "page" : undefined} className={`grid min-h-12 grid-cols-[1fr_auto] items-center gap-2 rounded-md px-2 py-1.5 text-body hover:bg-hover ${x === section ? "bg-selected" : ""}`}>
                     <span className="min-w-0 font-semibold text-ink">{x.depth ? "↳ " : ""}{x.label}</span>
                     <span className="font-mono text-meta text-ink-2">{x.pc.done}/{x.pc.total}</span>
-                    <span className="col-span-2 flex flex-wrap gap-2"><CoverageMark variant="coverage" state={x.mark} size="sm" />{x.returnVisit && <CoverageMark variant="coverage" state="return_visit" size="sm" />}{x.conflict && <CoverageMark variant="coverage" state="conflict" size="sm" />}</span>
+                    {/* r9 extra: a section in conflict shows "! Conflict" alone until it is picked — the device's form. */}
+                    <span className="col-span-2 flex flex-wrap gap-2">{x.conflict ? <CoverageMark variant="coverage" state="conflict" size="sm" /> : <><CoverageMark variant="coverage" state={x.mark} size="sm" />{x.returnVisit && <CoverageMark variant="coverage" state="return_visit" size="sm" />}</>}</span>
                   </Link>
                 </li>
               ))}
@@ -194,11 +197,12 @@ export default async function ConsultLookOver({ params, searchParams }: { params
                   return (
                     <li key={f.addr} id={`f-${f.addr}`} className="grid gap-1 py-2 @[520px]/sec:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] @[520px]/sec:items-baseline @[520px]/sec:gap-4">
                       <span className="text-body font-semibold text-ink">{f.def.label}{f.required && <span className="text-flag" aria-label={W.required}> *</span>}</span>
-                      <span className="text-body text-ink">{v && <span className="font-mono">{v}</span>}{p && <span className="ml-2 text-meta text-ink-3">{p.source === "office" ? "picked in office" : "typed"} · {p.actor}</span>}</span>
+                      {/* r9 extra: mono for measured values only; a skip line is words, in the body face. */}
+                      <span className="text-body text-ink">{v && <span className={f.answer?.status === "answered" ? "font-mono" : ""}>{v}</span>}{p && <span className="ml-2 text-meta text-ink-3">{p.source === "office" ? "picked in office" : "typed"} · {p.actor}</span>}</span>
                       {/* r8: a field in conflict shows only "! Conflict" until it is picked; a skip that needs no assumption reads "– Skipped". */}
                       <span className="flex flex-wrap justify-end gap-2">{c ? <CoverageMark variant="coverage" state="conflict" size="sm" /> : <><CoverageMark variant="coverage" state={f.mark} size="sm" skipped={skippedNotNA(f)} />{f.returnVisit && <CoverageMark variant="coverage" state="return_visit" size="sm" />}</>}</span>
                       {/* r8 R8-1/R8-2: "Section › Field", and each side named by person and time — the field's words. */}
-                      {c && <div className="@[520px]/sec:col-span-3"><OfficeConflict id={head.id} revision={Number(snap.consult.revision)} generation={Number(snap.consult.completion_generation)} instance={f.addr.split(":")[0]} fieldKey={f.key} label={`${section.label} › ${f.def.label}`}
+                      {c && <div className="@[520px]/sec:col-span-3"><OfficeConflict id={head.id} revision={Number(snap.consult.revision)} generation={Number(snap.consult.completion_generation)} instance={f.addr.split(":")[0]} fieldKey={f.key} label={`${section.label} › ${f.def.label}`} mono={f.def.type.startsWith("length")}
                         current={{ id: c.current.id, text: c.current.status === "answered" ? show(c.current.value, f.def) : c.current.status, from: c.current.source_label ?? conflictSideLabel({ ...c.current, created_at: c.current.at }, { ...c.proposed, created_at: c.proposed.at }), available: c.current.available !== false }}
                         proposed={{ id: c.proposed.id, text: c.proposed.status === "answered" ? show(c.proposed.value, f.def) : c.proposed.status, from: c.proposed.source_label ?? conflictSideLabel({ ...c.proposed, created_at: c.proposed.at }, { ...c.current, created_at: c.current.at }), available: c.proposed.available !== false }} /></div>}
                       {f.answer?.status === "skipped" && draft.skips[f.addr]?.assumption && <p className="text-meta text-ink-2 @[520px]/sec:col-span-3">Assumption: {draft.skips[f.addr].assumption!.text} · {draft.skips[f.addr].assumption!.responsible_trade} · {checkedAt(draft.skips[f.addr].assumption!.verification_point)}</p>}
@@ -242,7 +246,7 @@ export default async function ConsultLookOver({ params, searchParams }: { params
                 })}
               </ul>
             ) : <p className="text-body text-ink-3">No photos yet.</p>}
-            {model.flags.length > 0 && <div className="mt-4"><p className="eyebrow mb-1">Flags</p><ul className="grid gap-1 text-body">{model.flags.map((f) => <li key={f.key}>{f.kind === "advisory" ? <span className="text-ink-2"><span aria-hidden className="font-semibold">⚐</span> {f.hint}</span> : <><span className="font-semibold text-flag">⚑</span> {f.issue}</>} — {draft.flags[f.key] ? `${draft.flags[f.key].disposition.replace(/_/g, " ")} · ${draft.flags[f.key].note}` : "needs a decision"}</li>)}</ul></div>}
+            {model.flags.length > 0 && <div className="mt-4"><p className="eyebrow mb-1">Flags</p><ul className="grid gap-1 text-body">{model.flags.map((f) => <li key={f.key}>{f.kind === "advisory" ? <span className="text-ink-2"><span aria-hidden className="font-semibold">⚐</span> <MeasureText text={f.hint} /></span> : <><span className="font-semibold text-flag">⚑</span> <MeasureText text={f.issue} /></>} — {draft.flags[f.key] ? `${draft.flags[f.key].disposition.replace(/_/g, " ")} · ${draft.flags[f.key].note}` : "needs a decision"}</li>)}</ul></div>}
             {draft.trade_walks.length > 0 && <div className="mt-4"><p className="eyebrow mb-1">{W.tradeWalkTitle}</p><ul className="grid gap-1 text-body">{draft.trade_walks.map((w) => <li key={w.trade}>{w.trade}: {w.needed ? "walk-through needed" : "no walk-through"} · {w.reason}</li>)}</ul></div>}
             {ev?.promised_date && <p className="mt-4 text-body text-ink">{W.promisedBy} {fmt(`${ev.promised_date}T12:00:00-06:00`, { weekday: "short", month: "short", day: "numeric" })}</p>}
             {snap.conflicts.length > 0 && <p className="mt-4 text-body font-semibold text-flag">! {snap.conflicts.length} {snap.conflicts.length === 1 ? "conflict" : "conflicts"} to pick — whoever gets there first, the visitor or Joe, picks.</p>}

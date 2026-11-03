@@ -7,13 +7,18 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui";
-import { W, fill, plainWords } from "@/lib/consult/ui/words";
+import { W, plainWords } from "@/lib/consult/ui/words";
 
 async function command(id: string, cmd: string, input: unknown) {
   const r = await fetch(`/api/consult/${id}`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "X-Consult-CSRF": "1" }, body: JSON.stringify({ command: cmd, input }) });
   const body = await r.json().catch(() => ({}));
   if (!r.ok || body.ok === false) throw new Error(body.error_code ?? body.code ?? "invalid_command");
   return body;
+}
+/** r9 R9-1: "Pick 18″ · …" with a measured value in mono — the value cell's face. */
+function PickText({ value, mono }: { value: string; mono?: boolean }) {
+  const [before, after = ""] = W.pick.split("{value}");
+  return <>{before}{mono ? <span className="font-mono">{value}</span> : value}{after}</>;
 }
 const field = "min-h-12 w-full rounded-md border-2 border-rule bg-card px-3 py-2 text-[16px]";
 
@@ -42,8 +47,10 @@ export function ApplyFindings({ id, generation, retry }: { id: string; generatio
   );
 }
 
-export function OfficeConflict({ id, revision, generation, instance, fieldKey, label, current, proposed }: {
+export function OfficeConflict({ id, revision, generation, instance, fieldKey, label, current, proposed, mono }: {
   id: string; revision: number; generation: number; instance: string; fieldKey: string; label: string;
+  /** r9 R9-1: a measured value is set in mono, as the value cell and the field show it. */
+  mono?: boolean;
   /** r7 R7-3: `from` names where the value came from; a side that couldn't be loaded isn't offered. */
   current: { id: string; text: string; from: string; available: boolean }; proposed: { id: string; text: string; from: string; available: boolean };
 }) {
@@ -63,8 +70,8 @@ export function OfficeConflict({ id, revision, generation, instance, fieldKey, l
           value" is a line of text, not a button. */}
       <div className="@container/pick mt-2">
         <div className="grid gap-2 @[520px]/pick:grid-cols-2">
-          {current.available && <Button size="lg" variant="secondary" disabled={busy} className="h-auto! min-h-12 w-full min-w-0 justify-start! py-3 text-left whitespace-normal!" onClick={() => void pick("current")}>{fill(W.pick, { value: current.text })} · {current.from}</Button>}
-          {proposed.available && <Button size="lg" variant="secondary" disabled={busy} className="h-auto! min-h-12 w-full min-w-0 justify-start! py-3 text-left whitespace-normal!" onClick={() => void pick("proposed")}>{fill(W.pick, { value: proposed.text })} · {proposed.from}</Button>}
+          {current.available && <Button size="lg" variant="secondary" disabled={busy} className="h-auto! min-h-12 w-full min-w-0 justify-start! py-3 text-left whitespace-normal!" onClick={() => void pick("current")}><span><PickText value={current.text} mono={mono && current.text !== "skipped" && current.text !== "cleared"} /> · {current.from}</span></Button>}
+          {proposed.available && <Button size="lg" variant="secondary" disabled={busy} className="h-auto! min-h-12 w-full min-w-0 justify-start! py-3 text-left whitespace-normal!" onClick={() => void pick("proposed")}><span><PickText value={proposed.text} mono={mono && proposed.text !== "skipped" && proposed.text !== "cleared"} /> · {proposed.from}</span></Button>}
         </div>
       </div>
       <p className="mt-2 text-body text-ink-2">{W.officeEnterAnother}</p>

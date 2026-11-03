@@ -531,7 +531,14 @@ export function summaryInput(model: VisitModel, display: Display | undefined, vi
   // r8 extra: a room with no name, area or level isn't "another room" up front — it is counted
   // and said last: "the bathroom, the kitchen and one more room" (two unnamed rooms: "two more rooms").
   const kept = comeBack.filter(p=>p.room || !measured.has(placeKey(p.phrase)));
-  const unnamed = new Set(kept.filter(p=>p.phrase===UNNAMED_ROOM).map(p=>p.id)).size;
+  // r9 extra: a room with no name or area is most likely the room of a work area that has no room of
+  // its own ("the bathroom" for Bathroom work) — it is said once, by that area. Only the unnamed rooms
+  // left over after that are real extra places ("and one more room").
+  const roomPlaces = new Set(model.sections.filter(s=>s.module.key==='room').map(s=>placeKey(clientPlace(s).phrase)));
+  const roomless = new Set(model.sections.filter(s=>CLIENT_ROOMS.includes(s.module.key)&&s.module.key!=='room'&&!['whole_scope','general_scope'].includes(s.module.key)&&SCOPE_AREA[s.module.key]&&s.mark!=='not_applicable').map(s=>SCOPE_AREA[s.module.key]).filter(w=>!roomPlaces.has(w))).size;
+  const unnamedAll = model.sections.filter(s=>s.module.key==='room'&&clientPlace(s).phrase===UNNAMED_ROOM).length;
+  const unnamedOpen = new Set(kept.filter(p=>p.phrase===UNNAMED_ROOM).map(p=>p.id)).size;
+  const unnamed = Math.max(0, Math.min(unnamedOpen, unnamedAll - roomless));
   const notMeasured = [...new Set(kept.filter(p=>p.phrase!==UNNAMED_ROOM).map(p=>p.phrase)), ...(unnamed ? [unnamed === 1 ? 'one more room' : `${SAY_N[unnamed] ?? unnamed} more rooms`] : [])];
   const questions = model.sections.filter((s) => s.module.key === 'closing').flatMap((s) => s.fields.filter((f) => f.key === 'client_questions' && f.answer?.status === 'answered').map((f) => String(f.answer!.value)));
   return { client_name: display?.client ?? '', visit_date: visitDate, rooms, come_back: notMeasured, still_to_decide: openSelectionGroups(model), open_questions: questions, formal_estimate_date: formalDate };

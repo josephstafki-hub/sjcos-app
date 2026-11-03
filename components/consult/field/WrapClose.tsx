@@ -10,8 +10,10 @@ import { useState } from "react";
 import { CoverageMark } from "@/components/ui/CoverageMark";
 import type { EvidenceDraft, FieldView, ShotView, VisitModel } from "@/lib/consult/ui/model";
 import type { ClosingState } from "@/lib/consult/ui/controller";
-import { CHECK_ACTION_WORDS, FLAG_CHOICES, W, fill, plainWords, quantitiesLine } from "@/lib/consult/ui/words";
+import { CHECK_ACTION_WORDS, FLAG_CHOICES, W, fill, plainWords, quantitiesLine, reopenedHead } from "@/lib/consult/ui/words";
+import type { Snapshot } from "@/lib/consult/ui/model";
 import { flagLead } from "@/lib/consult/ui/flag-lead";
+import { MeasureText } from "../MeasureText";
 import { Banner, Box, Btn, Choice, Sheet, TextInput } from "./primitives";
 
 const itemLabel = (o: VisitModel["open"][number]) => (o.kind === "field" ? (o.item as FieldView).def.label : `Photo · ${(o.item as ShotView).def.label}`);
@@ -25,11 +27,29 @@ function groupBySection(list: VisitModel["open"]) {
   return out;
 }
 
-export function WrapSheet({ open, onClose, model, draft, hasInitials, refused, onGo, onFlags, onTrades, onRrp, onClient, onAck, onCloseVisit, onPromised, needDate }: {
+/** r9 R9-3: who reopened the visit, when and why — calm, the "What we know so far" card's style. */
+export function ReopenedNote({ reopened, className = "" }: { reopened?: Snapshot["reopened"]; className?: string }) {
+  if (!reopened?.reason?.trim()) return null;
+  return <p role="note" className={`rounded-lg border-2 border-rule-soft bg-card px-3 py-2 text-ink ${className}`}><span className="font-semibold">{reopenedHead(reopened)}</span> — {reopened.reason.trim()}</p>;
+}
+
+/** r9: a certification that runs out before the planned finish — advice, never a close block. */
+export function CertWarnings({ list, className = "" }: { list: string[]; className?: string }) {
+  if (!list.length) return null;
+  return (
+    <div role="note" className={`rounded-md border-2 border-rule-soft bg-paper px-3 py-2 text-ink ${className}`}>
+      {list.map((w) => <p key={w}><span aria-hidden className="mr-1 font-semibold">⚐</span>{w}</p>)}
+    </div>
+  );
+}
+
+export function WrapSheet({ open, onClose, model, draft, hasInitials, refused, onGo, onFlags, onTrades, onRrp, onClient, onAck, onCloseVisit, onPromised, needDate, reopened }: {
   open: boolean; onClose: () => void; model: VisitModel; draft: EvidenceDraft; hasInitials: boolean; refused: number;
   onGo: (sectionId: string, addr: string) => void; onFlags: () => void; onTrades: () => void; onRrp: () => void; onClient: () => void; onAck: () => void; onCloseVisit: () => void; onPromised?: () => void;
   /** r5 domain 2: no estimate date yet (and not skipped) — the client would initial a sheet without it. */
   needDate?: boolean;
+  /** r9 R9-3: set while a reopened visit is waiting for its next close. */
+  reopened?: Snapshot["reopened"];
 }) {
   const required = model.open.filter((o) => !o.partly);
   const partly = model.open.filter((o) => o.partly);
@@ -46,10 +66,22 @@ export function WrapSheet({ open, onClose, model, draft, hasInitials, refused, o
   const blocking = required.length > 0 || undecidedFlags.length > 0 || tradesOpen || rrpOpen || ackOpen || model.conflicts.length > 0 || refused > 0 || !dateOk;
   // r4 R4-5: the header says only what the list under it shows — Partly appears when there is any.
   // r7 extra: "246 still open", the close checks' own phrasing (no capital O mid-sentence).
+  const conflictN = model.conflicts.length;
+  const firstConflict = model.conflicts[0];
+  // r9 R9-2: while a conflict is open the button says why it waits, and one line above it says what to do.
+  const closeLabel = conflictN ? (conflictN === 1 ? W.closeVisitPickConflict : W.closeVisitPickConflicts) : blocking ? W.closeVisitNeeds : W.closeVisit;
+  const conflictName = (c: VisitModel["conflicts"][number]) => { const s = model.sections.find((x) => x.instance.id === c.instance_id); const f = s?.fields.find((x) => x.addr === c.key); return [s?.label, f?.def.label ?? c.field_key].filter(Boolean).join(" › "); };
   const title = `${W.beforeYouWrap} · ${openItemCount({price_critical:model.pc,record:model.record})} ${W.stillOpen}${partly.length ? ` · ${partly.length} Partly` : ""}`;
   return (
     <Sheet open={open} onClose={onClose} side title={title}
-      footer={<><Btn className="max-md:w-full" onClick={onClose}>{W.keepWorking}</Btn><Btn tone="primary" className="max-md:w-full" onClick={onCloseVisit} disabled={model.conflicts.length > 0 || refused > 0}>{blocking ? W.closeVisitNeeds : W.closeVisit}</Btn></>}>
+      footer={<>
+        {firstConflict && <p className="flex w-full basis-full flex-wrap items-center gap-x-2 gap-y-1 text-ink">
+          <span><span aria-hidden className="mr-1 font-bold text-flag">!</span><span className="font-semibold">{fill(conflictN === 1 ? W.conflictBeforeClose : W.conflictsBeforeClose, { n: conflictN })}</span></span>
+          <span aria-hidden className="text-ink-3">·</span>
+          <Btn tone="quiet" className="px-2" onClick={() => onGo(firstConflict.instance_id, firstConflict.key)}>{W.goToField}</Btn>
+        </p>}
+        <Btn className="max-md:w-full" onClick={onClose}>{W.keepWorking}</Btn><Btn tone="primary" className="max-md:w-full" onClick={onCloseVisit} disabled={conflictN > 0 || refused > 0}>{closeLabel}</Btn></>}>
+      <ReopenedNote reopened={reopened} className="mb-3" />
       <div className="mb-5 grid gap-3">
         {/* r3 C7: what stops a Complete close comes first — flags, promised date, client initials. */}
         {model.flags.length > 0 && <Line text={undecidedFlags.length ? fill(undecidedFlags.length === 1 ? W.flagsLine : W.flagsLinePlural, { n: undecidedFlags.length }) : `Flags: all ${model.flags.length} decided ✓`} action={<Btn onClick={onFlags}>{W.reviewFlags}</Btn>} done={undecidedFlags.length === 0} />}
@@ -60,7 +92,9 @@ export function WrapSheet({ open, onClose, model, draft, hasInitials, refused, o
         <Line text={trades.length ? (undecidedTrades.length ? fill(W.tradeWalksLine, { trade: undecidedTrades.join(", ") }) : "Trade walks: all decided ✓") : draft.no_trades_confirmed ? "Trade walks: none — no trade is touched ✓" : "Trade walks: confirm none is needed"} action={<Btn onClick={onTrades}>{W.decide}</Btn>} done={!tradesOpen} />
         {model.sections.filter(s=>s.module.key==='footing').map(s=>{const zone=s.fields.find(f=>f.key==='frost_zone')?.answer;return zone?.status==='answered' ? <Line key={s.instance.id} text={`County frost zone: ${String(zone.value)}`} info /> : null;})}
         {model.rrpApplies && <Line text={rrpOpen ? fill(W.rrpNeeds, { list: [!model.rrp.receipt && W.rrpShortReceipt, !model.rrp.firm_current && (model.values["era.firm_cert_expiry"] ? W.rrpShortFirm : W.rrpShortFirmMissing), !model.rrp.renovator_current && (model.values["era.renovator_expiry"] ? W.rrpShortRenovator : W.rrpShortRenovatorMissing)].filter(Boolean).join(" · ") }) : W.rrpRecorded} action={<Btn onClick={onRrp}>{W.rrpReview}</Btn>} done={!rrpOpen} />}
-        {model.conflicts.map((c) => { const s = model.sections.find((x) => x.instance.id === c.instance_id); const f = s?.fields.find((x) => x.addr === c.key); return <Line key={c.key} text={fill(W.conflictsLine, { field: `${s?.label ?? ""} ${f?.def.label ?? c.field_key}`.trim() })} action={<Btn onClick={() => onGo(c.instance_id, c.key)}>{W.goToField}</Btn>} warn />; })}
+        <CertWarnings list={model.certificationWarnings ?? []} />
+        {/* r9 R9-2: "Section › Field", the office heading's form; "Conflict:" when there is one. */}
+        {model.conflicts.map((c) => <Line key={c.key} text={fill(conflictN === 1 ? W.conflictLine : W.conflictsLine, { field: conflictName(c) })} action={<Btn onClick={() => onGo(c.instance_id, c.key)}>{W.goToField}</Btn>} warn />)}
         {refused > 0 && <Line text={`${refused} ${refused === 1 ? "answer was" : "answers were"} refused by the office — enter again or remove`} warn />}
       </div>
       {required.length === 0 && partly.length === 0 && <p className="mb-3 font-semibold text-accent-2">✓ {W.allClear}</p>}
@@ -128,7 +162,7 @@ export function FlagSheet({ open, onClose, model, draft, onSave, saveError, onGo
         {model.flags.map((f) => (
           <section key={f.key} aria-label={`${f.section.label} · ${f.field.def.label}`} className={`rounded-lg border-2 p-3 ${f.kind === "advisory" ? "border-rule-soft bg-paper" : "border-rule"}`}>
             <p className={`mb-1 font-semibold ${f.kind === "advisory" ? "text-ink" : "text-flag"}`}><span aria-hidden>{f.kind === "advisory" ? "⚐" : "⚑"} </span>{f.section.label} · {f.field.def.label}</p>
-            <p className="mb-2 text-ink">{flagLead(f, model)}</p>
+            <p className="mb-2 text-ink"><MeasureText text={flagLead(f, model)} /></p>
             {onGo && <div className="mb-3"><Btn tone="quiet" onClick={() => onGo(f.address.split(":")[0], f.address)}>{W.goToField}</Btn></div>}
             <Choice options={FLAG_CHOICES.map((c) => c.key)} labels={(k) => FLAG_CHOICES.find((c) => c.key === k)!.label} value={local[f.key]?.disposition ?? null} onPick={(v) => set(f.key, { disposition: v })} />
             <div className="mt-3"><TextInput label={W.flagNote} value={local[f.key]?.note ?? ""} onChange={(v) => set(f.key, { note: v })} multiline /></div>
@@ -178,6 +212,7 @@ export function RrpSheet({ model, onGo, open, onClose, draft, onSave, saveError 
     <Sheet open={open} onClose={onClose} side title={W.rrpTitle} footer={<><Btn onClick={onClose}>{W.cancel}</Btn><Btn tone="primary" onClick={async () => { if(await onSave({ ...draft, rrp })) onClose(); }}>{W.save}</Btn></>}>
       {saveError && <Banner kind="action">{plainWords(saveError)}</Banner>}
       <p className="mb-3 text-ink-2">{W.rrpWhy}</p>
+      <CertWarnings list={model.certificationWarnings ?? []} className="mb-3" />
       {/* Read from the Era answers (model.rrp) — never ticked here, so it can't disagree with them. */}
       <ul className="grid gap-2" aria-label={W.rrpTitle}>
         {([["receipt", W.rrpReceipt, W.rrpReceiptOpen], ["firm_current", W.rrpFirm, W.rrpFirmOpen], ["renovator_current", W.rrpRenovator, W.rrpRenovatorOpen]] as const).map(([key, label, open]) => (

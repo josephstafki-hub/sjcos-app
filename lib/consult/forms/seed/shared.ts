@@ -39,7 +39,7 @@ export const house: ModuleDef = {
       isIn('bath_scope.shower_extras', ['Body sprays', 'Rain head']), tpl('bath'),
       isIn('addition_scope.rooms', ['Bath']), isIn('basement_scope.rooms_wanted', ['Bath']),
     ), { note: 'R? body sprays, rain head or new bath; O otherwise. Record measurement or access assumption' }),
-    text('client_list', 'Client\'s own list ("anything you want us to look at")', true, { hint: 'Their answer to “anything you want us to look at”.', note: 'from opening line 6' }),
+    text('client_list', 'Client\'s own list ("anything you want us to look at")', true, { note: 'from opening line 6' }),
     year('year_built', 'Year built', true, { range: [1850, 2026], hint: 'Ask the client, or use the county record.', note: 'prefill if known' }),
     choice('year_source', 'How we know the year', ['Client said', 'County record', 'Guessed from features'], true),
     yesno('living_in_home', 'Living in the home during the work?', true),

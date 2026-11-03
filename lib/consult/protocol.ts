@@ -25,11 +25,12 @@ export const evidenceSchema=z.strictObject({
  skips:z.record(z.string(),z.strictObject({reason:skip,note:note.optional(),assumption:assumption.optional(),trade_walk_decided:z.boolean().optional()})),
  return_day:day.optional(),
 });
+export const decisionSchema=evidenceSchema.pick({skips:true,flags:true,trade_walks:true,no_trades_confirmed:true,rrp:true,ack_reason:true}).extend({trade_walks:z.array(z.strictObject({trade:z.string().max(8000),needed:z.boolean().nullable(),reason:z.string().max(8000)})).max(50),flags:z.record(z.string(),z.strictObject({disposition:z.enum(['price_it','allowance','sub_must_look','not_an_issue']),note:z.string().max(8000)})),rrp:evidenceSchema.shape.rrp.extend({redelivery_day:z.string().max(10).optional()})});
 const address=z.strictObject({instance_id:uuid,field_key:z.string().regex(/^[a-z][a-z0-9_]*$/)});
-const opSchema=z.strictObject({protocol_version:z.literal(1),client_event_id:uuid,device_id:uuid,device_epoch:rev.min(1),seq:rev.min(1),base_revision:rev,generation:rev.min(1),type:z.enum(['start','answer','clear','create_instance','remove_instance','resolve','discard_rejection']),target:z.unknown(),payload:z.unknown(),payload_sha256:z.string().regex(/^[a-f0-9]{64}$/)});
+const opSchema=z.strictObject({protocol_version:z.literal(1),client_event_id:uuid,device_id:uuid,device_epoch:rev.min(1),seq:rev.min(1),base_revision:rev,generation:rev.min(1),type:z.enum(['start','answer','clear','create_instance','remove_instance','resolve','discard_rejection','decisions']),target:z.unknown(),payload:z.unknown(),payload_sha256:z.string().regex(/^[a-f0-9]{64}$/)});
 const answerPayload=z.strictObject({status:z.enum(['answered','skipped','cleared']),value:z.unknown().optional(),unit:z.string().optional(),skip_reason:skip.optional(),skip_note:z.string().max(8000).optional()});
 const instanceTarget=z.strictObject({instance_id:uuid,module_key:z.string(),parent_id:uuid.optional(),label:note});
-const manifestSchema=z.strictObject({device:uuid,epoch:rev.min(1),last_seq:rev,required_blob_hashes:z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(10000),initials_hash:z.string().regex(/^[a-f0-9]{64}$/).nullable(),local_pending:z.literal(0)});
+const manifestSchema=z.strictObject({device:uuid,epoch:rev.min(1),last_seq:rev,required_blob_hashes:z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(10000),initials_hash:z.string().regex(/^[a-f0-9]{64}$/).nullable().optional(),initials_hashes:z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(10000).optional(),local_pending:z.literal(0)});
 export const hash=(value:unknown)=>createHash('sha256').update(canonicalJson(value)).digest('hex');
 type Context={key_id:string;payload:string;signature:string};
 type Snapshot={consult:{id:string;project_id:string;status:string;revision:string;completion_generation:string;conducted_by:string;scheduled_at:string};pins:{definition:ModuleDef|TemplateDef;kind:string}[];instances:{id:string;module_key:string;parent_id:string|null;removed_at:string|null}[];heads:{id:string;instance_id:string;field_key:string;status:string;value:unknown;skip_reason:string|null;skip_note:string|null;server_revision:string}[];conflicts:unknown[]};
@@ -45,7 +46,27 @@ export async function snapshot(c:PoolClient,context:Context,target:string):Promi
  }
  const proposals=(await c.query("SELECT id,actor,instance_id,field_key,base_revision,answer,source_note,generation FROM consult_agent_proposals WHERE consult_id=$1 AND status='pending' ORDER BY id",[target])).rows;
  const findings_job=(await c.query('SELECT generation,status,attempts,available_at,lease_until,last_error,result FROM consult_findings_jobs WHERE consult_id=$1 AND generation=$2',[target,result.consult.completion_generation])).rows[0]??null;
- return {...result,proposals,findings_job} as Snapshot;
+ // consult_read has already enforced assignment before any project/lead context is read.
+ const display=await one(c,`SELECT coalesce(nullif(p.client_name,''),l.name,p.name) client,p.name project,p.slug,
+ nullif(coalesce(nullif(p.address,''),l.address),'') address,u.name visitor_name,(u.role='staff') visitor_staff,
+ to_char(v.scheduled_at AT TIME ZONE 'America/Chicago','Dy HH12:MI am') scheduled_label,l.phone
+ FROM consults v JOIN projects p ON p.id=v.project_id LEFT JOIN leads l ON l.id=p.lead_id JOIN users u ON u.id=v.conducted_by WHERE v.id=$1`,[target]);
+ const project=result.consult.project_id;
+ const intake=(await c.query(`SELECT i.question,i.answer FROM lead_intake i JOIN projects p ON p.lead_id=i.lead_id WHERE p.id=$1 ORDER BY i.sort_order,i.id LIMIT 200`,[project])).rows;
+ const rough=await one<{line_items:{label:string;value?:unknown}[]}>(c,'SELECT e.line_items FROM lead_estimates e JOIN projects p ON p.lead_id=e.lead_id WHERE p.id=$1',[project]);
+ const amounts=JSON.parse(context.payload).role==='owner'||JSON.parse(context.payload).areas?.includes('estimates');
+ const quantities=(value:unknown)=>Array.isArray(value)?value.slice(0,200).map(q=>({label:q.label,qty:q.qty,unit:q.unit,...(q.basis!==undefined?{basis:q.basis}:{})})):[];
+ const prefill={intake,year_built:intake.find(i=>/year.*built/i.test(i.question))?.answer??null,
+ rough_estimate:(rough?.line_items??[]).slice(0,200).map(l=>({label:l.label,...(amounts?{value:l.value}: {})})),
+ scope_items:(await c.query("SELECT key,title,room,trade,quantities FROM scope_items WHERE project_id=$1 AND status NOT IN ('excluded','superseded') ORDER BY key LIMIT 200",[project])).rows.map(i=>({...i,quantities:quantities(i.quantities)})),
+ plan_items:(await c.query("SELECT item->>'prompt' prompt,item->>'scope_key' scope_key,item->>'unit' unit,item->>'location' location FROM site_visit_plans p CROSS JOIN LATERAL jsonb_array_elements(p.items) item WHERE project_id=$1 AND p.status<>'superseded' AND item->>'status'='open' AND p.id=coalesce((SELECT site_visit_plan_id FROM consults WHERE id=$2),(SELECT id FROM site_visit_plans WHERE project_id=$1 AND status<>'superseded' ORDER BY revision DESC LIMIT 1)) ORDER BY p.revision DESC LIMIT 200",[project,target])).rows,
+ photos:(await c.query("SELECT f.id,f.name FROM files f JOIN leads l ON l.slug=f.lead_slug JOIN projects p ON p.lead_id=l.id WHERE p.id=$1 AND f.type='img' ORDER BY f.created_at DESC LIMIT 100",[project])).rows,
+ discovery_notes:(await c.query("SELECT a.summary FROM lead_activity a JOIN projects p ON p.lead_id=a.lead_id WHERE p.id=$1 AND a.kind IN ('discovery','discovery_call') ORDER BY a.created_at DESC LIMIT 20",[project])).rows};
+ prefill.discovery_notes.push(...(await c.query("SELECT notes->>'summary' summary FROM calls WHERE (project_id=$1 OR lead_id=(SELECT lead_id FROM projects WHERE id=$1)) AND notes_status='done' AND notes->>'summary' IS NOT NULL ORDER BY started_at DESC LIMIT 20",[project])).rows);
+ const visitor_notes=(await one<{payload:{visitor_notes:string}}>(c,"SELECT payload FROM consult_events WHERE consult_id=$1 AND type='scheduled_notes' ORDER BY created_at DESC LIMIT 1",[target]))?.payload.visitor_notes??'';
+ const decisions=(await one<{payload:{payload:unknown}}>(c,"SELECT payload FROM consult_events WHERE consult_id=$1 AND type='decisions' AND generation=$2 ORDER BY server_revision DESC LIMIT 1",[target,result.consult.completion_generation]))?.payload.payload??null;
+ const media=(await c.query("SELECT m.sha256 hash,m.event_id,m.kind,m.instance_id,m.field_key,m.shot_key,f.mime_type mime,jsonb_build_object('file_id',m.file_id,'media_id',m.id) receipt FROM consult_media m JOIN files f ON f.id=m.file_id WHERE m.consult_id=$1 AND m.removed_at IS NULL AND m.kind IN ('photo','initials') ORDER BY m.created_at",[target])).rows.map(m=>({...m,...(!m.field_key?{field_key:undefined}:{}),...(!m.shot_key?{shot_key:undefined}:{})}));
+ return {...result,proposals,findings_job,display,prefill,visitor_notes,decisions,media} as Snapshot;
 }
 async function scoped(c:PoolClient,context:Context,operation:string,target:string|null):Promise<Context>{
  const claims=JSON.parse(context.payload);return (await one<{v:Context}>(c,'SELECT consult_mint_context($1,$2) v',[{...claims,operation,consult_id:target},context.key_id])).v;
@@ -75,8 +96,9 @@ async function audit(c:PoolClient,target:string,actor:string,type:string,payload
 async function ownerId(c:PoolClient):Promise<string>{const row=await one<{id:string}>(c,"SELECT id FROM users WHERE role='owner' AND active ORDER BY created_at,id LIMIT 1");if(!row)throw new Error('owner_missing');return row.id;}
 export async function schedule(c:PoolClient,context:Context,input:unknown){
  await authorize(c,context,null,'schedule',true);
- const v=z.strictObject({project:uuid,visit_time:z.string().datetime({offset:true}),visitor:uuid,forms:z.array(uuid).min(1),plan:uuid.nullable().optional(),plan_revision:rev.nullable().optional()}).parse(input);
+ const v=z.strictObject({project:uuid,visit_time:z.string().datetime({offset:true}),visitor:uuid,forms:z.array(uuid).min(1),plan:uuid.nullable().optional(),plan_revision:rev.nullable().optional(),visitor_notes:z.string().trim().max(8000).optional()}).parse(input);
  const id=(await one<{id:string}>(c,'SELECT consult_schedule($1,$2,$3,$4,$5,$6,$7) id',[context,v.project,v.visit_time,v.visitor,v.forms,v.plan??null,v.plan_revision??null])).id;
+ await audit(c,id,JSON.parse(context.payload).sub,'scheduled_notes',{visitor_notes:v.visitor_notes??''});
  const s=await snapshot(c,context,id);const date=(await one<{work_day:string}>(c,"SELECT ($1::timestamptz AT TIME ZONE 'America/Chicago')::date::text AS work_day",[v.visit_time])).work_day;
  await todo(c,s,'schedule','visit','In-home consultation',v.visitor,date);return {id};
 }
@@ -138,6 +160,10 @@ export async function batch(c:PoolClient,context:Context,target:string,input:unk
    z.null().parse(op.target);z.strictObject({}).parse(op.payload);
    if(s.consult.status!=='scheduled'||Number(s.consult.revision)!==op.base_revision)throw new Error('conflict');
    await c.query("UPDATE consults SET status='in_progress',revision=revision+1,started_at=now(),started_by=$2 WHERE id=$1",[target,actor]);receipt.revision=op.base_revision+1;
+  }else if(op.type==='decisions'){
+   z.null().parse(op.target);decisionSchema.parse(op.payload);
+   // Partial wrap decisions are durable evidence, not a claim that Close checks passed.
+   await c.query('UPDATE consults SET revision=revision+1 WHERE id=$1',[target]);receipt.revision=Number(s.consult.revision)+1;
   }else if(op.type==='discard_rejection'){
    z.null().parse(op.target);const r=z.strictObject({event_id:uuid,hash:z.string(),reason:note}).parse(op.payload);
    const old=await one<{hash:string;result:{error_code?:string}}>(c,'SELECT hash,result FROM consult_sync_receipts WHERE consult_id=$1 AND event_id=$2',[target,r.event_id]);
@@ -191,7 +217,7 @@ export async function batch(c:PoolClient,context:Context,target:string,input:unk
     await c.query('UPDATE consults SET revision=revision+1 WHERE id=$1',[target]);receipt.revision=op.base_revision+1;
    }
   }
-  if(op.type==='start'||op.type==='remove_instance'||op.type==='create_instance'||op.type==='discard_rejection'||Number(s.consult.completion_generation)!==op.generation){
+  if(op.type==='decisions'||op.type==='start'||op.type==='remove_instance'||op.type==='create_instance'||op.type==='discard_rejection'||Number(s.consult.completion_generation)!==op.generation){
    await c.query(`INSERT INTO consult_events(consult_id,event_id,actor,device_id,device_epoch,source,type,payload,payload_hash,server_revision,generation) VALUES($1,$2,$3,$4,$5,'typed',$6,$7,$8,$9,$10)`,[target,op.client_event_id,actor,op.device_id,op.device_epoch,op.type,op,opHash,receipt.revision??Number(s.consult.revision),op.generation]);
   }
   await c.query('RELEASE SAVEPOINT consult_op');
@@ -258,7 +284,7 @@ export async function completion(c:PoolClient,context:Context,target:string){
  const rrpApplies=typeof global['house.year_built']!=='number'||global['house.year_built']<1978;
  const input:CompletionInput={fields,photos,modules:templates.flatMap(t=>t.modules.map(m=>({key:m.module,minimum:compileCondition(m.required,known)(global)?Math.max(1,m.min??1):0,live_count:live.filter(i=>i.module_key===m.module).length,parents_valid:live.every(i=>!i.parent_id||live.some(p=>p.id===i.parent_id))}))),
  recording:{asked:e?.manual_confirmed===true,choice:e?'manual':null,confirmed_evidence:false,documented_failure_or_stop:false},photo_permission:e?.photos_ok??null,
- acknowledgement:{initials_committed:media.some(m=>m.kind==='initials'),visitor_reason:e?.ack_reason??null,handed_back:e?.handed_back??false},promised_date:e?.promised_date??null,
+ acknowledgement:{initials_committed:media.some(m=>m.kind==='initials'&&m.field_key==='client_initials'&&live.some(i=>i.id===m.instance_id&&i.module_key==='closing')),visitor_reason:e?.ack_reason??null,handed_back:e?.handed_back??false},promised_date:e?.promised_date??null,
  manifests:devices.map(d=>({device:d.device_id,acknowledged:!!d.close_ack_at,rejected:0,missing:!d.close_manifest})),unresolved_conflicts:s.conflicts.length,
  rrp:{applies:rrpApplies,receipt:e?.rrp.receipt??false,firm_current:e?.rrp.firm_current??false,renovator_current:e?.rrp.renovator_current??false,redelivery_required:e?.rrp.redelivery_required??false,redelivery_todo:!!e?.rrp.redelivery_day},flags,
  touched_trades:e?.touched_trades??[],trade_walks:(e?.trade_walks??[]).map(w=>({...w,actor:row.actor,at:String(row.updated_at)})),no_trades_confirmed:e?.no_trades_confirmed??false};
@@ -268,7 +294,7 @@ export async function close(c:PoolClient,context:Context,target:string,input:unk
  const actor=await authorize(c,context,target,'close');
  const v=z.strictObject({expected_revision:rev,manifest:manifestSchema}).parse(input),m=v.manifest;
  const ack=await deviceGate(c,target,m.device,m.epoch,actor);
- const s=await snapshot(c,context,target);const digest=hash(m);
+ const s=await snapshot(c,context,target);const digest=hash(m);const initials=[...new Set([...(m.initials_hashes??[]),...(m.initials_hash?[m.initials_hash]:[])])];
  const prior=await one<{close_manifest:{digest?:string}|null}>(c,'SELECT close_manifest FROM consult_devices WHERE consult_id=$1 AND device_id=$2 AND epoch=$3',[target,m.device,m.epoch]);
  if(prior.close_manifest?.digest===digest && ['complete','incomplete'].includes(s.consult.status))return {digest,...(await completion(c,context,target)).result,revision:Number(s.consult.revision)};
  if(s.consult.status==='complete')throw new Error('complete_locked');
@@ -276,12 +302,12 @@ export async function close(c:PoolClient,context:Context,target:string,input:unk
  if(ack!==m.last_seq)throw new Error('manifest_sequence_gap');
  const rejected=await one<{n:string}>(c,`SELECT count(*) n FROM consult_sync_receipts r WHERE r.consult_id=$1 AND r.device_id=$2 AND r.epoch=$3 AND (r.result->>'status')::int<>200 AND NOT EXISTS(SELECT 1 FROM consult_conflicts x JOIN consult_answers a ON a.id=x.proposed_answer_id WHERE x.consult_id=r.consult_id AND a.event_id=r.event_id AND x.resolved_at IS NOT NULL) AND NOT EXISTS(SELECT 1 FROM consult_sync_receipts newer WHERE newer.consult_id=r.consult_id AND newer.result->>'supersedes'=r.event_id::text AND newer.result->>'status'='200')`,[target,m.device,m.epoch]);
  if(Number(rejected.n))throw new Error('unresolved_rejections');
- for(const h of [...m.required_blob_hashes,...(m.initials_hash?[m.initials_hash]:[])]){
+ for(const h of [...m.required_blob_hashes,...initials]){
   if(!await one(c,'SELECT id FROM consult_media WHERE consult_id=$1 AND sha256=$2 AND removed_at IS NULL',[target,h]))throw new Error('manifest_blob_missing');
  }
  const committed=(await c.query('SELECT sha256,kind FROM consult_media WHERE consult_id=$1 AND removed_at IS NULL',[target])).rows;
- if(committed.some(p=>p.kind==='initials'?m.initials_hash!==p.sha256:!m.required_blob_hashes.includes(p.sha256)))throw new Error('manifest_blob_missing');
- if(m.initials_hash&&!await one(c,"SELECT id FROM consult_media WHERE consult_id=$1 AND sha256=$2 AND kind='initials' AND removed_at IS NULL",[target,m.initials_hash]))throw new Error('manifest_initials_missing');
+ if(committed.some(p=>p.kind==='initials'?!initials.includes(p.sha256):!m.required_blob_hashes.includes(p.sha256)))throw new Error('manifest_blob_missing');
+ for(const initialsHash of initials)if(!await one(c,"SELECT id FROM consult_media WHERE consult_id=$1 AND sha256=$2 AND kind='initials' AND removed_at IS NULL",[target,initialsHash]))throw new Error('manifest_initials_missing');
  await c.query('UPDATE consult_devices SET close_manifest=$4,close_ack_at=now() WHERE consult_id=$1 AND device_id=$2 AND epoch=$3',[target,m.device,m.epoch,{...m,digest}]);
  const {result,evidence}=await completion(c,context,target);
  const owner=await ownerId(c);
@@ -324,13 +350,14 @@ export async function command(c:PoolClient,context:Context,target:string,kind:st
  if(kind==='prepare_device'){
   if(!await one(c,"SELECT key FROM app_settings WHERE key='consult_capture' AND value='true'"))return {ok:false,code:'capture_disabled'};
   const actor=await authorize(c,context,target,'prepare_device');const v=z.strictObject({device:uuid,expected_revision:rev}).parse(input);
+  await c.query('SELECT id FROM consults WHERE id=$1 FOR UPDATE',[target]);
   const s=await snapshot(c,context,target);if(Number(s.consult.revision)!==v.expected_revision)return {ok:false,code:'conflict'};
   if(!['scheduled','in_progress','incomplete'].includes(s.consult.status))return {ok:false,code:'complete_locked'};
-  const active=await one<{device_id:string;user_id:string;epoch:string}>(c,'SELECT * FROM consult_devices WHERE consult_id=$1 AND revoked_at IS NULL',[target]);
+  const active=await one<{device_id:string;user_id:string;epoch:string;last_ack_seq:string}>(c,'SELECT * FROM consult_devices WHERE consult_id=$1 AND revoked_at IS NULL',[target]);
   if(active&&(active.device_id!==v.device||active.user_id!==actor))return {ok:false,code:'device_access_denied'};
   const epoch=active?Number(active.epoch):Number((await one<{epoch:string}>(c,'SELECT coalesce(max(epoch),0)+1 epoch FROM consult_devices WHERE consult_id=$1 AND device_id=$2',[target,v.device])).epoch);
   if(!active){await c.query('INSERT INTO consult_devices(consult_id,device_id,user_id,epoch) VALUES($1,$2,$3,$4)',[target,v.device,actor,epoch]);await audit(c,target,actor,'device_prepared',{device:v.device,epoch});}
-  return {ok:true,epoch,revision:Number(s.consult.revision),generation:Number(s.consult.completion_generation)};
+  return {ok:true,epoch,last_ack_seq:Number(active?.last_ack_seq??0),revision:Number(s.consult.revision),generation:Number(s.consult.completion_generation)};
  }
  if(kind==='recovery_lease'){
   const actor=await authorize(c,context,target,'recovery_lease',true);

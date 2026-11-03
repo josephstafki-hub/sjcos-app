@@ -19,8 +19,8 @@ function dataUrlToBlob(url: string): Blob {
   return new Blob([bytes], { type: mime });
 }
 
-export function ClientView({ summary, hasInitials, onInitials, onHandBack, verifyPin }: {
-  summary: ClientSummary; hasInitials: boolean; onInitials: (png: Blob) => Promise<void>; onHandBack: () => void; verifyPin: (pin: string) => Promise<boolean>;
+export function ClientView({ summary, pamphlet = false, hasInitials, onInitials, onHandBack, verifyPin }: {
+  summary: ClientSummary; pamphlet?: boolean; hasInitials: boolean; onInitials: (png: Blob) => Promise<void>; onHandBack: () => void; verifyPin: (pin: string) => Promise<boolean>;
 }) {
   const s = clientSummary(summary); // allowlist: nothing else reaches this view
   const pad = useRef<SignaturePadHandle>(null);
@@ -61,8 +61,9 @@ export function ClientView({ summary, hasInitials, onInitials, onHandBack, verif
     <main className="consult-client min-h-dvh bg-paper text-[20px] text-ink" aria-label={W.whatWeWentOver}>
       <div className="mx-auto grid max-w-[1180px] gap-6 px-5 py-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,460px)] lg:gap-10 lg:py-10">
         <section className="min-w-0">
-          <h1 className="font-serif text-[1.5em] font-semibold leading-tight text-ink">{W.whatWeWentOver}</h1>
+          <h1 className="font-serif text-[1.5em] font-semibold leading-tight text-ink">{pamphlet ? "Renovate Right receipt" : W.whatWeWentOver}</h1>
           <p className="mt-1 text-ink-2">{s.client_name}{s.visit_date ? ` · ${s.visit_date}` : ""}</p>
+          {pamphlet ? <p className="mt-5">I received the Renovate Right pamphlet about lead-safe renovation work.</p> : <>
           <ul className="mt-5 grid gap-4">
             {s.rooms.map((r, i) => (
               <li key={i}>
@@ -74,7 +75,7 @@ export function ClientView({ summary, hasInitials, onInitials, onHandBack, verif
           {s.still_to_decide.length > 0 && <div className="mt-5"><p className="font-mono text-[0.7em] font-semibold uppercase tracking-[0.14em] text-accent">{W.stillToDecide}</p><p>{s.still_to_decide.join(" · ")}</p></div>}
           {s.open_questions.length > 0 && <div className="mt-5"><p className="font-mono text-[0.7em] font-semibold uppercase tracking-[0.14em] text-accent">{W.openQuestions}</p><ul className="list-disc pl-6">{s.open_questions.map((q, i) => <li key={i}>{q}</li>)}</ul></div>}
           <div className="mt-5"><p className="font-mono text-[0.7em] font-semibold uppercase tracking-[0.14em] text-accent">{W.nextStep}</p><p>{s.formal_estimate_date ? fill(W.nextFormal, { date: s.formal_estimate_date }) : "formal estimate"}</p></div>
-          <p className="mt-5 text-[0.85em] text-ink-2">This is what we talked about today. It is not a contract or a price.</p>
+          <p className="mt-5 text-[0.85em] text-ink-2">This is what we talked about today. It is not a contract or a price.</p></>}
         </section>
         <section className="grid content-start gap-4">
           {saved ? <p role="status" className="rounded-lg border-2 border-ok bg-ok-soft px-4 py-3 font-semibold">✓ {W.initialsSaved.replace(" ✓", "")}</p> : <>

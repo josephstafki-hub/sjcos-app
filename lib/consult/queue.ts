@@ -16,8 +16,8 @@ export interface QueueState {
   blocked: 'signed_out' | 'revoked' | 'deleted' | 'update_required' | null;
 }
 export interface OpReceipt { id: string; status: number; revision?: number; error_code?: string; conflict?: unknown }
-export function emptyQueue(generation: number, device_epoch: number, deletion_epoch = 0): QueueState {
-  return {protocol_version:1,generation,device_epoch,deletion_epoch,next_seq:1,entries:[],projection:{},blocked:null};
+export function emptyQueue(generation: number, device_epoch: number, deletion_epoch = 0, last_ack_seq = 0): QueueState {
+  return {protocol_version:1,generation,device_epoch,deletion_epoch,next_seq:last_ack_seq+1,entries:[],projection:{},blocked:null};
 }
 export function canonicalJson(value: unknown): string {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return JSON.stringify(value);
@@ -85,10 +85,10 @@ export function applyServerEpoch(state:QueueState, generation:number, device_epo
   if (generation!==state.generation || device_epoch!==state.device_epoch) return {...state,generation,device_epoch,projection:{},entries:state.entries.map((e)=>e.status==='accepted'?e:{...e,status:'conflict',error_code:'rebase_required'})};
   return state;
 }
-export interface CloseManifest {device:string;epoch:number;last_seq:number;required_blob_hashes:string[];initials_hash:string|null;local_pending:number}
-export function closeManifest(state:QueueState,device:string,required_blob_hashes:string[],initials_hash:string|null):CloseManifest {
+export interface CloseManifest {device:string;epoch:number;last_seq:number;required_blob_hashes:string[];initials_hash?:string|null;initials_hashes?:string[];local_pending:number}
+export function closeManifest(state:QueueState,device:string,required_blob_hashes:string[],initials_hash:string|null|string[]):CloseManifest {
   if (state.blocked) throw new Error(state.blocked);
-  return {device,epoch:state.device_epoch,last_seq:state.next_seq-1,required_blob_hashes:[...new Set(required_blob_hashes)].sort(),initials_hash,
+  return {device,epoch:state.device_epoch,last_seq:state.next_seq-1,required_blob_hashes:[...new Set(required_blob_hashes)].sort(),...(Array.isArray(initials_hash)?{initials_hashes:[...new Set(initials_hash)].sort()}:{initials_hash}),
     local_pending:state.entries.filter((e)=>e.status!=='accepted').length};
 }
 /** One drain at a time; a lost HTTP acknowledgement leaves the same op IDs pending. */

@@ -43,12 +43,12 @@ test('verified complete precache serves cold offline shell; kill switch blocks c
 });
 
 import {getReady} from '../lib/consult/get-ready.ts';import {definitionChecksum} from '../lib/consult/forms/seed.ts';
-test('Get ready runs all five real mandatory checks in order and commits prepared state',async()=>{
+test('Get ready in a new build partition continues the prepared device sequence and commits after all checks',async()=>{
  const store=await ConsultOfflineStore.open(memoryIndexedDB()),checks=[],device='device',now=Date.now(),signed=signOfflineLease({...liveLease(),consult_id:id.consult_id,device_id:device,build:id.build,issued_at:now},Buffer.alloc(32,9));
  const definition={key:'room',version:1,title:'Room',repeatable:true,say:[],fields:[],shots:[],coverage:[]};const snapshot={consult:{revision:0,completion_generation:1},pins:[{definition,checksum:await definitionChecksum(definition)}]};
- const request=async(url,options)=>options?.method==='POST'?Response.json(JSON.parse(options.body).command==='prepare_device'?{ok:true,epoch:1,generation:1}:signed):Response.json(snapshot);
+ const request=async(url,options)=>options?.method==='POST'?Response.json(JSON.parse(options.body).command==='prepare_device'?{ok:true,epoch:1,generation:1,last_ack_seq:7}:signed):Response.json(snapshot);
  const result=await getReady({identity:id,device,pin:'123456',manifest:{build:id.build,assets:[]},worker:{postMessage:(message,ports)=>ports[0].postMessage({ok:true})},store,storage:{estimate:async()=>({quota:100000000,usage:0}),persist:async()=>false},needed_bytes:1024,request,onCheck:(key,value)=>{if(value.state==='done')checks.push(key);}});
- assert.equal(result.ok,true);assert.deepEqual(checks,['visit_details','forms','offline_pages','saving_on_device','offline_lease']);assert.deepEqual(result.engine.read().snapshot,snapshot);store.close();
+ assert.equal(result.ok,true);assert.equal(result.engine.read().queue.next_seq,8);assert.deepEqual(checks,['visit_details','forms','offline_pages','saving_on_device','offline_lease']);assert.deepEqual(result.engine.read().snapshot,snapshot);store.close();
 });
 
 test('multipart replay recovers lost commit acknowledgment by event ID, evicts only committed bytes',async()=>{
@@ -63,4 +63,29 @@ test('multipart replay recovers lost commit acknowledgment by event ID, evicts o
  const {store,key,lease,engine}=await setup(request);const op=await answer();await engine.capture(op,{length:96});await engine.replay();
  const blob=new Blob(['photo bytes']),hash=[...new Uint8Array(await crypto.subtle.digest('SHA-256',await blob.arrayBuffer()))].map(b=>b.toString(16).padStart(2,'0')).join('');const meta={hash,event_id:crypto.randomUUID(),mime:'image/jpeg',kind:'photo',instance_id:op.target.instance_id,shot_key:'room'};
  await engine.captureBlob(blob,meta);await assert.rejects(engine.replay(),/ack lost/);assert.equal(engine.read().blobs[0].receipt,undefined);await engine.replay();assert.deepEqual(engine.read().blobs[0].receipt,receipt);assert.deepEqual(events,[meta.event_id,meta.event_id]);assert.equal(parts,1);assert.equal(commits,1);await engine.evictSyncedBlobs();assert.equal(await store.loadBlob(id,lease,key,hash),null);store.close();
+});
+
+test('decision-only saves survive cold reload, replay receipts, a new build and a new login partition',async()=>{
+ const store=await ConsultOfflineStore.open(memoryIndexedDB()),device='stable-device';let ack=0;
+ const definition={key:'room',version:1,title:'Room',repeatable:true,say:[],fields:[],shots:[],coverage:[]};
+ const pin={definition,checksum:await definitionChecksum(definition)};
+ for(const identity of [id,{...id,build:'v2'},{...id,build:'v2',session_epoch:3}]){
+  const now=Date.now(),signed=signOfflineLease({...liveLease(),...identity,device_id:device,issued_at:now},Buffer.alloc(32,9));
+  const request=async(_url,options)=>{
+   if(!options?.method)return Response.json({consult:{revision:ack,completion_generation:1},pins:[pin]});
+   const b=JSON.parse(options.body);
+   if(b.command==='prepare_device')return Response.json({ok:true,epoch:1,generation:1,last_ack_seq:ack});
+   if(b.command==='offline_lease')return Response.json(signed);
+   return Response.json(b.input.ops.map(o=>{assert.equal(o.seq,ack+1);ack=o.seq;return {id:o.client_event_id,status:200,revision:ack};}));
+  };
+  const ready=await getReady({identity,device,pin:'123456',manifest:{build:identity.build,assets:[]},worker:{postMessage:(_m,p)=>p[0].postMessage({ok:true})},store,storage:{estimate:async()=>({quota:100000000,usage:0}),persist:async()=>true},needed_bytes:1,request,onCheck:()=>{}});
+  assert.equal(ready.ok,true);assert.equal(ready.engine.read().queue.next_seq,ack+1);
+  const payload={flags:{room:{disposition:'price_it',note:'Repair'}},trade_walks:[],rrp:{receipt:true},skips:{photo:{reason:'Client declined'}}};
+  const op={...await answer(),device_id:device,type:'decisions',target:null,seq:ack+1,payload,payload_sha256:await payloadHash(payload)};
+  await ready.engine.capture(op,{draft:payload});ready.engine.lock();
+  const unlocked=await new OfflineVault(store).unlock(identity,device,'123456');const cold=new OfflineEngine(identity,store,request);
+  await cold.unlockSigned(unlocked.key,signed,device,unlocked.issuer);assert.deepEqual(cold.read().queue.projection.draft,payload);
+  await cold.replay();assert.equal(cold.read().queue.entries[0].status,'accepted');cold.lock();
+ }
+ assert.equal(ack,3);store.close();
 });

@@ -96,7 +96,7 @@ export async function commitConsultBlob(c:PoolClient,ctx:ConsultContext,id:strin
  await c.query("UPDATE consult_uploads SET status='committed',file_id=$2,commit_receipt=$3 WHERE id=$1",[uid,fileId,receipt]);
  await c.query(`INSERT INTO consult_events(consult_id,event_id,actor,source,type,payload,payload_hash,server_revision,generation) VALUES($1,$2,$3,'typed','upload',$4,$5,$6,$7)`,[id,u.event_id,actor,receipt,u.sha256,Number(row.revision)+1,row.completion_generation]);
  await c.query(`INSERT INTO consult_media(id,consult_id,instance_id,field_key,shot_key,kind,file_id,sha256,taken_at,actor,event_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,now(),$9,$10)`,[uid,id,u.instance_id,u.field_key,u.shot_key,u.kind,fileId,u.sha256,actor,u.event_id]);
- if(u.kind==='initials')await c.query('UPDATE consults SET client_ack_media_id=$2 WHERE id=$1',[id,uid]);
+ if(u.kind==='initials'&&u.field_key==='client_initials'&&(await c.query("SELECT id FROM consult_instances WHERE consult_id=$1 AND id=$2 AND module_key='closing' AND removed_at IS NULL",[id,u.instance_id])).rowCount)await c.query('UPDATE consults SET client_ack_media_id=$2 WHERE id=$1',[id,uid]);
  await c.query('UPDATE consults SET revision=revision+1 WHERE id=$1',[id]);
  await c.query('DELETE FROM consult_upload_parts WHERE upload_id=$1',[uid]);return receipt;
 }

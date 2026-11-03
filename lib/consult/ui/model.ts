@@ -11,7 +11,7 @@ import { countingSkip, hasRiskAssumption, type CompletionItem, type RiskAssumpti
 import type { QueueEntry } from '../queue.ts';
 import type { LocalBlob } from '../offline-engine.ts';
 
-export interface Display { client: string; project: string; slug: string; address: string | null; visitor_name: string; visitor_staff: boolean; scheduled_label: string }
+export interface Display { client: string; project: string; slug: string; address: string | null; phone?: string | null; visitor_name: string; visitor_staff: boolean; scheduled_label: string }
 export interface SnapInstance { id: string; module_key: string; parent_id: string | null; removed_at: string | null; label?: string; created_at?: string }
 export interface SnapHead { id: string; instance_id: string; field_key: string; status: string; value: unknown; unit?: string | null; skip_reason: string | null; skip_note: string | null; server_revision: string | number; device_id?: string | null; actor?: string | null; created_at?: string }
 export interface SnapConflict { id?: string; instance_id: string; field_key: string; current_answer_id: string; proposed_answer_id: string }
@@ -22,6 +22,8 @@ export interface Snapshot {
   proposals?: unknown[];
   findings_job?: { generation: string | number; status: string; attempts: number; last_error: string | null; result: unknown } | null;
   display?: Display;
+  visitor_notes?: string; decisions?: EvidenceDraft | null;
+  prefill?: {year_built: string | null; intake: {question:string;answer:string}[]; rough_estimate:{label:string;value?:unknown}[]; scope_items:{key:string;title:string;room:string;trade:string;quantities:{label:string;qty:number|null;unit:string;basis?:string}[]}[]; plan_items:{prompt:string;location:string}[]; photos:{id:string;name:string}[]; discovery_notes:{summary:string}[]};
 }
 export interface EvidenceDraft {
   skips: Record<string, { reason: SkipReason; note?: string; assumption?: RiskAssumption; trade_walk_decided?: boolean }>;
@@ -62,7 +64,7 @@ export const addrOf = (instance_id: string, field_key: string) => `${instance_id
 export const shotAddr = (instance_id: string, shot_key: string) => `${instance_id}:shot:${shot_key}`;
 
 const ANSWER_TYPES = new Set(['answer', 'clear', 'resolve']);
-const BUMPS = new Set(['start', 'create_instance', 'remove_instance', 'answer', 'clear', 'resolve']);
+const BUMPS = new Set(['start', 'create_instance', 'remove_instance', 'answer', 'clear', 'resolve', 'decisions']);
 
 export function modulesOf(s: Snapshot): ModuleDef[] { return s.pins.filter((p) => p.kind === 'module').map((p) => p.definition as ModuleDef); }
 export function templatesOf(s: Snapshot): TemplateDef[] { return s.pins.filter((p) => p.kind === 'template').map((p) => p.definition as TemplateDef); }
@@ -354,10 +356,10 @@ export function summaryInput(model: VisitModel, display: Display | undefined, vi
 }
 
 /** Required blob hashes for the exact close manifest: every photo this device holds for live instances. */
-export function manifestBlobs(blobs: LocalBlob[]): { photos: string[]; initials: string | null } {
+export function manifestBlobs(blobs: LocalBlob[]): { photos: string[]; initials: string[] } {
   const photos = blobs.filter((b) => b.kind === 'photo').map((b) => b.hash);
   const initials = blobs.filter((b) => b.kind === 'initials');
-  return { photos: [...new Set(photos)].sort(), initials: initials.length ? initials[initials.length - 1].hash : null };
+  return { photos: [...new Set(photos)].sort(), initials: [...new Set(initials.map(b=>b.hash))].sort() };
 }
 
 /** Validity of a written assumption, for the skip sheet's Save button. */

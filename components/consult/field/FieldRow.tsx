@@ -23,7 +23,7 @@ export interface FieldActions {
   thumbs: Record<string, string>;
   photosOk: boolean | null;
   online: boolean;
-  showToClient: () => void;
+  showToClient: (field?: FieldView) => void;
   focusAddr: string | null;
 }
 
@@ -197,9 +197,7 @@ export function FieldRow({ f, actions, sectionId, last }: { f: FieldView; action
       );
       break;
     case "signature":
-      input = f.key === "client_initials"
-        ? <div className="mt-2 flex flex-wrap items-center gap-3">{f.initials ? <p className="text-ink-2">{W.initialsSaved}{f.initials.receipt ? ` · ${W.photoUploaded}` : ` · ${W.photoSaved}`}</p> : <Btn tone="primary" onClick={actions.showToClient}>{W.showToClient}</Btn>}</div>
-        : <p className="mt-2 text-[0.95em] text-ink-2">Record the Renovate Right receipt in {W.beforeYouWrap}.</p>;
+      input = <div className="mt-2 flex flex-wrap items-center gap-3">{f.initials ? <p className="text-ink-2">{W.initialsSaved}{f.initials.receipt ? ` · ${W.photoUploaded}` : ` · ${W.photoSaved}`}</p> : <Btn tone="primary" onClick={() => actions.showToClient(f)}>{W.showToClient}</Btn>}</div>;
       break;
     default:
       input = <TextAnswer key={answerKey(f)} f={f} actions={actions} kind="text" />;

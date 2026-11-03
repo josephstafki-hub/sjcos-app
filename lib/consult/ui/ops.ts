@@ -41,3 +41,5 @@ export function resolveOp(q: QueueState, device: string, instance_id: string, fi
 export async function discardOp(q: QueueState, device: string, b: Baseline, rejected: ConsultOp, reason: string) {
   return envelope(q, device, 'discard_rejection', null, { event_id: rejected.client_event_id, hash: await payloadHash(rejected), reason }, b.rev);
 }
+
+export const decisionsOp = (q: QueueState, device: string, b: Baseline, draft: unknown) => envelope(q, device, 'decisions', null, draft, b.rev);

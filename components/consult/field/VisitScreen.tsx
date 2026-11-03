@@ -25,9 +25,9 @@ export interface VisitApi {
   photo: (file: Blob, meta: { instance_id: string; field_key?: string; shot_key?: string }, label: string) => Promise<unknown>;
   resolve: (instance: string, field: string, rev: number, current: string, proposed: string, p: AnswerPayload, label: string) => Promise<unknown>;
   discard: (eventId: string, reason: string) => Promise<unknown>;
-  setDraft: (d: EvidenceDraft) => void;
+  setDraft: (d: EvidenceDraft) => Promise<boolean>;
   close: () => void;
-  showToClient: () => void;
+  showToClient: (field?: FieldView) => void;
 }
 
 const fillScript = (line: string, display: Display | undefined, model: VisitModel) =>
@@ -72,8 +72,8 @@ function SectionRows({ model, active, onOpen, onAdd, compact }: { model: VisitMo
   );
 }
 
-export function VisitScreen({ model, display, api, thumbs, online, draft, refused, hasInitials, userName, staff, lastSaved, forgotClose, startAt }: {
-  startAt?: string | null; model: VisitModel; display: Display | undefined; api: VisitApi; thumbs: Record<string, string>; online: boolean; draft: EvidenceDraft; refused: number; hasInitials: boolean; userName: string; staff: boolean; lastSaved: string | null; forgotClose: boolean;
+export function VisitScreen({ model, display, api, thumbs, online, draft, refused, hasInitials, userName, staff, lastSaved, forgotClose, startAt, prefill, visitorNotes, saveError }: {
+  saveError?: string | null; prefill?: import("@/lib/consult/ui/model").Snapshot["prefill"]; visitorNotes?: string; startAt?: string | null; model: VisitModel; display: Display | undefined; api: VisitApi; thumbs: Record<string, string>; online: boolean; draft: EvidenceDraft; refused: number; hasInitials: boolean; userName: string; staff: boolean; lastSaved: string | null; forgotClose: boolean;
 }) {
   const [view, setView] = useState<"opening" | "list" | "section">(() => (startAt ? "section" : model.sections.some((s) => s.fields.some((f) => f.answer)) ? "list" : "opening"));
   const [active, setActive] = useState<string | null>(startAt ?? null);
@@ -194,6 +194,17 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
         </div>
         <MarkCell f={{ mark: section.mark, conflict: section.conflict, returnVisit: section.returnVisit }} />
       </div>
+      {(prefill || visitorNotes) && <details className="mt-3 rounded-lg border-2 border-rule-soft bg-card p-3"><summary className="min-h-12 cursor-pointer py-3 font-semibold">What we know so far</summary>
+        {visitorNotes && <p>{visitorNotes}</p>}
+        {display?.address && <p>{display.address}</p>}{display?.phone && <p>{display.phone}</p>}
+        {prefill?.intake.map((i,n)=><p key={`i${n}`}>{i.question}: {i.answer}</p>)}
+        {prefill?.rough_estimate.map((i,n)=><p key={`r${n}`}>{i.label}{i.value!==undefined ? ` · ${String(i.value)}` : ''}</p>)}
+        {prefill?.scope_items.map(i=><p key={i.key}>{i.title} · {i.quantities.map(q=>`${q.label}: ${q.qty??"Open"} ${q.unit??""}${q.basis ? ` · ${q.basis}` : ""}`).join("; ")}</p>)}
+        {prefill?.plan_items.map((i,n)=><p key={`p${n}`}>{i.prompt} · {i.location}</p>)}
+        {prefill?.photos.map(i=><p key={i.id}>{i.name}</p>)}
+        {prefill?.discovery_notes.map((i,n)=><p key={`d${n}`}>{i.summary}</p>)}
+        {section.module.key==='house' && prefill?.year_built && <><Btn onClick={()=>void api.answer(section.instance.id,'year_built','Year built',{status:'answered',value:Number(prefill.year_built)})}>Still right ✓ · {prefill.year_built}</Btn><Btn onClick={()=>setFocusAddr(`${section.instance.id}:year_built`)}>Correct</Btn></>}
+      </details>}
       {leave && leave.from === section.instance.id && (() => { const l = leaveList(model, section.instance.id); return (
         <div className="mt-3"><Banner kind="action" actions={<><Btn onClick={() => { setLeave(null); const h = nextOpen(model, section.instance.id); if (h) setFocusAddr(h.addr); }}>{W.goBack}</Btn><Btn tone="primary" onClick={() => { const go = leave.go; setLeave(null); go(); }}>{W.leaveForNow}</Btn></>}>
           {fill(W.leaveStill, { section: section.label, list: [l.open.length ? `Open: ${l.open.join(", ")}` : "", l.partly.length ? `Partly: ${l.partly.join(", ")}` : ""].filter(Boolean).join(" · ") })}
@@ -207,7 +218,7 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
         <div className="mt-3 rounded-lg border-2 border-rule-soft bg-card p-3">
           <Eyebrow>{W.script}</Eyebrow>
           {closingLines.map((l, i) => <p key={i} className="mt-1 font-serif text-ink-2">“{l}”</p>)}
-          <div className="mt-3"><Btn tone="primary" onClick={api.showToClient}>{W.showToClient}</Btn></div>
+          <div className="mt-3"><Btn tone="primary" onClick={() => api.showToClient()}>{W.showToClient}</Btn></div>
         </div>
       )}
       <div className="md:grid md:grid-cols-2 md:gap-x-6 lg:block xl:grid">
@@ -259,21 +270,21 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
       {keypad && <Keypad open def={keypad.f.def} label={keypad.f.def.label} initial={keypad.f.answer?.status === "answered" ? keypad.f.answer.value : undefined} last={section ? lastValue(section, keypad.f) : undefined}
         onClose={() => setKeypad(null)} onSave={async (value) => { await actions.answer(keypad.f, { status: "answered", value, unit: keypad.f.def.unit }); setKeypad(null); }} />}
       {skip && <SkipSheet open label={skip.field?.def.label ?? skip.shot?.def.label ?? ""} tier={skip.field?.def.tier ?? skip.shot?.def.tier ?? "price_critical"} isShot={!!skip.shot}
-        initial={draft.skips[skip.field?.addr ?? skip.shot?.addr ?? ""]} onClose={() => setSkip(null)}
+        saveError={saveError} initial={draft.skips[skip.field?.addr ?? skip.shot?.addr ?? ""]} onClose={() => setSkip(null)}
         onSave={async (v: SkipValue) => {
           const key = skip.field?.addr ?? skip.shot!.addr;
           const next = { ...draft, skips: { ...draft.skips, [key]: v } };
           if (skip.field) { const inst = skip.field.addr.split(":")[0]; await wrap(api.answer(inst, skip.field.key, skip.field.def.label, { status: "skipped", skip_reason: v.reason, skip_note: v.note, unit: skip.field.def.unit }, next)); }
-          else api.setDraft(next);
+          else if(!await api.setDraft(next)) return;
           setSkip(null);
         }} />}
       <WrapSheet open={sheet === "wrap"} onClose={() => setSheet(null)} model={model} draft={draft} hasInitials={hasInitials} refused={refused}
         onGo={(id, addr) => { setSheet(null); openSection(id, addr); }} onFlags={() => setSheet("flags")} onTrades={() => setSheet("trades")} onRrp={() => setSheet("rrp")} onClient={() => { setSheet(null); api.showToClient(); }} onAck={() => setSheet("ack")}
         onCloseVisit={() => { setSheet(null); api.close(); }} />
-      {sheet === "flags" && <FlagSheet open onClose={() => setSheet("wrap")} model={model} draft={draft} onSave={api.setDraft} />}
-      {sheet === "trades" && <TradeSheet open onClose={() => setSheet("wrap")} model={model} draft={draft} onSave={api.setDraft} />}
-      {sheet === "rrp" && <RrpSheet open onClose={() => setSheet("wrap")} draft={draft} onSave={api.setDraft} />}
-      {sheet === "ack" && <AckSheet open onClose={() => setSheet("wrap")} draft={draft} onSave={api.setDraft} />}
+      {sheet === "flags" && <FlagSheet open onClose={() => setSheet("wrap")} model={model} draft={draft} saveError={saveError} onSave={api.setDraft} />}
+      {sheet === "trades" && <TradeSheet open onClose={() => setSheet("wrap")} model={model} draft={draft} saveError={saveError} onSave={api.setDraft} />}
+      {sheet === "rrp" && <RrpSheet open onClose={() => setSheet("wrap")} draft={draft} saveError={saveError} onSave={api.setDraft} />}
+      {sheet === "ack" && <AckSheet open onClose={() => setSheet("wrap")} draft={draft} saveError={saveError} onSave={api.setDraft} />}
       <Sheet open={!!remove} onClose={() => setRemove(null)} title={remove ? fill(W.removeInstance, { name: remove.label }) : ""}
         footer={<><Btn onClick={() => setRemove(null)}>{W.cancel}</Btn><Btn tone="danger" onClick={() => { const r = remove!; setRemove(null); setView("list"); void wrap(api.removeInstance(r.instance.id, r.label)); }}>{W.remove}</Btn></>}>
         <p className="text-ink">{remove ? fill(W.removeConfirm, { name: remove.label }) : ""}</p>

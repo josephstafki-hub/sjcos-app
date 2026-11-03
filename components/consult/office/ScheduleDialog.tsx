@@ -2,7 +2,7 @@
 /**
  * Schedule dialog (plan §6.9 "Schedule dialog", §5.1 step 2): who goes, date, time,
  * templates (pre-ticked from the scope register), add-ons, estimated visit length.
- * (Visitor notes wait for a backend field: `schedule` has no notes input yet.) Owner only. POSTs the existing `schedule` command (all published
+ * Visitor notes are included in the assigned snapshot. Owner only. POSTs the existing `schedule` command (all published
  * modules are pinned with the chosen templates). Also "Change who goes" (`assign`).
  * Errors come back as data and are shown in plain words. No stage is advanced.
  */
@@ -38,6 +38,7 @@ export function ScheduleDialog({ projectId, client, options, ownerId }: { projec
   const [date, setDate] = useState("");
   const [time, setTime] = useState("09:00");
   const [templates, setTemplates] = useState<string[]>(options.suggested);
+  const [visitorNotes, setVisitorNotes] = useState("");
   const [addOns, setAddOns] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -48,7 +49,7 @@ export function ScheduleDialog({ projectId, client, options, ownerId }: { projec
     setBusy(true); setErr(null);
     try {
       const ids = [...options.templates, ...options.addOns].filter((t) => templates.includes(t.key) || addOns.includes(t.key)).map((t) => t.id);
-      await command("new", "schedule", { project: projectId, visit_time: `${date}T${time}:00${centralOffset(date)}`, visitor: who, forms: [...ids, ...options.modules] });
+      await command("new", "schedule", { project: projectId, visit_time: `${date}T${time}:00${centralOffset(date)}`, visitor: who, visitor_notes: visitorNotes, forms: [...ids, ...options.modules] });
       setOpen(false); router.refresh();
     } catch (e) { setErr(plainWords(e instanceof Error ? e.message : "")); } finally { setBusy(false); }
   };
@@ -75,6 +76,7 @@ export function ScheduleDialog({ projectId, client, options, ownerId }: { projec
                 <div className="mt-1 flex flex-wrap gap-3">{options.templates.map((t) => <Tick key={t.key} on={templates.includes(t.key)} label={t.title} onClick={() => toggle(templates, setTemplates, t.key)} />)}</div></fieldset>
               {options.addOns.length > 0 && <fieldset><legend className="font-semibold text-ink">{W.addOns}</legend>
                 <div className="mt-1 flex flex-wrap gap-3">{options.addOns.map((t) => <Tick key={t.key} on={addOns.includes(t.key)} label={t.title} onClick={() => toggle(addOns, setAddOns, t.key)} />)}</div></fieldset>}
+              <label className="block"><span className="font-semibold text-ink">Visitor notes</span><textarea value={visitorNotes} maxLength={8000} onChange={(e)=>setVisitorNotes(e.target.value)} className="mt-1 block min-h-12 w-full rounded-md border-2 border-rule bg-card px-3 text-[16px]" /></label>
               <p className="text-ink-2">{fill(W.estimatedVisit, { duration: visitDuration(templates) })}</p>
               {err && <p role="alert" className="font-semibold text-flag">! {err}</p>}
             </div>

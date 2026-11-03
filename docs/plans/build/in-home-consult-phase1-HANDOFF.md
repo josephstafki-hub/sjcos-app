@@ -3,9 +3,56 @@
 This is the authoritative handoff for `t3/in-home-consult-backend`. It replaces
 previous continuation notes. Capture, publication, uploads, findings jobs,
 reconciliation, maintenance, offline modules and the service-worker protocol are
-implemented. This is a backend slice: the consultation UI and its compiled offline
-capture bundle are not supplied. No deployment, push, browser, Next build, live DB
+implemented. The consultation UI was subsequently supplied in `ee7ad0d4`; see the
+backend/UI completion addendum below for the current integration contract. No deployment, push, browser, Next build, live DB
 or QA connection was performed.
+
+
+## Backend/UI completion addendum — 2026-11-02
+
+This supersedes the six outstanding backend asks in the UI builder's notes. No schema
+migration or additional narrow-login privileges are needed: visitor notes and partial
+human decisions use the existing immutable `consult_events` log and sync receipts.
+
+- Reviewed `e4fd171a`: kept its exact-instance/field committed signature check. Also
+  restricted check 5 to live `closing.client_initials`; Renovate Right initials never
+  substitute for the walk-through acknowledgment. Uploads set the acknowledgment
+  pointer only for that closing field.
+- `prepare_device` now serializes reservation and returns `last_ack_seq`. A fresh
+  build/login partition starts `next_seq = last_ack_seq + 1`. Existing pending work
+  stays in its original partition; an unlocked, fully synced partition can move to
+  the current build/session through Get ready. Tests cover both new builds and logins.
+- Close accepts `initials_hashes: string[]`. Legacy `initials_hash` remains supported;
+  all listed initials must be committed initials and every live committed image must
+  be included. The UI captures walk-through and pamphlet initials separately and sends
+  all hashes. Snapshots restore committed media receipts for fresh partitions.
+- `schedule` accepts optional `visitor_notes` (trimmed, at most 8,000 characters).
+  The assigned snapshot returns them, `display` (client, address, phone, visitor), and
+  `prefill`: year built from intake, intake answers, rough line labels (values only for
+  owner/`estimates`), scope quantities, open pinned/latest plan items, lead-photo
+  references, discovery activity and filed call summaries. All reads follow successful
+  assignment authorization. No transcript, recording, storage path, supplier price,
+  dedicated price or arbitrary rough-line properties are returned. Reads refresh
+  source facts; unconfirmed prefill never counts toward completion.
+- New sync op `decisions`, target `null`, payload `EvidenceDraft` (exported server
+  `decisionSchema`): flag decisions, trade walks, RRP answers, photo skips and decline
+  reason. Partial drafts may retain an undecided trade, empty flag explanation or
+  incomplete redelivery date; final `evidenceSchema` still strictly validates Close.
+  It receives the normal sequence/hash/generation/device checks, immutable event and
+  idempotent per-op receipt, increments revision, and invalidates close acknowledgments.
+  Snapshot `decisions` restores the latest current-generation draft. It does not claim
+  any close check passed. UI Save waits for local durable capture before dismissing;
+  failures remain visible as data. Capture/media/replay writes are serialized.
+- Removed the injected page-display response and the single-initials/next-answer-save
+  workarounds. Existing screens receive the server fields, expose visitor notes and
+  What we know so far, and route the pamphlet field through the guarded client view.
+
+Final validation: 108/108 tests across 22 single-file runs (`consult-*`,
+`estimating-db`, both `db-roles-*`), zero failures/skips; shared-lock/niced tsc
+exit 0; role-scan diff and whitespace checks exit 0. Consult harness cluster stopped. Coordinator visual checks still needed:
+Schedule notes; prefill/Still right/Correct; both guarded client initials views; a cold
+reload after decision-only saves; Get ready after a new build/login; Close with both
+images. No Next build/start/dev, browser, live/QA DB, deployment or push was run.
 
 ## UI integration order
 
@@ -125,7 +172,7 @@ introduced. Device reservation returns `{ok:false,code}` for expected conflicts.
 
 | command | input → result |
 |---|---|
-| prepare_device | `{device,expected_revision}` → `{ok:true,epoch,revision,generation}` or `{ok:false,code}`; single active device, does not start visit |
+| prepare_device | `{device,expected_revision}` → `{ok:true,epoch,last_ack_seq,revision,generation}` or `{ok:false,code}`; single active device, does not start visit |
 | offline_lease | `{device,build}` → `{payload,signature,public_key}`; Ed25519 24h lease bound to authenticated user/session/consult/device/build; disabled capture refuses issuance |
 | recovery_lease | Owner only `{original_user,session_epoch,device,epoch,build,reason}` → same signed envelope with purpose recovery, 15-minute expiry; verifies historical device ownership and audits owner |
 | recover_device | Owner only `{operation_id,original_user,device,epoch,reason,ops,blobs?}` (≤50 ops) → `{ok:true,staged:true}`; verifies original hashes/address, preserves full manifest audit, stages answer/clear proposals under original actor, revokes old device; non-answer operations stay in audit for explicit human reconstruction |
@@ -186,7 +233,7 @@ and `X-Consult-CSRF: 1`. Cross-site requests are refused. Payload limit is 256 K
 
 | command | exact input | result |
 |---|---|---|
-| schedule | `{project,visit_time,visitor,forms:UUID[],plan?:UUID|null,plan_revision?:number|null}`; offset ISO timestamp; all pins published, every template module pinned | `{id}` + scheduled-visit task |
+| schedule | `{project,visit_time,visitor,forms:UUID[],plan?:UUID|null,plan_revision?:number|null,visitor_notes?:string}`; offset ISO timestamp; all pins published, every template module pinned | `{id}` + scheduled-visit task |
 | publish_form | `{form_id,registry_id}` | `{checksum}` |
 | start | `{device,expected_revision}` | `{epoch}` (DB bigint JSON may be a string) |
 | assign | `{visitor,expected_revision,scheduled_at?:offset ISO timestamp}` | `{revision}`; revokes prior assignment/device, returns to scheduled for explicit new Start |
@@ -307,7 +354,6 @@ files, including the original 64, unchanged seed 12/12, offline 17/17, queue
 5/5, formula 3/3, offline DB 3/3 and real seed publication 1/1. Shared-lock tsc
 exits 0; role scan and diff whitespace checks exit 0. The consult cluster is stopped.
 
-Remaining integration outside this backend slice: author/build the UI capture bundle,
-then generate its precache manifest; wire session/user-switch/kill-switch callbacks,
-perform coordinator visual/device checks, install timer and deploy when authorized.
+Remaining coordinator integration: build the existing UI capture bundle and generate
+its precache manifest; perform visual/device checks, install timer and deploy when authorized.
 No claim of an end-to-end working offline UI is made by this backend handoff.

@@ -68,11 +68,12 @@ function Line({ text, action, warn }: { text: string; action?: React.ReactNode; 
   );
 }
 
-export function FlagSheet({ open, onClose, model, draft, onSave }: { open: boolean; onClose: () => void; model: VisitModel; draft: EvidenceDraft; onSave: (d: EvidenceDraft) => void }) {
+export function FlagSheet({ open, onClose, model, draft, onSave, saveError }: { open: boolean; onClose: () => void; model: VisitModel; draft: EvidenceDraft; saveError?: string | null; onSave: (d: EvidenceDraft) => Promise<boolean> }) {
   const [local, setLocal] = useState(draft.flags);
   const set = (key: string, patch: Partial<EvidenceDraft["flags"][string]>) => setLocal((l) => ({ ...l, [key]: { disposition: l[key]?.disposition ?? "price_it", note: l[key]?.note ?? "", ...patch } }));
   return (
-    <Sheet open={open} onClose={onClose} side title={W.flagTitle} footer={<><Btn onClick={onClose}>{W.cancel}</Btn><Btn tone="primary" onClick={() => { onSave({ ...draft, flags: local }); onClose(); }}>{W.save}</Btn></>}>
+    <Sheet open={open} onClose={onClose} side title={W.flagTitle} footer={<><Btn onClick={onClose}>{W.cancel}</Btn><Btn tone="primary" onClick={async () => { if(await onSave({ ...draft, flags: local })) onClose(); }}>{W.save}</Btn></>}>
+      {saveError && <Banner kind="action">{plainWords(saveError)}</Banner>}
       <div className="grid gap-5">
         {model.flags.map((f) => (
           <fieldset key={f.key} className="rounded-lg border-2 border-rule p-3">
@@ -87,14 +88,15 @@ export function FlagSheet({ open, onClose, model, draft, onSave }: { open: boole
   );
 }
 
-export function TradeSheet({ open, onClose, model, draft, onSave }: { open: boolean; onClose: () => void; model: VisitModel; draft: EvidenceDraft; onSave: (d: EvidenceDraft) => void }) {
+export function TradeSheet({ open, onClose, model, draft, onSave, saveError }: { open: boolean; onClose: () => void; model: VisitModel; draft: EvidenceDraft; saveError?: string | null; onSave: (d: EvidenceDraft) => Promise<boolean> }) {
   const initial = [...new Set([...model.touchedTrades, ...draft.trade_walks.map((w) => w.trade)])].filter(Boolean).map((t) => draft.trade_walks.find((w) => w.trade === t) ?? { trade: t, needed: null, reason: "" });
   const [walks, setWalks] = useState(initial);
   const [none, setNone] = useState(draft.no_trades_confirmed);
   const [extra, setExtra] = useState("");
   const set = (i: number, patch: Partial<EvidenceDraft["trade_walks"][number]>) => setWalks((w) => w.map((x, j) => (j === i ? { ...x, ...patch } : x)));
   return (
-    <Sheet open={open} onClose={onClose} side title={W.tradeWalkTitle} footer={<><Btn onClick={onClose}>{W.cancel}</Btn><Btn tone="primary" onClick={() => { onSave({ ...draft, trade_walks: walks, no_trades_confirmed: walks.length === 0 && none }); onClose(); }}>{W.save}</Btn></>}>
+    <Sheet open={open} onClose={onClose} side title={W.tradeWalkTitle} footer={<><Btn onClick={onClose}>{W.cancel}</Btn><Btn tone="primary" onClick={async () => { if(await onSave({ ...draft, trade_walks: walks, no_trades_confirmed: walks.length === 0 && none })) onClose(); }}>{W.save}</Btn></>}>
+      {saveError && <Banner kind="action">{plainWords(saveError)}</Banner>}
       <div className="grid gap-5">
         {walks.map((w, i) => (
           <fieldset key={w.trade} className="rounded-lg border-2 border-rule p-3">
@@ -113,7 +115,7 @@ export function TradeSheet({ open, onClose, model, draft, onSave }: { open: bool
   );
 }
 
-export function RrpSheet({ open, onClose, draft, onSave }: { open: boolean; onClose: () => void; draft: EvidenceDraft; onSave: (d: EvidenceDraft) => void }) {
+export function RrpSheet({ open, onClose, draft, onSave, saveError }: { open: boolean; onClose: () => void; draft: EvidenceDraft; saveError?: string | null; onSave: (d: EvidenceDraft) => Promise<boolean> }) {
   const [rrp, setRrp] = useState(draft.rrp);
   const toggle = (k: "receipt" | "firm_current" | "renovator_current" | "redelivery_required", label: string) => (
     <button type="button" role="checkbox" aria-checked={rrp[k]} onClick={() => setRrp({ ...rrp, [k]: !rrp[k] })}
@@ -122,7 +124,8 @@ export function RrpSheet({ open, onClose, draft, onSave }: { open: boolean; onCl
     </button>
   );
   return (
-    <Sheet open={open} onClose={onClose} side title={W.rrpTitle} footer={<><Btn onClick={onClose}>{W.cancel}</Btn><Btn tone="primary" onClick={() => { onSave({ ...draft, rrp }); onClose(); }}>{W.save}</Btn></>}>
+    <Sheet open={open} onClose={onClose} side title={W.rrpTitle} footer={<><Btn onClick={onClose}>{W.cancel}</Btn><Btn tone="primary" onClick={async () => { if(await onSave({ ...draft, rrp })) onClose(); }}>{W.save}</Btn></>}>
+      {saveError && <Banner kind="action">{plainWords(saveError)}</Banner>}
       <p className="mb-3 text-ink-2">The house was built before 1978, or the year isn’t known.</p>
       <div className="grid gap-3">
         {toggle("receipt", W.rrpReceipt)}{toggle("firm_current", W.rrpFirm)}{toggle("renovator_current", W.rrpRenovator)}{toggle("redelivery_required", W.rrpRedelivery)}
@@ -132,10 +135,11 @@ export function RrpSheet({ open, onClose, draft, onSave }: { open: boolean; onCl
   );
 }
 
-export function AckSheet({ open, onClose, draft, onSave }: { open: boolean; onClose: () => void; draft: EvidenceDraft; onSave: (d: EvidenceDraft) => void }) {
+export function AckSheet({ open, onClose, draft, onSave, saveError }: { open: boolean; onClose: () => void; draft: EvidenceDraft; saveError?: string | null; onSave: (d: EvidenceDraft) => Promise<boolean> }) {
   const [why, setWhy] = useState(draft.ack_reason ?? "");
   return (
-    <Sheet open={open} onClose={onClose} title={W.noInitialsWhy} footer={<><Btn onClick={onClose}>{W.cancel}</Btn><Btn tone="primary" disabled={!why.trim()} onClick={() => { onSave({ ...draft, ack_reason: why.trim() }); onClose(); }}>{W.save}</Btn></>}>
+    <Sheet open={open} onClose={onClose} title={W.noInitialsWhy} footer={<><Btn onClick={onClose}>{W.cancel}</Btn><Btn tone="primary" disabled={!why.trim()} onClick={async () => { if(await onSave({ ...draft, ack_reason: why.trim() })) onClose(); }}>{W.save}</Btn></>}>
+      {saveError && <Banner kind="action">{plainWords(saveError)}</Banner>}
       <div className="grid gap-3">
         <Choice options={[W.noInitialsAbsent, W.noInitialsDeclined]} value={why === W.noInitialsAbsent || why === W.noInitialsDeclined ? why : null} onPick={setWhy} columns={2} />
         <TextInput label={W.reason} value={why} onChange={setWhy} />

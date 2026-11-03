@@ -16,7 +16,7 @@ import { closeManifest, type QueueState } from '../queue.ts';
 import { registerConsultWorker, type PrecacheManifest } from '../service-worker.ts';
 import type { ReadyCheck, CheckResult } from '../readiness.ts';
 import { baselineOf, buildModel, emptyDraft, manifestBlobs, predictRevisions, unsentCount, type Baseline, type Display, type EvidenceDraft, type Snapshot } from './model.ts';
-import { answerOp, createInstanceOp, discardOp, removeInstanceOp, resolveOp, startOp, uuid, type AnswerPayload } from './ops.ts';
+import { decisionsOp, answerOp, createInstanceOp, discardOp, removeInstanceOp, resolveOp, startOp, uuid, type AnswerPayload } from './ops.ts';
 
 export interface Boot {
   consult_id: string; user: { id: string; name: string; role: string }; session_epoch: number;
@@ -124,6 +124,7 @@ export class VisitController {
   private manifest: PrecacheManifest | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private draining = false;
+  private writes: Promise<unknown> = Promise.resolve();
   private disposed = false;
 
   constructor(boot: Boot | null, consultId: string) {
@@ -184,13 +185,7 @@ export class VisitController {
       worker = reg ? await activeWorker(reg) : null;
     } catch { worker = null; }
     try { if (!this.manifest) { const r = await fetch('/consult/precache.json', { cache: 'no-store', credentials: 'omit' }); if (r.ok) this.manifest = await r.json(); } } catch (e) { if (offlineError(e)) { this.set({ ready: { result: 'no_signal', checks: {} } }); return; } }
-    const display = boot.display;
-    const request: typeof fetch = async (input, init) => {
-      const r = await fetch(input, init);
-      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-      if ((init?.method ?? 'GET') === 'GET' && url.endsWith(`/api/consult/${consultId}`) && r.ok) { const j = await r.json(); return new Response(JSON.stringify({ ...j, display }), { status: 200, headers: { 'Content-Type': 'application/json' } }); }
-      return r;
-    };
+    const request = fetch;
     if (!worker || !this.manifest) {
       // Run the checks that can still run so the screen names the exact failure.
       checks.visit_details = { state: 'checking' }; this.set({ ready: { result: 'checking', checks: { ...checks } } });
@@ -223,6 +218,11 @@ export class VisitController {
       const engine = new OfflineEngine(identity, this.store, fetch);
       await engine.unlockSigned(v.key, v.signed, device, v.issuer);
       if (!engine.read()) { this.set({ busy: false, phase: 'get_ready', enrolled: true }); return; }
+      const boot=this.state.boot, local=engine.read();
+      const current=boot&&this.manifest?{user_id:boot.user.id,session_epoch:boot.session_epoch,build:this.manifest.build,consult_id:this.state.consultId}:null;
+      if(current&&JSON.stringify(current)!==JSON.stringify(identity)&&local&&unsentCount(local.queue.entries)===0&&local.blobs.every(b=>b.receipt)&&navigator.onLine){
+        engine.lock();this.set({busy:false,identity:current,enrolled:false,olderBuild:false,phase:'get_ready'});return;
+      }
       this.engine = engine; this.key = v.key; this.lease = v.lease;
       this.set({ busy: false, leaseExpires: v.lease.expires_at });
       this.afterUnlock();
@@ -235,7 +235,7 @@ export class VisitController {
 
   private afterUnlock() {
     const local = this.engine!.read();
-    const draft = (local?.queue.projection as { draft?: EvidenceDraft })?.draft ?? emptyDraft();
+    const draft = (local?.queue.projection as { draft?: EvidenceDraft })?.draft ?? (local?.snapshot as Snapshot)?.decisions ?? emptyDraft();
     this.set({ local, draft, phase: local?.queue.blocked ? 'blocked' : 'visit', blocked: local?.queue.blocked ?? null, code: local?.queue.blocked ?? null });
     void this.loadThumbs();
     void this.drain();
@@ -277,7 +277,12 @@ export class VisitController {
   }
 
   /** Durable write first; the ✓ and haptic tick follow the resolved commit (§6.1). */
-  private async commit(build: (q: QueueState, b: Baseline) => Promise<import('../queue.ts').ConsultOp>, label: string, draft?: EvidenceDraft) {
+  private commit(build: (q: QueueState, b: Baseline) => Promise<import('../queue.ts').ConsultOp>, label: string, draft?: EvidenceDraft) {
+    const next = this.writes.then(()=>this.commitWrite(build,label,draft));
+    this.writes=next.catch(()=>undefined);
+    return next;
+  }
+  private async commitWrite(build: (q: QueueState, b: Baseline) => Promise<import('../queue.ts').ConsultOp>, label: string, draft?: EvidenceDraft) {
     if (!this.engine || !this.state.local) throw new Error('not_prepared');
     if (this.state.storageFull) throw new Error('storage_full');
     const q = this.state.local.queue;
@@ -334,8 +339,8 @@ export class VisitController {
     const e = this.state.local?.queue.entries.find((x) => x.op.client_event_id === eventId); if (!e) return Promise.resolve(null);
     return this.commit((q, b) => discardOp(q, this.state.device, b, e.op, reason), 'Removed');
   }
-  /** Draft-only change (flag decision, trade walk, shot skip): kept in memory, persisted with the next save. */
-  setDraft(draft: EvidenceDraft) { this.set({ draft }); }
+  /** Every local decision is a durable, independently receipted sync operation. */
+  setDraft(draft: EvidenceDraft) { this.set({code:null});return this.commit((q,b)=>decisionsOp(q,this.state.device,b,draft), 'Decision', draft).then(()=>true).catch(e=>{this.set({code:codeOf(e)});return false;}); }
 
   async photo(file: Blob, meta: { instance_id: string; field_key?: string; shot_key?: string; kind?: 'photo' | 'initials' }, label: string) {
     if (!this.engine) throw new Error('not_prepared');
@@ -394,7 +399,7 @@ export class VisitController {
       const fresh = (await r.json()) as Snapshot;
       const entries = this.state.local?.queue.entries ?? [];
       const freshSeq = entries.filter((e) => e.status === 'accepted').reduce((m, e) => Math.max(m, e.op.seq), 0);
-      this.set({ fresh: { ...fresh, display: this.state.boot.display }, freshSeq, online: true });
+      this.set({ fresh, freshSeq, online: true });
     } catch (e) { if (offlineError(e)) this.set({ online: false }); }
   }
 

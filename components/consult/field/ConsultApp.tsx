@@ -64,7 +64,7 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
   const ctl = useMemo(() => new VisitController(boot, consultId), [boot, consultId]);
   const st = useSyncExternalStore(ctl.subscribe, ctl.getState, ctl.getState);
   const sun = useSyncExternalStore(sunStore.subscribe, sunStore.get, () => false);
-  const [client, setClient] = useState(false);
+  const [client, setClient] = useState<{instance:string;field:string} | null>(null);
   const [resume, setResume] = useState<string | null>(null);
   const [exit, setExit] = useState(false);
   const [wide, setWide] = useState(false);
@@ -104,16 +104,16 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
     );
   } else if (st.phase === "visit" && model && st.local) {
     const closingSection = model.sections.find((s) => s.module.key === "closing");
-    const initials = st.local.blobs.find((b) => b.kind === "initials");
+    const initials = st.local.blobs.find((b) => b.kind === "initials" && b.instance_id===closingSection?.instance.id && b.field_key==="client_initials");
     const status = (st.fresh ?? snap)?.consult.status ?? "scheduled";
     const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date());
     const visitDay = snap ? new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date(snap.consult.scheduled_at)) : today;
-    if (client && closingSection) {
+    if (client) {
       const formal = model.promised ? centralTime(`${model.promised}T12:00:00-06:00`, { month: "short", day: "numeric" }) : "";
-      return <div className="consult-root min-h-dvh" data-sun={sun ? "1" : undefined}><ClientView summary={summaryInput(model, display, centralTime(snap?.consult.scheduled_at ?? nowIso(), { month: "short", day: "numeric" }), formal)} hasInitials={!!initials}
-        onInitials={async (png) => { await ctl.photo(png, { instance_id: closingSection.instance.id, field_key: "client_initials", kind: "initials" }, W.initials); }}
+      return <div className="consult-root min-h-dvh" data-sun={sun ? "1" : undefined}><ClientView summary={summaryInput(model, display, centralTime(snap?.consult.scheduled_at ?? nowIso(), { month: "short", day: "numeric" }), formal)} pamphlet={client.field === "pamphlet_initials"} hasInitials={st.local.blobs.some(b=>b.kind==="initials"&&b.instance_id===client.instance&&b.field_key===client.field)}
+        onInitials={async (png) => { await ctl.photo(png, { instance_id: client.instance, field_key: client.field, kind: "initials" }, W.initials); }}
         verifyPin={(pin) => ctl.verifyPin(pin)}
-        onHandBack={() => { setClient(false); setResume(closingSection.instance.id); }} /></div>;
+        onHandBack={() => { setClient(null); setResume(client.instance); }} /></div>;
     }
     const banners = (
       <div className="grid gap-3 px-4 pt-3 empty:hidden">
@@ -131,7 +131,7 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
       body = <>{banners}<ClosingScreen closing={{ step: "done", result: { complete: true, checks: [], price_critical: { total: model.pc.total, done: model.pc.done, skipped: model.pc.skipped }, record: { total: model.record.total, done: model.record.done, skipped: model.record.skipped }, revision: 0 } }} unsent={unsent} online={st.online} autoApply={!!boot?.auto_apply}
         findings={(st.fresh?.findings_job as { status: string; last_error: string | null } | null) ?? null} findingsCode={st.findingsCode} onSend={() => void ctl.drain(true)} onRetry={() => void ctl.refresh()} onKeepWorking={() => undefined} onReopen={(r) => ctl.reopen(r)} onApply={() => void ctl.applyFindings()} home={home} /></>;
     } else {
-      body = <>{banners}<VisitScreen key={resume ?? "visit"} startAt={resume} model={model} display={display} thumbs={st.thumbs} online={st.online} draft={st.draft} refused={refusedEntries(entries).length} hasInitials={!!initials} userName={userName} staff={!!display?.visitor_staff} lastSaved={st.lastSaved}
+      body = <>{banners}<VisitScreen key={resume ?? "visit"} startAt={resume} saveError={st.code} prefill={snap?.prefill} visitorNotes={snap?.visitor_notes} model={model} display={display} thumbs={st.thumbs} online={st.online} draft={st.draft} refused={refusedEntries(entries).length} hasInitials={!!initials} userName={userName} staff={!!display?.visitor_staff} lastSaved={st.lastSaved}
         forgotClose={status === "in_progress" && visitDay < today}
         api={{
           answer: (i, f, label, p, d) => ctl.answer(i, f, label, p, d),
@@ -142,7 +142,7 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
           discard: (id, reason) => ctl.discard(id, reason),
           setDraft: (d) => ctl.setDraft(d),
           close: () => void ctl.close(buildEvidence(model, st.draft, !!initials)),
-          showToClient: () => setClient(true),
+          showToClient: (f) => { if(f) setClient({instance:f.addr.split(":")[0],field:f.key}); else if(closingSection) setClient({instance:closingSection.instance.id,field:"client_initials"}); },
         }} /></>;
     }
   } else body = <div className="mx-auto max-w-[560px]"><ScreenHead title={title} /><p className="px-4 py-6 text-ink-2" role="status">Opening…</p></div>;

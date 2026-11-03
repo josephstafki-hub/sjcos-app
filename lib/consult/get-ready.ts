@@ -22,7 +22,7 @@ export async function getReady(input:{identity:OfflineIdentity;device:string;pin
   try{await vault.enroll(input.identity,input.device,input.pin,signed);}catch(e){if(!(e instanceof Error)||e.message!=='already_enrolled')throw e;await vault.renew(input.identity,input.device,signed);}
   const unlocked=await vault.unlock(input.identity,input.device,input.pin),engine=new OfflineEngine(input.identity,input.store,request);await engine.unlockSigned(unlocked.key,signed,input.device,unlocked.issuer);
   // Existing pending state always wins over a new downloaded projection.
-  if(!engine.read())await engine.prepare({queue:emptyQueue(prepared.generation,prepared.epoch),snapshot,blobs:[],last_send:null});
+  if(!engine.read())await engine.prepare({queue:emptyQueue(prepared.generation,prepared.epoch,Number(snapshot.consult.deletion_epoch??0),prepared.last_ack_seq),snapshot,blobs:snapshot.media??[],last_send:null});
   else {await engine.epochs(prepared.generation,prepared.epoch,Number(snapshot.consult.deletion_epoch??engine.read()!.queue.deletion_epoch));await engine.resumeAuthorized(snapshot);}
   done();input.onCheck('microphone',{state:'not_yet',reason:'Notes off'});return {ok:true as const,engine,capacity,expires_at:unlocked.lease.expires_at};
  }catch(error){const code=error instanceof Error?error.message:'not_ready';input.onCheck(check,{state:'problem',reason:code});return {ok:false as const,code,check};}

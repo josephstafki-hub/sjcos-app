@@ -7,14 +7,14 @@
 import { useState } from "react";
 import type { RiskAssumption, SkipReason } from "@/lib/consult/completeness";
 import { hasRiskAssumption } from "@/lib/consult/completeness";
-import { SKIP_HELP, SKIP_REASONS, W } from "@/lib/consult/ui/words";
+import { SKIP_HELP, SKIP_REASONS, W, plainWords } from "@/lib/consult/ui/words";
 import { Btn, Choice, Sheet, TextInput } from "./primitives";
 
 export interface SkipValue { reason: SkipReason; note?: string; assumption?: RiskAssumption; trade_walk_decided?: boolean }
 const NEEDS_ASSUMPTION: SkipReason[] = ["No access", "Not safe to measure", "Client declined", "Sub/supplier will measure", "Other"];
 const blank = (): RiskAssumption => ({ text: "", responsible_trade: "", verification_point: "", adjustment_route: "precon_change", quantity: null, unit: null, exclusion: null });
 
-export function SkipSheet({ open, label, tier, onSave, onClose, initial, isShot }: { open: boolean; label: string; tier: "price_critical" | "record"; initial?: SkipValue; isShot?: boolean; onSave: (v: SkipValue) => Promise<void> | void; onClose: () => void }) {
+export function SkipSheet({ open, label, tier, onSave, onClose, initial, isShot, saveError }: { saveError?: string | null; open: boolean; label: string; tier: "price_critical" | "record"; initial?: SkipValue; isShot?: boolean; onSave: (v: SkipValue) => Promise<void> | void; onClose: () => void }) {
   // Mounted fresh for each field (conditional render), so props seed the state once.
   const [reason, setReason] = useState<SkipReason | null>(initial?.reason ?? null);
   const [note, setNote] = useState(initial?.note ?? "");
@@ -37,6 +37,7 @@ export function SkipSheet({ open, label, tier, onSave, onClose, initial, isShot 
       footer={<><Btn onClick={onClose}>{W.cancel}</Btn><Btn tone="primary" disabled={!reason || noteMissing || saving} onClick={() => void save()}>{W.saveSkip}</Btn></>}>
       <fieldset>
         <legend className="mb-2 text-[1em] font-semibold text-ink">{W.skipWhy}</legend>
+        {saveError && <p role="alert" className="font-semibold text-flag">{plainWords(saveError)}</p>}
         <div className="grid gap-3">
           {SKIP_REASONS.filter((r) => !(isShot && r === "Not on this job")).map((r) => (
             <button key={r} type="button" role="radio" aria-checked={reason === r} onClick={() => setReason(r)}

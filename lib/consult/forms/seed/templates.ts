@@ -68,6 +68,11 @@ export const selectionDecisions = {
   basement: ['Flooring material', 'Ceiling treatment', 'Interior door style', 'Trim profile', 'Paint colors', 'Light fixtures'],
   deck: ['Decking material/color', 'Railing style', 'Stair style', 'Skirting', 'Lighting'],
 } as const;
+/** r5 R5-9: the plan's list keeps office shorthand ("Appliance package (each appliance)"); the row the
+ *  visitor and client read is the plain decision name, with the shorthand as its hint. */
+export const SELECTION_NAMES: Record<string, { name: string; hint: string }> = {
+  'Appliance package (each appliance)': { name: 'Appliances', hint: 'One line per appliance.' },
+};
 export const selectionRules = {
   basement: 'Flooring material, Ceiling treatment, Interior door style, Trim profile, Paint colors, Light fixtures; + bath list if a bath (basement_scope.rooms_wanted includes Bath)',
   whole: 'union of nested lists (the area templates on the visit)',

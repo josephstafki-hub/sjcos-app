@@ -497,7 +497,7 @@ export const selections: ModuleDef = {
 export const closing: ModuleDef = {
   key: 'closing', version: 1, title: 'Closing', repeatable: false, say: [],
   fields: [
-    text('summary', 'Walk-through summary text', false, { hint: 'What the client initialed. Filled when they tap This is what we went over.' }),
+    text('summary', 'Walk-through summary text', false, { hint: 'What the client initialed.' }),
     date('estimate_promised', 'Formal estimate promised by', true, { hint: 'Joe gets a to-do for this date.', note: 'files Joe\'s to-do' }),
     signature('client_initials', 'Client initials — "This is what we went over"', true, { note: 'or skip with reason' }),
     choice('best_contact', 'Best way to reach them with questions', ['Call', 'Text', 'Email'], true),

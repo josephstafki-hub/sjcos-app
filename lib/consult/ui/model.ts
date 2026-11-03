@@ -2,6 +2,7 @@ import {PAMPHLET_UNKNOWN_YEAR_LINE} from '../forms/seed/shared.ts';
 import {evaluatedFlags} from '../flags.ts';
 import {pinnedDerivations} from '../derive.ts';
 import { mergeTemplateModules } from '../template-merge.ts';
+import { SELECTION_NAMES } from '../forms/seed/templates.ts';
 import { rrpFacts } from '../rrp.ts';
 /**
  * Pure view model for the in-home consultation field app (plan §6.1–§6.4, §10.2–§10.3).
@@ -206,16 +207,31 @@ const saysArea = (base: string, area: string) => { const b = base.toLowerCase(),
 export const HOUSE_WIDE = new Set(['panel', 'hvac_vent', 'hvac_exhaust_fan', 'water', 'hvac', 'era', 'exterior_site', 'footing']);
 /** The noun a repeat's rows use, so its add button says the same word: "Room 1 — Bath" ↔ "+ Room". */
 export function moduleNoun(m: ModuleDef): string {
+  // r5 R5-9: one decision is "+ Selection", never the plural module title.
+  if (m.key === 'selections') return 'Selection';
   const p = m.instance_label ?? '';
   const at = p.indexOf(' {n}');
   return m.repeatable && at > 0 && !/\{/.test(p.slice(0, at)) ? p.slice(0, at) : m.title;
+}
+
+/** r5 R5-9: decision names as the visitor and client read them ("Kitchen — Appliances"); visits made
+ *  before the rename keep their stored text and still read the short name. */
+export function selectionName(label: string): string {
+  for (const [stored, shown] of Object.entries(SELECTION_NAMES)) if (label.endsWith(stored)) return `${label.slice(0, -stored.length)}${shown.name}`;
+  return label;
+}
+/** The hint under a decision's heading ("One line per appliance."), or null. */
+export function selectionHint(label: string): string | null {
+  const name = selectionName(label);
+  return Object.values(SELECTION_NAMES).find((x) => name.endsWith(x.name))?.hint ?? null;
 }
 
 /** Display label: the instance_label pattern with {n} and field values filled in. */
 export function instanceLabel(m: ModuleDef, inst: SnapInstance, ordinal: number, answers: Map<string, AnswerView>): string {
   if (!m.repeatable) return m.title;
   const pattern = m.instance_label ?? `${m.title} {n}`;
-  const area = HOUSE_WIDE.has(m.key) ? null : areaOf(inst.label);
+  // r5 R5-9: a child row ("↳ Appliance 1") drops the area — the parent row above it already says it.
+  const area = HOUSE_WIDE.has(m.key) || inst.parent_id ? null : areaOf(inst.label);
   let missing = false;
   const text = pattern.replace(/\{([a-z_]+)\}/g, (_, key: string) => {
     if (key === 'n') return String(ordinal);
@@ -223,6 +239,7 @@ export function instanceLabel(m: ModuleDef, inst: SnapInstance, ordinal: number,
     if (a?.status === 'answered' && a.value !== undefined && a.value !== null && String(a.value).trim()) return String(a.value);
     missing = true; return '';
   });
+  if (m.key === 'selections') return selectionName(missing ? (inst.label || `${moduleNoun(m)} ${ordinal}`) : text);
   if (missing) {
     // A pattern without {n} ("Wall {letter}", "{decision}") would collapse to a bare word: use the
     // created label or "<Title> <n>" ("Kitchen wall 2") instead, so repeat instances stay named.

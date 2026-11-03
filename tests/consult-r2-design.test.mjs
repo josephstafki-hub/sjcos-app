@@ -63,7 +63,7 @@ test('closing line 3 is spoken grouped by area and capped, without "Bath —" pr
   const sels = ['Bath — Vanity', 'Bath — Vanity top', 'Bath — Sink', 'Bath — Faucets', 'Bath — Toilet', 'Bath — Shower valve/trim', 'Bath — Fan', 'Kitchen — Cabinet line/door style', 'Kitchen — Appliance package (each appliance)'].map((l) => inst('selections', l));
   const m = buildModel(snapshot(tpl('bath', 'kitchen'), sels, sels.map((x) => head(x, 'decision', x.label))), [], [], emptyDraft());
   const said = spokenSelections(m);
-  assert.equal(said, 'for the bathroom, the vanity, vanity top, sink, faucets and toilet, and two more; for the kitchen, the cabinet line and door style and appliance package');
+  assert.equal(said, 'for the bathroom, the vanity, vanity top, sink, faucets and toilet, and two more; for the kitchen, the cabinet line and door style and appliances');
   assert.doesNotMatch(said, /—|\(/);
 });
 

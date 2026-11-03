@@ -10,7 +10,7 @@ import { CoverageMark } from "@/components/ui/CoverageMark";
 import type { FieldView, ShotView } from "@/lib/consult/ui/model";
 import type { AnswerPayload } from "@/lib/consult/ui/ops";
 import { W, plainWords } from "@/lib/consult/ui/words";
-import { Btn, Choice } from "./primitives";
+import { Btn, Choice, scrollInPane } from "./primitives";
 import { showLength } from "./Keypad";
 import { curly } from "@/lib/consult/typography";
 
@@ -26,6 +26,20 @@ export interface FieldActions {
   online: boolean;
   showToClient: (field?: FieldView) => void;
   focusAddr: string | null;
+  /** Bumped on every jump, so Go back to the same field still scrolls and rings it again. */
+  focusTick?: number;
+  /** r5 domain 2: no estimate date yet — the walk-through initials wait for it. */
+  clientNeedsDate?: boolean;
+  /** The House & household section, where "Photos okay?" is asked. */
+  houseId?: string;
+}
+
+/** r5: the last word and the * travel together, so a * never sits alone on a line. */
+function LabelText({ text, required }: { text: string; required?: boolean }) {
+  const at = text.lastIndexOf(" ");
+  const star = required ? <span aria-label={W.required} title={W.required} className="ml-1 text-flag">*</span> : null;
+  if (!required || at < 0) return <>{text}{star}</>;
+  return <>{text.slice(0, at + 1)}<span className="whitespace-nowrap">{text.slice(at + 1)}{star}</span></>;
 }
 
 export function valueText(f: FieldView): string {
@@ -106,7 +120,7 @@ export function PhotoRow({ shot, actions, fieldKey, sectionId }: { shot: ShotVie
   return (
     <div className="mt-3 rounded-md border-2 border-rule-soft bg-paper p-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
-        <p className="min-w-0 flex-1 font-semibold text-ink">Photo · {shot.def.label}{shot.required && <span aria-label={W.required} className="ml-1 text-flag">*</span>}</p>
+        <p className="min-w-0 flex-1 font-semibold text-ink">Photo · <LabelText text={shot.def.label} required={shot.required} /></p>
         <MarkCell f={{ mark: shot.mark }} />
       </div>
       {shot.def.hint && <p className="text-[0.9em] text-ink-2">{shot.def.hint}</p>}
@@ -118,7 +132,7 @@ export function PhotoRow({ shot, actions, fieldKey, sectionId }: { shot: ShotVie
         </div>
       )}
       {err && <p role="alert" className="mt-1 text-[0.95em] font-semibold text-flag">! {err}</p>}
-      {disabled && !latest && <p className="mt-1 text-[0.9em] text-ink-2">{actions.photosOk === false ? W.photosOff : "Ask “Photos okay?” in House & household first."}</p>}
+      {disabled && !latest && <p className="mt-1 text-[0.9em] text-ink-2">{actions.photosOk === false ? W.photosOff : sectionId === actions.houseId ? W.photosAskAbove : W.photosAskFirst}</p>}
       <input ref={input} type="file" accept="image/jpeg,image/png,image/webp,image/*" capture="environment" className="sr-only" tabIndex={-1} aria-hidden
         onChange={async (e) => { const file = e.target.files?.[0]; e.target.value = ""; if (!file) return; setBusy(true); setErr(null); try { await actions.photo(shot, file, fieldKey); } catch (x) { setErr(plainWords(x instanceof Error ? x.message : "")); } finally { setBusy(false); } }} />
       <div className="mt-2 flex flex-wrap gap-3">
@@ -148,7 +162,16 @@ function ConflictPicker({ f, actions }: { f: FieldView; actions: FieldActions })
 export function FieldRow({ f, actions, sectionId, last }: { f: FieldView; actions: FieldActions; sectionId: string; last?: unknown }) {
   const d = f.def;
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => { if (actions.focusAddr === f.addr) { ref.current?.scrollIntoView({ block: "center", behavior: "smooth" }); ref.current?.querySelector<HTMLElement>("button, input, textarea")?.focus({ preventScroll: true }); } }, [actions.focusAddr, f.addr]);
+  const [ring, setRing] = useState(false);
+  // r5 R5-1: a jump scrolls only the section pane, then rings the field for 1.5 s.
+  useEffect(() => {
+    if (actions.focusAddr !== f.addr) return;
+    scrollInPane(ref.current, "center");
+    ref.current?.querySelector<HTMLElement>("button, input, textarea")?.focus({ preventScroll: true });
+    setRing(true);
+    const t = setTimeout(() => setRing(false), 1500);
+    return () => clearTimeout(t);
+  }, [actions.focusAddr, actions.focusTick, f.addr]);
   const answered = f.answer?.status === "answered";
   const skipped = f.answer?.status === "skipped";
   let input: ReactNode = null;
@@ -198,17 +221,24 @@ export function FieldRow({ f, actions, sectionId, last }: { f: FieldView; action
       );
       break;
     case "signature":
-      input = <div className="mt-2 flex flex-wrap items-center gap-3">{f.initials ? <p className="text-ink-2">{W.initialsSaved}{f.initials.receipt ? ` · ${W.photoUploaded}` : ` · ${W.photoSaved}`}</p> : <Btn tone="primary" onClick={() => actions.showToClient(f)}>{W.showToClient}</Btn>}</div>;
+      {
+        // r5 domain 2: the walk-through initials wait for the estimate date (skipping the date frees them).
+        const gate = f.key === "client_initials" && !!actions.clientNeedsDate;
+        input = <div className="mt-2 grid gap-2">
+          {!f.initials && gate && <p className="font-semibold text-ink-2"><span aria-hidden>→ </span>{W.pickDateBeforeClient}</p>}
+          <div className="flex flex-wrap items-center gap-3">{f.initials ? <p className="text-ink-2">{W.initialsSaved}{f.initials.receipt ? ` · ${W.photoUploaded}` : ` · ${W.photoSaved}`}</p> : <Btn tone="primary" disabled={gate} onClick={() => actions.showToClient(f)}>{W.showToClient}</Btn>}</div>
+        </div>;
+      }
       break;
     default:
       input = <TextAnswer key={answerKey(f)} f={f} actions={actions} kind="text" />;
   }
   return (
-    <div ref={ref} id={`f-${f.addr}`} className={`scroll-mt-28 border-b-2 border-rule-soft py-4 ${actions.focusAddr === f.addr ? "rounded-md bg-accent-soft/40 px-2" : ""}`}>
+    <div ref={ref} id={`f-${f.addr}`} className={`border-b-2 border-rule-soft py-4 ${actions.focusAddr === f.addr ? "rounded-md bg-accent-soft/40 px-2" : ""} ${ring ? "consult-ring" : ""}`}>
       {d.say && <p className="mb-1 font-serif text-[1em] italic text-ink-2"><span className="not-italic font-semibold text-ink">{W.say}</span> {d.say}</p>}
       <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
         <p className="min-w-0 flex-1 basis-[10em] text-[1em] font-semibold text-ink">
-          {d.label}{f.required && <span aria-label={W.required} title={W.required} className="ml-1 text-flag">*</span>}
+          <LabelText text={d.label} required={f.required} />
           {d.unit && d.type !== "length" && d.type !== "length_pair" && d.unit !== "ea" && <span className="ml-1 font-normal text-ink-3">({d.unit})</span>}
         </p>
         <MarkCell f={f} />

@@ -75,7 +75,7 @@ test('section names tell the visitor which is which; add buttons use the row nou
 test('screens: leave check is a sheet, keypad fractions are one font, wrap lines are neutral Open, copy items', () => {
   const visit = src('components/consult/field/VisitScreen.tsx');
   assert.doesNotMatch(visit, /leave\.from === section\.instance\.id/, 'no banner at the top of the section');
-  assert.match(visit, /<Sheet open dock onClose=\{\(\) => setLeave\(null\)\}/);
+  assert.match(visit, /<Sheet open dock (noClose )?onClose=\{\(\) => setLeave\(null\)\}/);
   assert.match(visit, /xl:grid xl:grid-cols-2/); assert.doesNotMatch(visit, /md:grid md:grid-cols-2/);
   assert.match(visit, /view === "section" && section \? section\.module\.say : \[\]/, 'field Say lines are not repeated in the left pane');
   const keypad = src('components/consult/field/Keypad.tsx');

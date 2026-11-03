@@ -8,7 +8,7 @@ import { validateModule, validateTemplate, type FormRegistry } from './validate.
 import { visit, sharedModules, sharedChildModules } from './seed/shared.ts';
 import { templateModules, templateChildModules, addOnModules, addOnChildModules } from './seed/template-modules.ts';
 import { templates, addOns, scopeMappings } from './seed/templates.ts';
-import { moduleParents, selectionDecisions } from './seed/templates.ts';
+import { moduleParents, selectionDecisions, SELECTION_NAMES } from './seed/templates.ts';
 import { OPENING_STAFF, CLOSING_STAFF } from './seed/scripts.ts';
 import { derivationCases } from './seed/derivations.ts';
 import { FLAG_HINTS } from './seed/flag-hints.ts';
@@ -44,7 +44,7 @@ for(const template of [...templates,...addOns]){
  template.opening=template.opening.map(curly);template.closing=template.closing.map(curly);
  template.opening_staff=OPENING_STAFF.map(l=>curly(l.text));template.closing_staff=CLOSING_STAFF.map(l=>curly(l.text));
  const decisions=selectionDecisions[template.key as keyof typeof selectionDecisions];
- const selections=template.modules.find(m=>m.module==='selections');if(selections&&decisions)selections.presets=decisions.map(decision=>({decision}));
+ const selections=template.modules.find(m=>m.module==='selections');if(selections&&decisions)selections.presets=decisions.map(decision=>({decision:SELECTION_NAMES[decision]?.name??decision}));
 }
 export const seedRegistry: FormRegistry = { modules: seedModules, mappings: scopeMappings };
 

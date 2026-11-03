@@ -72,12 +72,13 @@ function StatusBar({ unsent, photos, answers, online, lastSend, failure, onSend,
           <dt className="text-ink-2">{W.notes}</dt><dd>{W.notesOff}</dd>
           <dt className="text-ink-2">{W.answersWaiting}</dt><dd className="font-mono">{answers}</dd>
           <dt className="text-ink-2">{W.photosWaiting}</dt><dd className="font-mono">{photos}</dd>
-          <dt className="text-ink-2">{W.lastSent}</dt><dd>{lastSend ? clock(lastSend) : unsent === 0 ? W.allSent : W.notYet}</dd>
+          {/* r5: Last sent holds the time; "All sent ✓" is the status line under the list. */}
+          <dt className="text-ink-2">{W.lastSent}</dt><dd>{lastSend ? clock(lastSend) : W.notYet}</dd>
           {failed && <><dt className="text-ink-2">{W.lastTry}</dt><dd className="text-ink"><span aria-hidden className="font-bold text-flag">⚠ </span>{clock(failure!.at)} · {plainWords(failure!.code)}{!/^(send_stuck|no_signal)$/.test(failure!.code) && <span className="block font-mono text-[0.8em] text-ink-3">{W.codeForJoe} {failure!.code}</span>}</dd></>}
           <dt className="text-ink-2">{W.signal}</dt><dd>{online ? W.online : W.noSignal}</dd>
         </dl>
         <p role="status" aria-live="polite" className="mt-3 min-h-[1.5em] font-semibold text-ink">
-          {busy ? `${W.sendingWord}…` : outcome === "sent" && lastSend ? `✓ ${W.lastSent} ${clock(lastSend)}${unsent ? ` · ⇅ ${unsent} ${W.stillWaiting}` : ""}` : outcome === "not_sent" ? <><span aria-hidden className="text-flag">⚠ </span>{W.nothingWentOut}</> : unsent === 0 ? W.nothingWaiting : ""}
+          {busy ? `${W.sendingWord}…` : unsent === 0 ? W.allSent : outcome === "sent" && lastSend ? `✓ ${W.lastSent} ${clock(lastSend)} · ⇅ ${unsent} ${W.stillWaiting}` : outcome === "not_sent" ? <><span aria-hidden className="text-flag">⚠ </span>{W.nothingWentOut}</> : ""}
         </p>
         {!online && <p className="mt-3 text-ink">{W.offlineStrip}</p>}
         {online && busy && weakLink() && <p className="mt-3 text-ink-2">{W.weakSignal}</p>}
@@ -92,6 +93,8 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
   const [sun] = useSun();
   const [client, setClient] = useState<{instance:string;field:string} | null>(null);
   const [resume, setResume] = useState<string | null>(null);
+  /** r5: the close result's row button (Review flags, Pick the date, …), run once back on the visit. */
+  const [after, setAfter] = useState<string | null>(null);
   const [exit, setExit] = useState(false);
   const [wide, setWide] = useState(false);
   useEffect(() => { void ctl.init(); return () => ctl.dispose(); }, [ctl]);
@@ -143,7 +146,7 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
     const visitDay = snap ? new Intl.DateTimeFormat("en-CA", { timeZone: "America/Chicago" }).format(new Date(snap.consult.scheduled_at)) : today;
     if (client) {
       const formal = model.promised ? centralTime(`${model.promised}T12:00:00-06:00`, { weekday: "short", month: "short", day: "numeric" }) : "";
-      return <div className="consult-root min-h-dvh" data-sun={sun ? "1" : undefined}><ClientView summary={summaryInput(model, display, centralTime(snap?.consult.scheduled_at ?? nowIso(), { month: "short", day: "numeric" }), formal)} pamphlet={client.field === "pamphlet_initials"} hasInitials={st.local.blobs.some(b=>b.kind==="initials"&&b.instance_id===client.instance&&b.field_key===client.field)}
+      return <div className="consult-root consult-fixed overflow-y-auto" data-scroll data-sun={sun ? "1" : undefined}><ClientView summary={summaryInput(model, display, centralTime(snap?.consult.scheduled_at ?? nowIso(), { month: "short", day: "numeric" }), formal)} pamphlet={client.field === "pamphlet_initials"} hasInitials={st.local.blobs.some(b=>b.kind==="initials"&&b.instance_id===client.instance&&b.field_key===client.field)}
         onInitials={async (png, summaryText) => { await ctl.photo(png, { instance_id: client.instance, field_key: client.field, kind: "initials" }, W.initials, summaryText); }}
         verifyPin={(pin) => ctl.verifyPin(pin)}
         onHandBack={() => { setClient(null); setResume(client.instance); }} /></div>;
@@ -166,12 +169,12 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
       body = <GetReadyCard title={title} result="ready" checks={st.ready.checks} enrolled expires={st.leaseExpires} code={st.code} userName={userName} onGetReady={(pin) => void ctl.getReady(pin)} onStart={() => void ctl.start()} busy={st.busy} more={more} />;
     } else if (st.closing) {
       body = <>{banners}<ClosingScreen closing={st.closing} unsent={unsent} online={st.online} autoApply={!!boot?.auto_apply} findings={(st.fresh?.findings_job as { status: string; last_error: string | null } | null) ?? null} findingsCode={st.findingsCode}
-        onSend={() => void ctl.drain(true)} onRetry={() => void ctl.close(buildEvidence(model, st.draft, !!initials))} onKeepWorking={() => ctl.dismissClosing()} onReopen={(r) => ctl.reopen(r)} onApply={() => void ctl.applyFindings()} home={home} /></>;
+        onSend={() => void ctl.drain(true)} onRetry={() => void ctl.close(buildEvidence(model, st.draft, !!initials))} onKeepWorking={() => ctl.dismissClosing()} onAction={(a) => { setAfter(a); ctl.dismissClosing(); }} onReopen={(r) => ctl.reopen(r)} onApply={() => void ctl.applyFindings()} home={home} /></>;
     } else if (status === "complete") {
       body = <>{banners}<ClosingScreen closing={{ step: "done", result: { complete: true, checks: [], price_critical: { total: model.pc.total, done: model.pc.done, skipped: model.pc.skipped }, record: { total: model.record.total, done: model.record.done, skipped: model.record.skipped }, revision: 0 } }} unsent={unsent} online={st.online} autoApply={!!boot?.auto_apply}
         findings={(st.fresh?.findings_job as { status: string; last_error: string | null } | null) ?? null} findingsCode={st.findingsCode} onSend={() => void ctl.drain(true)} onRetry={() => void ctl.refresh()} onKeepWorking={() => undefined} onReopen={(r) => ctl.reopen(r)} onApply={() => void ctl.applyFindings()} home={home} /></>;
     } else {
-      body = <>{banners}<VisitScreen key={resume ?? "visit"} startAt={resume} saveError={st.code} prefill={snap?.prefill} visitorNotes={snap?.visitor_notes} model={model} display={display} thumbs={st.thumbs} online={st.online} draft={st.draft} refused={refusedEntries(entries).length} hasInitials={!!initials} userName={userName} staff={!!display?.visitor_staff} lastSaved={st.lastSaved}
+      body = <>{banners}<VisitScreen key={resume ?? "visit"} startAt={resume} saveError={st.code} prefill={snap?.prefill} visitorNotes={snap?.visitor_notes} model={model} display={display} thumbs={st.thumbs} online={st.online} draft={st.draft} refused={refusedEntries(entries).length} hasInitials={!!initials} userName={userName} staff={!!display?.visitor_staff} lastSaved={st.lastSaved} startAction={after} onStartAction={() => setAfter(null)}
         forgotClose={status === "in_progress" && visitDay < today}
         api={{
           answer: (i, f, label, p, d) => ctl.answer(i, f, label, p, d),
@@ -189,11 +192,13 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
   } else body = <div className="mx-auto max-w-[560px]"><ScreenHead title={title} right={more} /><p className="px-4 py-6 text-ink-2" role="status">Opening…</p></div>;
 
   return (
-    // From 1024 px the app is exactly one screen tall so the right pane scrolls by itself and its
-    // bottom bar (Next ›) stays pinned in the thumb zone (§6.1, r2 N4); other screens scroll in <main>.
-    <div className="consult-root flex min-h-dvh flex-col bg-paper text-ink lg:h-dvh" data-sun={sun ? "1" : undefined}>
+    // r5 R5-1: the visitor screen is fixed to the viewport at every width (position: fixed; inset: 0,
+    // html/body overflow: clip — consult.css), so no focus jump can move the status bar or the bottom
+    // bar. Below 1024 px <main> is the one scroller; from 1024 px the right pane scrolls by itself and
+    // its bottom bar (Next ›) stays pinned in the thumb zone (§6.1, r2 N4).
+    <div className="consult-root consult-fixed flex flex-col bg-paper text-ink" data-sun={sun ? "1" : undefined}>
       {st.phase === "visit" && st.local && model?.started && <StatusBar unsent={unsent} photos={unsentPhotos} answers={unsentOps} online={st.online} lastSend={st.local.last_send} failure={failure} onSend={() => void ctl.drain(true)} sending={st.sending} onExit={leave} wide={wide} />}
-      <main className="flex min-h-0 flex-1 flex-col lg:overflow-y-auto">{body}</main>
+      <main data-scroll className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-contain">{body}</main>
       <Sheet open={exit} onClose={() => setExit(false)} title={W.back}
         footer={<><Btn onClick={() => setExit(false)}>{W.keepWorking}</Btn><Btn onClick={() => { ctl.lock(); location.href = home; }}>Lock notes on this device</Btn><Btn tone="primary" disabled={!st.online} onClick={() => void ctl.drain(true)}>{W.sendNow}</Btn></>}>
         <p className="text-ink">{fill(W.itemsWaiting, { n: unsent })} — they stay on this device until they are sent.</p>

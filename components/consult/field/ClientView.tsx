@@ -75,7 +75,6 @@ export function ClientView({ summary, pamphlet = false, hasInitials, onInitials,
               </li>
             ))}
           </ul>}
-          {(s.come_back?.length ?? 0) > 0 && <p className="mt-5 text-ink-2">{W.notMeasuredToday}: {s.come_back!.join(", ")}.</p>}
           {s.still_to_decide.length > 0 && (
             <div className="mt-6">
               <h2 className={EYEBROW}>{W.stillToDecide}</h2>
@@ -92,6 +91,8 @@ export function ClientView({ summary, pamphlet = false, hasInitials, onInitials,
               </div>
             </div>
           )}
+          {/* r5: what was not measured comes after what is still to decide — never the first thing read. */}
+          {(s.come_back?.length ?? 0) > 0 && <p className="mt-5 text-ink-2">{W.notMeasuredToday}: {s.come_back!.join(", ")}.</p>}
           {s.open_questions.length > 0 && <div className="mt-5"><p className={EYEBROW}>{W.openQuestions}</p><ul className="list-disc pl-6">{s.open_questions.map((q, i) => <li key={i}>{q}</li>)}</ul></div>}
           <div className="mt-5"><p className={EYEBROW}>{W.nextStep}</p><p>{s.formal_estimate_date ? fill(W.nextFormal, { date: s.formal_estimate_date }) : W.nextFormalNoDate}</p></div>
           <p className="mt-5 text-[0.85em] text-ink-2">This is what we talked about today. It is not a contract or a price.</p></>}
@@ -101,7 +102,8 @@ export function ClientView({ summary, pamphlet = false, hasInitials, onInitials,
             <p className="font-semibold">{W.initials}</p>
             <SignaturePad ref={pad} height={180} placeholder={W.initials} onChange={setEmpty} />
             <div className="flex gap-3"><Btn onClick={() => { pad.current?.clear(); setEmpty(true); }} disabled={empty}>{W.clearInitials}</Btn></div>
-            <Btn tone="primary" wide onClick={() => void ack()} disabled={empty || saving}>{W.thisIsWhat}</Btn>
+            <Btn tone="primary" wide onClick={() => void ack()} disabled={empty || saving} aria-describedby={empty ? "initial-first" : undefined}>{W.thisIsWhat}</Btn>
+            {empty && <p id="initial-first" className="-mt-2 text-[0.85em] text-ink-2">{W.initialFirst}</p>}
           </>}
           <div className="mt-2 grid gap-3">
             <button type="button" aria-describedby="hold-help"
@@ -117,8 +119,8 @@ export function ClientView({ summary, pamphlet = false, hasInitials, onInitials,
             {!pinMode ? <Btn wide onClick={() => setPinMode(true)}>{W.usePin}</Btn> : (
               <form className="grid gap-3" onSubmit={async (e) => { e.preventDefault(); setChecking(true); let ok = false; try { ok = await verifyPin(pin); } finally { setChecking(false); } setPinErr(!ok); if (!ok) setPin(""); if (ok && handBackAllowed(0, true)) onHandBack(); }}>
                 <TextInput label={W.handBackPin} value={pin} onChange={(v) => { setPin(v.replace(/\D/g, "").slice(0, 12)); if (pinErr) setPinErr(false); }} type="password" inputMode="numeric" autoFocus />
-                {pinErr && <p role="alert" className="font-semibold text-flag">! That PIN doesn&apos;t match. Try again, or hold Hand back.</p>}
-                <Btn tone="accent" wide type="submit" disabled={!/^\d{6,12}$/.test(pin) || checking}>{W.handBackHold.split(" — ")[0]}</Btn>
+                {pinErr && <p role="alert" className="font-semibold text-flag">! {W.pinWrongHandBack}</p>}
+                <Btn tone="accent" wide type="submit" disabled={!/^\d{6,12}$/.test(pin) || checking}>{W.handBackWithPin}</Btn>
               </form>
             )}
           </div>

@@ -116,6 +116,10 @@ export const W = {
   laserFtIn: 'ft-in',
   laserDecFt: 'decimal ft',
   laserMetric: 'm',
+  keyDelete: 'Delete',
+  keySpace: 'Space',
+  show16ths: 'Show 16ths',
+  show8ths: 'Show 8ths',
   unitAmbiguous: 'Is that inches or feet?',
   outOfRange: "That doesn’t look right for this field — check the number.",
   invalidLength: "That isn’t a length this keypad can read.",
@@ -127,6 +131,8 @@ export const W = {
   photoUploaded: 'Uploaded ✓',
   photoRefused: 'This photo couldn’t be sent ({reason}). [Retake]',
   photosOff: 'The client said no to photos — skip each shot with a reason.',
+  photosAskFirst: 'Ask “Photos okay?” in House & household first.',
+  photosAskAbove: 'Answer “Photos okay?” above first.',
   // Leave check §5.3/§6.3
   leaveStill: '{section} still needs',
   leaveOpen: '○ Open:',
@@ -152,7 +158,9 @@ export const W = {
   tradeWalksLine: 'Trade walks: {trade} — needs a decision',
   conflictsLine: 'Conflicts: {field} — changed on another device',
   visitClosedSending: 'Visit closed — sending',
-  closeChecking: 'All sent ✓ · Checking the visit with the office. Keep this screen open.',
+  // r5 R5-7: with nothing waiting the heading says what is happening; "— sending" only while ⇅ > 0.
+  visitClosedChecking: 'Visit closed — checking with the office',
+  closeChecking: 'All sent ✓ · Keep this screen open.',
   closeWaitingN: '⇅ {n} waiting to send · Keep this screen open.',
   stillClosing: 'Still closing…',
   stillClosingBody: 'The office hasn’t answered yet. Nothing is lost — your visit is saved on this device.',
@@ -172,6 +180,12 @@ export const W = {
   promisedBy: 'Formal estimate promised by',
   promisedMissing: 'Formal estimate date — not picked yet',
   pickDate: 'Pick the date',
+  // r5 domain 2: the client initials a sheet with the date on it.
+  pickDateBeforeClient: 'Pick the estimate date first, so the client sees it.',
+  goToSections: 'Go to sections',
+  goToPhoto: 'Go to photo',
+  addChild: 'Add',
+  review: 'Review',
   photosOk: 'Photos okay?',
   // Flags §10.3 check 9
   flagTitle: 'Flags to decide',
@@ -211,7 +225,7 @@ export const W = {
   whatWeWentOver: 'What we went over today',
   stillToDecide: 'Still to decide',
   notMeasuredToday: 'Not measured today',
-  moreForEstimate: '+ {n} more for the estimate',
+  moreForEstimate: 'and {n} more — listed on your estimate',
   openQuestions: 'Open questions',
   nextStep: 'Next',
   nextFormal: 'Joe sends your formal estimate by {date}.',
@@ -220,11 +234,16 @@ export const W = {
   initials: 'Initials',
   clearInitials: 'Clear',
   thisIsWhat: 'This is what we went over',
+  initialFirst: 'Initial the box first',
   handBackHold: 'Hand back — hold 2 seconds',
   usePin: 'Use PIN instead',
   handBackPin: 'Visitor PIN',
+  handBackWithPin: 'Hand back with PIN',
+  // r5 R5-8: curly ’, never &apos;.
+  pinWrongHandBack: 'That PIN doesn’t match. Try again, or hold Hand back.',
   initialsSaved: 'Initials saved ✓',
   noInitialsWhy: 'Why were initials skipped?',
+  noInitialsSay: 'No initials — say why',
   noInitialsAbsent: 'Client absent',
   noInitialsDeclined: 'Client declined',
   // Conflict picker §6.8
@@ -245,6 +264,14 @@ export const W = {
   evidence: 'Evidence',
   feeds: 'Feeds',
   openTheVisit: 'Open the in-home consultation',
+  // r5 R5-4: the office reads the look-over on its own screen — never "this device".
+  officeDeviceWaiting: '1 device hasn’t sent yet',
+  officeDevicesWaiting: '{n} devices haven’t sent yet',
+  officeSendFromDevice: '— {name} can send them from the device.',
+  officeFinishOnDevice: '— {name} finishes this on the visit device.',
+  officeNeedsFinishingLead: 'The visitor’s Finish consultation to-do already exists.',
+  recoverAnswers: 'Recover answers',
+  openVisitShort: 'Open the visit',
   // Office schedule §6.9
   schedule: 'Schedule',
   scheduleTitle: 'In-home consultation · {client}',
@@ -348,6 +375,30 @@ export const CHECK_WORDS: Record<string, string> = {
   flag_decisions: 'Every flag has a decision',
   risk_assumptions: 'Every no-access or unsafe skip has a written assumption',
   trade_walks: 'Every touched trade has a sub walk-through decision',
+};
+
+/** r5 R5-4: the office's words for a check whose device words would say "this device". */
+export const OFFICE_CHECK_WORDS: Record<string, string> = {
+  ...CHECK_WORDS,
+  close_manifests: 'Every device’s answers reached the office, with no conflict left to pick',
+};
+
+/** Per-check count in words on the close result and the look-over (the headline holds the one total).
+ *  r5 R5-4: shown for one item too, so a single open row never reads like a done one. */
+export function checkCount(code: string, n: number): string {
+  if (!n) return '';
+  if (code === 'required_fields') return ` · ${n} ${n === 1 ? 'answer' : 'answers'}`;
+  if (code === 'required_photos') return ` · ${n} ${n === 1 ? 'photo' : 'photos'}`;
+  if (code === 'flag_decisions') return ` · ${n} ${n === 1 ? 'flag' : 'flags'}`;
+  if (code === 'module_requirements' || code === 'risk_assumptions' || code === 'trade_walks') return ` · ${n} left`;
+  return '';
+}
+
+/** r5: the button each open close check carries, by its `action` (lib/consult/completeness closeAction). */
+export const CHECK_ACTION_WORDS: Record<string, string> = {
+  go_field: W.goToField, take_photo: W.goToPhoto, add_instance: W.goToSections, review_permissions: W.goToField,
+  show_client: W.showToClient, pick_date: W.pickDate, review_sync: W.sendNow, review_rrp: W.review,
+  review_flags: W.reviewFlags, review_assumptions: W.review, review_trades: W.decide,
 };
 
 export const FLAG_CHOICES = [

@@ -9,10 +9,10 @@ import {sectionCounts} from "@/lib/consult/completeness";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CoverageMark } from "@/components/ui/CoverageMark";
 import type { FieldView, SectionView, ShotView, VisitModel, EvidenceDraft, Display } from "@/lib/consult/ui/model";
-import { leaveLine, leaveList, moduleNoun, nextOpen, resumeSection, spokenSelections } from "@/lib/consult/ui/model";
+import { leaveLine, leaveList, moduleNoun, nextOpen, resumeSection, selectionHint, spokenSelections } from "@/lib/consult/ui/model";
 import type { AnswerPayload } from "@/lib/consult/ui/ops";
 import { W, fill, plainWords, spokenDuration, visitDuration } from "@/lib/consult/ui/words";
-import { Banner, Btn, Eyebrow, Sheet } from "./primitives";
+import { Banner, Btn, Eyebrow, Sheet, scrollInPane } from "./primitives";
 import { FieldRow, MarkCell, PhotoRow, type FieldActions } from "./FieldRow";
 import { Keypad } from "./Keypad";
 import { SkipSheet, type SkipValue } from "./SkipSheet";
@@ -51,8 +51,9 @@ function BottomBar({ left, right }: { left?: React.ReactNode; right: React.React
   );
 }
 
+/** r5: each "word n/m" stays on one line, so "Record" and "0/2" never break apart at 320 px. */
 function counts(s: { pc: { done: number; total: number }; record: { done: number; total: number } }) {
-  return `Price-critical ${s.pc.done}/${s.pc.total}${s.record.total ? ` · Record ${s.record.done}/${s.record.total}` : ""}`;
+  return <><span className="whitespace-nowrap">Price-critical {s.pc.done}/{s.pc.total}</span>{s.record.total ? <> · <span className="whitespace-nowrap">Record {s.record.done}/{s.record.total}</span></> : null}</>;
 }
 
 function SectionRows({ model, active, onOpen, onAdd, compact }: { model: VisitModel; active: string | null; onOpen: (id: string) => void; onAdd: (moduleKey: string, parent?: string | null) => void; compact?: boolean }) {
@@ -92,12 +93,16 @@ function SectionRows({ model, active, onOpen, onAdd, compact }: { model: VisitMo
   );
 }
 
-export function VisitScreen({ model, display, api, thumbs, online, draft, refused, hasInitials, userName, staff, lastSaved, forgotClose, startAt, prefill, visitorNotes, saveError }: {
+export function VisitScreen({ model, display, api, thumbs, online, draft, refused, hasInitials, userName, staff, lastSaved, forgotClose, startAt, prefill, visitorNotes, saveError, startAction, onStartAction }: {
+  startAction?: string | null; onStartAction?: () => void;
   saveError?: string | null; prefill?: import("@/lib/consult/ui/model").Snapshot["prefill"]; visitorNotes?: string; startAt?: string | null; model: VisitModel; display: Display | undefined; api: VisitApi; thumbs: Record<string, string>; online: boolean; draft: EvidenceDraft; refused: number; hasInitials: boolean; userName: string; staff: boolean; lastSaved: string | null; forgotClose: boolean;
 }) {
   const [view, setView] = useState<"opening" | "list" | "section">(() => (startAt ? "section" : model.sections.some((s) => s.fields.some((f) => f.answer)) ? "list" : "opening"));
   const [active, setActive] = useState<string | null>(resumeSection(model,startAt));
   const [focusAddr, setFocusAddr] = useState<string | null>(null);
+  const [focusTick, setFocusTick] = useState(0);
+  /** r5 R5-1: every jump to a field — the field scrolls into the section pane and is ringed. */
+  const jump = (addr: string | null) => { setFocusAddr(addr); if (addr) setFocusTick((t) => t + 1); };
   const [keypad, setKeypad] = useState<{ f: FieldView; resolveAfter?: boolean } | null>(null);
   const [skip, setSkip] = useState<{ field?: FieldView; shot?: ShotView; sectionId: string } | null>(null);
   const [sheet, setSheet] = useState<null | "wrap" | "flags" | "trades" | "rrp" | "ack">(null);
@@ -111,6 +116,10 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
   const opening = useMemo(() => ((staff ? tmpl?.opening_staff : tmpl?.opening) ?? tmpl?.opening ?? []).map((l) => fillScript(l, display, model)), [tmpl, staff, display, model]);
   const closingLines = useMemo(() => ((staff ? tmpl?.closing_staff : tmpl?.closing) ?? tmpl?.closing ?? []).filter(l => !l.includes("{open_selections}") || model.sections.some(s=>s.module.key==="selections" && !s.fields.some(f=>f.key==="status"&&f.answer?.value==="Exact product picked"))).map((l) => ({ direction: needsDate(l, model), text: needsDate(l, model) ? W.pickDateFirst : fillScript(l, display, model) })), [tmpl, staff, display, model]);
   const head = `${display?.client ?? ""}${model.templates.length ? ` · ${model.templates.map((t) => t.title).join(" + ")}` : ""}`;
+  // r5 domain 2: the client initials a sheet that carries the estimate date. Until it is picked (or
+  // skipped with a reason — a staff visitor may not know Joe's date) Show to client waits for it.
+  const dateField = model.sections.find((s) => s.module.key === "closing")?.fields.find((f) => f.key === "estimate_promised");
+  const needDate = !model.promised && dateField?.answer?.status !== "skipped";
 
   // In-tool Back returns to the section list; from the list it stays in the tool.
   const viewRef = useRef(view);
@@ -129,7 +138,11 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
     }
     go();
   }, [active, view, model]);
-  const openSection = (id: string, addr?: string) => { setLeave(null); setActive(id); setView("section"); setFocusAddr(addr ?? null); main.current?.scrollTo?.({ top: 0 }); };
+  const openSection = (id: string, addr?: string) => {
+    setLeave(null); setActive(id); setView("section"); jump(addr ?? null);
+    // The pane that scrolls: <main> below 1024 px, the right pane from 1024 px. Never the document.
+    if (!addr) { main.current?.scrollTo?.({ top: 0 }); (main.current?.closest("[data-scroll]") as HTMLElement | null)?.scrollTo?.({ top: 0 }); }
+  };
   const wrap = async <T,>(p: Promise<T>) => { setErr(null); try { return await p; } catch (e) { setErr(e instanceof Error ? e.message : "unknown"); return undefined; } };
 
   const addInstance = (moduleKey: string, parent?: string | null) => {
@@ -144,12 +157,13 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
   };
 
   const actions: FieldActions = {
-    thumbs, online, photosOk: model.photosOk, focusAddr, showToClient: api.showToClient,
+    thumbs, online, photosOk: model.photosOk, focusAddr, focusTick, showToClient: api.showToClient, clientNeedsDate: needDate,
+    houseId: model.sections.find((s) => s.module.key === "house")?.instance.id,
     answer: async (f, p) => { const inst = f.addr.split(":")[0]; await wrap(api.answer(inst, f.key, f.def.label, p)); },
     keypad: (f) => {
       setKeypad({ f });
       // Below 1024 px the keypad covers the lower half: bring the field it fills into the top half.
-      if (typeof window !== "undefined" && window.innerWidth < 1024) requestAnimationFrame(() => document.getElementById(`f-${f.addr}`)?.scrollIntoView({ block: "start", behavior: "smooth" }));
+      if (typeof window !== "undefined" && window.innerWidth < 1024) requestAnimationFrame(() => scrollInPane(document.getElementById(`f-${f.addr}`), "start"));
     },
     skip: (t) => setSkip(t),
     photo: async (shot, file, fieldKey) => { await api.photo(file, { instance_id: shot.addr.split(":")[0], shot_key: shot.key, ...(fieldKey ? { field_key: fieldKey } : {}) }, shot.def.label); },
@@ -157,23 +171,48 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
     resolve: (f, pick) => {
       const c = f.conflict; if (!c) return;
       const inst = f.addr.split(":")[0];
-      if (c.rebase) { if (c.event_id) void wrap(api.discard(c.event_id, "Entered again after the visit was reopened")); if (f.def.type.startsWith("length")) setKeypad({ f }); else setFocusAddr(f.addr); return; }
+      if (c.rebase) { if (c.event_id) void wrap(api.discard(c.event_id, "Entered again after the visit was reopened")); if (f.def.type.startsWith("length")) setKeypad({ f }); else jump(f.addr); return; }
       const chosen = pick === "proposed" ? c.proposed : c.current ?? c.proposed;
       if (!c.current || !c.proposed || !chosen) return;
-      void wrap(api.resolve(inst, f.key, c.current.revision, c.current.id, c.proposed.id, { status: chosen.status as AnswerPayload["status"], ...(chosen.status === "answered" ? { value: chosen.value } : {}), unit: f.def.unit }, f.def.label)).then(() => { if (pick === "other") { if (f.def.type.startsWith("length")) setKeypad({ f }); else setFocusAddr(f.addr); } });
+      void wrap(api.resolve(inst, f.key, c.current.revision, c.current.id, c.proposed.id, { status: chosen.status as AnswerPayload["status"], ...(chosen.status === "answered" ? { value: chosen.value } : {}), unit: f.def.unit }, f.def.label)).then(() => { if (pick === "other") { if (f.def.type.startsWith("length")) setKeypad({ f }); else jump(f.addr); } });
     },
   };
 
   const next = () => {
     if (!section) return;
     const hit = nextOpen(model, section.instance.id, focusAddr ?? undefined);
-    if (hit && hit.addr !== focusAddr) { setFocusAddr(hit.addr); return; }
+    if (hit && hit.addr !== focusAddr) { jump(hit.addr); return; }
     const idx = model.sections.indexOf(section);
     const after = model.sections[idx + 1];
     guard(() => (after ? openSection(after.instance.id) : setSheet("wrap")));
   };
 
   const houseInst = model.sections.find((s) => s.module.key === "house");
+
+  // r5: the close result's row buttons land here — the same ways forward Before you wrap has.
+  const pickDate = () => { void api.ensureClosing().then((id) => { setSheet(null); openSection(id, `${id}:estimate_promised`); }); };
+  const runAction = (action: string) => {
+    const field = model.open.find((o) => o.kind === "field" && !o.partly) ?? model.open.find((o) => o.kind === "field");
+    const shot = model.open.find((o) => o.kind === "shot");
+    const go = (o: typeof field) => { if (o) openSection(o.section.instance.id, (o.item as { addr: string }).addr); else setSheet("wrap"); };
+    switch (action) {
+      case "review_flags": setSheet("flags"); break;
+      case "review_trades": setSheet("trades"); break;
+      case "review_rrp": setSheet("rrp"); break;
+      case "pick_date": pickDate(); break;
+      case "show_client": if (needDate) pickDate(); else api.showToClient(); break;
+      case "go_field": go(field); break;
+      case "take_photo": go(shot ?? field); break;
+      case "add_instance": setView("list"); break;
+      case "review_permissions": { const f = houseInst?.fields.find((x) => x.key === "photos_ok"); if (houseInst && f) openSection(houseInst.instance.id, f.addr); else setSheet("wrap"); break; }
+      default: setSheet("wrap");
+    }
+  };
+  const ranAction = useRef(false);
+  useEffect(() => {
+    if (!startAction || ranAction.current) return;
+    ranAction.current = true; runAction(startAction); onStartAction?.();
+  }, [startAction]); // eslint-disable-line react-hooks/exhaustive-deps
   const photosField = houseInst?.fields.find((f) => f.key === "photos_ok");
   const clientList = houseInst?.fields.find((f) => f.key === "client_list");
 
@@ -222,6 +261,7 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
         <div className="min-w-0">
           <Eyebrow>{display?.client}</Eyebrow>
           <h1 id="sec-h" className="font-serif text-[1.35em] font-semibold text-ink">{section.label}</h1>
+          {section.module.key === "selections" && selectionHint(section.label) && <p className="text-[0.95em] text-ink-2">{selectionHint(section.label)}</p>}
           <p className="font-mono text-[0.9em] text-ink-2">{counts(section)}</p>
         </div>
         <MarkCell f={{ mark: section.mark, conflict: section.conflict, returnVisit: section.returnVisit }} />
@@ -235,7 +275,7 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
         {prefill?.plan_items.map((i,n)=><p key={`p${n}`}>{i.prompt} · {i.location}</p>)}
         {prefill?.photos.map(i=><p key={i.id}>{i.name}</p>)}
         {prefill?.discovery_notes.map((i,n)=><p key={`d${n}`}>{i.summary}</p>)}
-        {section.module.key==='house' && prefill?.year_built && <><Btn onClick={()=>void api.answer(section.instance.id,'year_built','Year built',{status:'answered',value:Number(prefill.year_built)})}>Still right ✓ · {prefill.year_built}</Btn><Btn onClick={()=>setFocusAddr(`${section.instance.id}:year_built`)}>Correct</Btn></>}
+        {section.module.key==='house' && prefill?.year_built && <><Btn onClick={()=>void api.answer(section.instance.id,'year_built','Year built',{status:'answered',value:Number(prefill.year_built)})}>Still right ✓ · {prefill.year_built}</Btn><Btn onClick={()=>jump(`${section.instance.id}:year_built`)}>Correct</Btn></>}
       </details>}
       {section.module.say.length > 0 && (
         <div className="mt-3 rounded-lg border-2 border-rule-soft bg-card p-3 lg:hidden">
@@ -248,7 +288,13 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
           {closingLines.map((l, i) => l.direction
             ? <p key={i} className="mt-2 rounded-md border-2 border-info bg-info-soft px-3 py-2 font-sans font-semibold text-ink"><span aria-hidden>→ </span>{l.text}</p>
             : <p key={i} className="mt-1 font-serif text-ink-2">“{l.text}”</p>)}
-          <div className="mt-3"><Btn tone="primary" onClick={() => api.showToClient()}>{W.showToClient}</Btn></div>
+          <div className="mt-3 grid gap-2">
+            {needDate && <p className="rounded-md border-2 border-info bg-info-soft px-3 py-2 font-semibold text-ink"><span aria-hidden>→ </span>{W.pickDateBeforeClient}</p>}
+            <div className="flex flex-wrap gap-3">
+              {needDate && dateField && <Btn tone="primary" onClick={() => jump(dateField.addr)}>{W.pickDate}</Btn>}
+              <Btn tone={needDate ? "secondary" : "primary"} disabled={needDate} onClick={() => api.showToClient()}>{W.showToClient}</Btn>
+            </div>
+          </div>
         </div>
       )}
       {/* r4 R4-6: one column on tablet portrait (no half-width field beside empty space); two only from 1280 px. */}
@@ -262,9 +308,21 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
           <ul className="pb-2">{section.hidden.map((f) => <li key={f.addr} className="flex justify-between gap-3 py-1 text-ink-2"><span>{f.def.label}</span><CoverageMark variant="coverage" state="not_applicable" size="sm" /></li>)}</ul>
         </details>
       )}
-      {model.slots.filter((s) => s.parent === section.module.key).length > 0 && (
+      {/* r5 domain 3: a required child that isn't there yet is listed like a missing top-level slot —
+          "Vented appliance — 0/1 · Add" — so an offline Yes still shows what it needs. */}
+      {section.missingRequiredChildren.filter((c) => c.missing > 0).map((c) => {
+        const m = model.modules.find((x) => x.key === c.module_key); const noun = m ? moduleNoun(m) : c.title;
+        return (
+          <div key={`need-${c.module_key}`} className="mt-4 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md border-2 border-rule bg-card px-3 py-2">
+            <span className="min-w-0"><span className="font-semibold text-ink">{noun}</span> <span className="whitespace-nowrap font-mono text-[0.9em] text-ink-2">— {c.live}/{c.minimum}</span>
+              <span className="mt-0.5 block"><CoverageMark variant="coverage" state="open" size="sm" /></span></span>
+            <Btn onClick={() => addInstance(c.module_key, section.instance.id)} aria-label={fill(W.addInstance, { name: noun.toLowerCase() })}>{W.addChild}</Btn>
+          </div>
+        );
+      })}
+      {model.slots.filter((s) => s.parent === section.module.key && !section.missingRequiredChildren.some((c) => c.module_key === s.module.key && c.missing > 0)).length > 0 && (
         <div className="mt-4 flex flex-wrap gap-3">
-          {model.slots.filter((s) => s.parent === section.module.key).map((slot) => <Btn key={slot.module.key} onClick={() => addInstance(slot.module.key, section.instance.id)}>+ {moduleNoun(slot.module)}</Btn>)}
+          {model.slots.filter((s) => s.parent === section.module.key && !section.missingRequiredChildren.some((c) => c.module_key === s.module.key && c.missing > 0)).map((slot) => <Btn key={slot.module.key} onClick={() => addInstance(slot.module.key, section.instance.id)}>+ {moduleNoun(slot.module)}</Btn>)}
         </div>
       )}
       {section.children.length > 0 && (
@@ -315,10 +373,10 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
           else if(!await api.setDraft(next)) return;
           setSkip(null);
         }} />}
-      <WrapSheet open={sheet === "wrap"} onClose={() => setSheet(null)} model={model} draft={draft} hasInitials={hasInitials} refused={refused}
+      <WrapSheet open={sheet === "wrap"} onClose={() => setSheet(null)} model={model} draft={draft} hasInitials={hasInitials} refused={refused} needDate={needDate}
         onGo={(id, addr) => { setSheet(null); openSection(id, addr); }} onFlags={() => setSheet("flags")} onTrades={() => setSheet("trades")} onRrp={() => setSheet("rrp")} onClient={() => { setSheet(null); api.showToClient(); }} onAck={() => setSheet("ack")}
         onCloseVisit={() => { setSheet(null); api.close(); }}
-        onPromised={() => { void api.ensureClosing().then(id=>{setSheet(null);openSection(id,`${id}:estimate_promised`);}); }} />
+        onPromised={pickDate} />
       {sheet === "flags" && <FlagSheet open onClose={() => setSheet("wrap")} model={model} draft={draft} saveError={saveError} onSave={api.setDraft} />}
       {sheet === "trades" && <TradeSheet open onClose={() => setSheet("wrap")} model={model} draft={draft} saveError={saveError} onSave={api.setDraft} />}
       {sheet === "rrp" && <RrpSheet model={model} onGo={() => {setSheet(null);const id=model.sections.find(s=>s.module.key==="era")?.instance.id;if(id)openSection(id);}} open onClose={() => setSheet("wrap")} draft={draft} saveError={saveError} onSave={api.setDraft} />}
@@ -326,8 +384,8 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
       {/* r4 R4-2: the leave check is a bottom sheet beside the thumb that tapped ‹ Sections / Next, never a
           banner at the top of a long section. */}
       {leave && (() => { const from = model.sections.find((s) => s.instance.id === leave.from); if (!from) return null; const l = leaveList(model, from.instance.id); return (
-        <Sheet open dock onClose={() => setLeave(null)} title={fill(W.leaveStill, { section: from.label })}
-          footer={<><Btn onClick={() => { setLeave(null); const h = nextOpen(model, from.instance.id); if (h) setFocusAddr(h.addr); }}>{W.goBack}</Btn><Btn tone="primary" onClick={() => { const go = leave.go; setLeave(null); go(); }}>{W.leaveForNow}</Btn></>}>
+        <Sheet open dock noClose onClose={() => setLeave(null)} title={fill(W.leaveStill, { section: from.label })}
+          footer={<><Btn onClick={() => { setLeave(null); const h = nextOpen(model, from.instance.id); if (h) jump(h.addr); }}>{W.goBack}</Btn><Btn tone="primary" onClick={() => { const go = leave.go; setLeave(null); go(); }}>{W.leaveForNow}</Btn></>}>
           <ul className="grid gap-2 text-ink">
             {l.open.length > 0 && <li><span className="font-semibold">{W.leaveOpen}</span> {leaveLine(l.open)}</li>}
             {l.partly.length > 0 && <li><span className="font-semibold">{W.leavePartly}</span> {leaveLine(l.partly)}</li>}

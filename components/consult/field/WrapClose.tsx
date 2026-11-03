@@ -5,26 +5,18 @@
  * close result: Visit closed — sending · Complete · Needs finishing (n open) with the
  * failing checks in plain words. No item count is a score; the server decides Complete.
  */
-import {openItemCount} from '@/lib/consult/completeness';
+import {closeAction, openItemCount} from '@/lib/consult/completeness';
 import { useState } from "react";
 import { CoverageMark } from "@/components/ui/CoverageMark";
 import type { EvidenceDraft, FieldView, ShotView, VisitModel } from "@/lib/consult/ui/model";
 import type { ClosingState } from "@/lib/consult/ui/controller";
-import { CHECK_WORDS, FLAG_CHOICES, W, fill, plainWords } from "@/lib/consult/ui/words";
+import { CHECK_ACTION_WORDS, CHECK_WORDS, FLAG_CHOICES, W, checkCount, fill, plainWords } from "@/lib/consult/ui/words";
 import { Banner, Btn, Choice, Sheet, TextInput } from "./primitives";
 
 const itemLabel = (o: VisitModel["open"][number]) => (o.kind === "field" ? (o.item as FieldView).def.label : `Photo · ${(o.item as ShotView).def.label}`);
 const itemAddr = (o: VisitModel["open"][number]) => (o.kind === "field" ? (o.item as FieldView).addr : (o.item as ShotView).addr);
 const WRAP_GROUP_MAX = 5;
 const promisedLabel = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" });
-/** Per-check count in words on the close result (the headline holds the one total). */
-function checkCount(code: string, n: number): string {
-  if (code === "required_fields") return ` · ${n} ${n === 1 ? "answer" : "answers"}`;
-  if (code === "required_photos") return ` · ${n} ${n === 1 ? "photo" : "photos"}`;
-  if (code === "flag_decisions") return ` · ${n} ${n === 1 ? "flag" : "flags"}`;
-  if (code === "module_requirements" || code === "risk_assumptions" || code === "trade_walks") return n > 1 ? ` · ${n} left` : "";
-  return "";
-}
 /** Open items grouped by section, in visit order (first appearance). */
 function groupBySection(list: VisitModel["open"]) {
   const out: { section: VisitModel["open"][number]["section"]; items: VisitModel["open"] }[] = [];
@@ -32,9 +24,11 @@ function groupBySection(list: VisitModel["open"]) {
   return out;
 }
 
-export function WrapSheet({ open, onClose, model, draft, hasInitials, refused, onGo, onFlags, onTrades, onRrp, onClient, onAck, onCloseVisit, onPromised }: {
+export function WrapSheet({ open, onClose, model, draft, hasInitials, refused, onGo, onFlags, onTrades, onRrp, onClient, onAck, onCloseVisit, onPromised, needDate }: {
   open: boolean; onClose: () => void; model: VisitModel; draft: EvidenceDraft; hasInitials: boolean; refused: number;
   onGo: (sectionId: string, addr: string) => void; onFlags: () => void; onTrades: () => void; onRrp: () => void; onClient: () => void; onAck: () => void; onCloseVisit: () => void; onPromised?: () => void;
+  /** r5 domain 2: no estimate date yet (and not skipped) — the client would initial a sheet without it. */
+  needDate?: boolean;
 }) {
   const required = model.open.filter((o) => !o.partly);
   const partly = model.open.filter((o) => o.partly);
@@ -49,12 +43,14 @@ export function WrapSheet({ open, onClose, model, draft, hasInitials, refused, o
   const title = `${W.beforeYouWrap} · ${openItemCount({price_critical:model.pc,record:model.record})} Open${partly.length ? ` · ${partly.length} Partly` : ""}`;
   return (
     <Sheet open={open} onClose={onClose} side title={title}
-      footer={<><Btn onClick={onClose}>{W.keepWorking}</Btn><Btn tone="primary" onClick={onCloseVisit} disabled={model.conflicts.length > 0 || refused > 0}>{blocking ? W.closeVisitNeeds : W.closeVisit}</Btn></>}>
+      footer={<><Btn className="max-md:w-full" onClick={onClose}>{W.keepWorking}</Btn><Btn tone="primary" className="max-md:w-full" onClick={onCloseVisit} disabled={model.conflicts.length > 0 || refused > 0}>{blocking ? W.closeVisitNeeds : W.closeVisit}</Btn></>}>
       <div className="mb-5 grid gap-3">
         {/* r3 C7: what stops a Complete close comes first — flags, promised date, client initials. */}
         {model.flags.length > 0 && <Line text={undecidedFlags.length ? fill(undecidedFlags.length === 1 ? W.flagsLine : W.flagsLinePlural, { n: undecidedFlags.length }) : `Flags: all ${model.flags.length} decided ✓`} action={<Btn onClick={onFlags}>{W.reviewFlags}</Btn>} done={undecidedFlags.length === 0} />}
         <Line text={model.promised ? `${W.promisedBy} ${promisedLabel(model.promised)} ✓` : W.promisedMissing} action={model.promised ? undefined : onPromised && <Btn onClick={onPromised}>{W.pickDate}</Btn>} done={!!model.promised} />
-        <Line text={hasInitials ? "Client initials ✓" : draft.ack_reason ? `No initials · ${draft.ack_reason}` : "Client initials — not yet"} action={hasInitials ? undefined : <span className="flex flex-wrap gap-3"><Btn onClick={onClient}>{W.showToClient}</Btn><Btn tone="quiet" onClick={onAck}>{W.noInitialsWhy.replace("?", "")}</Btn></span>} done={!ackOpen} stack />
+        {/* r5: the same row shape as every other card — words left, the two buttons stacked on the right. */}
+        <Line text={hasInitials ? "Client initials ✓" : draft.ack_reason ? `No initials · ${draft.ack_reason}` : "Client initials — not yet"} note={!hasInitials && needDate ? `→ ${W.pickDateBeforeClient}` : undefined}
+          action={hasInitials ? undefined : <span className="grid justify-items-stretch gap-2"><Btn onClick={onClient} disabled={needDate}>{W.showToClient}</Btn><Btn tone="quiet" onClick={onAck}>{W.noInitialsSay}</Btn></span>} done={!ackOpen} />
         <Line text={trades.length ? (undecidedTrades.length ? fill(W.tradeWalksLine, { trade: undecidedTrades.join(", ") }) : "Trade walks: all decided ✓") : draft.no_trades_confirmed ? "Trade walks: none — no trade is touched ✓" : "Trade walks: confirm none is needed"} action={<Btn onClick={onTrades}>{W.decide}</Btn>} done={!tradesOpen} />
         {model.sections.filter(s=>s.module.key==='footing').map(s=>{const zone=s.fields.find(f=>f.key==='frost_zone')?.answer;return zone?.status==='answered' ? <Line key={s.instance.id} text={`County frost zone: ${String(zone.value)}`} info /> : null;})}
         {model.rrpApplies && <Line text={rrpOpen ? fill(W.rrpNeeds, { list: [!model.rrp.receipt && W.rrpShortReceipt, !model.rrp.firm_current && W.rrpShortFirm, !model.rrp.renovator_current && W.rrpShortRenovator].filter(Boolean).join(" · ") }) : W.rrpRecorded} action={<Btn onClick={onRrp}>{W.rrpReview}</Btn>} done={!rrpOpen} />}
@@ -98,13 +94,14 @@ export function WrapSheet({ open, onClose, model, draft, hasInitials, refused, o
 
 /** r4 R4-5: a not-done-yet line is the neutral ○ Open (mark + word, card fill); only `warn`
  *  (a conflict, a refused answer) is the ! Problem style. Done lines carry their own ✓ in the text. */
-function Line({ text, action, warn, stack, done, info }: { text: string; action?: React.ReactNode; warn?: boolean; stack?: boolean; done?: boolean; info?: boolean }) {
+function Line({ text, action, warn, stack, done, info, note }: { text: string; action?: React.ReactNode; warn?: boolean; stack?: boolean; done?: boolean; info?: boolean; note?: string }) {
   return (
     <div className={`grid items-center gap-2 rounded-md border-2 px-3 py-2 ${action && !stack ? "grid-cols-[minmax(0,1fr)_auto]" : ""} ${warn ? "border-flag bg-flag-soft" : done || info ? "border-rule-soft bg-paper" : "border-rule bg-card"}`}>
       <div className="min-w-0">
         {warn ? <p className="text-ink"><span aria-hidden className="mr-1 font-bold text-flag">!</span>{text}</p>
           : done || info ? <p className="text-ink">{text}</p>
           : <><CoverageMark variant="coverage" state="open" size="sm" /><p className="text-ink">{text}</p></>}
+        {note && <p className="mt-1 text-[0.9em] font-semibold text-ink-2">{note}</p>}
       </div>
       {action}
     </div>
@@ -201,9 +198,11 @@ export function AckSheet({ open, onClose, draft, onSave, saveError }: { open: bo
 }
 
 /** Visit closed — sending → Complete / Needs finishing, the same words for Joe's and staff visits. */
-export function ClosingScreen({ closing, unsent, online, autoApply, findings, findingsCode, onSend, onRetry, onKeepWorking, onReopen, onApply, home }: {
+export function ClosingScreen({ closing, unsent, online, autoApply, findings, findingsCode, onSend, onRetry, onKeepWorking, onReopen, onApply, onAction, home }: {
   closing: ClosingState; unsent: number; online: boolean; autoApply: boolean; findings: { status: string; last_error: string | null } | null; findingsCode: string | null;
   onSend: () => void; onRetry: () => void; onKeepWorking: () => void; onReopen: (reason: string) => Promise<void>; onApply: () => void; home: string;
+  /** r5: an open check's own way forward (Review flags, Pick the date, Show to client, …) — back on the visit. */
+  onAction?: (action: string) => void;
 }) {
   const [reopening, setReopening] = useState(false); const [reason, setReason] = useState(""); const [err, setErr] = useState<string | null>(null);
   const r = closing.result;
@@ -211,7 +210,8 @@ export function ClosingScreen({ closing, unsent, online, autoApply, findings, fi
   return (
     <section className="mx-auto w-full max-w-[640px] px-4 py-6" aria-live="polite">
       {(closing.step === "sending" || closing.step === "closing") && <>
-        <h1 className="font-serif text-[1.6em] font-semibold text-ink">{W.visitClosedSending}</h1>
+        {/* r5 R5-7: "— sending" only while something is waiting; otherwise the office is checking. */}
+        <h1 className="font-serif text-[1.6em] font-semibold text-ink">{unsent > 0 ? W.visitClosedSending : W.visitClosedChecking}</h1>
         {/* Never "⇅ 0 · sending" with nothing waiting: then the device is checking with the office. */}
         <p className="mt-2 text-ink-2" role="status">{unsent > 0 ? fill(W.closeWaitingN, { n: unsent }) : W.closeChecking}</p>
       </>}
@@ -258,10 +258,17 @@ export function ClosingScreen({ closing, unsent, online, autoApply, findings, fi
               const text = c.code === "close_manifests"
                 ? [devices ? fill(devices === 1 ? W.otherDeviceWaiting : W.otherDevicesWaiting, { n: devices }) : "", conflicts ? W.conflictsToPick : ""].filter(Boolean).join(" ")
                 : `${CHECK_WORDS[c.code] ?? c.code}${checkCount(c.code, c.open.length)}`;
+              // r5: every open row carries its way forward. Other devices' answers: this device can only
+              // send its own (Send now); a conflict is picked on the visit (Before you wrap lists it).
+              const action = c.action ?? closeAction(c.code);
+              const button = c.code === "close_manifests"
+                ? (conflicts ? <Btn onClick={() => onAction?.("review_sync")}>{W.goToField}</Btn> : unsent > 0 ? <Btn onClick={onSend} disabled={!online}>{W.sendNow}</Btn> : null)
+                : onAction && <Btn onClick={() => onAction(action)}>{CHECK_ACTION_WORDS[action] ?? W.review}</Btn>;
               return (
-                <li key={c.code} className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-3 rounded-md border-2 border-rule-soft bg-card px-3 py-2">
+                <li key={c.code} className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 rounded-md border-2 border-rule-soft bg-card px-3 py-2 sm:grid-cols-[auto_minmax(0,1fr)_auto]">
                   {conflicts ? <CoverageMark variant="ready" state="problem" size="sm" /> : <CoverageMark variant="coverage" state="open" size="sm" />}
                   <span className="text-ink">{text}</span>
+                  {button && <span className="col-span-2 sm:col-span-1 [&>button]:max-sm:w-full">{button}</span>}
                 </li>
               );
             })}

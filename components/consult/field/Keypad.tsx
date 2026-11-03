@@ -13,6 +13,8 @@ import { Btn, Sheet } from "./primitives";
 
 type Mode = "ftin" | "decft" | "m";
 const FRACTIONS = ["1/8", "1/4", "3/8", "1/2", "5/8", "3/4", "7/8"];
+/** r5 domain 4: fields measured to 1/16″ get a row of the odd sixteenths (the even ones are the 8ths). */
+const SIXTEENTHS = ["1/16", "3/16", "5/16", "7/16", "9/16", "11/16", "13/16", "15/16"];
 /** One fraction per key, built from the UI font's own digits (r4 C1): the Unicode ¼ ½ ¾ came from
  *  Mulish and ⅛ ⅜ ⅝ ⅞ from a fallback font, so the keys differed in weight. Every key now draws
  *  the same raised numerator, slash and denominator in one font. */
@@ -69,6 +71,9 @@ export function Keypad({ open, def, label, initial, last, onSave, onClose }: { o
   const [mode, setMode] = useState<Mode>("ftin");
   const [unitPick, setUnitPick] = useState<"in" | "ft" | null>(null);
   const [saving, setSaving] = useState(false);
+  const sixteenths = precisionOf(def) === 1 / 16;
+  /** Phones show one fraction row at a time (8ths or 16ths) so the keys stay 56–64 px; from 768 px both. */
+  const [fracRow, setFracRow] = useState<"8" | "16">("8");
 
   const amb = ambiguous(text, mode, def);
   const effective = amb !== null && unitPick ? `${text.trim()}${unitPick === "ft" ? "'" : '"'}` : text;
@@ -84,7 +89,7 @@ export function Keypad({ open, def, label, initial, last, onSave, onClose }: { o
       if (k === "in") return `${t.trim()}"`;
       if (k === "x") return pair && !/[x×]/.test(t) ? `${t.trim()} × ` : t;
       if (k === "space") return t.endsWith(" ") ? t : `${t} `;
-      if (FRACTIONS.includes(k)) return `${t.trimEnd()} ${k}`;
+      if (FRACTIONS.includes(k) || SIXTEENTHS.includes(k)) return `${t.trimEnd()} ${k}`;
       return t + k;
     });
   }, [pair]);
@@ -112,12 +117,18 @@ export function Keypad({ open, def, label, initial, last, onSave, onClose }: { o
     return () => document.removeEventListener("keydown", onKey);
   }, [open, press, save]);
 
-  // Tablet portrait keeps the docked sheet inside 58 dvh with 56 px keys (r3 C12: the fraction
-  // row was clipped by the footer at 64 px).
+  // Tablet portrait keeps the docked sheet inside 62 dvh with 56 px keys (r3 C12: the fraction
+  // row was clipped by the footer at 64 px). r5 R5-5: never under 56 px — on screens ≤ 700 px tall the
+  // sheet opens full height instead of shrinking the keys.
   const key = (k: string, text: React.ReactNode = k, aria?: string, cls = "font-mono text-[1.35em]") => (
     <button key={k} type="button" onClick={() => press(k)} aria-label={aria ?? (typeof text === "string" ? text : k)}
-      className={`min-h-16 min-w-11 rounded-md border-2 border-rule bg-card md:max-lg:min-h-14 [@media(max-height:700px)]:min-h-12 ${cls} font-semibold text-ink hover:bg-paper-2 focus-visible:outline-3 focus-visible:outline-focus active:bg-paper-3`}>{text}</button>
+      className={`min-h-16 min-w-11 rounded-md border-2 border-rule bg-card md:max-lg:min-h-14 [@media(max-height:700px)]:min-h-14 ${cls} font-semibold text-ink hover:bg-paper-2 focus-visible:outline-3 focus-visible:outline-focus active:bg-paper-3`}>{text}</button>
   );
+  /** r5 R5-5: a mark with its word under it — gloves and a client's kitchen, nobody reads ␣ alone. */
+  const worded = (mark: string, word: string) => (
+    <span className="grid justify-items-center leading-none"><span aria-hidden>{mark}</span><span aria-hidden className="mt-1 font-sans text-[0.55em] font-semibold text-ink-2">{word}</span></span>
+  );
+  const fracKeys = (list: string[]) => list.map((f) => key(f, <FracGlyph f={f} />, `${f} inch`, "text-[1.45em]"));
   const status = !text.trim() ? (initial !== undefined ? `Now ${showLength(initial, def)}` : "Type the measurement")
     : amb !== null && !unitPick ? W.unitAmbiguous
     : reading?.ok ? fill(W.readsAs, { value: prettyLength(reading.display) })
@@ -125,15 +136,19 @@ export function Keypad({ open, def, label, initial, last, onSave, onClose }: { o
     : reading?.error === "out_of_range" ? W.outOfRange : W.invalidLength;
 
   return (
-    <Sheet open={open} onClose={onClose} title={label} dock
+    <Sheet open={open} onClose={onClose} title={label} dock tall
       footer={<>
         {last !== undefined && <Btn onClick={() => { void (async () => { setSaving(true); try { await onSave(last); } finally { setSaving(false); } })(); }}>{W.sameAsLast} · {showLength(last, def)}</Btn>}
         <Btn tone="primary" onClick={() => void save()} disabled={!canSave} className="min-w-[8em]">{W.save}</Btn>
       </>}>
-      <div aria-live="polite" className="mb-3 rounded-md border-2 border-rule bg-paper px-3 py-2 [@media(max-height:700px)]:mb-2 [@media(max-height:700px)]:py-1">
-        <p className="min-h-[1.4em] break-words font-mono text-[1.6em] font-semibold text-ink [@media(max-height:700px)]:text-[1.4em]">{prettyLength(text) || " "}</p>
-        <p className={`text-[0.95em] ${reading && !reading.ok && text.trim() && amb === null ? "font-semibold text-flag" : "text-ink-2"}`}>{reading && !reading.ok && text.trim() && amb === null ? "! " : ""}{status}</p>
-        {warn && <p className="mt-1 text-[0.95em] font-semibold text-flag">! {warn}</p>}
+      <div className="mb-3 flex items-start gap-2 rounded-md border-2 border-rule bg-paper px-3 py-2 [@media(max-height:700px)]:mb-2 [@media(max-height:700px)]:py-1">
+        <div aria-live="polite" className="min-w-0 flex-1">
+          <p className="min-h-[1.4em] break-words font-mono text-[1.6em] font-semibold text-ink [@media(max-height:700px)]:text-[1.4em]">{prettyLength(text) || " "}</p>
+          <p className={`text-[0.95em] ${reading && !reading.ok && text.trim() && amb === null ? "font-semibold text-flag" : "text-ink-2"}`}>{reading && !reading.ok && text.trim() && amb === null ? "! " : ""}{status}</p>
+          {warn && <p className="mt-1 text-[0.95em] font-semibold text-flag">! {warn}</p>}
+        </div>
+        {/* Phones: one fraction row at a time; the switch sits in the readout so it costs no key row. */}
+        {sixteenths && mode === "ftin" && <Btn className="shrink-0 px-3 md:hidden" aria-pressed={fracRow === "16"} onClick={() => setFracRow(fracRow === "8" ? "16" : "8")}>{fracRow === "8" ? W.show16ths : W.show8ths}</Btn>}
       </div>
       {amb !== null && (
         <div className="mb-3 grid grid-cols-2 gap-3" role="radiogroup" aria-label={W.unitAmbiguous}>
@@ -144,21 +159,25 @@ export function Keypad({ open, def, label, initial, last, onSave, onClose }: { o
       <div className="mb-3 grid grid-cols-3 gap-2 [@media(max-height:700px)]:mb-2" role="radiogroup" aria-label="Laser mode">
         {([["ftin", W.laserFtIn], ["decft", W.laserDecFt], ["m", W.laserMetric]] as const).map(([m, l]) => (
           <button key={m} type="button" role="radio" aria-checked={mode === m} onClick={() => { setMode(m); setUnitPick(null); }}
-            className={`min-h-14 rounded-md border-2 md:max-lg:min-h-12 [@media(max-height:700px)]:min-h-11 text-[0.95em] font-semibold ${mode === m ? "border-accent bg-accent-soft text-ink" : "border-rule bg-card text-ink-2"}`}>{l}</button>
+            className={`min-h-14 rounded-md border-2 px-1 text-[0.95em] font-semibold leading-tight ${mode === m ? "border-accent bg-accent-soft text-ink" : "border-rule bg-card text-ink-2"}`}>{l}</button>
         ))}
       </div>
       <div className="grid grid-cols-4 gap-2 [@media(max-height:700px)]:gap-1.5">
         {key("7")}{key("8")}{key("9")}{mode === "ftin" ? key("ft", "ft", "feet") : <span />}
         {key("4")}{key("5")}{key("6")}{mode === "ftin" ? key("in", "in", "inches") : <span />}
-        {key("1")}{key("2")}{key("3")}{key("del", "⌫", "Delete")}
-        {key(".")}{key("0")}{pair ? key("x", "×", "times — next value") : <span />}{key("space", "␣", "Space")}
+        {key("1")}{key("2")}{key("3")}{key("del", worded("⌫", W.keyDelete), "Delete")}
+        {key(".")}{key("0")}{pair ? key("x", "×", "times — next value") : <span />}{key("space", worded("␣", W.keySpace), "Space")}
       </div>
-      {mode === "ftin" && (
-        // Seven across only where each key stays ≥ 44 px; narrower phones get 4 + 3 rows.
-        <div className="mt-2 grid grid-cols-4 gap-2 min-[400px]:grid-cols-7 [@media(max-height:700px)]:mt-1.5 [@media(max-height:700px)]:gap-1.5">
-          {(precisionOf(def) === 1/16 ? [...FRACTIONS,...Array.from({length:8},(_,i)=>`${i*2+1}/16`)] : FRACTIONS).map((f) => key(f, <FracGlyph f={f} />, `${f} inch`, "text-[1.45em]"))}
+      {mode === "ftin" && <>
+        {/* Seven across only where each key stays ≥ 44 px; narrower phones get 4 + 3 rows. */}
+        <div className={`mt-2 grid grid-cols-4 gap-2 min-[400px]:grid-cols-7 [@media(max-height:700px)]:mt-1.5 [@media(max-height:700px)]:gap-1.5 ${sixteenths && fracRow === "16" ? "max-md:hidden" : ""}`}>
+          {fracKeys(FRACTIONS)}
         </div>
-      )}
+        {/* r5 domain 4: the 16ths row — four across on phones (two rows, swapped in for the 8ths), eight from 768 px. */}
+        {sixteenths && <div role="group" aria-label="Sixteenths" className={`mt-2 grid grid-cols-4 gap-2 md:grid-cols-8 [@media(max-height:700px)]:mt-1.5 [@media(max-height:700px)]:gap-1.5 ${fracRow === "8" ? "max-md:hidden" : ""}`}>
+          {fracKeys(SIXTEENTHS)}
+        </div>}
+      </>}
     </Sheet>
   );
 }

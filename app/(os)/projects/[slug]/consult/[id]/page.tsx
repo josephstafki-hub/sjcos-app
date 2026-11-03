@@ -10,7 +10,7 @@ import { pinnedDerivations } from "@/lib/consult/derive";
 import { openItemCount } from "@/lib/consult/completeness";
 import { formatLength } from "@/lib/consult/length";
 import type { LocalBlob } from "@/lib/consult/offline-engine";
-import { CHECK_WORDS, W, fill, plainWords, statusLabel } from "@/lib/consult/ui/words";
+import { OFFICE_CHECK_WORDS, W, checkCount, fill, plainWords, statusLabel } from "@/lib/consult/ui/words";
 import { ApplyFindings, OfficeConflict, ReopenButton } from "@/components/consult/office/LookOverActions";
 import { AssignControl } from "@/components/consult/office/ScheduleDialog";
 import { RecoveryControl } from "@/components/consult/office/RecoveryControl";
@@ -88,6 +88,31 @@ export default async function ConsultLookOver({ params, searchParams }: { params
   const chip: "covered" | "partial" | null = status === "complete" ? "covered" : status === "incomplete" ? "partial" : null;
   const headline = status === "complete" ? `Complete · ${fmt(extra.completedAt)}` : status === "incomplete" ? `Needs finishing · ${openN} open` : status === "in_progress" && interrupted(snap.consult.scheduled_at) ? W.visitInterrupted : statusLabel(status);
   const sectionLink = (x: SectionView) => `/projects/${slug}/consult/${head.id}?s=${x.instance.id}`;
+  const fieldLink = (addr: string) => `/projects/${slug}/consult/${head.id}?s=${addr.split(":")[0]}#f-${addr}`;
+  const canRecover = owner && devices.some((d) => d.revoked && !d.closed);
+  /** r5 R5-4: each open check on the look-over — the office's own words and its way forward. */
+  const officeRow = (c: { code: string; open: string[] }) => {
+    const firstField = model.open.find((o) => o.kind === "field");
+    const firstShot = model.open.find((o) => o.kind === "shot");
+    const finishOnDevice = head.assigned
+      ? { action: <Button variant="secondary" size="lg" href={`/consult/${head.id}`}>{W.openVisitShort}</Button> }
+      : { tail: ` ${fill(W.officeFinishOnDevice, { name: head.visitor_name })}` };
+    if (c.code === "close_manifests") {
+      const n = c.open.filter((x) => x !== "conflicts").length, conflicts = c.open.includes("conflicts");
+      const conflictAddr = Object.keys(extra.conflicts)[0];
+      const text = [n ? fill(n === 1 ? W.officeDeviceWaiting : W.officeDevicesWaiting, { n }) : "", conflicts ? W.conflictsToPick : ""].filter(Boolean).join(" · ");
+      return {
+        text, problem: conflicts,
+        tail: n && !canRecover ? ` ${fill(W.officeSendFromDevice, { name: head.visitor_name })}` : "",
+        action: conflicts && conflictAddr ? <Button variant="secondary" size="lg" href={fieldLink(conflictAddr)}>{W.goToField}</Button>
+          : n && canRecover ? <Button variant="secondary" size="lg" href="#recover">{W.recoverAnswers}</Button> : undefined,
+      };
+    }
+    const text = `${OFFICE_CHECK_WORDS[c.code] ?? c.code}${checkCount(c.code, c.open.length)}`;
+    if (c.code === "required_fields" && firstField) return { text, action: <Button variant="secondary" size="lg" href={fieldLink((firstField.item as FieldView).addr)}>{W.goToField}</Button> };
+    if (c.code === "required_photos" && (firstShot ?? firstField)) return { text, action: <Button variant="secondary" size="lg" href={sectionLink((firstShot ?? firstField)!.section)}>{W.goToSection}</Button> };
+    return { text, ...finishOnDevice };
+  };
 
   return (
     <Shell breadcrumb={`PROJECTS › ${head.project.toUpperCase()} › IN-HOME CONSULTATION`}>
@@ -102,11 +127,21 @@ export default async function ConsultLookOver({ params, searchParams }: { params
             <Button variant="secondary" size="lg" href={`/projects/${slug}`}>← Project</Button>
           </>} />
         {extra.pendingDevice && <div role="status" className="mb-4 rounded-lg border-2 border-info bg-info-soft px-4 py-3 text-body text-ink">{fill(W.notSyncedYet, { photos: `${extra.pendingDevice.photos} ${extra.pendingDevice.photos === 1 ? "photo" : "photos"}`, name: head.visitor_name })}</div>}
+        {/* r5 R5-4: Needs finishing is a normal outcome — the calm ◐ heading and one ○ Open row per open
+            check on the neutral card, each with its count and its way forward. ! only for a conflict. */}
         {status === "incomplete" && openChecks.length > 0 && (
-          <div role="status" className="mb-4 rounded-lg border-2 border-flag bg-flag-soft px-4 py-3 text-body text-ink">
-            <p className="font-semibold"><span aria-hidden className="text-flag">⚠ </span>Needs finishing · {openN} open — the visitor’s Finish consultation to-do already exists.</p>
-            <ul className="mt-1 list-disc pl-5">{openChecks.map((c) => <li key={c.code}>{CHECK_WORDS[c.code] ?? c.code}{c.open.length > 1 ? ` · ${c.open.length} open` : ""}</li>)}</ul>
-          </div>
+          <section aria-labelledby="nf-h" className="mb-4 rounded-lg border border-rule bg-card px-4 py-3 text-body text-ink">
+            <h2 id="nf-h" className="font-serif text-title font-semibold text-ink"><span aria-hidden className="font-mono">◐ </span>{W.needsFinishing} · <span className="whitespace-nowrap">{openN} open</span></h2>
+            <p className="text-ink-2">{W.officeNeedsFinishingLead}</p>
+            <ul className="mt-2 grid">
+              {openChecks.map((c) => { const r = officeRow(c); return (
+                <li key={c.code} className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 border-t border-rule-soft py-2 @[600px]/page:grid-cols-[auto_minmax(0,1fr)_auto]">
+                  {r.problem ? <CoverageMark variant="ready" state="problem" size="sm" /> : <CoverageMark variant="coverage" state="open" size="sm" />}
+                  <span className="min-w-0">{r.text}{r.tail && <span className="text-ink-2">{r.tail}</span>}</span>
+                  {r.action && <span className="col-start-2 @[600px]/page:col-start-auto">{r.action}</span>}
+                </li>); })}
+            </ul>
+          </section>
         )}
         {extra.reopenReason && status !== "complete" && <p className="mb-4 text-body text-ink-2">Reopened: {extra.reopenReason}</p>}
 
@@ -134,7 +169,7 @@ export default async function ConsultLookOver({ params, searchParams }: { params
               <div>Notes · off (manual visit)</div>
             </dl>
             {owner && (movable || devices.some((d) => d.revoked && !d.closed)) && (
-              <div className="mt-6 grid gap-3">
+              <div id="recover" className="mt-6 grid gap-3">
                 <p className="eyebrow">Owner</p>
                 {movable && moveOptions && <AssignControl consultId={head.id} revision={Number(snap.consult.revision)} visitors={moveOptions.visitors} current={head.conducted_by} />}
                 <RecoveryControl consultId={head.id} devices={devices} />
@@ -183,7 +218,7 @@ export default async function ConsultLookOver({ params, searchParams }: { params
               <div className="mt-3">
                 {status !== "complete" ? <p className="text-body text-ink-3">Findings go to the scope when the visit is Complete.</p>
                   : job?.status === "done" ? <p className="text-body font-semibold text-accent-2">{fill(W.findingsApplied, { when: "" }).trim()}</p>
-                  : job?.status === "failed" || (job && job.last_error) ? <p className="flex flex-wrap items-center gap-2 text-body text-ink"><span aria-hidden className="text-flag">⚠</span>{"Couldn't apply findings to the scope —"} <ApplyFindings id={head.id} generation={Number(snap.consult.completion_generation)} retry /></p>
+                  : job?.status === "failed" || (job && job.last_error) ? <p className="flex flex-wrap items-center gap-2 text-body text-ink"><span aria-hidden className="text-flag">⚠</span>{"Couldn’t apply findings to the scope —"} <ApplyFindings id={head.id} generation={Number(snap.consult.completion_generation)} retry /></p>
                   : job ? <p className="text-body text-ink-2">{W.findingsWaiting}</p>
                   : !extra.autoApply ? <ApplyFindings id={head.id} generation={Number(snap.consult.completion_generation)} />
                   : <p className="text-body text-ink-2">{W.findingsWaiting}</p>}

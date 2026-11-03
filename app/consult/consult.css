@@ -8,6 +8,16 @@
 .consult-root input, .consult-root textarea, .consult-root select { font-size: max(16px, 1em); }
 .consult-root button, .consult-root a { touch-action: manipulation; }
 
+/* r5 R5-1: the visitor screen and the client view are pinned to the viewport. The document itself
+   can't scroll, so a focus jump (Go back, Pick the date, the keypad) moves only the section pane —
+   never the status bar or the ‹ Sections / Next › bar. */
+.consult-fixed { position: fixed; inset: 0; }
+html:has(.consult-fixed), html:has(.consult-fixed) body { overflow: clip; overscroll-behavior: none; height: 100%; }
+
+/* r5 R5-1: Go back (and every jump to a field) rings the target field for 1.5 s. */
+@keyframes consult-ring { 0%, 70% { outline-color: var(--focus); } 100% { outline-color: transparent; } }
+.consult-ring { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 0.375rem; animation: consult-ring 1.5s ease-out forwards; }
+
 /* Sun mode (⋯ menu, remembered per device): pure card background, ink text, 19 px
    base, 2 px borders, no soft tints for state — every state keeps its icon + word. */
 .consult-root[data-sun="1"] {

@@ -546,7 +546,7 @@ export class VisitController {
       if (!owns()) return;
       let revision = Number((this.state.fresh ?? local.snapshot as Snapshot).consult.revision);
       if (evidence && !local.close_intent?.request) {
-        try { const r = await post(this.state.consultId, 'evidence', { device: this.state.device, epoch: local.queue.device_epoch, expected_revision: revision, evidence }); if (!owns()) return; revision = Number(r.revision); }
+        try { const r = await post(this.state.consultId, 'evidence', { device: this.state.device, epoch: local.queue.device_epoch, expected_revision: revision, generation: local.queue.generation, baseline: (local.snapshot as Snapshot).close_evidence ?? null, evidence: { ...((local.snapshot as Snapshot).close_evidence ?? {}), ...evidence } }); if (!owns()) return; revision = Number(r.revision); }
         catch (e) { throw e; }
       }
       const blobs = manifestBlobs(local.blobs);

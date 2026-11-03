@@ -34,7 +34,7 @@ export async function fixture(c){
    await publish(c,context('publish_form',owner,null),{form_id:form,registry_id:registry});
    await c.query('INSERT INTO consult_form_pins SELECT $1,id,kind,key,version,checksum FROM consult_form_versions WHERE id=$2',[consult,form]);
    house=randomUUID();await send([op('create_instance',{},await revision(),{instance_id:house,module_key:'house',label:'House'})]);await send([op('answer',{status:'answered',value:2000},0,{instance_id:house,field_key:'year_built'})]);}
-  return run('evidence',{device,epoch:1,expected_revision:await revision(),evidence:e});
+  return run('evidence',{device,epoch:1,expected_revision:await revision(),baseline:(await c.query('SELECT evidence FROM consult_close_evidence WHERE consult_id=$1',[consult])).rows[0]?.evidence??null,evidence:e});
  };
  const close=async(extra={})=>run('close',{expected_revision:await revision(),manifest:{device,epoch:1,last_seq:seq,required_blob_hashes:[],initials_hash:null,local_pending:0,...extra}});
  return {owner,staff,other,project,consult,device,instance,context,registry,forms,run,op,send,revision,evidence,save,close};

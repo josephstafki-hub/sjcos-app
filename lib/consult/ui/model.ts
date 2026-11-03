@@ -29,13 +29,13 @@ export interface Snapshot {
   proposals?: unknown[];
   findings_job?: { generation: string | number; status: string; attempts: number; last_error: string | null; result: unknown } | null;
   display?: Display;
-  visitor_notes?: string; decisions?: EvidenceDraft | null;
-  prefill?: {firm_cert_number?: string | null; firm_cert_expiry?: string | null;year_built: string | null; intake: {question:string;answer:string}[]; rough_estimate:{label:string;value?:unknown}[]; scope_items:{key:string;title:string;room:string;trade:string;quantities:{label:string;qty:number|null;unit:string;basis?:string}[]}[]; plan_items:{prompt:string;location:string}[]; photos:{id:string;name:string}[]; discovery_notes:{summary:string}[]};
+  close_evidence?: Record<string,unknown> | null; visitor_notes?: string; decisions?: EvidenceDraft | null;
+  prefill?: {start_date?: string | null;firm_cert_number?: string | null; firm_cert_expiry?: string | null;year_built: string | null; intake: {question:string;answer:string}[]; rough_estimate:{label:string;value?:unknown}[]; scope_items:{key:string;title:string;room:string;trade:string;quantities:{label:string;qty:number|null;unit:string;basis?:string}[]}[]; plan_items:{prompt:string;location:string}[]; photos:{id:string;name:string}[]; discovery_notes:{summary:string}[]};
 }
 export interface EvidenceDraft {
   skips: Record<string, { reason: SkipReason; note?: string; assumption?: RiskAssumption; trade_walk_decided?: boolean }>;
   flags: Record<string, { disposition: 'price_it' | 'allowance' | 'sub_must_look' | 'not_an_issue'; note: string }>;
-  trade_walks: { trade: string; needed: boolean | null; reason: string }[];
+  trade_walks: { trade: string; needed: boolean | null; reason: string; day?: string }[];
   no_trades_confirmed: boolean;
   rrp: { receipt: boolean; firm_current: boolean; renovator_current: boolean; redelivery_required: boolean; redelivery_day?: string };
   ack_reason: string | null;
@@ -408,11 +408,11 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
   const started = status !== 'scheduled' || entries.some((e) => e.op.type === 'start' && !['invalid', 'deleted'].includes(e.status));
   const photosOk = typeof global['house.photos_ok'] === 'boolean' ? (global['house.photos_ok'] as boolean) : null;
   const promisedRaw = global['closing.estimate_promised'];
-  const rrp = rrpFacts(global, blobs.some(b=>b.kind==='initials'&&b.field_key==='pamphlet_initials'&&!!b.receipt), String(s.consult.scheduled_at));
+  const rrp = rrpFacts(global, blobs.some(b=>b.kind==='initials'&&b.field_key==='pamphlet_initials'&&!!b.receipt), String(s.consult.scheduled_at), s.prefill?.start_date);
   rrp.receipt ||= sections.some(sec=>sec.module.key==='era'&&sec.fields.some(f=>['pamphlet_given','pamphlet_initials'].includes(f.key)&&f.answer?.status==='skipped'&&!!f.answer.skip_note?.trim()&&f.skipCounts));
   return {
     modules, templates, sections, slots, pc: tally.pc, record: tally.record, open: allOpen, flags: allFlags, conflicts,
-    touchedTrades: [...touched], rrp, rrpApplies: rrpFacts(global, false, String(s.consult.scheduled_at)).applies, values: global, photosOk,
+    touchedTrades: [...touched], rrp, rrpApplies: rrpFacts(global, false, String(s.consult.scheduled_at), s.prefill?.start_date).applies, values: global, photosOk,
     promised: typeof promisedRaw === 'string' ? promisedRaw : null, started, status, generation: Number(s.consult.completion_generation),
     unmeasured: projection.derived.filter((d) => d.definition.maps_to && !(d.result && d.result.answer_revisions.length > 0)).length,
   };
@@ -568,7 +568,7 @@ export function buildEvidence(model: VisitModel, draft: EvidenceDraft, hasInitia
   const flagKeys = new Set(model.flags.map((f) => f.key));
   const flags: Record<string, unknown> = {};
   for (const [key, v] of Object.entries(draft.flags)) if (flagKeys.has(key) && trim(v.note)) flags[key] = { disposition: v.disposition, note: trim(v.note) };
-  const walks = draft.trade_walks.filter((w) => trim(w.trade) && typeof w.needed === 'boolean' && trim(w.reason)).map((w) => ({ trade: trim(w.trade), needed: w.needed as boolean, reason: trim(w.reason) }));
+  const walks = draft.trade_walks.filter((w) => trim(w.trade) && typeof w.needed === 'boolean' && trim(w.reason)).map((w) => ({ trade: trim(w.trade), needed: w.needed as boolean, reason: trim(w.reason), ...(w.day?{day:w.day}:{}) }));
   const touched = [...new Set([...model.touchedTrades, ...draft.trade_walks.map((w) => trim(w.trade)).filter(Boolean)])];
   const derivedRrp = model.rrp;
   const rrp = { receipt: derivedRrp.receipt, firm_current: derivedRrp.firm_current, renovator_current: derivedRrp.renovator_current, redelivery_required: draft.rrp.redelivery_required, ...(draft.rrp.redelivery_required && draft.rrp.redelivery_day && /^\d{4}-\d{2}-\d{2}$/.test(draft.rrp.redelivery_day) ? { redelivery_day: draft.rrp.redelivery_day } : {}) };

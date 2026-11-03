@@ -610,7 +610,7 @@ export function spokenDuration(keys: string[]): string {
 }
 
 /** One label for field, office and offline conflict sides. Times are job-local. */
-export function conflictSideLabel(side: {person?: string; actor?: string|null; device_id?: string|null; device?: string|null; created_at?: string|Date}, other?: {person?: string; actor?: string|null; created_at?: string|Date}, thisDevice?: string): string {
+export function conflictSideLabel(side: {server_revision?: string|number; person?: string; actor?: string|null; device_id?: string|null; device?: string|null; created_at?: string|Date}, other?: {server_revision?: string|number; person?: string; actor?: string|null; created_at?: string|Date}, thisDevice?: string): string {
  const first = side.person?.trim().split(/\s+/)[0] || 'Visitor';
  const time = (at?: string|Date) => at && Number.isFinite(new Date(at).getTime()) ? new Date(at).toLocaleTimeString('en-US',{timeZone:'America/Chicago',hour:'numeric',minute:'2-digit',hour12:true}).toLowerCase() : '';
  const device=side.device_id ?? side.device;
@@ -620,6 +620,7 @@ export function conflictSideLabel(side: {person?: string; actor?: string|null; d
  const same=other && (side.actor && other.actor ? side.actor===other.actor : !!side.person && side.person===other.person);
  if(!same)return first;
  const tie=clock && clock===time(other.created_at);
- const order=tie ? (new Date(side.created_at!).getTime()<=new Date(other.created_at!).getTime()?' · earlier':' · later') : '';
+ const delta=new Date(side.created_at!).getTime()-new Date(other?.created_at??'').getTime() || (Number(side.server_revision??0)-Number(other?.server_revision??0));
+ const order=tie && delta ? (delta<0?' · earlier':' · later') : '';
  return `${first}${clock?' · '+clock:''}${order}`;
 }

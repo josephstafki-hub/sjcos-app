@@ -30,7 +30,7 @@ export const evidenceSchema=z.strictObject({
  skips:z.record(z.string(),z.strictObject({reason:skip,note:note.optional(),assumption:assumption.optional(),trade_walk_decided:z.boolean().optional()})),
  return_day:day.optional(),
 });
-export const decisionSchema=evidenceSchema.pick({skips:true,flags:true,trade_walks:true,no_trades_confirmed:true,rrp:true,ack_reason:true}).extend({trade_walks:z.array(z.strictObject({trade:z.string().max(8000),needed:z.boolean().nullable(),reason:z.string().max(8000)})).max(50),flags:z.record(z.string(),z.strictObject({disposition:z.enum(['price_it','allowance','sub_must_look','not_an_issue']),note:z.string().max(8000)})),rrp:evidenceSchema.shape.rrp.extend({redelivery_day:z.string().max(10).optional()})});
+export const decisionSchema=evidenceSchema.pick({skips:true,flags:true,trade_walks:true,no_trades_confirmed:true,rrp:true,ack_reason:true}).extend({trade_walks:z.array(z.strictObject({trade:z.string().max(8000),needed:z.boolean().nullable(),reason:z.string().max(8000),day:day.optional()})).max(50),flags:z.record(z.string(),z.strictObject({disposition:z.enum(['price_it','allowance','sub_must_look','not_an_issue']),note:z.string().max(8000)})),rrp:evidenceSchema.shape.rrp.extend({redelivery_day:z.string().max(10).optional()})});
 const address=z.strictObject({instance_id:uuid,field_key:z.string().regex(/^[a-z][a-z0-9_]*$/)});
 const opSchema=z.strictObject({protocol_version:z.literal(1),client_event_id:uuid,device_id:uuid,device_epoch:rev.min(1),seq:rev.min(1),base_revision:rev,generation:rev.min(1),type:z.enum(['start','answer','clear','create_instance','remove_instance','resolve','discard_rejection','decisions']),target:z.unknown(),payload:z.unknown(),payload_sha256:z.string().regex(/^[a-f0-9]{64}$/)});
 const answerPayload=z.strictObject({summary_text:z.string().min(1).max(32000).optional(),status:z.enum(['answered','skipped','cleared']),value:z.unknown().optional(),unit:z.string().optional(),skip_reason:skip.optional(),skip_note:z.string().max(8000).optional()});
@@ -64,7 +64,7 @@ export async function snapshot(c:PoolClient,context:Context,target:string):Promi
  const amounts=JSON.parse(context.payload).role==='owner'||JSON.parse(context.payload).areas?.includes('estimates');
  const quantities=(value:unknown)=>Array.isArray(value)?value.slice(0,200).map(q=>({label:q.label,qty:q.qty,unit:q.unit,...(q.basis!==undefined?{basis:q.basis}:{})})):[];
  const firmSettings=Object.fromEntries((await c.query("SELECT key,value FROM app_settings WHERE key IN ('rrp_firm_cert_number','rrp_firm_cert_expiry')")).rows.map(r=>[r.key,r.value]));
- const prefill={firm_cert_number:firmSettings.rrp_firm_cert_number??null,firm_cert_expiry:firmSettings.rrp_firm_cert_expiry??null,intake,year_built:intake.find(i=>/year.*built/i.test(i.question))?.answer??null,
+ const prefill={start_date:(await one<{start_date:string|null}>(c,'SELECT start_date::text start_date FROM projects WHERE id=$1',[project])).start_date,firm_cert_number:firmSettings.rrp_firm_cert_number??null,firm_cert_expiry:firmSettings.rrp_firm_cert_expiry??null,intake,year_built:intake.find(i=>/year.*built/i.test(i.question))?.answer??null,
  rough_estimate:(rough?.line_items??[]).slice(0,200).map(l=>({label:l.label,...(amounts?{value:l.value}: {})})),
  scope_items:(await c.query("SELECT key,title,room,trade,quantities FROM scope_items WHERE project_id=$1 AND status NOT IN ('excluded','superseded') ORDER BY key LIMIT 200",[project])).rows.map(i=>({...i,quantities:quantities(i.quantities)})),
  plan_items:(await c.query("SELECT item->>'prompt' prompt,item->>'scope_key' scope_key,item->>'unit' unit,item->>'location' location FROM site_visit_plans p CROSS JOIN LATERAL jsonb_array_elements(p.items) item WHERE project_id=$1 AND p.status<>'superseded' AND item->>'status'='open' AND p.id=coalesce((SELECT site_visit_plan_id FROM consults WHERE id=$2),(SELECT id FROM site_visit_plans WHERE project_id=$1 AND status<>'superseded' ORDER BY revision DESC LIMIT 1)) ORDER BY p.revision DESC LIMIT 200",[project,target])).rows,
@@ -72,9 +72,12 @@ export async function snapshot(c:PoolClient,context:Context,target:string):Promi
  discovery_notes:(await c.query("SELECT a.summary FROM lead_activity a JOIN projects p ON p.lead_id=a.lead_id WHERE p.id=$1 AND a.kind IN ('discovery','discovery_call') ORDER BY a.created_at DESC LIMIT 20",[project])).rows};
  prefill.discovery_notes.push(...(await c.query("SELECT notes->>'summary' summary FROM calls WHERE (project_id=$1 OR lead_id=(SELECT lead_id FROM projects WHERE id=$1)) AND notes_status='done' AND notes->>'summary' IS NOT NULL ORDER BY started_at DESC LIMIT 20",[project])).rows);
  const visitor_notes=(await one<{payload:{visitor_notes:string}}>(c,"SELECT payload FROM consult_events WHERE consult_id=$1 AND type='scheduled_notes' ORDER BY created_at DESC LIMIT 1",[target]))?.payload.visitor_notes??'';
- const decisions=(await one<{payload:{payload:unknown}}>(c,"SELECT payload FROM consult_events WHERE consult_id=$1 AND type='decisions' AND generation=$2 ORDER BY server_revision DESC LIMIT 1",[target,result.consult.completion_generation]))?.payload.payload??null;
+ const closeEvidence=(await one<{evidence:unknown}>(c,'SELECT evidence FROM consult_close_evidence WHERE consult_id=$1',[target]))?.evidence??null;
+ const latest=(await one<{payload:{payload:unknown};type:string}>(c,"SELECT payload,type FROM consult_events WHERE consult_id=$1 AND type IN ('decisions','close_evidence') ORDER BY server_revision DESC,created_at DESC LIMIT 1",[target]));
+ const decisions=latest?.type==='decisions'?latest.payload.payload:closeEvidence?decisionSchema.parse(Object.fromEntries(Object.entries(closeEvidence).filter(([key])=>key in decisionSchema.shape))):null;
+
  const media=(await c.query("SELECT m.sha256 hash,m.event_id,m.kind,m.instance_id,m.field_key,m.shot_key,f.mime_type mime,jsonb_build_object('file_id',m.file_id,'media_id',m.id) receipt FROM consult_media m JOIN files f ON f.id=m.file_id WHERE m.consult_id=$1 AND m.removed_at IS NULL AND m.kind IN ('photo','initials') ORDER BY m.created_at",[target])).rows.map(m=>({...m,...(!m.field_key?{field_key:undefined}:{}),...(!m.shot_key?{shot_key:undefined}:{})}));
- return {...result,proposals,findings_job,display,prefill,visitor_notes,decisions,media} as Snapshot;
+ return {...result,proposals,findings_job,display,prefill,visitor_notes,decisions,close_evidence:closeEvidence,media} as Snapshot;
 }
 async function scoped(c:PoolClient,context:Context,operation:string,target:string|null):Promise<Context>{
  const claims=JSON.parse(context.payload);return (await one<{v:Context}>(c,'SELECT consult_mint_context($1,$2) v',[{...claims,operation,consult_id:target},context.key_id])).v;
@@ -173,6 +176,7 @@ export async function batch(c:PoolClient,context:Context,target:string,input:unk
    await c.query("UPDATE consults SET status='in_progress',revision=revision+1,started_at=now(),started_by=$2 WHERE id=$1",[target,actor]);receipt.revision=op.base_revision+1;
   }else if(op.type==='decisions'){
    z.null().parse(op.target);decisionSchema.parse(op.payload);
+   if(op.base_revision!==Number(s.consult.revision))throw new Error('conflict');
    // Partial wrap decisions are durable evidence, not a claim that Close checks passed.
    await c.query('UPDATE consults SET revision=revision+1 WHERE id=$1',[target]);receipt.revision=Number(s.consult.revision)+1;
   }else if(op.type==='discard_rejection'){
@@ -257,13 +261,18 @@ export async function batch(c:PoolClient,context:Context,target:string,input:unk
 }
 export async function saveEvidence(c:PoolClient,context:Context,target:string,input:unknown){
  const actor=await authorize(c,context,target,'evidence');
- const v=z.strictObject({device:uuid,epoch:rev.min(1),expected_revision:rev,evidence:evidenceSchema}).parse(input);
- if((v.evidence.return_day||v.evidence.trade_walks.some(w=>w.day))&&JSON.parse(context.payload).role!=='owner')throw new Error('owner_required');
+ const v=z.strictObject({device:uuid,epoch:rev.min(1),expected_revision:rev,generation:rev.min(1).optional(),baseline:evidenceSchema.nullable().optional(),evidence:evidenceSchema}).parse(input);
  await deviceGate(c,target,v.device,v.epoch,actor);const s=await snapshot(c,context,target);
  if(s.consult.status==='complete')throw new Error('complete_locked');
  if(Number(s.consult.revision)!==v.expected_revision)throw new Error('conflict');
+ if(v.generation!==undefined&&v.generation!==Number(s.consult.completion_generation))throw new Error('rebase_required');
+ const existing=(await one<{evidence:z.infer<typeof evidenceSchema>}>(c,'SELECT evidence FROM consult_close_evidence WHERE consult_id=$1',[target]))?.evidence??null;
+ if(JSON.parse(context.payload).role!=='owner' && ((v.evidence.return_day && v.evidence.return_day!==existing?.return_day)||v.evidence.trade_walks.some(w=>w.day && !existing?.trade_walks.some(old=>old.trade===w.trade&&old.day===w.day))))throw new Error('owner_required');
+ if(existing && hash(existing)===hash(v.evidence))return {revision:v.expected_revision};
+ // Absence is not deletion. Replacement requires the exact evidence the editor saw.
+ if(existing && hash(existing)!==hash(v.evidence) && hash(v.baseline??null)!==hash(existing))throw new Error('evidence_conflict');
  await c.query(`INSERT INTO consult_close_evidence VALUES($1,$2,$3,now()) ON CONFLICT(consult_id) DO UPDATE SET evidence=$2,actor=$3,updated_at=now()`,[target,v.evidence,actor]);
- await c.query('UPDATE consults SET photos_ok=$2,promised_date=$3,client_ack_skip=$4,revision=revision+1 WHERE id=$1',[target,v.evidence.photos_ok,v.evidence.promised_date,{reason:v.evidence.ack_reason,handed_back:true,actor}]);
+ await c.query('UPDATE consults SET photos_ok=$2,promised_date=$3,client_ack_skip=CASE WHEN $5 THEN client_ack_skip ELSE $4::jsonb END,revision=revision+1 WHERE id=$1',[target,v.evidence.photos_ok,v.evidence.promised_date,{reason:v.evidence.ack_reason,handed_back:true,actor},!!existing&&existing.ack_reason===v.evidence.ack_reason&&existing.handed_back===v.evidence.handed_back]);
  await c.query('UPDATE consult_devices SET close_manifest=NULL,close_ack_at=NULL WHERE consult_id=$1 AND revoked_at IS NULL',[target]);
  await audit(c,target,actor,'close_evidence',v);
  return {revision:v.expected_revision+1};

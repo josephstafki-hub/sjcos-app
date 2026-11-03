@@ -11,5 +11,6 @@ export const UPLOAD_DIR = path.join(process.cwd(), "uploads");
  *  route serves (lib/file-serve.ts). storage_path is DB-controlled, but
  *  basename-guard against traversal anyway. Throws when the blob is gone. */
 export function readUpload(storagePath: string): Promise<Buffer> {
+  if(path.basename(storagePath).startsWith('consult-'))throw new Error('Consult artifacts require the assignment-scoped reader');
   return readFile(path.join(UPLOAD_DIR, path.basename(storagePath)));
 }

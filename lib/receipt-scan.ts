@@ -214,7 +214,7 @@ async function threadLinkFor(sourceRef: string): Promise<string> {
 async function picturesOf(fileIds: string[]): Promise<Picture[]> {
   if (!fileIds.length) return [];
   const rows = await runDirect<{ id: string; storage_path: string | null; mime_type: string | null }>(
-    `SELECT id, storage_path, mime_type FROM files WHERE id = ANY($1::text[])`, [fileIds]);
+    `SELECT id, storage_path, mime_type FROM (SELECT * FROM files WHERE classification = 'attachment') AS files WHERE id = ANY($1::text[])`, [fileIds]);
   const byId = new Map(rows.map((r) => [r.id, r]));
   const out: Picture[] = [];
   for (const id of fileIds.slice(0, MAX_PICTURES)) {

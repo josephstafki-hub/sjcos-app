@@ -112,3 +112,47 @@ test('new website commands deny other staff, agent claims and raw narrow access;
   await assert.rejects(f.run('reopen',{expected_revision:await f.revision(),reason:'Old visitor'}),/access denied/);
  },{fresh:true});
 });
+
+test('restricted image transaction: bounds, photo permission, hash retries, rename rollback and stable commit',async()=>{
+ const {initConsultUpload,putConsultPart,commitConsultBlob}=await import('../lib/consult/uploads.ts');
+ const {mkdtemp,rm,readdir}=await import('node:fs/promises');
+ const {tmpdir}=await import('node:os');const {join}=await import('node:path');
+ const {createHash}=await import('node:crypto');const sharp=(await import('sharp')).default;
+ const root=await mkdtemp(join(tmpdir(),'consult-blobs-'));
+ try{await withTestDb(async(_url,c)=>{
+  const f=await fixture(c);const ctx=()=>f.context('upload');
+  const bytes=await sharp({create:{width:5,height:5,channels:3,background:'white'}}).png().toBuffer();
+  const hash=createHash('sha256').update(bytes).digest('hex');
+  const input={event_id:randomUUID(),device_id:f.device,device_epoch:1,kind:'photo',mime:'image/png',size:bytes.length,sha256:hash,instance_id:f.instance};
+  await assert.rejects(initConsultUpload(c,ctx(),f.consult,input),/photo_permission_required/);
+  await c.query('UPDATE consults SET photos_ok=true WHERE id=$1',[f.consult]);
+  const u=await initConsultUpload(c,ctx(),f.consult,input);
+  await assert.rejects(putConsultPart(c,ctx(),f.consult,u.upload_id,0,bytes,'0'.repeat(64)),/invalid_part/);
+  await putConsultPart(c,ctx(),f.consult,u.upload_id,0,bytes,hash);
+  await putConsultPart(c,ctx(),f.consult,u.upload_id,0,bytes,hash);
+  await c.query('UPDATE consults SET photos_ok=false WHERE id=$1',[f.consult]);
+  await assert.rejects(commitConsultBlob(c,ctx(),f.consult,u.upload_id,{event_id:input.event_id,sha256:hash},root),/photo_permission_required/);
+  await c.query('UPDATE consults SET photos_ok=true WHERE id=$1',[f.consult]);
+  await c.query('BEGIN');const first=await commitConsultBlob(c,ctx(),f.consult,u.upload_id,{event_id:input.event_id,sha256:hash},root);await c.query('ROLLBACK');
+  assert.equal((await readdir(root)).length,1);assert.equal((await c.query('SELECT * FROM files WHERE id=$1',[first.file_id])).rowCount,0);
+  await c.query('BEGIN');const second=await commitConsultBlob(c,ctx(),f.consult,u.upload_id,{event_id:input.event_id,sha256:hash},root);await c.query('COMMIT');
+  assert.deepEqual(first,second);
+  assert.deepEqual(await commitConsultBlob(c,ctx(),f.consult,u.upload_id,{event_id:input.event_id,sha256:hash},root),second);
+  assert.equal((await c.query('SELECT classification FROM files WHERE id=$1',[second.file_id])).rows[0].classification,'consult_photo');
+  for(const role of ['sjcos_agent','sjcos_worker','sjcos_readonly']){
+   await c.query(`SET ROLE ${role}`);assert.equal((await c.query('SELECT * FROM files WHERE id=$1',[second.file_id])).rowCount,0);await c.query('RESET ROLE');
+  }
+  await assert.rejects(c.query("UPDATE files SET classification='attachment' WHERE id=$1",[second.file_id]),/immutable|attachment/);
+  const {readConsultMedia,readConsultPhotoForExport}=await import('../lib/consult/media.ts');
+  assert.ok((await readConsultMedia(c,f.context('read_media'),f.consult,second.file_id,root)).bytes.length);
+  await assert.rejects(readConsultMedia(c,f.context('read_media',f.other),f.consult,second.file_id,root),/access denied/);
+  await assert.rejects(readConsultPhotoForExport(c,f.context('read_media'),second.file_id,root),/owner_required/);
+  await assert.rejects(readConsultPhotoForExport(c,f.context('read_media',f.owner),second.file_id,root),/consult_not_complete/);
+  await c.query('UPDATE consults SET photos_ok=false WHERE id=$1',[f.consult]);
+  await assert.rejects(readConsultMedia(c,f.context('read_media'),f.consult,second.file_id,root),/photo_permission_required/);
+  await c.query('UPDATE consults SET photos_ok=true WHERE id=$1',[f.consult]);
+  await assert.rejects(initConsultUpload(c,ctx(),f.consult,{...input,sha256:'0'.repeat(64)}),/idempotency_mismatch/);
+  await assert.rejects(initConsultUpload(c,ctx(),f.consult,{...input,event_id:randomUUID(),size:26*1048576}));
+  await assert.rejects(initConsultUpload(c,f.context('upload',f.other),f.consult,input),/access denied/);
+ },{fresh:true});}finally{await rm(root,{recursive:true,force:true});}
+});

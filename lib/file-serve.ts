@@ -1,6 +1,7 @@
 import "server-only";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { queryOne } from "./db";
 import sharp from "sharp";
 import { UPLOAD_DIR } from "./uploads";
 
@@ -73,6 +74,8 @@ async function thumbnail(id: string, file: ServableFile, width: number): Promise
  *  `?w=<px>` on an image — a cached thumbnail. `?download=1` forces a save
  *  dialog instead of inline display. */
 export async function serveFile(req: Request, id: string, file: ServableFile): Promise<Response> {
+  const artifact = await queryOne<{classification:string}>(`SELECT classification FROM files WHERE id=$1`,[id]);
+  if(artifact?.classification !== 'attachment') return new Response('Not found',{status:404});
   const url = new URL(req.url);
   const isImage = (file.mime_type ?? "").startsWith("image/");
   const width = isImage ? pickThumbWidth(url.searchParams.get("w")) : null;

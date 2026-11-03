@@ -1,0 +1,254 @@
+{
+  "reviewed": {
+    "schema_version": 1,
+    "project_id": "00000000-0000-4000-8000-000000000001",
+    "scope_key": "flooring.install",
+    "state": "reviewed",
+    "source_version": {
+      "consult_id": "00000000-0000-4000-8000-000000000002",
+      "review_revision": 1,
+      "form_checksums": [
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ],
+      "aggregate_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "measurements": [
+      {
+        "key": "floor_area",
+        "label": "Floor area",
+        "value": 200,
+        "unit": "sf",
+        "instance_ids": [
+          "00000000-0000-4000-8000-000000000003",
+          "00000000-0000-4000-8000-000000000004"
+        ],
+        "answer_revisions": [
+          1,
+          2,
+          3,
+          4
+        ]
+      }
+    ],
+    "conditions": [],
+    "flags": [
+      {
+        "key": "moisture",
+        "text": "Sub must inspect moisture",
+        "disposition": "sub_must_look",
+        "reason": "Inspect before pricing",
+        "decided_by": "00000000-0000-4000-8000-000000000005",
+        "decided_at": "2026-11-02T12:00:00Z"
+      }
+    ],
+    "photos": [],
+    "assumptions": [],
+    "exclusions": [
+      {
+        "text": "Field measure by supplier: Countertop templates",
+        "source_answer_id": "00000000-0000-4000-8000-000000000006"
+      }
+    ],
+    "trade_walks": [],
+    "permits": {
+      "authority": null,
+      "building_inspector": null,
+      "electrical_inspector": null
+    },
+    "rrp": {
+      "applies": true,
+      "firm_cert": "firm",
+      "renovator_name": "Renovator",
+      "renovator_cert": "expired",
+      "expiry": "2025-01-01"
+    },
+    "new_work": [
+      {
+        "origin": "found_condition_required",
+        "label": "Scope change \u2014 required work",
+        "text": "Repair moisture damage"
+      }
+    ],
+    "conflicts": []
+  },
+  "unreviewed": {
+    "schema_version": 1,
+    "project_id": "00000000-0000-4000-8000-000000000001",
+    "scope_key": "flooring.install",
+    "state": "unreviewed",
+    "source_version": {
+      "consult_id": "00000000-0000-4000-8000-000000000002",
+      "review_revision": 1,
+      "form_checksums": [
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ],
+      "aggregate_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "measurements": [
+      {
+        "key": "floor_area",
+        "label": "Floor area",
+        "value": 200,
+        "unit": "sf",
+        "instance_ids": [
+          "00000000-0000-4000-8000-000000000003",
+          "00000000-0000-4000-8000-000000000004"
+        ],
+        "answer_revisions": [
+          1,
+          2,
+          3,
+          4
+        ]
+      }
+    ],
+    "conditions": [],
+    "flags": [
+      {
+        "key": "moisture",
+        "text": "Sub must inspect moisture",
+        "disposition": "sub_must_look",
+        "reason": "Inspect before pricing",
+        "decided_by": "00000000-0000-4000-8000-000000000005",
+        "decided_at": "2026-11-02T12:00:00Z"
+      }
+    ],
+    "photos": [],
+    "assumptions": [],
+    "exclusions": [
+      {
+        "text": "Field measure by supplier: Countertop templates",
+        "source_answer_id": "00000000-0000-4000-8000-000000000006"
+      }
+    ],
+    "trade_walks": [],
+    "permits": {
+      "authority": null,
+      "building_inspector": null,
+      "electrical_inspector": null
+    },
+    "rrp": {
+      "applies": true,
+      "firm_cert": "firm",
+      "renovator_name": "Renovator",
+      "renovator_cert": "expired",
+      "expiry": "2025-01-01"
+    },
+    "new_work": [
+      {
+        "origin": "found_condition_required",
+        "label": "Scope change \u2014 required work",
+        "text": "Repair moisture damage"
+      }
+    ],
+    "conflicts": []
+  },
+  "conflicted": {
+    "schema_version": 1,
+    "project_id": "00000000-0000-4000-8000-000000000001",
+    "scope_key": "flooring.install",
+    "state": "conflicted",
+    "source_version": {
+      "consult_id": "00000000-0000-4000-8000-000000000002",
+      "review_revision": 1,
+      "form_checksums": [
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      ],
+      "aggregate_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    "measurements": [
+      {
+        "key": "floor_area",
+        "label": "Floor area",
+        "value": 200,
+        "unit": "sf",
+        "instance_ids": [
+          "00000000-0000-4000-8000-000000000003",
+          "00000000-0000-4000-8000-000000000004"
+        ],
+        "answer_revisions": [
+          1,
+          2,
+          3,
+          4
+        ]
+      }
+    ],
+    "conditions": [],
+    "flags": [
+      {
+        "key": "moisture",
+        "text": "Sub must inspect moisture",
+        "disposition": "sub_must_look",
+        "reason": "Inspect before pricing",
+        "decided_by": "00000000-0000-4000-8000-000000000005",
+        "decided_at": "2026-11-02T12:00:00Z"
+      }
+    ],
+    "photos": [],
+    "assumptions": [],
+    "exclusions": [
+      {
+        "text": "Field measure by supplier: Countertop templates",
+        "source_answer_id": "00000000-0000-4000-8000-000000000006"
+      }
+    ],
+    "trade_walks": [],
+    "permits": {
+      "authority": null,
+      "building_inspector": null,
+      "electrical_inspector": null
+    },
+    "rrp": {
+      "applies": true,
+      "firm_cert": "firm",
+      "renovator_name": "Renovator",
+      "renovator_cert": "expired",
+      "expiry": "2025-01-01"
+    },
+    "new_work": [
+      {
+        "origin": "found_condition_required",
+        "label": "Scope change \u2014 required work",
+        "text": "Repair moisture damage"
+      }
+    ],
+    "conflicts": [
+      {
+        "key": "floor_area",
+        "source_ids": [
+          "00000000-0000-4000-8000-000000000006"
+        ],
+        "reason": "Source changed"
+      }
+    ]
+  },
+  "none": {
+    "schema_version": 1,
+    "project_id": "00000000-0000-4000-8000-000000000001",
+    "scope_key": "flooring.install",
+    "state": "none",
+    "source_version": null,
+    "measurements": [],
+    "conditions": [],
+    "flags": [],
+    "photos": [],
+    "assumptions": [],
+    "exclusions": [],
+    "trade_walks": [],
+    "permits": {
+      "authority": null,
+      "building_inspector": null,
+      "electrical_inspector": null
+    },
+    "rrp": {
+      "applies": false,
+      "firm_cert": null,
+      "renovator_name": null,
+      "renovator_cert": null,
+      "expiry": null
+    },
+    "new_work": [],
+    "conflicts": []
+  }
+}

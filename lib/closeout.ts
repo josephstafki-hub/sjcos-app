@@ -25,7 +25,7 @@ export interface CloseoutView {
 export async function getCloseoutView(slug: string): Promise<CloseoutView> {
   const { rows } = await query<{ id: string; name: string; tag: string; when_label: string }>(
     `SELECT id, name, tag, to_char(created_at, 'Mon FMDD, YYYY') AS when_label
-       FROM files
+       FROM (SELECT * FROM files WHERE classification = 'attachment') AS files
       WHERE project_key = $1 AND tag LIKE 'CLOSEOUT%' AND storage_path IS NOT NULL
       ORDER BY created_at DESC`,
     [slug],

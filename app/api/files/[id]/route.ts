@@ -16,6 +16,9 @@ export async function GET(
 ) {
   const { id } = await params;
 
+  // Classification precedes signature verification, thumbnails and any byte read.
+  const artifact = await queryOne<{ classification: string }>(`SELECT classification FROM files WHERE id=$1`, [id]);
+  if (artifact?.classification !== 'attachment') return new Response("Not found", {status:404});
   const q = new URL(req.url).searchParams;
   const sig = q.get("sig");
   if (sig !== null) {

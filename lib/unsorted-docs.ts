@@ -192,7 +192,7 @@ const storedName = (name: string) => path.basename(name).replace(/[^\w.\- ]+/g, 
 
 /** New bytes for a stored file, same id and name. False when it has no blob. */
 async function overwriteFile(id: string, bytes: Buffer, mime: string): Promise<boolean> {
-  const [f] = (await query<{ storage_path: string | null }>(`SELECT storage_path FROM files WHERE id = $1`, [id])).rows;
+  const [f] = (await query<{ storage_path: string | null }>(`SELECT storage_path FROM (SELECT * FROM files WHERE classification = 'attachment') AS files WHERE id = $1`, [id])).rows;
   if (!f?.storage_path) return false;
   const target = path.join(UPLOAD_DIR, path.basename(f.storage_path));
   const tmp = `${target}.${randomUUID()}.tmp`;
@@ -285,7 +285,7 @@ export async function stageFromEmail(input: StageFromEmailInput): Promise<StageF
   // Same name as a file already on the doc → replaced in place.
   const byName = new Map<string, string>();
   if (existing?.attachment_file_ids.length) {
-    const { rows } = await query<{ id: string; name: string }>(`SELECT id, name FROM files WHERE id = ANY($1::text[]) AND storage_path IS NOT NULL`, [existing.attachment_file_ids]);
+    const { rows } = await query<{ id: string; name: string }>(`SELECT id, name FROM (SELECT * FROM files WHERE classification = 'attachment') AS files WHERE id = ANY($1::text[]) AND storage_path IS NOT NULL`, [existing.attachment_file_ids]);
     for (const r of rows) if (!byName.has(r.name)) byName.set(r.name, r.id);
   }
   // The email copy: from Gmail, or body_text. On a doc that has one, body_text

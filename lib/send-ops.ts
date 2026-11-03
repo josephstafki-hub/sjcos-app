@@ -161,7 +161,7 @@ export async function invoiceEmailExtras(e: InvoiceEmail): Promise<InvoiceEmailE
   // in the project Files (as the sent copy always was) and referenced by id.
   // A retry of the same revision reuses the stored file.
   const attachments: InvoiceEmailExtras["attachments"] = [];
-  const existing = await queryOne<{ id: string }>(`SELECT id FROM files WHERE subtitle = $1 LIMIT 1`, [`Invoice — sent to client · ${e.milestone} · rev ${revision}`]);
+  const existing = await queryOne<{ id: string }>(`SELECT id FROM (SELECT * FROM files WHERE classification = 'attachment') AS files WHERE subtitle = $1 LIMIT 1`, [`Invoice — sent to client · ${e.milestone} · rev ${revision}`]);
   if (existing) attachments.push({ filename: `Invoice ${e.number}.pdf`, mimeType: "application/pdf", fileId: existing.id });
   else {
     const pdf =

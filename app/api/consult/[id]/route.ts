@@ -6,7 +6,7 @@ import { command, snapshot, schedule, publish } from '@/lib/consult/protocol';
 import { z } from 'zod';
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
-const bodySchema=z.strictObject({command:z.enum(['ops','start','evidence','close','reopen','assign','schedule','publish_form','resolve_conflict']),input:z.unknown()});
+const bodySchema=z.strictObject({command:z.enum(['apply_findings','proposal_decision','ops','start','evidence','close','reopen','assign','schedule','publish_form','resolve_conflict']),input:z.unknown()});
 async function handle(request:Request,id:string,write:boolean){
  const user=await getCurrentUser();
  if(!user)return Response.json({error_code:'signed_out'},{status:401});

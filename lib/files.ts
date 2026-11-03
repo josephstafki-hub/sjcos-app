@@ -70,7 +70,7 @@ export async function getFilesData(): Promise<FilesData> {
     query<FileDbRow>(`
       SELECT id, project_key, type, name, tag, ai_origin,
              modified_label, size_label, subtitle, ai_tags, storage_path, mime_type
-      FROM files
+      FROM (SELECT * FROM files WHERE classification = 'attachment') AS files
       ORDER BY sort, name
     `),
     // Real project folders: every project that has at least one file, newest work
@@ -78,7 +78,7 @@ export async function getFilesData(): Promise<FilesData> {
     query<{ slug: string; name: string }>(`
       SELECT p.slug, p.name
         FROM projects p
-       WHERE EXISTS (SELECT 1 FROM files f WHERE f.project_key = p.slug)
+       WHERE EXISTS (SELECT 1 FROM (SELECT * FROM files WHERE classification = 'attachment') f WHERE f.project_key = p.slug)
        ORDER BY p.progress DESC, p.name ASC
     `),
   ]);

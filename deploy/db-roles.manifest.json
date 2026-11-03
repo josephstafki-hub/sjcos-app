@@ -3089,6 +3089,18 @@
     },
     "consult_publication_validations": {
       "note": "Owner-only immutable publication validation; no narrow raw access."
+    },
+    "consult_upload_parts": {
+      "note": "Website person upload command only; no narrow raw access."
+    },
+    "consult_quantity_contributions": {
+      "note": "Website reconciliation command only; no narrow raw access."
+    },
+    "consult_agent_proposals": {
+      "note": "Website proposal command only; agents call authenticated bridge, no raw access."
+    },
+    "consult_agent_requests": {
+      "note": "Authenticated bridge operation receipts; no narrow raw access."
     }
   }
 }

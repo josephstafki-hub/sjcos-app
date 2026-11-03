@@ -91,7 +91,7 @@ const R = (key: string, title: string, trade: string, work_package: string, supp
   ...extra,
 });
 
-const SCOPE_RULES: ScopeRule[] = [
+export const SCOPE_RULES: ScopeRule[] = [
   {
     match: /\bkitchen\b/i,
     room: "Kitchen",

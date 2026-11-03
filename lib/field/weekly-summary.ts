@@ -95,7 +95,7 @@ const SUMMARY_COLS = `id, project_id, to_char(week_start, 'YYYY-MM-DD') AS week_
 async function permittedPhotoIds(run: Run, refs: PhotoRef[]): Promise<string[]> {
   if (!refs.length) return [];
   const rows = await run<{ id: string }>(
-    `SELECT id FROM files WHERE id = ANY($1::text[]) AND tag NOT ILIKE '%private%' AND tag NOT ILIKE '%internal%' AND type = 'img'`,
+    `SELECT id FROM (SELECT * FROM files WHERE classification = 'attachment') AS files WHERE id = ANY($1::text[]) AND tag NOT ILIKE '%private%' AND tag NOT ILIKE '%internal%' AND type = 'img'`,
     [refs.map((r) => r.fileId)],
   );
   const ok = new Set(rows.map((r) => r.id));

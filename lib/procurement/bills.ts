@@ -59,7 +59,7 @@ export interface ReceiveBillInput {
 export async function receiveBill(run: Run, input: ReceiveBillInput): Promise<{ ok: true; bill: Bill; matched: MatchResult | null } | { ok: false; reason: string }> {
   if (!Number.isInteger(input.amountCents) || input.amountCents <= 0) return { ok: false, reason: "A bill needs a positive whole-cent amount." };
   if (input.fileId) {
-    const [f] = await run<{ id: string }>(`SELECT id FROM files WHERE id = $1`, [input.fileId]);
+    const [f] = await run<{ id: string }>(`SELECT id FROM (SELECT * FROM files WHERE classification = 'attachment') AS files WHERE id = $1`, [input.fileId]);
     if (!f) return { ok: false, reason: "That file id does not exist." };
   }
   let projectId = input.projectId ?? null;

@@ -101,7 +101,7 @@ async function getComposerProjects(): Promise<ComposerProject[]> {
          SELECT count(*) FILTER (WHERE f.type = 'img') AS photo_count,
                 count(*) FILTER (WHERE f.type = 'doc'
                                    AND f.name ~* '\\.(mp4|mov|webm|m4v|avi)$') AS video_count
-           FROM files f
+           FROM (SELECT * FROM files WHERE classification = 'attachment') f
           WHERE f.project_key = p.slug AND f.storage_path IS NOT NULL
        ) m ON true
       ORDER BY (p.status IN ('closeout','warranty')) DESC, p.updated_at DESC`,

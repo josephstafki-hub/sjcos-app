@@ -52,7 +52,7 @@ export async function loadFileAttachments(
   }
 
   const rows = await run<AttachmentFile & { id: string }>(
-    `SELECT id, name, mime_type, storage_path FROM files WHERE id = ANY($1::text[]) AND storage_path IS NOT NULL`,
+    `SELECT id, name, mime_type, storage_path FROM (SELECT * FROM files WHERE classification = 'attachment') AS files WHERE id = ANY($1::text[]) AND storage_path IS NOT NULL`,
     [ids],
   );
   const byId = new Map(rows.map((r) => [r.id, r]));

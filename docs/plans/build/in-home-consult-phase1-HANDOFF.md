@@ -296,3 +296,119 @@ db-roles-manifest-db; db-roles-paths-db. `db-roles-scan --diff` exits 0 (documen
 withheld privileges only). Locked niced `tsc --noEmit -p .` exits 0.
 No browser/build/server, production/QA connection, deploy, push or service operation.
 The disposable `consult` cluster is stopped before handback.
+
+## 2026-11-02 files / findings / proposals continuation (0077)
+
+**This continuation is substantial but does not finish the requested backend slice.**
+Do not claim Phase 1 is complete or ready to deploy. In particular, durable background
+findings jobs, full seed-to-export semantics, and production maintenance scheduling
+remain as listed below. The earlier 0076 capture contract still applies.
+
+### Implemented and tested
+
+- `files.classification` separates attachments, consult photos, and initials. Generic
+  readers/listings across website, portal, agent context, mail attachments and MCP
+  filter attachment rows before signing/reading/thumbnailing. The generic file route
+  rejects consult IDs before signature handling. `serveFile` also checks classification.
+  Narrow SQL roles have file RLS limiting them to attachments. Classified file
+  storage/hash/classification cannot change, and attachment aliases cannot use consult
+  blob basenames (including path-prefixed aliases). `readUpload` refuses consult blobs.
+- Consult image uploads use bounded 1 MiB parts, 25 MiB limits, original-byte SHA256,
+  JPEG/PNG/WebP sniff + full decoding through Sharp, 40M pixel limit, no animation,
+  EXIF stripping and orientation normalization. Both init and commit verify person,
+  assignment, device and photo permission. Commit also verifies generation/consent
+  epoch, all parts, exact size, event and original hash. HEIC conversion is not enabled.
+- Deterministic `consult-<upload UUID>.blob` files: fsync, atomic rename, directory fsync,
+  then one caller transaction for files/classification/upload/media/event/receipt.
+  The acknowledgment follows COMMIT. Retry after rename + DB rollback checks normalized
+  bytes and finishes the same transaction; committed retries return the original IDs.
+  `cleanupConsultUploads(client,root)` deletes expired DB parts and recognizable,
+  unreferenced disk orphans older than 48 hours under a shared advisory lock.
+- Restricted media reads recheck assignment and photo permission before bytes,
+  thumbnails and Range processing. In-process owner-only `readConsultPhotoForExport`
+  checks Complete, current upload generation, photo kind, current permission, tombstones,
+  storage hash and normalized bytes. It returns the v1 export bridge shape with no URL.
+- `consultScopeFacts(run,projectId,scopeKey)` in `findings.ts` returns strict v1 facts.
+  Repeated disjoint numeric sf/lf/ea contributions aggregate at four decimals, with sorted
+  instance IDs and source revisions. Nonadditive inches stay individual evidence.
+  Sibling arithmetic derived fields use the bounded formula grammar; missing inputs do
+  not become zero. Duplicate ownership within one instance makes an explicit conflict.
+  Two-room/four-revision DB tests reach `reviewed` through staff-only Complete.
+- Reconciliation requires the current Complete generation. It locks project, consult,
+  scope keys and pinned site plan; application receipts dedupe generation retries.
+  Other-source/ambiguous quantities and sent/signed formal estimates stay proposals.
+  Accepted quantities create auditable findings/contribution manifests and recompute a
+  draft formal estimate through the existing estimator. Dedicated prices are retained;
+  one stable pricing to-do is created. Unknown mapped scopes create “No scope item —
+  add one?” findings, never scope rows. Exact plan matching requires item ID plus pinned
+  plan revision, measurement kind, scope, unit, quantity label and `consult_target`.
+  Reopen retracts owned quantities/findings and reopens only their exact plan items;
+  other-source quantities survive. No stage advancement or review task exists.
+- Readiness calls the shared v1 export and adds/persists the six consult gap codes.
+  `tests/fixtures/consult-scope-facts/v1.json` is shared by export and readiness tests.
+- Ten MCP tools in `mcp/consult-tools.mjs` use strict input schemas and the authenticated
+  internal consult bridge. Agent values always enter `consult_agent_proposals`, never
+  accepted answers. A person uses/rejects a proposal through the capture command.
+  Run authentication time is preserved for session revocation. Mutation receipts bind
+  operation UUID + payload and are returned only after commit. Raw narrow access to
+  proposals, upload staging, contribution manifests and bridge receipts is withheld.
+
+### Exact additional UI API
+
+All new mutations use cookie auth, same Origin, `X-Consult-CSRF: 1`, and no-store results.
+These are real server routes; no browser/offline uploader is supplied here.
+
+| Route / command | Request → response |
+|---|---|
+| `POST /api/consult/{id}/uploads` | `{event_id,device_id,device_epoch,kind:'photo'|'initials',mime:'image/jpeg'|'image/png'|'image/webp',size,sha256,instance_id,field_key?,shot_key?}` → `{upload_id,part_bytes:1048576,expires_at,received_parts:[{n,sha256}],status,receipt}` |
+| `PUT /api/consult/{id}/uploads/{upload}/parts/{n}` | zero-based part; raw bytes with `X-Part-SHA256` → `{n,sha256}`; exact retry no-op, changed bytes/hash rejected |
+| `GET /api/consult/{id}/uploads/{upload}` | same status shape; actor/device only |
+| `POST /api/consult/{id}/uploads/{upload}/commit` | `{event_id,sha256}` → stable `{file_id,media_id}` after COMMIT; manifest uses the original upload hash, stored normalized file has its own SHA256 |
+| `GET /api/consult/{id}/media/{file_id}` | authenticated bytes; optional `?w=` uses 160/320/640/1280 ladder; single explicit byte Range supported; private/no-store, no signed URL |
+| existing consult POST `command:'apply_findings'` | `input:{expected_generation,operation_id}` → `{generation,results:[{scope_key,label,status,finding_id?,plan_item_ids?,reason?}]}`; a proposed result changes no quantity |
+| existing snapshot GET | additionally `proposals:[{id,instance_id,field_key,base_revision,answer,source_note,generation}]` |
+| existing consult POST `command:'proposal_decision'` | `input:{proposal_id,action:'use'|'reject',op?:ConsultOp}`; Use supplies the next durable queued answer op with exact proposal address/payload/base revision; accepted receipt → `{status:'used'}`; rejected/conflicting answer returns normal per-op receipts; Reject → `{status:'rejected'}` |
+
+For exact plan measurement matching, the pinned plan item's JSON must contain
+`quantity_label` and `consult_target:{instance_id,field_key}`. This continuation adds
+no first-kind/first-unit fallback and no UI for authoring these bindings.
+
+### Remaining work / limits (do not conceal)
+
+- Browser offline engine + service worker is the next UI/integration slice: durable
+  encrypted blobs, readiness, leases, PIN/key lifecycle, cold offline reload, takeover,
+  quarantine/recovery, uploader drain and progress. No browser or server was run.
+- Auto apply currently executes in the close transaction inside a savepoint, gated by
+  `consult_auto_apply_findings`; a failure leaves Complete intact and creates one repair
+  to-do. **It is not the required durable, fenced worker job with retry/backoff.** Wire
+  that before calling item 6 fully done. Cleanup is callable but has no daily scheduler.
+- Full §10.5 semantics need more work: aggregate across several consult sources,
+  template-level/cross-module formulas, explicit basement/room ownership, complete
+  photo/flag/decision/new-work finding application, correction supersession beyond
+  Reopen retraction, all scope-readiness projection sources, and locked-target decisions.
+  New-work origin capture still needs a typed capture contract; no string is guessed.
+- MCP: no instance-proposal creation in `record_consult_answers`; nonowner scheduling
+  currently refuses rather than stages Joe's request; schedule notes are not persisted.
+  Form proposal note is not persisted. Shared coverage/transcript/design tools are not
+  Phase 1 tools here. Procedure-specific tool allowlists have not been expanded.
+- Safety/coverage gaps still need tests: actual HTTP signature/thumbnail/Range requests,
+  HEIC conversion, explicit request rate caps, partial-part expiry cleanup and permission
+  withdrawal after external export. Existing original-photo attachment paths are closed,
+  but the shared fixture's full DB reproduction (flags/exclusions/new work) is unfinished.
+- Parallel seed builder owns seed files and their tests. At last typecheck, five missing
+  `maps_to` properties in its `templates.ts` prevented a clean full-worktree tsc; this
+  continuation does not edit those paths. No typecheck errors remained in our own files.
+
+### Validation
+
+Single-file tests pass: consult-access-db (3), consult-findings-db (2),
+consult-scope-facts-db (1), consult-mcp (2), estimating-readiness-consult (1),
+consult-sync-db (2), consult-todos-db (1), consult-length (3), consult-forms (5),
+consult-completeness (5), consult-queue (4), consult-offline (2), consult-readiness (2),
+consult-scope-facts (2), estimating-db (9), db-roles-manifest-db (6),
+db-roles-paths-db (2). Initial development failures were corrected; a stale disposable
+migration ledger was discarded and regressions were rerun on a new consult cluster.
+`db-roles-scan --diff` exits 0, with only documented withheld permissions.
+Locked/niced tsc exits 2 for the parallel seed errors described above.
+No push, deployment, live/QA connection, browser, Next command or service operation.
+Disposable consult cluster stopped before handback.

@@ -66,7 +66,7 @@ export async function trashProjectFile(
   input: { projectSlug: string; fileId: string; reason: string; deletedBy: string },
 ): Promise<{ ok: true; trashed: TrashedFile } | { ok: false; error: string }> {
   const [f] = await run<{ id: string; name: string }>(
-    `SELECT id, name FROM files WHERE id = $1 AND project_key = $2 AND storage_path IS NOT NULL FOR UPDATE`,
+    `SELECT id, name FROM (SELECT * FROM files WHERE classification = 'attachment') AS files WHERE id = $1 AND project_key = $2 AND storage_path IS NOT NULL FOR UPDATE`,
     [input.fileId, input.projectSlug],
   );
   if (!f) return { ok: false, error: `No file ${input.fileId} on project ${input.projectSlug}. Use list_project_files for ids.` };
@@ -79,7 +79,7 @@ export async function trashProjectFile(
   const [trashed] = await run<TrashedFile>(
     `INSERT INTO file_trash (file_id, project_slug, name, row, reason, deleted_by, purge_after)
      SELECT f.id, $2, f.name, to_jsonb(f), $3, $4, now() + make_interval(days => $5)
-       FROM files f WHERE f.id = $1
+       FROM (SELECT * FROM files WHERE classification = 'attachment') f WHERE f.id = $1
      ON CONFLICT (file_id) DO UPDATE
        SET project_slug = EXCLUDED.project_slug, name = EXCLUDED.name, row = EXCLUDED.row,
            reason = EXCLUDED.reason, deleted_by = EXCLUDED.deleted_by,
@@ -112,7 +112,7 @@ export async function restoreProjectFile(
   );
   if (!t) return { ok: false, error: `No deleted file ${input.fileId} (restores last ${TRASH_DAYS} days).` };
   const [clash] = await run<{ id: string }>(
-    `SELECT id FROM files WHERE project_key = $1 AND name = $2 AND storage_path IS NOT NULL LIMIT 1`,
+    `SELECT id FROM (SELECT * FROM files WHERE classification = 'attachment') AS files WHERE project_key = $1 AND name = $2 AND storage_path IS NOT NULL LIMIT 1`,
     [t.project_slug, t.name],
   );
   if (clash)
@@ -149,7 +149,7 @@ export async function purgeFileTrash(run: Run, uploadDir: string): Promise<numbe
   for (const g of gone) {
     if (!g.storage_path) continue;
     // A restored-then-replaced file could share the blob name; never unlink a live one.
-    const live = await run(`SELECT 1 FROM files WHERE storage_path = $1 LIMIT 1`, [g.storage_path]);
+    const live = await run(`SELECT 1 FROM (SELECT * FROM files WHERE classification = 'attachment') AS files WHERE storage_path = $1 LIMIT 1`, [g.storage_path]);
     if (live.length) continue;
     await unlink(path.join(uploadDir, path.basename(g.storage_path))).catch(() => {});
     await clearThumbnails(uploadDir, g.file_id);

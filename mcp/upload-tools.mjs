@@ -294,7 +294,7 @@ export function registerUploadTools(server, { rows, json, pool, uploadDir, envVa
           ],
         );
         const existing = await rows(
-          `SELECT id FROM files WHERE project_key = $1 AND name = $2 AND storage_path IS NOT NULL
+          `SELECT id FROM (SELECT * FROM files WHERE classification = 'attachment') AS files WHERE project_key = $1 AND name = $2 AND storage_path IS NOT NULL
             ORDER BY created_at DESC LIMIT 1`,
           [project.slug, name],
         );
@@ -395,7 +395,7 @@ export function registerUploadTools(server, { rows, json, pool, uploadDir, envVa
         const up = await uploadById(upload_id);
         if (up.target === "unsorted") throw new Error("This upload is for the Unsorted tray: finish it with commit_unsorted_upload.");
         if (up.status === "committed") {
-          const [f] = await rows(`SELECT id, name, size_label, mime_type, sha256 FROM files WHERE id = $1`, [up.file_id]);
+          const [f] = await rows(`SELECT id, name, size_label, mime_type, sha256 FROM (SELECT * FROM files WHERE classification = 'attachment') AS files WHERE id = $1`, [up.file_id]);
           if (!f) throw new Error("This upload was committed, but its file has since been deleted.");
           return json({ ok: true, file_id: f.id, name: f.name, size_label: f.size_label, mime_type: f.mime_type, sha256: f.sha256, replaced: !!up.replaced, already_committed: true });
         }
@@ -410,7 +410,7 @@ export function registerUploadTools(server, { rows, json, pool, uploadDir, envVa
           await mkdir(uploadDir, { recursive: true });
           const existing = up.replace_existing
             ? await rows(
-                `SELECT id, storage_path FROM files WHERE project_key = $1 AND name = $2 AND storage_path IS NOT NULL
+                `SELECT id, storage_path FROM (SELECT * FROM files WHERE classification = 'attachment') AS files WHERE project_key = $1 AND name = $2 AND storage_path IS NOT NULL
                   ORDER BY created_at DESC LIMIT 1`,
                 [up.project_slug, up.filename],
               )
@@ -477,7 +477,7 @@ export function registerUploadTools(server, { rows, json, pool, uploadDir, envVa
   const sameNameFile = async (run, { doc, sourceRef, name, uploadId }) => {
     if (doc) {
       const [f] = await run(
-        `SELECT id, storage_path FROM files WHERE id = ANY($1::text[]) AND name = $2 AND storage_path IS NOT NULL
+        `SELECT id, storage_path FROM (SELECT * FROM files WHERE classification = 'attachment') AS files WHERE id = ANY($1::text[]) AND name = $2 AND storage_path IS NOT NULL
           ORDER BY created_at DESC LIMIT 1`,
         [doc.attachment_file_ids, name],
       );
@@ -590,7 +590,7 @@ export function registerUploadTools(server, { rows, json, pool, uploadDir, envVa
         const up = await uploadById(upload_id);
         if (up.target !== "unsorted") throw new Error("This upload is for a project's Files: finish it with commit_project_upload.");
         if (up.status === "committed") {
-          const [f] = await rows(`SELECT id, name, size_label, mime_type, sha256 FROM files WHERE id = $1`, [up.file_id]);
+          const [f] = await rows(`SELECT id, name, size_label, mime_type, sha256 FROM (SELECT * FROM files WHERE classification = 'attachment') AS files WHERE id = $1`, [up.file_id]);
           if (!f) throw new Error("This upload was committed, but its file has since been deleted.");
           const doc = up.unsorted_doc_id != null ? { id: Number(up.unsorted_doc_id) } : await trayDoc(rows, { sourceRef: up.source_ref });
           return json({
@@ -688,7 +688,7 @@ export function registerUploadTools(server, { rows, json, pool, uploadDir, envVa
         const why = t(reason, 500);
         if (!why) throw new Error("reason is required (it goes in the project history).");
         const [f] = await rows(
-          `SELECT id, name, created_by FROM files WHERE id = $1 AND project_key = $2 AND storage_path IS NOT NULL`,
+          `SELECT id, name, created_by FROM (SELECT * FROM files WHERE classification = 'attachment') AS files WHERE id = $1 AND project_key = $2 AND storage_path IS NOT NULL`,
           [t(file_id, 80), project.slug],
         );
         if (!f) throw new Error(`No file ${file_id} on ${project.slug}. Use list_project_files for ids.`);

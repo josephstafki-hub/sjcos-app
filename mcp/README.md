@@ -758,3 +758,16 @@ import("@modelcontextprotocol/sdk/client/index.js").then(async ({Client})=>{
   await c.close();
 });'
 ```
+
+### In-home consultation (Phase 1 backend)
+
+`mcp/consult-tools.mjs` registers `list_consults`, `get_consult`,
+`list_consult_forms`, `get_consult_form`, `propose_consult_form_version`,
+`schedule_consult`, `record_consult_answers`, `attach_consult_photo`,
+`apply_consult_findings`, and `get_consult_scope_facts`. The authenticated
+`/api/internal/consult` bridge derives current user permissions and verifies signed
+consult context/assignment. MCP never receives keys or bearer photo URLs.
+`record_consult_answers` always returns `suggested`; the website person command
+`proposal_decision` is the only acceptance path. Photo attachment confirms an
+already committed consult upload; generic files cannot be relabelled or attached.
+No transcript, audio, coverage-model or floor-design tools are enabled in Phase 1.

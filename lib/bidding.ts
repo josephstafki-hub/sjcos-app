@@ -589,7 +589,7 @@ export async function sendApprovedRelease(d: Decision): Promise<string> {
     const { rows } = await query<{ id: string; name: string; storage_path: string | null; mime_type: string | null; label: string | null }>(
       `SELECT f.id, f.name, f.storage_path, f.mime_type,
               (SELECT bf.label FROM bid_package_files bf WHERE bf.file_id = f.id AND bf.label <> '' LIMIT 1) AS label
-         FROM files f WHERE f.id::text = ANY($1::text[])`,
+         FROM (SELECT * FROM files WHERE classification = 'attachment') f WHERE f.id::text = ANY($1::text[])`,
       [ids],
     );
     const byId = new Map(rows.map((r) => [r.id, r]));
@@ -708,7 +708,7 @@ export async function checkRecordBid(inviteId: number, input: RecordBidInput): P
   const fileIds = [...new Set((input.fileIds ?? []).map((id) => String(id ?? "").trim()))];
   if (fileIds.length > 0) {
     const { rows } = await query<{ id: string }>(
-      `SELECT id FROM files
+      `SELECT id FROM (SELECT * FROM files WHERE classification = 'attachment') AS files
         WHERE id = ANY($1::text[]) AND storage_path IS NOT NULL AND project_key = $2`,
       [fileIds, invite.slug],
     );

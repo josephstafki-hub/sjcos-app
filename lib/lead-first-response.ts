@@ -150,7 +150,7 @@ async function loadLead(leadId: string): Promise<LeadCtx | null> {
     `SELECT l.id, l.slug, l.name, l.email, l.scope, l.stage, l.source, l.triage_verdict,
             l.flag_kind, l.flag_label,
             EXTRACT(EPOCH FROM (now() - l.created_at)) / 3600 AS age_hours,
-            (SELECT count(*)::int FROM files f WHERE f.lead_slug = l.slug AND f.storage_path IS NOT NULL) AS files,
+            (SELECT count(*)::int FROM (SELECT * FROM files WHERE classification = 'attachment') f WHERE f.lead_slug = l.slug AND f.storage_path IS NOT NULL) AS files,
             EXISTS (SELECT 1 FROM lead_activity a WHERE a.lead_id = l.id AND a.kind = 'email') AS emailed
        FROM leads l WHERE l.id = $1`,
     [leadId],

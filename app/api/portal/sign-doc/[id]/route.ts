@@ -52,7 +52,7 @@ export async function GET(
   }
 
   const file = await queryOne<{ storage_path: string | null; mime_type: string | null; name: string }>(
-    `SELECT storage_path, mime_type, name FROM files WHERE id = $1`,
+    `SELECT storage_path, mime_type, name FROM (SELECT * FROM files WHERE classification = 'attachment') AS files WHERE id = $1`,
     [sr.file_id],
   );
   if (!file?.storage_path) return new Response("Not found", { status: 404 });

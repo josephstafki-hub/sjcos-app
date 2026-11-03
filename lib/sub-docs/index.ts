@@ -248,7 +248,7 @@ export type IngestResult =
 export async function ingestSubDocument(run: Run, input: IngestInput): Promise<IngestResult> {
   const [sub] = await run<{ slug: string; name: string }>(`SELECT slug, name FROM subs WHERE slug = $1`, [input.subSlug]);
   if (!sub) return { ok: false, exception: "unknown_sub", reason: `No sub with slug ${input.subSlug}.`, documentId: null };
-  const [file] = await run<{ id: string; storage_path: string | null }>(`SELECT id, storage_path FROM files WHERE id = $1`, [input.fileId]);
+  const [file] = await run<{ id: string; storage_path: string | null }>(`SELECT id, storage_path FROM (SELECT * FROM files WHERE classification = 'attachment') AS files WHERE id = $1`, [input.fileId]);
   if (!file) return { ok: false, exception: "missing_file", reason: "That file id does not exist.", documentId: null };
   const today = new Date().toISOString().slice(0, 10);
   const label = principalLabel(input.principal);
@@ -462,7 +462,7 @@ export type ReceiveResult =
 export async function receiveSubDocument(run: Run, input: ReceiveInput): Promise<ReceiveResult> {
   let checksum = input.checksum ?? null;
   if (!checksum) {
-    const [f] = await run<{ sha256: string | null }>(`SELECT sha256 FROM files WHERE id = $1`, [input.fileId]);
+    const [f] = await run<{ sha256: string | null }>(`SELECT sha256 FROM (SELECT * FROM files WHERE classification = 'attachment') AS files WHERE id = $1`, [input.fileId]);
     checksum = f?.sha256 ?? null;
   }
   const got = await ingestSubDocument(run, { ...input, checksum });

@@ -1,5 +1,6 @@
 /** Owner-connection transaction service. Caller authenticates freshly and supplies a
  * server-minted person envelope. Never expose an envelope or this client to browsers. */
+import {reconcileConsultFindings} from './findings.ts';
 import type { PoolClient } from 'pg';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -31,7 +32,11 @@ export const hash=(value:unknown)=>createHash('sha256').update(canonicalJson(val
 type Context={key_id:string;payload:string;signature:string};
 type Snapshot={consult:{id:string;project_id:string;status:string;revision:string;completion_generation:string;conducted_by:string;scheduled_at:string};pins:{definition:ModuleDef|TemplateDef;kind:string}[];instances:{id:string;module_key:string;parent_id:string|null;removed_at:string|null}[];heads:{id:string;instance_id:string;field_key:string;status:string;value:unknown;skip_reason:string|null;skip_note:string|null;server_revision:string}[];conflicts:unknown[]};
 async function one<T=Record<string,unknown>>(c:PoolClient,sql:string,args:unknown[]=[]):Promise<T>{return (await c.query(sql,args)).rows[0] as T;}
-export async function snapshot(c:PoolClient,context:Context,target:string):Promise<Snapshot>{return (await one<{v:Snapshot}>(c,'SELECT consult_read($1,$2) v',[await scoped(c,context,'read',target),target])).v;}
+export async function snapshot(c:PoolClient,context:Context,target:string):Promise<Snapshot>{
+ const result=(await one<{v:Snapshot}>(c,'SELECT consult_read($1,$2) v',[await scoped(c,context,'read',target),target])).v;
+ const proposals=(await c.query("SELECT id,instance_id,field_key,base_revision,answer,source_note,generation FROM consult_agent_proposals WHERE consult_id=$1 AND status='pending' ORDER BY id",[target])).rows;
+ return {...result,proposals} as Snapshot;
+}
 async function scoped(c:PoolClient,context:Context,operation:string,target:string|null):Promise<Context>{
  const claims=JSON.parse(context.payload);return (await one<{v:Context}>(c,'SELECT consult_mint_context($1,$2) v',[{...claims,operation,consult_id:target},context.key_id])).v;
 }
@@ -270,6 +275,11 @@ export async function close(c:PoolClient,context:Context,target:string,input:unk
  await c.query(`UPDATE consults SET status=$2,revision=revision+1,closed_at=now(),closed_by=$3,completed_at=CASE WHEN $4 THEN now() END,completed_by=CASE WHEN $4 THEN $3::uuid END,completeness_cache=$5 WHERE id=$1`,[target,result.complete?'complete':'incomplete',actor,result.complete,result]);
  await c.query("UPDATE work_items SET status='done',completed_at=now() WHERE source_kind='consult' AND (source_id=$1 OR ($3 AND source_id=$2)) AND status NOT IN ('done','cancelled')",[`${target}:schedule:visit`,`${target}:finish:visit`,result.complete]);
  await audit(c,target,actor,'close',{manifest:m,digest,result});
+ if(result.complete && (await one<{value:string}>(c,"SELECT value FROM app_settings WHERE key='consult_auto_apply_findings'"))?.value==='true'){
+  await c.query('SAVEPOINT consult_auto_apply');
+  try{await reconcileConsultFindings(c,await scoped(c,context,'apply',target),{consult_id:target,expected_generation:Number(s.consult.completion_generation),operation_id:randomUUID()});await c.query('RELEASE SAVEPOINT consult_auto_apply');}
+  catch{await c.query('ROLLBACK TO SAVEPOINT consult_auto_apply');await todo(c,s,'repair','findings',"Couldn't apply consultation findings — try again",owner,null);}
+ }
  return {digest,...result,revision:Number(s.consult.revision)+1};
 }
 export async function resolveConflict(c:PoolClient,context:Context,target:string,input:unknown){
@@ -293,7 +303,28 @@ export async function resolveConflict(c:PoolClient,context:Context,target:string
 export async function command(c:PoolClient,context:Context,target:string,kind:string,input:unknown):Promise<unknown>{
  // All callers, including tests, must wrap command in one transaction. Lock before
  // reading receipts/snapshots so two batches cannot observe the same base state.
+ await c.query('SELECT p.id FROM projects p JOIN consults c ON c.project_id=p.id WHERE c.id=$1 FOR UPDATE OF p',[target]);
  await c.query('SELECT id FROM consults WHERE id=$1 FOR UPDATE',[target]);
+ if(kind==='apply_findings'){
+  const v=z.strictObject({expected_generation:rev.min(1),operation_id:uuid}).parse(input);
+  return reconcileConsultFindings(c,await scoped(c,context,'apply',target),{consult_id:target,...v});
+ }
+ if(kind==='proposal_decision'){
+  const actor=await authorize(c,context,target,'proposal_decision');
+  const v=z.strictObject({proposal_id:uuid,action:z.enum(['use','reject']),op:opSchema.optional()}).parse(input);
+  const p=await one<any>(c,"SELECT * FROM consult_agent_proposals WHERE consult_id=$1 AND id=$2 FOR UPDATE",[target,v.proposal_id]);
+  if(!p)throw new Error('unknown_proposal');
+  if(p.status!=='pending')return {status:p.status};
+  const s=await snapshot(c,context,target);if(s.consult.status==='complete')throw new Error('complete_locked');
+  if(Number(p.generation)!==Number(s.consult.completion_generation))throw new Error('rebase_required');
+  if(v.action==='use'){
+   if(!v.op||v.op.type!=='answer'||hash(v.op.target)!==hash({instance_id:p.instance_id,field_key:p.field_key})||hash(v.op.payload)!==hash(p.answer)||v.op.base_revision!==Number(p.base_revision))throw new Error('proposal_mismatch');
+   const receipts=await batch(c,await scoped(c,context,'ops',target),target,{nonce:JSON.parse(context.payload).nonce,ops:[v.op]}) as {status:number}[];
+   if(receipts[0].status!==200)return receipts;
+  }
+  await c.query('UPDATE consult_agent_proposals SET status=$3,decided_by=$4,decided_at=now() WHERE consult_id=$1 AND id=$2',[target,p.id,v.action==='use'?'used':'rejected',actor]);
+  return {status:v.action==='use'?'used':'rejected'};
+ }
  if(kind==='resolve_conflict')return resolveConflict(c,context,target,input);
  if(kind==='ops')return batch(c,context,target,input);
  if(kind==='evidence')return saveEvidence(c,context,target,input);

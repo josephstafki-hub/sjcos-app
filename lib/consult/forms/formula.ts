@@ -23,3 +23,13 @@ export function validateFormulas(entries: readonly {key:string;formula:string}[]
  function visit(key:string):void {if(visiting.has(key))throw new Error('formula_cycle');if(done.has(key))return;visiting.add(key);for(const ref of graph.get(key)??[])if(graph.has(ref))visit(ref);visiting.delete(key);done.add(key);}
  for(const key of graph.keys())visit(key);
 }
+/** Evaluate the same bounded grammar. Missing input and division by zero stay
+ * missing evidence; they never become a zero quantity. */
+export function evaluateFormula(formula:string,values:Readonly<Record<string,number|undefined>>):number|null{
+ formulaReferences(formula,new Set(Object.keys(values)));
+ const tokens=formula.match(/[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)?|\d+(?:\.\d+)?|[()+*/-]/g)!;let at=0;
+ function primary():number{const t=tokens[at++];if(t==='-')return -primary();if(t==='+')return primary();if(t==='('){const n=expression();at++;return n;}return /^[a-z]/.test(t)?values[t]??NaN:Number(t);}
+ function product():number{let n=primary();while(tokens[at]==='*'||tokens[at]==='/'){const op=tokens[at++],v=primary();n=op==='*'?n*v:v===0?NaN:n/v;}return n;}
+ function expression():number{let n=product();while(tokens[at]==='+'||tokens[at]==='-'){const op=tokens[at++],v=product();n=op==='+'?n+v:n-v;}return n;}
+ const result=expression();return Number.isFinite(result)?Math.round(result*10000)/10000:null;
+}

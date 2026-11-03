@@ -173,7 +173,7 @@ export async function autoDraftBlogOnCompletion(slug: string): Promise<void> {
   // media. Surface it to Joe (never reaches the client).
   const media = await queryOne<{ n: number }>(
     // Only real uploads count (storage_path NOT NULL) — showcase rows have no blob.
-    `SELECT count(*)::int AS n FROM files
+    `SELECT count(*)::int AS n FROM (SELECT * FROM files WHERE classification = 'attachment') AS files
       WHERE project_key = $1 AND type = 'img' AND storage_path IS NOT NULL`,
     [slug],
   );
@@ -395,7 +395,7 @@ export async function setPhotoShareable(projectSlug: string, fileId: string, sha
   if (user.role !== "owner") return { ok: false, error: "Only Joe records a client's OK to share photos." };
   const proj = await queryOne<{ id: string }>(`SELECT id FROM projects WHERE slug = $1`, [projectSlug]);
   if (!proj) return { ok: false, error: "Project not found." };
-  const file = await queryOne<{ id: string }>(`SELECT id FROM files WHERE id = $1 AND project_key = $2 AND type = 'img'`, [fileId, projectSlug]);
+  const file = await queryOne<{ id: string }>(`SELECT id FROM (SELECT * FROM files WHERE classification = 'attachment') AS files WHERE id = $1 AND project_key = $2 AND type = 'img'`, [fileId, projectSlug]);
   if (!file) return { ok: false, error: "That photo isn't on this job." };
   if (shareable) {
     await grantPublicationRights(runDirect, { fileIds: [fileId], projectId: proj.id, grantedBy: user.name || "Joe", grantedByUserId: user.id, note: "client OK'd sharing (marked on /marketing)" });

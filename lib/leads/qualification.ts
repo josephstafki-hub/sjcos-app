@@ -67,7 +67,7 @@ export async function syncFactsFromIntake(run: Run, leadId: string): Promise<voi
   if (!lead) return;
   const intake = await run<{ question: string; answer: string }>(`SELECT question, answer FROM lead_intake WHERE lead_id = $1`, [leadId]);
   const ans = (re: RegExp) => intake.find((q) => re.test(q.question) && q.answer.trim())?.answer.trim() ?? null;
-  const [files] = await run<{ n: number }>(`SELECT count(*)::int AS n FROM files f JOIN leads l ON l.slug = f.lead_slug WHERE l.id = $1 AND f.storage_path IS NOT NULL AND f.type = 'img'`, [leadId]);
+  const [files] = await run<{ n: number }>(`SELECT count(*)::int AS n FROM (SELECT * FROM files WHERE classification = 'attachment') f JOIN leads l ON l.slug = f.lead_slug WHERE l.id = $1 AND f.storage_path IS NOT NULL AND f.type = 'img'`, [leadId]);
   const allText = [lead.scope, ...intake.map((q) => `${q.question}: ${q.answer}`)].join("\n");
   const scope = lead.scope.trim() || ans(/scope|project|description/i);
   const derived: Partial<Record<FactKey, unknown>> = {

@@ -7,6 +7,7 @@
  */
 import type { ReadyCheck } from '../readiness.ts';
 import type { SkipReason } from '../completeness.ts';
+import { CLOSE_ERROR_ACTIONS, type CloseErrorCode } from '../close-errors.ts';
 
 export function fill(template: string, values: Record<string, string | number>): string {
   return template.replace(/\{([a-z_:]+)\}/g, (all, key: string) => (key in values ? String(values[key]) : all));
@@ -180,6 +181,10 @@ export const W = {
   conflictBeforeClose: '{n} conflict to pick before you close',
   conflictsBeforeClose: '{n} conflicts to pick before you close',
   visitClosedSending: 'Visit closed — sending',
+  // r10 R10-1: the office refused the close — the visit is NOT closed, and nothing is sending.
+  visitNotClosed: 'Not closed yet',
+  ownerToldNotClosed: 'Joe has been told this visit hasn’t closed.',
+  sendNowCloseAgain: 'Send now, then close again',
   // r6 extra: with no signal the heading says when it sends, not that it is sending.
   visitClosedOffline: 'Visit closed — will send when signal returns',
   sendNowNeedsSignal: 'Send now · needs signal',
@@ -568,6 +573,39 @@ export function plainWords(code: string | undefined | null, ctx: { name?: string
     case 'findings_failed': return "Couldn’t apply findings to the scope — Try again";
     default: return 'Something went wrong. Your answers are still saved on this device. Try again.';
   }
+}
+
+/** r10 R10-1: what a refused close says, and its one way forward. Every code in
+ *  `CLOSE_ERROR_ACTIONS` has its own line; only an unknown code gets `CLOSE_REFUSED_FALLBACK`.
+ *  The lines never repeat the button under them. */
+export type CloseFix = (typeof CLOSE_ERROR_ACTIONS)[CloseErrorCode];
+export const CLOSE_REFUSED_FALLBACK = 'The office didn’t take the close. Nothing was lost — your answers are saved on this device. Try again in a minute; if it says this again, tell Joe.';
+const CLOSE_REFUSED_LINES: Record<CloseErrorCode, string> = {
+  conflict: 'The office changed this visit since this device last checked. Your answers are saved here.',
+  stale_snapshot: 'The office changed this visit since this device last checked. Your answers are saved here.',
+  evidence_conflict: 'The office changed the wrap-up answers since this device last checked. Your answers are saved here.',
+  complete_locked: 'This visit is already Complete in the office. Nothing was lost.',
+  manifest_sequence_gap: 'Some answers haven’t reached the office yet. They’re saved on this device.',
+  unresolved_rejections: 'The office turned down some answers from this device. They’re saved here; Before you wrap lists them.',
+  manifest_blob_missing: 'Some photos haven’t reached the office yet. They’re saved on this device.',
+  manifest_initials_missing: 'The client’s initials haven’t reached the office yet. They’re saved on this device.',
+  rebase_required: 'Joe reopened this visit after some answers were typed here. Pick which value to keep, then close again.',
+  device_access_denied: 'This visit is being filled in on another device, so this one can’t close it. Your answers are saved here; ask Joe to move the visit to this device.',
+  missing_device_manifest_required: 'Another device worked on this visit and hasn’t closed. Close it on that device, or ask Joe to set it aside. Your answers are saved here.',
+  evidence_too_large: 'The office couldn’t take this much at once. Your answers are saved here; ask Joe to look over the visit.',
+  batch_too_large: 'The office couldn’t take this much at once. Your answers are saved here; ask Joe to look over the visit.',
+  owner_required: 'Only Joe can set a return-visit or trade-walk day. Take the day off, then close again.',
+  person_required: 'Only the person on this visit can close it. Your answers are saved on this device.',
+  signed_out: 'You were signed out. Your answers are saved on this device; sign in, then close again.',
+  access_denied: 'Your access to this visit was removed. Your answers are locked on this device and Joe can recover them.',
+  invalid_command: 'The office couldn’t read the wrap-up answers. Check Before you wrap, then close again.',
+  json_required: 'This page is out of date with the office. Your answers are saved here.',
+  csrf: 'This page is out of date with the office. Your answers are saved here.',
+  consult_key_unavailable: 'The office server isn’t ready yet. Your answers are saved here; try again in a minute.',
+};
+export function closeRefusal(code: string | undefined | null): { line: string; fix: CloseFix | 'retry'; known: boolean } {
+  const known = !!code && Object.prototype.hasOwnProperty.call(CLOSE_ERROR_ACTIONS, code);
+  return known ? { line: CLOSE_REFUSED_LINES[code as CloseErrorCode], fix: CLOSE_ERROR_ACTIONS[code as CloseErrorCode], known } : { line: CLOSE_REFUSED_FALLBACK, fix: 'retry', known };
 }
 
 /** Visit length from the pinned templates and add-ons (§7.2 `{duration}`, §6.9). Minutes [min, max]. */

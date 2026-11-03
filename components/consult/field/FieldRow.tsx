@@ -14,6 +14,8 @@ import { Box, Btn, Choice, scrollInPane } from "./primitives";
 import { showLength } from "./Keypad";
 import { curly } from "@/lib/consult/typography";
 import { MeasureText } from "../MeasureText";
+import { CertWarningText } from "../CertWarning";
+import type { CertificationWarning } from "@/lib/consult/rrp";
 
 export interface FieldActions {
   answer: (f: FieldView, p: AnswerPayload) => Promise<void>;
@@ -35,6 +37,9 @@ export interface FieldActions {
   clientNeedsDate?: boolean;
   /** The House & household section, where "Photos okay?" is asked. */
   houseId?: string;
+  /** r10 R10-2: certifications that run out before the planned finish (only when Renovate Right applies),
+   *  shown under the expiry field they came from (`field_address` = "era.<field key>"). */
+  certWarnings?: CertificationWarning[];
 }
 
 /** r5: the last word and the * travel together, so a * never sits alone on a line. */
@@ -306,6 +311,7 @@ export function FieldRow({ f, actions, sectionId, last }: { f: FieldView; action
       {f.flags.map((fl) => fl.kind === "advisory"
         ? <p key={fl.key} className="mt-2 text-[0.95em] font-semibold text-ink-2"><span aria-hidden>⚐ </span>Flag · <MeasureText text={fl.hint} /> {W.advisoryTail}</p>
         : <p key={fl.key} className="mt-2 text-[0.95em] font-semibold text-flag">⚑ Flag · <MeasureText text={fl.hint} /> Decide in {W.beforeYouWrap}.</p>)}
+      {actions.certWarnings?.filter((w) => w.field_address === `era.${f.key}` && answered).map((w) => <p key={w.field_address} role="note" className="mt-2 text-[0.95em] text-ink"><CertWarningText w={w} /></p>)}
       {f.shots.map((s) => <PhotoRow key={s.key} shot={s} actions={actions} fieldKey={f.key} sectionId={sectionId} />)}
       <div className="mt-2 flex flex-wrap gap-3">
         {last !== undefined && !answered && (d.type === "length" || d.type === "length_pair") && <Btn onClick={() => void actions.answer(f, { status: "answered", value: last, unit: d.unit })}>{W.sameAsLast} · {showLength(last, d)}</Btn>}

@@ -577,6 +577,23 @@ export class VisitController {
     } finally { if (owns()) { this.closing = false; this.closeToken = null; } }
   }
   dismissClosing() { this.set({ closing: null }); }
+  /** r10 R10-1: the office refused the close, so the visit is not closed. Drop the close (answers
+   *  stay in the queue and the draft) so no retry pops this screen back up; the next close starts fresh. */
+  async abandonClose() {
+    this.closeToken = null; this.closing = false;
+    if (this.closeTimer) clearTimeout(this.closeTimer);
+    await this.engine?.clearCloseIntent();
+    this.set({ local: this.engine?.read() ?? null, closing: null });
+  }
+  /** r10 R10-1: Send now, then close again — the refused request is dropped and a fresh one is built. */
+  async closeAgain() {
+    this.closeToken = null; this.closing = false;
+    await this.engine?.clearCloseRequest();
+    this.set({ local: this.engine?.read() ?? null, closing: { step: 'sending' } });
+    await this.drain(true);
+    // A drain already running may have passed its close step; make sure this close is tried.
+    if (this.engine?.read()?.close_intent && !this.closing && this.state.closing?.step === 'sending') await this.resumeClose();
+  }
 
   /** Reopen with a reason (Joe or the assigned visitor). Old queued work becomes an explicit pick. */
   async reopen(reason: string) {

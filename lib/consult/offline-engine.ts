@@ -27,6 +27,8 @@ export class OfflineEngine {
  async prepare(value:LocalVisit){if(this.value)throw new Error('local_conflict');await this.store.preflight();await this.commit(value);}
  async saveCloseIntent(evidence:Record<string,unknown>|null){return this.exclusive(async()=>{const v=this.read();if(v)await this.commit({...v,close_intent:{evidence,started_at:Date.now()}});});}
  async saveCloseRequest(request:{expected_revision:number;manifest:unknown}){return this.exclusive(async()=>{const v=this.read();if(v?.close_intent)await this.commit({...v,close_intent:{...v.close_intent,request}});});}
+ /** r10 R10-1: after the office refused a close, drop the refused request but keep the intent, so the next try builds a fresh one. */
+ async clearCloseRequest(){return this.exclusive(async()=>{const v=this.read();if(v?.close_intent?.request){const {request:_drop,...rest}=v.close_intent;void _drop;await this.commit({...v,close_intent:rest});}});}
  async clearCloseIntent(request?:{expected_revision:number;manifest:unknown}){return this.exclusive(async()=>{const v=this.read();if(request && JSON.stringify(v?.close_intent?.request)!==JSON.stringify(request))return;if(v)await this.commit({...v,close_intent:undefined});});}
  /** One durable transaction: initialization is either entirely present or absent. */
  async captureBatch(ops:ConsultOp[],projection:Record<string,unknown>){return this.exclusive(async()=>{const v=this.read();if(!v)throw new Error('not_prepared');let queue=v.queue;for(const op of ops)queue=enqueue(queue,op,projection);await this.commit({...v,queue});});}

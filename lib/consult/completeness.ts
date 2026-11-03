@@ -88,6 +88,11 @@ export function consultCompleteness(input: CompletionInput) {
 
 export function openItemCount(counts: {price_critical:{total:number;done:number};record:{total:number;done:number}}, openCloseChecks=0):number { const n=sectionCounts({pc:counts.price_critical,record:counts.record});return n.total-n.done+openCloseChecks; }
 
+/** r10 extra: the close result's "n open" — the field and photo items plus each other open check row it lists,
+ *  the same way Before you wrap counts its close lines, so the two screens agree. */
+export function closeResultOpenCount(r:{price_critical:{total:number;done:number};record:{total:number;done:number};checks?:{code:string;open:string[]}[]}):number {
+ return openItemCount(r,(r.checks??[]).filter(c=>c.open.length&&c.code!=='required_fields'&&c.code!=='required_photos').length);
+}
 export function closeAction(code:string):string {
  return ({required_fields:'go_field',required_photos:'take_photo',module_requirements:'add_instance',permissions:'review_permissions',client_acknowledgement:'show_client',promised_date:'pick_date',close_manifests:'review_sync',rrp:'review_rrp',flag_decisions:'review_flags',risk_assumptions:'review_assumptions',trade_walks:'review_trades'} as Record<string,string>)[code]??'review_sync';
 }

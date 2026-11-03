@@ -8,7 +8,7 @@ import { requireAccess } from "@/lib/dal";
 import { consultDevices, lookOverExtra, readSnapshot, scheduleOptions, visitHead } from "@/lib/consult/ui/server";
 import { buildModel, emptyDraft, type EvidenceDraft, type FieldView, type SectionView } from "@/lib/consult/ui/model";
 import { pinnedDerivations } from "@/lib/consult/derive";
-import { openCheckPhrase, openItemCount } from "@/lib/consult/completeness";
+import { closeResultOpenCount, openCheckPhrase } from "@/lib/consult/completeness";
 import { displayLength } from "@/lib/consult/length";
 import type { LocalBlob } from "@/lib/consult/offline-engine";
 import { W, checkedAt, conflictSideLabel, fill, plainWords, quantitiesLine, reopenedHead, skipLine, skippedNotNA, statusLabel } from "@/lib/consult/ui/words";
@@ -16,6 +16,7 @@ import { ApplyFindings, OfficeConflict, ReopenButton } from "@/components/consul
 import { AssignControl } from "@/components/consult/office/ScheduleDialog";
 import { RecoveryControl } from "@/components/consult/office/RecoveryControl";
 import { MeasureText } from "@/components/consult/MeasureText";
+import { CertWarningList, CertWarningText } from "@/components/consult/CertWarning";
 import { scopeLabelRegistry } from "@/lib/consult/forms/seed/templates";
 import { SCOPE_RULES } from "@/lib/estimating/rules";
 
@@ -69,7 +70,7 @@ export default async function ConsultLookOver({ params, searchParams }: { params
   const completeness = extra.completeness as { checks?: { check: number; code: string; open: string[]; open_phrase?: string }[]; price_critical?: { total: number; done: number }; record?: { total: number; done: number } } | null;
   const openChecks = completeness?.checks?.filter((c) => c.open.length) ?? [];
   // The same total the visitor saw on Before you wrap and the close result (r3 C2 / r2 N6).
-  const openN = completeness?.price_critical && completeness.record ? openItemCount({ price_critical: completeness.price_critical, record: completeness.record }) : openChecks.reduce((n, c) => n + c.open.length, 0);
+  const openN = completeness?.price_critical && completeness.record ? closeResultOpenCount({ price_critical: completeness.price_critical, record: completeness.record, checks: openChecks }) : openChecks.reduce((n, c) => n + c.open.length, 0);
   const job = snap.findings_job;
   const live = snap.instances.filter((i) => !i.removed_at);
   // FEEDS (§6.8): scope title · quantity label, value + unit in mono; "○ Open" until an answer feeds it.
@@ -94,6 +95,7 @@ export default async function ConsultLookOver({ params, searchParams }: { params
   const sectionLink = (x: SectionView) => `/projects/${slug}/consult/${head.id}?s=${x.instance.id}`;
   const fieldLink = (addr: string) => `/projects/${slug}/consult/${head.id}?s=${addr.split(":")[0]}#f-${addr}`;
   const canRecover = owner && devices.some((d) => d.revoked && !d.closed);
+  const certWarnings = snap.certification_warnings ?? [];
   /** r5 R5-4: each open check on the look-over — the office's own words and its way forward. */
   const officeRow = (c: { code: string; open: string[]; open_phrase?: string }) => {
     const firstField = model.open.find((o) => o.kind === "field");
@@ -134,7 +136,9 @@ export default async function ConsultLookOver({ params, searchParams }: { params
         {extra.pendingDevice && <div role="status" className="mb-4 rounded-lg border-2 border-info bg-info-soft px-4 py-3 text-body text-ink">{fill(W.notSyncedYet, { photos: `${extra.pendingDevice.photos} ${extra.pendingDevice.photos === 1 ? "photo" : "photos"}`, name: head.visitor_name })}</div>}
         {/* r5 R5-4: Needs finishing is a normal outcome — the calm ◐ heading and one ○ Open row per open
             check on the neutral card, each with its count and its way forward. ! only for a conflict. */}
-        {snap.certification_warnings?.map(w => <p role="note" key={w.field_address} className="mb-3 rounded-lg border border-rule bg-card p-3">⚐ {w.message}</p>)}
+        {/* r10 R10-2: a certification that runs out before the planned finish — calm advice for Joe, never a block.
+            On the Needs-finishing card under its open lines when there is one; otherwise its own calm card. */}
+        {!(status === "incomplete" && openChecks.length > 0) && <CertWarningList list={certWarnings} className="mb-4 text-body" />}
         {status === "incomplete" && openChecks.length > 0 && (
           <section aria-labelledby="nf-h" className="mb-4 rounded-lg border border-rule bg-card px-4 py-3 text-body text-ink">
             <h2 id="nf-h" className="font-serif text-title font-semibold text-ink"><span aria-hidden className="font-mono">◐ </span>{W.needsFinishing} · <span className="whitespace-nowrap">{openN} open</span></h2>
@@ -147,6 +151,7 @@ export default async function ConsultLookOver({ params, searchParams }: { params
                   {r.action && <span className="col-start-2 @[600px]/page:col-start-auto">{r.action}</span>}
                 </li>); })}
             </ul>
+            <CertWarningList list={certWarnings} className="mt-2 text-body" />
           </section>
         )}
         {/* r9 R9-3: who reopened it, when and why — calm, and gone after the next close. */}
@@ -189,7 +194,7 @@ export default async function ConsultLookOver({ params, searchParams }: { params
             {section ? <>
               <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-rule pb-2">
                 <h2 id="sec-h" className="font-serif text-title font-semibold text-ink">{section.label}</h2>
-                <span className="flex items-center gap-3 font-mono text-body text-ink-2">{sectionCounts(section).done}/{sectionCounts(section).total}<CoverageMark variant="coverage" state={section.mark} /></span>
+                <span className="flex items-center gap-3 font-mono text-body text-ink-2">{sectionCounts(section).done}/{sectionCounts(section).total}{/* r10 extra: "! Conflict" here too while the list says so. */}<CoverageMark variant="coverage" state={section.conflict ? "conflict" : section.mark} /></span>
               </div>
               <ul className="divide-y divide-rule-soft">
                 {section.fields.map((f) => {
@@ -207,6 +212,7 @@ export default async function ConsultLookOver({ params, searchParams }: { params
                       {c && <div className="@[520px]/sec:col-span-3"><OfficeConflict id={head.id} revision={Number(snap.consult.revision)} generation={Number(snap.consult.completion_generation)} instance={f.addr.split(":")[0]} fieldKey={f.key} label={`${section.label} › ${f.def.label}`} mono={f.def.type.startsWith("length")}
                         current={{ id: c.current.id, text: c.current.status === "answered" ? show(c.current.value, f.def) : c.current.status, from: c.current.source_label ?? conflictSideLabel({ ...c.current, created_at: c.current.at }, { ...c.proposed, created_at: c.proposed.at }), available: c.current.available !== false }}
                         proposed={{ id: c.proposed.id, text: c.proposed.status === "answered" ? show(c.proposed.value, f.def) : c.proposed.status, from: c.proposed.source_label ?? conflictSideLabel({ ...c.proposed, created_at: c.proposed.at }, { ...c.current, created_at: c.current.at }), available: c.proposed.available !== false }} /></div>}
+                      {section.module.key === "era" && certWarnings.filter((w) => w.field_address === `era.${f.key}`).map((w) => <p key={w.field_address} role="note" className="text-body text-ink @[520px]/sec:col-span-3"><CertWarningText w={w} /></p>)}
                       {f.answer?.status === "skipped" && draft.skips[f.addr]?.assumption && <p className="text-meta text-ink-2 @[520px]/sec:col-span-3">Assumption: {draft.skips[f.addr].assumption!.text} · {draft.skips[f.addr].assumption!.responsible_trade} · {checkedAt(draft.skips[f.addr].assumption!.verification_point)}</p>}
                     </li>
                   );

@@ -15,12 +15,20 @@ export function rrpFacts(values: Record<string, unknown>, initials: boolean, vis
 
 /** Advisory only: expiry during the planned job never changes the close gate. */
 export interface CertificationWarning { who:string; expiry_date:string; planned_finish:string; field_address:string; message:string }
+/** "Mar 1, 2027" — the date form the rest of the screen uses (never ISO). */
+export const certDate=(date:string)=>new Date(date.slice(0,10)+'T12:00:00Z').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'});
+/** r10 R10-2 / domain 4: who, both dates and who acts. Split so a screen can keep each date on one line. */
+export function certWarningParts(w:Pick<CertificationWarning,'who'|'expiry_date'|'planned_finish'|'field_address'>){
+ const firm=w.field_address==='era.firm_cert_expiry';
+ return {lead:firm?'SJC’s firm certification runs out':w.who==='The certified renovator'?'The certified renovator’s certification runs out':`${w.who}’s renovator certification runs out`,expiry:certDate(w.expiry_date),mid:'— before the planned finish,',finish:certDate(w.planned_finish),tail:firm?'Renew it before then.':'Renew it or put another certified renovator on the job.'};
+}
 export function certificationWarnings(values:Record<string,unknown>, finish?:string|null):CertificationWarning[]{
  if(!finish || !compileCondition(rrpApplies,new Set(['era.before_1978','house.year_built','era.disturbs_paint','era.window_door_replacement']))(values))return [];
- const format=(date:string)=>new Date(date+'T12:00:00Z').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'});
  return ['era.firm_cert_expiry','era.renovator_expiry'].flatMap(key=>{
  const date=values[key]; if(typeof date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(date)||date>=finish.slice(0,10))return [];
- const firm=key==='era.firm_cert_expiry',who=firm?'SJC firm':String(values['era.renovator_name']||'Assigned renovator');
- return [{who,expiry_date:date,planned_finish:finish.slice(0,10),field_address:key,message:`${firm?who:'Certified renovator ('+who+')'} certification runs out ${format(date)} — before the planned finish, ${format(finish.slice(0,10))}. Joe ${firm?'renews it before then.':'renews it or assigns another renovator.'}`}];
+ const firm=key==='era.firm_cert_expiry',name=String(values['era.renovator_name']??'').trim(),who=firm?'SJC firm':name||'The certified renovator';
+ const w={who,expiry_date:date,planned_finish:finish.slice(0,10),field_address:key};
+ const p=certWarningParts(w);
+ return [{...w,message:`${p.lead} ${p.expiry} ${p.mid} ${p.finish}. ${p.tail}`}];
  });
 }

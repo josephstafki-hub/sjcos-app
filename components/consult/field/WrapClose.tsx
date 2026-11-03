@@ -5,15 +5,17 @@
  * close result: Visit closed — sending · Complete · Needs finishing (n open) with the
  * failing checks in plain words. No item count is a score; the server decides Complete.
  */
-import {closeAction, openCheckPhrase, openItemCount} from '@/lib/consult/completeness';
+import {closeAction, closeResultOpenCount, openCheckPhrase, openItemCount} from '@/lib/consult/completeness';
 import { useState } from "react";
 import { CoverageMark } from "@/components/ui/CoverageMark";
 import type { EvidenceDraft, FieldView, ShotView, VisitModel } from "@/lib/consult/ui/model";
 import type { ClosingState } from "@/lib/consult/ui/controller";
-import { CHECK_ACTION_WORDS, FLAG_CHOICES, W, fill, plainWords, quantitiesLine, reopenedHead } from "@/lib/consult/ui/words";
+import { CHECK_ACTION_WORDS, FLAG_CHOICES, W, closeRefusal, fill, plainWords, quantitiesLine, reopenedHead, type CloseFix } from "@/lib/consult/ui/words";
 import type { Snapshot } from "@/lib/consult/ui/model";
 import { flagLead } from "@/lib/consult/ui/flag-lead";
 import { MeasureText } from "../MeasureText";
+import { CertWarningList } from "../CertWarning";
+import type { CertificationWarning } from "@/lib/consult/rrp";
 import { Banner, Box, Btn, Choice, Sheet, TextInput } from "./primitives";
 
 const itemLabel = (o: VisitModel["open"][number]) => (o.kind === "field" ? (o.item as FieldView).def.label : `Photo · ${(o.item as ShotView).def.label}`);
@@ -33,14 +35,9 @@ export function ReopenedNote({ reopened, className = "" }: { reopened?: Snapshot
   return <p role="note" className={`rounded-lg border-2 border-rule-soft bg-card px-3 py-2 text-ink ${className}`}><span className="font-semibold">{reopenedHead(reopened)}</span> — {reopened.reason.trim()}</p>;
 }
 
-/** r9: a certification that runs out before the planned finish — advice, never a close block. */
-export function CertWarnings({ list, className = "" }: { list: import("@/lib/consult/rrp").CertificationWarning[]; className?: string }) {
-  if (!list.length) return null;
-  return (
-    <div role="note" className={`rounded-md border-2 border-rule-soft bg-paper px-3 py-2 text-ink ${className}`}>
-      {list.map((w) => <p key={w.field_address}><span aria-hidden className="mr-1 font-semibold">⚐</span>{w.message}</p>)}
-    </div>
-  );
+/** r9 / r10 R10-2: a certification that runs out before the planned finish — advice, never a close block. */
+export function CertWarnings({ list, className = "" }: { list: CertificationWarning[]; className?: string }) {
+  return <CertWarningList list={list} className={className} />;
 }
 
 export function WrapSheet({ open, onClose, model, draft, hasInitials, refused, onGo, onFlags, onTrades, onRrp, onClient, onAck, onCloseVisit, onPromised, needDate, reopened }: {
@@ -68,19 +65,21 @@ export function WrapSheet({ open, onClose, model, draft, hasInitials, refused, o
   // r7 extra: "246 still open", the close checks' own phrasing (no capital O mid-sentence).
   const conflictN = model.conflicts.length;
   const firstConflict = model.conflicts[0];
+  // r10 extra: the header counts every close line listed below — one per conflict, as each has its own line.
   // r9 R9-2: while a conflict is open the button says why it waits, and one line above it says what to do.
   const closeLabel = conflictN ? (conflictN === 1 ? W.closeVisitPickConflict : W.closeVisitPickConflicts) : blocking ? W.closeVisitNeeds : W.closeVisit;
   const conflictName = (c: VisitModel["conflicts"][number]) => { const s = model.sections.find((x) => x.instance.id === c.instance_id); const f = s?.fields.find((x) => x.addr === c.key); return [s?.label, f?.def.label ?? c.field_key].filter(Boolean).join(" › "); };
-  const title = `${W.beforeYouWrap} · ${openItemCount({price_critical:model.pc,record:model.record}, [undecidedFlags.length > 0,tradesOpen,rrpOpen,ackOpen,!dateOk,conflictN > 0,refused > 0].filter(Boolean).length)} ${W.stillOpen}${partly.length ? ` · ${partly.length} Partly` : ""}`;
+  const title = `${W.beforeYouWrap} · ${openItemCount({price_critical:model.pc,record:model.record}, [undecidedFlags.length > 0,tradesOpen,rrpOpen,ackOpen,!dateOk,refused > 0].filter(Boolean).length + conflictN)} ${W.stillOpen}${partly.length ? ` · ${partly.length} Partly` : ""}`;
   return (
     <Sheet open={open} onClose={onClose} side title={title}
       footer={<>
-        {firstConflict && <p className="flex w-full basis-full flex-wrap items-center gap-x-2 gap-y-1 text-ink">
-          <span><span aria-hidden className="mr-1 font-bold text-flag">!</span><span className="font-semibold">{fill(conflictN === 1 ? W.conflictBeforeClose : W.conflictsBeforeClose, { n: conflictN })}</span></span>
-          <span aria-hidden className="text-ink-3">·</span>
-          <Btn tone="quiet" className="px-2" onClick={() => onGo(firstConflict.instance_id, firstConflict.key)}>{W.goToField}</Btn>
-        </p>}
-        <Btn className="max-md:w-full" onClick={onClose}>{W.keepWorking}</Btn><Btn tone="primary" className="max-md:w-full" onClick={onCloseVisit} disabled={conflictN > 0 || refused > 0}>{closeLabel}</Btn></>}>
+        {/* r10 R10-3: words left, a 56 px Go to field right (under them when narrow) — no separator dot.
+            While a conflict is open the sheet's own Close is the way back, so Keep working steps aside. */}
+        {firstConflict && <div className="flex w-full basis-full flex-wrap items-center justify-between gap-x-3 gap-y-1 text-ink">
+          <p className="min-w-0"><span aria-hidden className="mr-1 font-bold text-flag">!</span><span className="font-semibold">{fill(conflictN === 1 ? W.conflictBeforeClose : W.conflictsBeforeClose, { n: conflictN })}</span></p>
+          <Btn tone="quiet" onClick={() => onGo(firstConflict.instance_id, firstConflict.key)}>{W.goToField}</Btn>
+        </div>}
+        {!firstConflict && <Btn className="max-md:w-full" onClick={onClose}>{W.keepWorking}</Btn>}<Btn tone="primary" className="max-md:w-full" onClick={onCloseVisit} disabled={conflictN > 0 || refused > 0}>{closeLabel}</Btn></>}>
       <ReopenedNote reopened={reopened} className="mb-3" />
       <div className="mb-5 grid gap-3">
         {/* r3 C7: what stops a Complete close comes first — flags, promised date, client initials. */}
@@ -245,17 +244,20 @@ export function AckSheet({ open, onClose, draft, onSave, saveError, summaryText 
 }
 
 /** Visit closed — sending → Complete / Needs finishing, the same words for Joe's and staff visits. */
-export function ClosingScreen({ closing, unsent, online, autoApply, findings, findingsCode, unmeasured = 0, onSend, onRetry, onKeepWorking, onReopen, onApply, onAction, home }: {
+export function ClosingScreen({ closing, unsent, online, autoApply, findings, findingsCode, unmeasured = 0, onSend, onRetry, onKeepWorking, onReopen, onApply, onAction, onRefused, home }: {
   closing: ClosingState; unsent: number; online: boolean; autoApply: boolean; findings: { status: string; last_error: string | null } | null; findingsCode: string | null;
   /** r8 domain E4: estimate quantities with no measured answer, said under ✓ Complete. */
   unmeasured?: number;
   onSend: () => void; onRetry: () => void; onKeepWorking: () => void; onReopen: (reason: string) => Promise<void>; onApply: () => void; home: string;
   /** r5: an open check's own way forward (Review flags, Pick the date, Show to client, …) — back on the visit. */
   onAction?: (action: string) => void;
+  /** r10 R10-1: a refused close's way forward (Reload, Back to visits, Send now then close again, Go to field,
+   *  Try again) or Keep working. Each drops or rebuilds the refused close so it can't pop back up. */
+  onRefused?: (fix: CloseFix | "retry" | "keep_working") => void;
 }) {
   const [reopening, setReopening] = useState(false); const [reason, setReason] = useState(""); const [err, setErr] = useState<string | null>(null);
   const r = closing.result;
-  const openN = r ? openItemCount(r) : 0;
+  const openN = r ? closeResultOpenCount(r) : 0;
   // r7 R7-2: a slow office (408 / 429 / 5xx, the 15 s request deadline, or this device's answers still
   // on their way after a timed-out send while online) is the calm "◐ Still closing…", never the red generic error.
   const slow = closing.step === "error" && (closing.code === "close_timeout" || /^http_(408|429|5\d\d)$/.test(closing.code ?? "") || (online && closing.code === "manifest_sequence_gap"));
@@ -279,12 +281,22 @@ export function ClosingScreen({ closing, unsent, online, autoApply, findings, fi
         <div className="mt-4 grid gap-3 sm:grid-cols-2"><Btn tone="primary" onClick={onRetry} disabled={!online}>{W.tryAgain}</Btn><Btn onClick={onKeepWorking}>{W.keepWorking}</Btn></div>
         {!online && <p className="mt-3 text-ink-2">{W.offlineStrip}</p>}
       </>}
-      {closing.step === "error" && !slow && <>
-        <h1 className="font-serif text-[1.6em] font-semibold text-ink">{W.visitClosedSending}</h1>
-        <div className="mt-3"><Banner kind="action">{plainWords(closing.code)}</Banner></div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2"><Btn tone="primary" onClick={onRetry}>{W.tryAgain}</Btn><Btn onClick={onKeepWorking}>{W.keepWorking}</Btn></div>
-        {unsent > 0 && <div className="mt-3"><Btn onClick={onSend}>{W.sendNow}</Btn></div>}
-      </>}
+      {closing.step === "error" && !slow && (() => {
+        // r10 R10-1: the office refused — the visit is not closed and nothing is sending. Say what happened
+        // and offer the one fix for this code; Try again only where trying again can work.
+        const refusal = closeRefusal(closing.code);
+        const refused = (fix: CloseFix | "retry" | "keep_working") => (onRefused ? onRefused(fix) : fix === "retry" ? onRetry() : onKeepWorking());
+        const fixWords: Record<CloseFix | "retry", string> = { reload: W.reload, back_to_visits: W.backToVisits, send_now: W.sendNowCloseAgain, go_to_field: W.goToField, retry: W.tryAgain };
+        return <>
+          <h1 className="font-serif text-[1.6em] font-semibold text-ink">{W.visitNotClosed}</h1>
+          <div className="mt-3"><Banner kind="action" role="status">{refusal.line}</Banner></div>
+          {closing.ownerNotified && <p className="mt-2 text-ink-2" role="status">{W.ownerToldNotClosed}</p>}
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            <Btn tone="primary" onClick={() => refused(refusal.fix)} disabled={refusal.fix === "send_now" && !online}>{refusal.fix === "send_now" && !online ? W.sendNowNeedsSignal : fixWords[refusal.fix]}</Btn>
+            {refusal.fix !== "back_to_visits" && <Btn onClick={() => refused("keep_working")}>{W.keepWorking}</Btn>}
+          </div>
+        </>;
+      })()}
       {closing.step === "done" && r && <>
         {r.complete ? <>
           <h1 className="font-serif text-[1.8em] font-semibold text-accent-2">✓ {W.complete}</h1>

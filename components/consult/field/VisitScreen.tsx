@@ -169,6 +169,7 @@ export function VisitScreen({ device, model, display, api, thumbs, online, draft
   const actions: FieldActions = {
     device, thumbs, online, photosOk: model.photosOk, focusAddr, focusTick, showToClient: api.showToClient, clientNeedsDate: needDate,
     houseId: model.sections.find((s) => s.module.key === "house")?.instance.id,
+    certWarnings: model.certificationWarnings,
     answer: async (f, p) => { const inst = f.addr.split(":")[0]; await wrap(api.answer(inst, f.key, f.def.label, p)); },
     keypad: (f) => {
       setKeypad({ f });
@@ -214,6 +215,8 @@ export function VisitScreen({ device, model, display, api, thumbs, online, draft
       case "go_field": go(field); break;
       case "take_photo": go(shot ?? field); break;
       case "add_instance": setView("list"); break;
+      // r10 R10-1: "Go to field" from a refused close — the first conflict, else Before you wrap.
+      case "go_conflict": { const c = model.conflicts[0]; if (c) openSection(c.instance_id, c.key); else setSheet("wrap"); break; }
       case "review_permissions": { const f = houseInst?.fields.find((x) => x.key === "photos_ok"); if (houseInst && f) openSection(houseInst.instance.id, f.addr); else setSheet("wrap"); break; }
       default: setSheet("wrap");
     }

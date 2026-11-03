@@ -70,7 +70,7 @@ export const ANSWER_FIELDS: Record<string, FieldSpec[]> = {
   property: [
     { name: 'owner', type: 'choice', label: 'Own the home?', options: [{ value: 'yes', label: 'Owns it' }, { value: 'no', label: "Doesn't own it" }, { value: 'buying', label: 'Buying' }, { value: 'renting', label: 'Renting' }] },
     { name: 'type', type: 'choice', label: 'Property', options: [{ value: 'house', label: 'House' }, { value: 'townhome', label: 'Townhome' }, { value: 'condo', label: 'Condo' }, { value: 'other', label: 'Other' }] },
-    { name: 'hoa', type: 'choice', label: 'HOA', options: [{ value: 'yes', label: 'HOA' }, { value: 'no', label: 'No HOA' }, { value: 'unknown', label: 'Not sure' }] },
+    { name: 'hoa', type: 'choice', label: 'Has an HOA', options: [{ value: 'yes', label: 'HOA' }, { value: 'no', label: 'No HOA' }, { value: 'unknown', label: 'Not sure' }] },
   ],
   paying: [
     { name: 'method', type: 'choice', label: 'Paying for it', options: [{ value: 'cash', label: 'Out of pocket' }, { value: 'loan_heloc', label: 'Loan or HELOC' }, { value: 'insurance', label: 'Insurance claim' }, { value: 'declined', label: 'Rather not say' }] },
@@ -167,24 +167,42 @@ export function isRefusal(key: string, value: unknown): boolean {
 }
 
 /** The state an answer suggests when Joe hasn't picked one himself (plan §3.1
- *  "Covered when" / "Partly when"): picking "No budget yet" or "Rather not say"
- *  covers Budget; one or two of the three property parts is Partly. Null when
- *  nothing is entered. The row sheet only ever moves a row up from Open with
- *  this, never over a state Joe tapped. */
+ *  "Covered when" / "Partly when"). Conservative and structural only: Covered
+ *  needs every part the rule asks for (Budget "Stated" needs the amount; an
+ *  address needs street, city and "They confirmed"); anything less is Partly.
+ *  Null when nothing is entered. */
 export function suggestedState(key: string, value: Record<string, unknown> | null): 'partial' | 'covered' | null {
   if (!value) return null;
-  const has = (k: string) => value[k] !== undefined && value[k] !== null && value[k] !== '';
+  const has = (k: string) => value[k] !== undefined && value[k] !== null && value[k] !== '' && value[k] !== false;
+  const all = (...ks: string[]) => (ks.every(has) ? 'covered' : 'partial');
   switch (key) {
-    case 'property': return ['owner', 'type', 'hoa'].every(has) ? 'covered' : 'partial';
-    case 'years_staying': return has('occupancy_text') && has('stay_plan_text') ? 'covered' : 'partial';
-    case 'address': return has('street') && has('city') ? 'covered' : 'partial';
-    case 'contact': return has('name') && has('phone_e164') && (has('email') || value.email_declined === true) ? 'covered' : 'partial';
+    case 'work': return has('scope') ? 'covered' : 'partial';
+    case 'budget': return has('amount_text') || value.response === 'not_set' || value.response === 'declined' ? 'covered' : 'partial';
     case 'timeline': return has('text') || has('start') || has('finish') ? 'covered' : 'partial';
+    case 'address': return all('street', 'city', 'confirmed');
+    case 'contact': return has('name') && has('phone_e164') && (has('email') || value.email_declined === true) ? 'covered' : 'partial';
     case 'who_decides': return value.sole === true || has('people') ? 'covered' : 'partial';
-    case 'next_step': return value.kind === 'visit' ? (has('date') ? 'covered' : 'partial') : has('kind') ? 'covered' : 'partial';
+    case 'found_us': return (has('channel') && (value.channel !== 'Referral' || has('referrer'))) || has('referrer') || has('detail') || value.unknown === true ? 'covered' : 'partial';
+    case 'other_bids': return has('answer') ? 'covered' : 'partial';
+    case 'years_staying': return all('occupancy_text', 'stay_plan_text');
+    case 'next_step': return value.kind === 'visit' ? (has('date') ? 'covered' : 'partial') : value.kind === 'precon_agreement' || value.kind === 'client_calls_back' ? 'covered' : 'partial';
+    case 'photos_request': return has('answer') ? 'covered' : 'partial';
+    case 'property': return all('owner', 'type', 'hoa');
+    case 'paying': return has('method') ? 'covered' : 'partial';
     default: return 'covered';
   }
 }
+
+/** The row sheet's state after an answer edit. While Joe hasn't tapped a state
+ *  button and the row opened as Open, the state follows the answer both ways:
+ *  up as parts are filled, back down when one is removed, Open when the answer
+ *  is cleared. A state he tapped, or a row that opened already ticked, never
+ *  moves. */
+export function autoState(opts: { key: string; value: Record<string, unknown> | null; opened: CoverageStateLike; current: CoverageStateLike; touched: boolean }): CoverageStateLike {
+  if (opts.touched || opts.opened !== 'open') return opts.current;
+  return suggestedState(opts.key, opts.value) ?? 'open';
+}
+type CoverageStateLike = 'open' | 'partial' | 'covered' | 'not_applicable';
 
 export function isInsurance(key: string, value: unknown): boolean {
   return key === 'paying' && !!value && typeof value === 'object' && (value as Record<string, unknown>).method === 'insurance';

@@ -8,7 +8,7 @@ import type { LiveCallBarData } from "@/lib/actions/discovery-checklist-ui";
 import { formatUsPhone } from "@/lib/comms/phone";
 import { useOpenChecklist } from "@/components/calls/open-call-store";
 import { markSignedIn } from "@/components/calls/checklist/signed-in";
-import { elapsed } from "@/components/calls/checklist/time";
+import { chicagoTime, elapsed } from "@/components/calls/checklist/time";
 import { useClock, useSessionValue, writeSessionValue } from "@/components/calls/checklist/useClock";
 
 // App-wide live-call bar (plan §4.1, §6.1): 48 px, under the top bar, on every
@@ -21,9 +21,10 @@ function parseHidden(raw: string | null): string[] {
   try { const v = JSON.parse(raw ?? "[]"); return Array.isArray(v) ? v : []; } catch { return []; }
 }
 
-// `text` may truncate; `timer` never does — the timer and the number are the
-// two things the bar exists to show (plan §6.1).
-type Entry = { key: string; href: string; action: string; text: ReactNode; timer: string | null; label: string; symbol: string };
+// A name may truncate; a phone number and the timer never do — they are the
+// two things the bar exists to show (plan §6.1). `leadSlug` puts the lead's
+// own call first on that lead's page.
+type Entry = { key: string; href: string; text: ReactNode; truncate: boolean; timer: string | null; label: string; symbol: string; leadSlug: string | null };
 
 export function LiveCallBar({ data, userId }: { data: LiveCallBarData | null; userId: string | null }) {
   const pathname = usePathname();
@@ -41,30 +42,29 @@ export function LiveCallBar({ data, userId }: { data: LiveCallBarData | null; us
     const who = c.label?.trim() || null;
     const number = formatUsPhone(c.number);
     const timer = now ? elapsed(c.answered_at ?? c.started_at, now) : "";
-    let text: ReactNode;
-    let label: string;
-    // On a phone (below @md/shell) the words around the name drop away:
-    // "☎ (612) 555-0199 03:08", "☎ Alex Smith 06:07".
+    const href = `/calls?open=${c.id}&view=checklist`;
     if (c.status === "ringing") {
-      label = c.direction === "inbound" ? `Incoming — ${who ?? number}` : `Your cell rings first — ${who ?? number}`;
-      text = label;
-      entries.push({ key: c.id, href: `/calls?open=${c.id}&view=checklist`, action: "Open checklist", text, timer: null, label, symbol: "☎" });
+      const label = c.direction === "inbound" ? `Incoming — ${who ?? number}` : `Your cell rings first — ${who ?? number}`;
+      entries.push({ key: c.id, href, text: label, truncate: true, timer: null, label, symbol: "☎", leadSlug: c.lead_slug });
       continue;
     }
-    if (who) {
-      label = `${who} — on the line ${timer}`;
-      text = who;
-    } else {
-      label = `Call from ${number} — on the line ${timer}`;
-      text = <><span className="@max-md/shell:hidden">Call from </span>{number}</>;
-    }
-    entries.push({ key: c.id, href: `/calls?open=${c.id}&view=checklist`, action: "Open checklist", text, timer, label, symbol: "☎" });
+    // On a phone the words around the number drop away: "(612) 555-0199 03:08",
+    // "Alex Smith 06:07". "Call from" also drops in a narrow pane (dock open).
+    entries.push(who
+      ? { key: c.id, href, text: who, truncate: true, timer, label: `${who} — on the line ${timer}`, symbol: "☎", leadSlug: c.lead_slug }
+      : { key: c.id, href, text: <><span className="@max-2xl/shell:hidden">Call from </span>{number}</>, truncate: false, timer, label: `Call from ${number} — on the line ${timer}`, symbol: "☎", leadSlug: c.lead_slug });
   }
   for (const m of data?.manual ?? []) {
     if ((pathname === "/calls" && open?.sessionId === m.id) || hidden.includes(m.id)) continue;
-    const label = `Discovery checklist open${m.lead_name ? ` — ${m.lead_name}` : ""}`;
-    entries.push({ key: m.id, href: `/calls?checklist=${m.id}`, action: "Open", text: label, timer: null, label, symbol: "☑" });
+    // Several open checklists with no lead must tell apart: say when each started.
+    const time = chicagoTime(m.started_at);
+    const label = m.lead_name ? `Discovery checklist — ${m.lead_name}` : `Discovery checklist · started ${time}`;
+    const text = m.lead_name ? label : <><span className="@max-md/shell:hidden">Discovery checklist · started </span><span className="hidden @max-md/shell:inline">Checklist · </span><span className="whitespace-nowrap">{time}</span></>;
+    entries.push({ key: m.id, href: `/calls?checklist=${m.id}`, text, truncate: !!m.lead_name, timer: null, label, symbol: "☑", leadSlug: m.lead_slug });
   }
+  // On a lead's page, that lead's own call leads the bar.
+  const pageSlug = pathname?.match(/^\/leads\/([^/?#]+)/)?.[1] ?? null;
+  if (pageSlug) entries.sort((a, b) => Number(b.leadSlug === pageSlug) - Number(a.leadSlug === pageSlug));
   const entry = entries[0] ?? null;
 
   if (!entry) return null;
@@ -75,10 +75,10 @@ export function LiveCallBar({ data, userId }: { data: LiveCallBarData | null; us
   }
 
   return (
-    <div role="region" aria-label="Live call" className="flex h-12 flex-none items-center gap-2 border-b border-ai/30 bg-ai-soft pl-[max(1rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))] text-ai-2 @max-md/shell:gap-1.5">
+    <div role="region" aria-label="Live call" className="flex h-12 flex-none items-center gap-2 border-b border-ai/30 bg-ai-soft pl-[max(1rem,env(safe-area-inset-left))] @max-sm/shell:pl-[max(0.75rem,env(safe-area-inset-left))] pr-[max(0.25rem,env(safe-area-inset-right))] text-ai-2 @max-md/shell:gap-1.5">
       <span aria-hidden className="flex-none text-[18px] leading-none @max-sm/shell:hidden">{entry.symbol}</span>
-      <span className="flex min-w-0 flex-1 items-baseline gap-1 text-[15px] font-semibold @max-sm/shell:text-[14px]" title={entry.label}>
-        <span className="min-w-0 truncate">{entry.text}</span>
+      <span className="flex min-w-0 flex-1 items-baseline gap-1 overflow-hidden text-[15px] font-semibold @max-sm/shell:text-[14px]" title={entry.label}>
+        <span className={entry.truncate ? "min-w-0 truncate" : "flex-none whitespace-nowrap"}>{entry.text}</span>
         {entry.timer !== null && (
           <span className="flex-none whitespace-nowrap">
             <span className="@max-md/shell:hidden">— on the line </span><span className="font-mono tabular-nums">{entry.timer}</span>
@@ -92,8 +92,9 @@ export function LiveCallBar({ data, userId }: { data: LiveCallBarData | null; us
           +{entries.length - 1}<span className="@max-md/shell:hidden">&nbsp;more</span>
         </Link>
       )}
-      <Link href={entry.href} className="inline-flex min-h-12 flex-none items-center rounded-md px-3 @max-md/shell:px-2 text-[15px] font-semibold text-ai-2 underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:-outline-offset-4 focus-visible:outline-focus @min-sm/shell:min-h-10 @min-sm/shell:border @min-sm/shell:border-ai/40 @min-sm/shell:bg-card @min-sm/shell:no-underline">
-        {entry.action}
+      <Link href={entry.href} aria-label={`Open checklist — ${entry.label}`} className="inline-flex min-h-12 flex-none items-center rounded-md px-3 @max-md/shell:px-2 text-[15px] font-semibold text-ai-2 underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:-outline-offset-4 focus-visible:outline-focus @min-sm/shell:min-h-10 @min-sm/shell:border @min-sm/shell:border-ai/40 @min-sm/shell:bg-card @min-sm/shell:no-underline">
+        {/* "Open checklist" is ~120 px a phone can't spare: just "Open" there. */}
+        <span className="@max-md/shell:hidden">Open checklist</span><span className="hidden @max-md/shell:inline">Open</span>
       </Link>
       <button type="button" onClick={hide} aria-label={`Hide for this call: ${entry.label}`} title="Hide in this tab"
         className="inline-flex size-12 flex-none items-center justify-center rounded-md text-ai-2 hover:bg-hover focus-visible:outline-2 focus-visible:-outline-offset-4 focus-visible:outline-focus">

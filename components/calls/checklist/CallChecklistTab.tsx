@@ -4,12 +4,11 @@ import { errorCopy } from "@/lib/checklist-coverage/action-result";
 import { useEffect, useRef, useState } from "react";
 import { AlertTriangle, RotateCw } from "lucide-react";
 import { loadChecklistForCall, startChecklist, unknownCallerChoice } from "@/lib/actions/discovery-checklist";
-import { checklistLeadBySlug, type ChecklistLead } from "@/lib/actions/discovery-checklist-ui";
-import { createLeadFromInbox } from "@/lib/actions/leads";
+import type { ChecklistLead } from "@/lib/actions/discovery-checklist-ui";
 import { formatUsPhone } from "@/lib/comms/phone";
 import { ChecklistPane, type ChecklistCallInfo } from "./ChecklistPane";
-import { LeadPicker } from "./Pickers";
-import { Btn, Sheet } from "./Sheet";
+import { LeadPicker, NewLeadSheet, prefetchChecklistLeads } from "./Pickers";
+import { Btn } from "./Sheet";
 
 // The "Discovery checklist" body of a selected call (plan §6, §6.6). Viewing a
 // call never creates a checklist: it shows the existing one, or Start
@@ -47,17 +46,24 @@ export function CallChecklistTab({ call, leadId, linked, userId, onSessionStarte
   const [picking, setPicking] = useState(false);
   const [newLead, setNewLead] = useState<{ phone: string } | null>(null);
 
+  // An unknown caller's card offers Link to a lead: have its first page ready.
+  const unknown = !leadId && !linked;
+  useEffect(() => { if (unknown) prefetchChecklistLeads(call.number).catch(() => undefined); }, [unknown, call.number]);
+
   useEffect(() => {
     let live = true;
     loadChecklistForCall(call.id).then((s) => { if (live) setSessionId(s?.session.id ?? null); }).catch(() => { if (live) setLoadFailed(true); });
     return () => { live = false; };
   }, [call.id, attempt]);
 
-  const startOp = useRef<string | null>(null);
+  // A retry of the same start reuses its operation id; starting with another
+  // lead (New lead after a failed Start checklist) is a new operation.
+  const startOp = useRef<{ lead: string | null; id: string } | null>(null);
   async function start(lead: string | null) {
     setBusy(true); setError(null);
+    if (startOp.current?.lead !== lead) startOp.current = { lead, id: crypto.randomUUID() };
     try {
-      const r = await startChecklist({ call_id: call.id, lead_id: lead, operation_id: startOp.current ??= crypto.randomUUID() });
+      const r = await startChecklist({ call_id: call.id, lead_id: lead, operation_id: startOp.current.id });
       if (r.ok) { setSessionId(r.session_id); onSessionStarted?.(r.session_id); }
       else setError(errorCopy(r.code));
     } catch { setError(navigator.onLine === false ? "Starting a checklist needs a connection." : "Couldn't start the checklist. Try again."); }
@@ -103,10 +109,14 @@ export function CallChecklistTab({ call, leadId, linked, userId, onSessionStarte
           <p className="text-ink-2">Not a lead call — no checklist for this call.</p>
           <Btn onClick={() => { setNotLead(call.id, false); setHidden(false); }}>Undo</Btn>
         </div>
-      ) : !leadId && !linked ? (
+      ) : unknown ? (
         <section aria-labelledby={`${call.id}-unknown`} className="rounded-lg border border-rule bg-card p-4">
           <h2 id={`${call.id}-unknown`} className="font-serif text-[20px] font-semibold leading-7 text-ink">Unknown caller — <span className="whitespace-nowrap">{formatUsPhone(call.number)}</span></h2>
+          {/* A new prospect is the main discovery call: tick first, link the lead
+              after (plan §4.2 — the checklist starts with Lead: Link later). */}
+          <p className="mt-1 text-[16px] text-ink-2">Start the checklist now and link the lead later.</p>
           <div className="mt-3 flex flex-wrap gap-2">
+            <Btn kind="primary" onClick={() => void start(null)} disabled={busy}>{busy ? "Starting…" : "Start checklist"}</Btn>
             <Btn onClick={() => { setError(null); setPicking(true); }} disabled={busy}>Link to a lead</Btn>
             <Btn onClick={() => void chooseNewLead()} disabled={busy}>New lead</Btn>
             <Btn onClick={() => void notLead()} disabled={busy}>Not a lead call</Btn>
@@ -121,43 +131,9 @@ export function CallChecklistTab({ call, leadId, linked, userId, onSessionStarte
         </div>
       )}
 
-      {picking && <LeadPicker busy={busy} error={error} onClose={() => setPicking(false)} onPick={(l) => void linkLead(l)} />}
+      {picking && <LeadPicker callNumber={call.number} busy={busy} error={error} onClose={() => setPicking(false)} onPick={(l) => void linkLead(l)} />}
       {newLead && <NewLeadSheet phone={newLead.phone} onClose={() => setNewLead(null)}
         onCreated={async (lead) => { setNewLead(null); await start(lead.id); }} />}
     </div>
-  );
-}
-
-/** The existing create-lead form, prefilled with the caller's number. The
- *  checklist links to the new lead when it's saved (plan §6.6). */
-function NewLeadSheet({ phone, onClose, onCreated }: { phone: string; onClose: () => void; onCreated: (lead: ChecklistLead) => void | Promise<void> }) {
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const field = "mt-1 block min-h-12 w-full rounded-md border border-rule bg-paper px-3 text-[16px] focus-visible:outline-2 focus-visible:outline-focus";
-  async function submit(form: FormData) {
-    if (!String(form.get("name") ?? "").trim()) { setError("Add their name."); return; }
-    setSaving(true); setError(null);
-    try {
-      const { slug } = await createLeadFromInbox(form);
-      const lead = slug ? await checklistLeadBySlug(slug) : null;
-      if (!lead) throw new Error("no lead");
-      await onCreated(lead);
-    } catch { setError("Couldn't save the lead. Try again."); setSaving(false); }
-  }
-  return (
-    <Sheet layout="dialog" title="New lead" onClose={onClose} initialFocus="input[name=name]">
-      <form id="checklist-new-lead" action={(f) => void submit(f)} className="space-y-3">
-        <label className="block"><span className="text-[15px] font-semibold">Name <span aria-hidden className="text-flag">*</span></span><input name="name" required autoComplete="off" className={field} /></label>
-        <label className="block"><span className="text-[15px] font-semibold">Scope</span><input name="scope" placeholder="Upstairs bath remodel" className={field} /></label>
-        <label className="block"><span className="text-[15px] font-semibold">Phone</span><input name="phone" type="tel" defaultValue={phone} className={field} /></label>
-        <label className="block"><span className="text-[15px] font-semibold">Email</span><input name="email" type="email" className={field} /></label>
-        <input type="hidden" name="source" value="Phone call" />
-        {error && <p role="alert" className="text-[15px] text-flag">{error}</p>}
-        <div className="flex flex-wrap gap-2 pt-1">
-          <Btn onClick={onClose}>Cancel</Btn>
-          <Btn kind="primary" type="submit" disabled={saving} className="ml-auto">{saving ? "Creating…" : "Create lead"}</Btn>
-        </div>
-      </form>
-    </Sheet>
   );
 }

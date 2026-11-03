@@ -62,9 +62,17 @@ export function ChecklistSummary({
   // A hand-ticked checklist with no call has no call length to show: "Checklist
   // summary · started 7:34 PM", never "Call summary · 0 min".
   const duration = call ? durationWords(call.answered_at ?? call.started_at, s.ended_at) : null;
-  const title = call
-    ? `Call summary${who ? ` · ${who}` : ""}${duration ? ` · ${duration}` : ""}`
-    : `Checklist summary${who ? ` · ${who}` : ""}${s.started_at ? ` · started ${chicagoTime(s.started_at)}` : ""}`;
+  // Parts are kept whole when the title wraps on a phone: a line never ends on
+  // "·" (it's glued to the next part) and "8:11 PM" never splits.
+  const time = !call && s.started_at ? chicagoTime(s.started_at) : "";
+  const title = (
+    <>
+      {call ? "Call summary" : "Checklist summary"}
+      {who && <> <span>·&nbsp;{who}</span></>}
+      {duration && <> <span className="whitespace-nowrap">· {duration}</span></>}
+      {time && <> <span className="whitespace-nowrap">· started {time}</span></>}
+    </>
+  );
   const c = data.counts;
   const open = rows.filter((r) => r.state === "open");
   const partly = rows.filter((r) => r.state === "partial");
@@ -125,7 +133,8 @@ export function ChecklistSummary({
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="grid gap-x-8 gap-y-6 px-4 py-4 @2xl/page:px-5 @6xl/page:grid-cols-2">
+      {/* pb-20: the last "Ask in email" can scroll clear of the tablet Operator pill. */}
+      <div className="grid gap-x-8 gap-y-6 px-4 pb-20 pt-4 @2xl/page:px-5 @6xl/page:grid-cols-2">
         <section aria-labelledby={`${sessionId}-sum`}>
           <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
             <h2 id={`${sessionId}-sum`} className="min-w-0 font-serif text-[22px] font-semibold leading-8 text-ink">{title}</h2>
@@ -134,7 +143,7 @@ export function ChecklistSummary({
           <p className="mt-1 text-[16px] font-semibold text-ink-2">{c.covered} covered · {c.partial} partly · {c.open} open · {c.not_applicable} N/A</p>
 
           {everything ? (
-            <p className="mt-4 flex items-center gap-2 text-[17px] text-ink"><CoverageMark variant="coverage" state="covered" /> Everything covered.</p>
+            <p className="mt-4 flex items-center gap-2 text-[17px] font-semibold text-ink"><span aria-hidden>✓</span> Everything covered.</p>
           ) : (
             <div className="mt-4 space-y-4">
               {candidates.rows.length > 0 && (
@@ -172,7 +181,7 @@ export function ChecklistSummary({
 
           <details className="group mt-5 rounded-md border border-rule-soft bg-card px-3" open={answered.length > 0 && answered.length <= 4}>
             <summary className="flex min-h-12 cursor-pointer list-none items-center gap-2 text-[16px] font-semibold text-ink focus-visible:outline-2 focus-visible:outline-focus">
-              <span aria-hidden className="transition-transform group-open:rotate-90">▸</span> Answers <span className="font-normal text-ink-3">({answered.length})</span>
+              <span aria-hidden className="transition-transform group-open:rotate-90">▸</span> All rows ({rows.length}) <span className="font-normal text-ink-3">· {answered.length === 1 ? "1 answer" : `${answered.length} answers`}</span>
             </summary>
             <ul className="divide-y divide-rule-soft pb-2">
               {rows.map((r) => (

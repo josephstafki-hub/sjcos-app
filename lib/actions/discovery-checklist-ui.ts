@@ -8,26 +8,18 @@
 import { can, getCurrentUser, requireAccess } from "@/lib/dal";
 import { query, queryOne } from "@/lib/db";
 import { activeCallSnapshot } from "./discovery-checklist";
+import { searchChecklistLeads } from "@/lib/checklist-lead-search";
 
-export interface ChecklistLead { id: string; slug: string; name: string; scope: string; phone: string | null; email: string | null }
+export interface ChecklistLead { id: string; slug: string; name: string; scope: string; phone: string | null; email: string | null; on_call?: boolean }
 export interface ChecklistCallOption { id: string; label: string; number: string; started_at: string; direction: string }
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Lead picker for "Lead: Link later ▾" and "Link to a lead". */
-export async function checklistLeadSearch(text: string): Promise<ChecklistLead[]> {
+/** Lead search as a server action (the picker itself uses the GET route
+ *  /api/calls/checklist-leads, which doesn't queue behind the sync). */
+export async function checklistLeadSearch(text: string, callNumber?: string | null): Promise<ChecklistLead[]> {
   await requireAccess("comms");
-  const q = text.trim().slice(0, 80);
-  const digits = q.replace(/\D/g, "");
-  const { rows } = await query<ChecklistLead>(
-    `SELECT id, slug, name, COALESCE(scope,'') AS scope, phone, email FROM leads
-      WHERE stage <> 'lost'
-        AND ($1 = '' OR name ILIKE '%' || $1 || '%' OR scope ILIKE '%' || $1 || '%'
-             OR ($2 <> '' AND regexp_replace(COALESCE(phone,''), '\\D', '', 'g') LIKE '%' || $2 || '%'))
-      ORDER BY last_contact_at DESC NULLS LAST LIMIT 12`,
-    [q, digits.length >= 3 ? digits : ""],
-  );
-  return rows;
+  return searchChecklistLeads(text, callNumber);
 }
 
 export async function checklistLeadInfo(leadId: string): Promise<ChecklistLead | null> {
@@ -55,8 +47,10 @@ export async function checklistRecentCalls(): Promise<ChecklistCallOption[]> {
 export interface LiveCallBarCall {
   id: string; status: string; direction: string; label: string | null; number: string;
   started_at: string; answered_at: string | null; session_id: string | null;
+  /** The lead this call is tied to (by the call row, or its checklist). */
+  lead_id: string | null; lead_slug: string | null;
 }
-export interface LiveCallBarManual { id: string; lead_name: string | null; started_at: string }
+export interface LiveCallBarManual { id: string; lead_name: string | null; lead_slug: string | null; started_at: string }
 export interface LiveCallBarData { calls: LiveCallBarCall[]; manual: LiveCallBarManual[] }
 
 /** The app-wide live-call bar (plan §4.1): ringing/bridged calls from the last
@@ -66,21 +60,27 @@ export async function liveCallBarData(): Promise<LiveCallBarData | null> {
   const user = await getCurrentUser();
   if (!user || !can(user, "comms")) return null;
   const snap = await activeCallSnapshot();
-  const leadIds = await query<{ id: string; lead_name: string | null }>(
-    `SELECT c.id, COALESCE(NULLIF(btrim(c.contact_name),''), l.name) AS lead_name
-       FROM calls c LEFT JOIN leads l ON l.id = c.lead_id WHERE c.id = ANY($1::uuid[])`,
+  const leads = await query<{ id: string; lead_name: string | null; lead_id: string | null; lead_slug: string | null }>(
+    `SELECT c.id, COALESCE(NULLIF(btrim(c.contact_name),''), l.name) AS lead_name, l.id AS lead_id, l.slug AS lead_slug
+       FROM calls c
+       LEFT JOIN checklist_sessions s ON s.call_id = c.id
+       LEFT JOIN leads l ON l.id = COALESCE(c.lead_id, s.lead_id)
+      WHERE c.id = ANY($1::uuid[])`,
     [snap.calls.map((c) => c.id)],
   );
-  const names = new Map(leadIds.rows.map((r) => [r.id, r.lead_name]));
+  const byCall = new Map(leads.rows.map((r) => [r.id, r]));
   const manual = await query<LiveCallBarManual>(
-    `SELECT s.id, l.name AS lead_name, s.started_at::text AS started_at
+    `SELECT s.id, l.name AS lead_name, l.slug AS lead_slug, s.started_at::text AS started_at
        FROM checklist_sessions s LEFT JOIN leads l ON l.id = s.lead_id
       WHERE s.call_id IS NULL AND s.status = 'open' AND s.created_by = $1 AND s.started_at > now() - interval '2 hours'
       ORDER BY s.started_at DESC LIMIT 3`,
     [user.id],
   );
   return {
-    calls: snap.calls.map((c) => ({ id: c.id, status: c.status, direction: c.direction, label: names.get(c.id) ?? c.contact_name, number: c.counterparty_number, started_at: c.started_at, answered_at: c.answered_at, session_id: c.session_id })),
+    calls: snap.calls.map((c) => {
+      const l = byCall.get(c.id);
+      return { id: c.id, status: c.status, direction: c.direction, label: l?.lead_name ?? c.contact_name, number: c.counterparty_number, started_at: c.started_at, answered_at: c.answered_at, session_id: c.session_id, lead_id: l?.lead_id ?? null, lead_slug: l?.lead_slug ?? null };
+    }),
     manual: manual.rows,
   };
 }

@@ -13,7 +13,7 @@ import { changesWord, nextTapState, rowView, notesView, type RowValue } from "@/
 import { formatValue, isInsurance } from "@/lib/checklist-coverage/answers";
 import { markSignedIn, useChecklistSync, type ChecklistSync } from "./useChecklistSync";
 import { RowSheet } from "./RowSheet";
-import { CallPicker, LeadPicker } from "./Pickers";
+import { CallPicker, LeadPicker, NewLeadSheet, prefetchChecklistLeads } from "./Pickers";
 import { ChecklistSummary, type SummaryData } from "./ChecklistSummary";
 import { Btn } from "./Sheet";
 import { EditContactModal } from "@/components/leads/LeadContact";
@@ -73,7 +73,7 @@ export function ChecklistPane({
   const [lead, setLead] = useState<ChecklistLead | null>(null);
   const [leadVersion, setLeadVersion] = useState(0);
   const [editLead, setEditLead] = useState<ChecklistLead | null>(null);
-  const [picker, setPicker] = useState<"lead" | "call" | null>(null);
+  const [picker, setPicker] = useState<"lead" | "call" | "new_lead" | null>(null);
   const [linkBusy, setLinkBusy] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
   const [finishing, setFinishing] = useState(false);
@@ -87,6 +87,10 @@ export function ChecklistPane({
   const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => { markSignedIn(userId); }, [userId]);
+  // The lead picker's first page is ready before "Lead: Link later ▾" is tapped.
+  const callNumber = call?.number ?? null;
+  const needsLead = !!snap && !snap.session.lead_id;
+  useEffect(() => { if (needsLead) prefetchChecklistLeads(callNumber).catch(() => undefined); }, [needsLead, callNumber]);
   // Under a call, CallsClient reports the open call; alone, this pane does.
   const underCall = !!call;
   useEffect(() => {
@@ -173,9 +177,9 @@ export function ChecklistPane({
     if (notes !== null) sync.setNotes(notes);
   }
 
-  async function link(target: { lead_id?: string | null; call_id?: string | null }) {
-    if (!snap) return;
-    if (!sync.whenIdle()) { setLinkError("Wait until your changes have sent, then link."); return; }
+  async function link(target: { lead_id?: string | null; call_id?: string | null }): Promise<boolean> {
+    if (!snap) return false;
+    if (!sync.whenIdle()) { setLinkError("Wait until your changes have sent, then link."); return false; }
     setLinkBusy(true); setLinkError(null);
     try {
       const fresh = await sync.reload();
@@ -185,11 +189,13 @@ export function ChecklistPane({
         call_id: target.call_id !== undefined ? target.call_id : fresh.session.call_id,
         expected_revision: fresh.session.revision, operation_id: crypto.randomUUID(),
       });
-      if (!r.ok) { await sync.reload(); setLinkError(errorCopy(r.code)); return; }
+      if (!r.ok) { await sync.reload(); setLinkError(errorCopy(r.code)); return false; }
       await sync.reload();
       setPicker(null);
+      return true;
     } catch {
       setLinkError(navigator.onLine === false ? "Linking needs a connection." : "Couldn't link. Try again.");
+      return false;
     } finally { setLinkBusy(false); }
   }
 
@@ -395,7 +401,11 @@ export function ChecklistPane({
           undoTo={undo[openItem!] ?? null} onClose={() => setOpenItem(null)}
           onSave={(next) => { change(openItem!, next, sheetRow.view); setOpenItem(null); }} />
       )}
-      {picker === "lead" && <LeadPicker busy={linkBusy} error={linkError} onClose={() => setPicker(null)} onPick={(l) => void link({ lead_id: l.id })} />}
+      {picker === "lead" && <LeadPicker callNumber={callNumber} busy={linkBusy} error={linkError} onClose={() => setPicker(null)} onPick={(l) => void link({ lead_id: l.id })}
+        onNewLead={() => { setLinkError(null); setPicker("new_lead"); }} />}
+      {/* New lead from the checklist: saved, then this checklist links to it (plan §6.6). */}
+      {picker === "new_lead" && <NewLeadSheet phone={callNumber ?? ""} onClose={() => setPicker(null)}
+        onCreated={async (l) => { if (!(await link({ lead_id: l.id }))) setPicker("lead"); }} />}
       {picker === "call" && <CallPicker busy={linkBusy} error={linkError} onClose={() => setPicker(null)} onPick={(c) => void link({ call_id: c.id })} />}
     </div>
   );

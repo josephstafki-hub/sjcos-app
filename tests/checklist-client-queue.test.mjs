@@ -125,7 +125,9 @@ test('row sheet suggestion: an answer covers an Open row; part of one is Partly 
  assert.equal(suggestedState('property',buildValue('property',{owner:'yes',type:'house',hoa:'no'})),'covered');
  assert.equal(suggestedState('years_staying',buildValue('years_staying',{occupancy_text:'10 years'})),'partial');
  assert.equal(suggestedState('address',buildValue('address',{city:'Edina'})),'partial');
- assert.equal(suggestedState('address',buildValue('address',{street:'4410 Elm St',city:'Edina'})),'covered');
+ // Covered needs the client's confirmation too (defaults.json "Covered when"; build R2).
+ assert.equal(suggestedState('address',buildValue('address',{street:'4410 Elm St',city:'Edina'})),'partial');
+ assert.equal(suggestedState('address',buildValue('address',{street:'4410 Elm St',city:'Edina',confirmed:'true'})),'covered');
  assert.equal(suggestedState('next_step',buildValue('next_step',{kind:'visit'})),'partial');
  assert.equal(suggestedState('next_step',buildValue('next_step',{kind:'visit',date:'2026-11-10'})),'covered');
  assert.equal(suggestedState('who_decides',buildValue('who_decides',{sole:'true'})),'covered');

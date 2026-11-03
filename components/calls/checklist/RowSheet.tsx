@@ -6,12 +6,11 @@ import { CoverageMark } from "@/components/ui/CoverageMark";
 import { useDictation } from "@/lib/use-dictation";
 import type { ChecklistItem, CoverageState } from "@/lib/checklist-coverage/contract";
 import { INSURANCE_WARNING } from "@/lib/checklist-coverage/manual";
-import { buildValue, fieldsFor, fieldsFromValue, isInsurance, mainField, suggestedState, type Fields } from "@/lib/checklist-coverage/answers";
+import { autoState, buildValue, fieldsFor, fieldsFromValue, isInsurance, mainField, type Fields } from "@/lib/checklist-coverage/answers";
 import type { RowValue } from "@/lib/checklist-coverage/client-queue";
 import { Btn, Sheet } from "./Sheet";
 
 const STATES: CoverageState[] = ["open", "partial", "covered", "not_applicable"];
-const RANK: Record<CoverageState, number> = { open: 0, partial: 1, covered: 2, not_applicable: 3 };
 const INPUT = "mt-1 block w-full min-h-12 rounded-md border bg-paper px-3 py-2.5 text-[16px] leading-6 text-ink placeholder:text-ink-4 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus";
 
 /** Plain text for the plan's "Covered when" notes (they carry **bold** marks). */
@@ -62,14 +61,12 @@ export function RowSheet({
 
   /** Picking a choice or typing an answer on an Open row moves it to Covered
    *  (Partly when the answer is only part of it), so Joe doesn't need two more
-   *  taps mid-sentence. Only ever up from Open, never over a state he tapped,
-   *  and clearing the answer doesn't drop it back. */
+   *  taps mid-sentence. Removing a part moves it back down; clearing the answer
+   *  puts it back to Open. Never over a state he tapped (plan §3.1). */
   function set(name: string, v: string) {
     const next = { ...fields, [name]: v };
     setFields(next);
-    if (stateTouched || initial.state !== "open") return;
-    const suggested = suggestedState(spec.key, buildValue(spec.key, next));
-    if (suggested && RANK[suggested] > RANK[state]) setState(suggested);
+    setState((current) => autoState({ key: spec.key, value: buildValue(spec.key, next), opened: initial.state, current, touched: stateTouched }));
   }
 
   function save() {

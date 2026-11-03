@@ -197,6 +197,8 @@ export function DiscoveryChecklistSettings({ initial }: { initial: ChecklistSett
             );
           })}
         </ol>
+        {/* On a phone this lives under the rows, so the sticky footer stays one line. */}
+        <div className="mt-2 @sm/page:hidden"><Btn kind="ghost" onClick={restoreWording} disabled={saving}>Restore default wording</Btn></div>
       </section>
 
       <section aria-labelledby={`${ids}-global`} className="space-y-4">
@@ -216,7 +218,9 @@ export function DiscoveryChecklistSettings({ initial }: { initial: ChecklistSett
         <p className="text-[15px] text-ink-3">Saved now. They take effect once live reminders are turned on — today the checklist is ticked by hand.</p>
       </section>
 
-      <div className="sticky bottom-0 z-10 -mx-4 border-t border-rule bg-paper px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 @4xl/page:-mx-6 @4xl/page:px-6">
+      {/* On a phone the footer shows only while there's something to save (or
+          say), as one line: [Save] [Cancel]. */}
+      <div className={`sticky bottom-0 z-10 -mx-4 border-t border-rule bg-paper px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 @4xl/page:-mx-6 @4xl/page:px-6 ${dirty || saving || message ? "" : "@max-sm/page:hidden"}`}>
         {message && (
           <p role={message.tone === "flag" ? "alert" : "status"} className={`mb-2 flex flex-wrap items-center gap-2 text-[16px] ${message.tone === "flag" ? "text-flag" : "text-ink-2"}`}>
             {message.tone === "flag" && <AlertTriangle aria-hidden className="size-4" />}{message.text}
@@ -227,7 +231,7 @@ export function DiscoveryChecklistSettings({ initial }: { initial: ChecklistSett
           <Btn kind="primary" onClick={() => void save()} disabled={saving || !dirty}>{saving ? "Saving…" : "Save"}</Btn>
           <Btn onClick={cancel} disabled={saving || !dirty}>Cancel</Btn>
           {/* Left, beside Cancel: the floating Operator pill sits bottom-right on tablet. */}
-          <Btn kind="ghost" onClick={restoreWording} disabled={saving}>Restore default wording</Btn>
+          <span className="hidden @sm/page:contents"><Btn kind="ghost" onClick={restoreWording} disabled={saving}>Restore default wording</Btn></span>
         </div>
       </div>
     </div>

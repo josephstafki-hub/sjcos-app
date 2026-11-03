@@ -12,7 +12,9 @@ import { Btn, Sheet } from "@/components/calls/checklist/Sheet";
 // "Start a discovery call" on the lead page (plan §4.1 item 2, §6.2). The
 // confirm sheet offers Call now (owner: the existing exact-number click-to-call)
 // or Checklist only — a hand-ticked checklist linked to this lead, for a call
-// Joe makes from his own cell. Cancel does nothing.
+// Joe makes from his own cell. Cancel does nothing. When the lead is already on
+// the line (or ringing), it says so and opens that call's checklist instead —
+// a second, unlinked checklist would lose the call.
 
 type Confirm = { id: string; name: string; phone: string | null; explanation: string };
 
@@ -20,8 +22,10 @@ function firstName(name: string): string {
   return name.split(/\s+|&/)[0] || name;
 }
 
-export function StartDiscoveryCall({ slug, isOwner, variant = "button", calling = true }: {
+export function StartDiscoveryCall({ slug, isOwner, variant = "button", calling = true, liveCall = null }: {
   slug: string; isOwner: boolean; variant?: "button" | "menu";
+  /** This lead's call that is live now (from the live-call bar's data). */
+  liveCall?: { id: string; name: string; ringing: boolean } | null;
   /** The business number is set up. Off → no Call now (Calls says "Calling is off"). */
   calling?: boolean;
 }) {
@@ -50,7 +54,7 @@ export function StartDiscoveryCall({ slug, isOwner, variant = "button", calling 
   function begin() {
     opRef.current = crypto.randomUUID();
     setError(null); setFallback(null); setOpen(true);
-    void load();
+    if (!liveCall) void load();
   }
 
   async function go(checklistOnly: boolean, c: Confirm | null = confirm) {
@@ -73,7 +77,10 @@ export function StartDiscoveryCall({ slug, isOwner, variant = "button", calling 
     } finally { setBusy(null); }
   }
 
+  const liveHref = liveCall ? `/calls?open=${liveCall.id}&view=checklist` : null;
+
   async function menuStart() {
+    if (liveHref) { router.push(liveHref); return; }
     opRef.current = crypto.randomUUID();
     const c = confirm ?? await load();
     if (c) await go(true, c);
@@ -83,7 +90,7 @@ export function StartDiscoveryCall({ slug, isOwner, variant = "button", calling 
   const trigger = variant === "menu" ? (
     <button type="button" onClick={() => void menuStart()} disabled={!!busy}
       className="inline-flex min-h-12 w-full items-center rounded-md px-2.5 text-left text-[15px] font-semibold text-ink hover:bg-hover focus-visible:outline-2 focus-visible:outline-focus disabled:opacity-50">
-      {busy ? "Starting…" : "Discovery checklist"}
+      {busy ? "Starting…" : liveCall ? "Open checklist for this call" : "Discovery checklist"}
     </button>
   ) : (
     <button type="button" onClick={begin}
@@ -97,7 +104,15 @@ export function StartDiscoveryCall({ slug, isOwner, variant = "button", calling 
       {trigger}
       {open && (
         <Sheet layout="dialog" title="Start a discovery call" onClose={() => !busy && setOpen(false)}>
-          {loadError ? (
+          {liveCall && liveHref ? (
+            <div className="space-y-3">
+              <p className="text-[17px] text-ink">{liveCall.ringing ? `${firstName(liveCall.name)}'s call is ringing now.` : `On the line with ${firstName(liveCall.name)} now.`}</p>
+              <div className="flex flex-col gap-2 pt-1">
+                <Btn kind="primary" onClick={() => router.push(liveHref)}>Open checklist for this call</Btn>
+                <Btn kind="ghost" onClick={() => setOpen(false)}>Cancel</Btn>
+              </div>
+            </div>
+          ) : loadError ? (
             <p role="alert" className="text-[16px] text-flag">Couldn&apos;t load this lead. <button type="button" className="min-h-12 underline" onClick={() => void load()}>Retry</button></p>
           ) : !confirm ? (
             <p role="status" className="text-[16px] text-ink-3">Loading…</p>

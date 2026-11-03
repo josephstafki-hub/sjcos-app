@@ -45,6 +45,8 @@ import { getRecordOps } from "@/lib/record-ops";
 import { getActiveRunbookInstancesFor } from "@/lib/runbook-engine";
 import { SendPreconButton } from "@/components/leads/SendPreconButton";
 import { StartDiscoveryCall } from "@/components/leads/StartDiscoveryCall";
+import { liveCallBarData } from "@/lib/actions/discovery-checklist-ui";
+import { liveCallForLead } from "@/lib/checklist-coverage/lead-order";
 import { voiceConfigured } from "@/lib/voice";
 import { can, getCurrentUser } from "@/lib/dal";
 
@@ -65,6 +67,10 @@ export default async function LeadDetailPage({
   const showEstimate = can(viewer, "estimates");
   // Discovery checklist lives in Calls (comms area).
   const canCall = can(viewer, "comms");
+  // Already on the line with this lead: Start a discovery call opens that
+  // call's checklist instead of starting a second one (plan §4.1).
+  const liveCall = canCall ? liveCallForLead((await liveCallBarData().catch(() => null))?.calls, lead) : null;
+  const onTheLine = liveCall ? { id: liveCall.id, name: lead.name, ringing: liveCall.status === "ringing" } : null;
   const planDesigns = await getDesignsForScope({ leadSlug: lead.slug });
 
   const activity = await getLeadActivity(slug);
@@ -439,13 +445,13 @@ export default async function LeadDetailPage({
               : isLost ? <form action={reopen}><Button type="submit">Reopen lead</Button></form>
               : nextStage ? <form action={moveToNextStage} className="min-w-0 flex-1 max-sm:basis-full"><Button type="submit" className="w-full max-w-full !whitespace-normal !h-auto min-h-8 py-1.5 text-left">Move to {nextStage.label}</Button></form>
               : <ConvertLeadButton slug={lead.slug} suggestedName={suggestedProjectName(lead.name, lead.scope)} />}
-            {canCall && <span className="max-sm:basis-full"><StartDiscoveryCall slug={lead.slug} isOwner={viewer?.role === "owner"} calling={voiceConfigured()} /></span>}
+            {canCall && <span className="max-sm:basis-full"><StartDiscoveryCall slug={lead.slug} isOwner={viewer?.role === "owner"} calling={voiceConfigured()} liveCall={onTheLine} /></span>}
             <LeadContact mode="contact" slug={lead.slug} name={lead.name} phone={lead.phone} email={lead.email} />
             <details className="relative">
               <summary aria-label="More lead actions" className="flex size-8 cursor-pointer list-none items-center justify-center rounded-md border border-rule bg-card text-subheading hover:bg-hover">…</summary>
               <div className="absolute right-0 z-30 mt-1 flex min-w-48 flex-col items-start gap-2 rounded-lg border border-rule-soft bg-card p-2 shadow-pop">
                 <LeadContact mode="edit" slug={lead.slug} name={lead.name} phone={lead.phone} email={lead.email} />
-                {canCall && <StartDiscoveryCall slug={lead.slug} isOwner={viewer?.role === "owner"} variant="menu" />}
+                {canCall && <StartDiscoveryCall slug={lead.slug} isOwner={viewer?.role === "owner"} variant="menu" liveCall={onTheLine} />}
                 {!isLost && !lead.projectSlug && <form action={markLost}><Button variant="ghost" type="submit">Mark lost</Button></form>}
                 <DeleteLeadButton slug={slug} name={lead.name} />
               </div>

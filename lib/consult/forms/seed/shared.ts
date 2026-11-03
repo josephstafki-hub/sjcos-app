@@ -412,7 +412,7 @@ export const era: ModuleDef = {
     date('firm_cert_expiry', 'SJC firm certification — expiry (verify)', rrpApplies),
     choice('kids_pregnant', 'Kids under 6 or pregnant person in home', ['Yes', 'No', 'Declined'], rrpApplies, { hint: 'Yes or no only. No names or medical details.', note: 'containment and cleaning plan; no identity/medical details' }),
     yesno('before_1978', 'Built before 1978?', true, { hint: 'Filled from Year built. Change it if that’s wrong.', note: 'filled from Year built, editable (prefill: derivationCases era.before_1978)' }),
-    text('year_override_reason', 'How do we know it was built in 1978 or later?', rrpYearConflict, {flag:{when:all(rrpYearConflict,{not:answered('era.year_override_reason')}),issue:'Year and pre-1978 answer disagree — record the reason before closing'}}),
+    text('year_override_reason', 'How do we know it was built in 1978 or later?', rrpYearConflict, {hint:'If Year built is wrong, change Year built instead.',flag:{when:all(rrpYearConflict,{not:answered('era.year_override_reason')}),issue:'Year and pre-1978 answer disagree — record the reason before closing'}}),
     yesno('disturbs_paint', 'Will the work disturb more than 6 sq ft of painted surface in a room, or 20 sq ft outside?', before1978, { note: 'EPA RRP rule (40 CFR 745 Subpart E)' }),
     yesno('pamphlet_given', 'Renovate Right pamphlet given', rrpApplies, {
       flag: { when: eq('pamphlet_given', false), issue: 'Renovate Right not given — give before work starts' },

@@ -128,6 +128,15 @@ export function TextInput({ label, value, onChange, multiline, type = "text", in
   );
 }
 
+/** r7 extra: a choice's radio ring is drawn, so it never reads as the ○ Open status mark. */
+export function Ring({ on }: { on: boolean }) {
+  return (
+    <span aria-hidden className={`mr-2 inline-grid size-[1.05em] shrink-0 place-items-center rounded-full border-2 align-[-0.2em] ${on ? "border-accent" : "border-ink-3"}`}>
+      {on && <span className="size-[0.5em] rounded-full bg-accent" />}
+    </span>
+  );
+}
+
 /** Big segmented choice — never a dropdown when ≤6 options (§6.6). */
 export function Choice<T extends string | boolean>({ label, options, value, onPick, labels, columns }: { label?: string; options: readonly T[]; value: T | undefined | null; onPick: (v: T) => void; labels?: (v: T) => string; columns?: number }) {
   const gid = useId();
@@ -140,7 +149,7 @@ export function Choice<T extends string | boolean>({ label, options, value, onPi
           return (
             <button key={String(o)} type="button" role="radio" aria-checked={on} onClick={() => onPick(o)}
               className={`min-h-14 rounded-md border-2 px-3 py-2 text-left text-[1em] font-semibold leading-tight focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus ${on ? "border-accent bg-accent-soft text-ink" : "border-rule bg-card text-ink-2 hover:bg-paper-2"}`}>
-              <span aria-hidden className="mr-1.5 font-mono">{on ? "●" : "○"}</span>{labels ? labels(o) : String(o)}
+              <Ring on={on} />{labels ? labels(o) : String(o)}
             </button>
           );
         })}

@@ -39,22 +39,27 @@ export function WrapSheet({ open, onClose, model, draft, hasInitials, refused, o
   const tradesOpen = trades.length ? undecidedTrades.length > 0 : !draft.no_trades_confirmed;
   const rrpOpen = model.rrpApplies && !(model.rrp.receipt && model.rrp.firm_current && model.rrp.renovator_current);
   const ackOpen = !hasInitials && !draft.ack_reason?.trim();
-  const blocking = required.length > 0 || undecidedFlags.length > 0 || tradesOpen || rrpOpen || ackOpen || model.conflicts.length > 0 || refused > 0 || !model.promised;
+  // r7: "Joe sets the date" (or Other with a note) settles the date check, as the server counts it.
+  const dateSkip = model.sections.find((s) => s.module.key === "closing")?.fields.find((f) => f.key === "estimate_promised")?.answer;
+  const dateSkipped = !model.promised && dateSkip?.status === "skipped" && (dateSkip.skip_reason === "Joe sets the date" || (dateSkip.skip_reason === "Other" && !!dateSkip.skip_note?.trim()));
+  const dateOk = !!model.promised || dateSkipped;
+  const blocking = required.length > 0 || undecidedFlags.length > 0 || tradesOpen || rrpOpen || ackOpen || model.conflicts.length > 0 || refused > 0 || !dateOk;
   // r4 R4-5: the header says only what the list under it shows — Partly appears when there is any.
-  const title = `${W.beforeYouWrap} · ${openItemCount({price_critical:model.pc,record:model.record})} Open${partly.length ? ` · ${partly.length} Partly` : ""}`;
+  // r7 extra: "246 still open", the close checks' own phrasing (no capital O mid-sentence).
+  const title = `${W.beforeYouWrap} · ${openItemCount({price_critical:model.pc,record:model.record})} ${W.stillOpen}${partly.length ? ` · ${partly.length} Partly` : ""}`;
   return (
     <Sheet open={open} onClose={onClose} side title={title}
       footer={<><Btn className="max-md:w-full" onClick={onClose}>{W.keepWorking}</Btn><Btn tone="primary" className="max-md:w-full" onClick={onCloseVisit} disabled={model.conflicts.length > 0 || refused > 0}>{blocking ? W.closeVisitNeeds : W.closeVisit}</Btn></>}>
       <div className="mb-5 grid gap-3">
         {/* r3 C7: what stops a Complete close comes first — flags, promised date, client initials. */}
         {model.flags.length > 0 && <Line text={undecidedFlags.length ? fill(undecidedFlags.length === 1 ? W.flagsLine : W.flagsLinePlural, { n: undecidedFlags.length }) : `Flags: all ${model.flags.length} decided ✓`} action={<Btn onClick={onFlags}>{W.reviewFlags}</Btn>} done={undecidedFlags.length === 0} />}
-        <Line text={model.promised ? `${W.promisedBy} ${promisedLabel(model.promised)} ✓` : W.promisedMissing} action={model.promised ? undefined : onPromised && <Btn onClick={onPromised}>{W.pickDate}</Btn>} done={!!model.promised} />
+        <Line text={model.promised ? `${W.promisedBy} ${promisedLabel(model.promised)} ✓` : dateSkipped ? (dateSkip!.skip_reason === "Joe sets the date" ? W.promisedJoeSets : `${W.promisedSkipped} · ${dateSkip!.skip_note!.trim()} ✓`) : W.promisedMissing} action={dateOk ? undefined : onPromised && <Btn onClick={onPromised}>{W.pickDate}</Btn>} done={dateOk} />
         {/* r5: the same row shape as every other card — words left, the two buttons stacked on the right. */}
         <Line text={hasInitials ? "Client initials ✓" : draft.ack_reason ? `No initials · ${draft.ack_reason}` : "Client initials — not yet"} note={!hasInitials && needDate ? `→ ${W.pickDateBeforeClient}` : undefined}
           action={hasInitials ? undefined : <span className="grid justify-items-stretch gap-2"><Btn onClick={onClient} disabled={needDate}>{W.showToClient}</Btn><Btn tone="quiet" onClick={onAck}>{W.noInitialsSay}</Btn></span>} done={!ackOpen} />
         <Line text={trades.length ? (undecidedTrades.length ? fill(W.tradeWalksLine, { trade: undecidedTrades.join(", ") }) : "Trade walks: all decided ✓") : draft.no_trades_confirmed ? "Trade walks: none — no trade is touched ✓" : "Trade walks: confirm none is needed"} action={<Btn onClick={onTrades}>{W.decide}</Btn>} done={!tradesOpen} />
         {model.sections.filter(s=>s.module.key==='footing').map(s=>{const zone=s.fields.find(f=>f.key==='frost_zone')?.answer;return zone?.status==='answered' ? <Line key={s.instance.id} text={`County frost zone: ${String(zone.value)}`} info /> : null;})}
-        {model.rrpApplies && <Line text={rrpOpen ? fill(W.rrpNeeds, { list: [!model.rrp.receipt && W.rrpShortReceipt, !model.rrp.firm_current && W.rrpShortFirm, !model.rrp.renovator_current && W.rrpShortRenovator].filter(Boolean).join(" · ") }) : W.rrpRecorded} action={<Btn onClick={onRrp}>{W.rrpReview}</Btn>} done={!rrpOpen} />}
+        {model.rrpApplies && <Line text={rrpOpen ? fill(W.rrpNeeds, { list: [!model.rrp.receipt && W.rrpShortReceipt, !model.rrp.firm_current && (model.values["era.firm_cert_expiry"] ? W.rrpShortFirm : W.rrpShortFirmMissing), !model.rrp.renovator_current && (model.values["era.renovator_expiry"] ? W.rrpShortRenovator : W.rrpShortRenovatorMissing)].filter(Boolean).join(" · ") }) : W.rrpRecorded} action={<Btn onClick={onRrp}>{W.rrpReview}</Btn>} done={!rrpOpen} />}
         {model.conflicts.map((c) => { const s = model.sections.find((x) => x.instance.id === c.instance_id); const f = s?.fields.find((x) => x.addr === c.key); return <Line key={c.key} text={fill(W.conflictsLine, { field: `${s?.label ?? ""} ${f?.def.label ?? c.field_key}`.trim() })} action={<Btn onClick={() => onGo(c.instance_id, c.key)}>{W.goToField}</Btn>} warn />; })}
         {refused > 0 && <Line text={`${refused} ${refused === 1 ? "answer was" : "answers were"} refused by the office — enter again or remove`} warn />}
       </div>
@@ -80,7 +85,7 @@ export function WrapSheet({ open, onClose, model, draft, hasInitials, refused, o
                         <p className="text-ink">{itemLabel(o)}<span aria-label={W.required} className="text-flag"> *</span></p>
                         <span className="flex flex-wrap gap-2"><CoverageMark variant="coverage" state={o.partly ? "partial" : "open"} />{f?.returnVisit && <CoverageMark variant="coverage" state="return_visit" />}</span>
                       </div>
-                      {!f?.returnVisit && <Btn onClick={() => onGo(sid, itemAddr(o))}>{W.goToField}</Btn>}
+                      {!f?.returnVisit && <Btn onClick={() => onGo(sid, itemAddr(o))}>{o.kind === "shot" ? W.goToPhoto : W.goToField}</Btn>}
                     </li>
                   );
                 })}
@@ -118,14 +123,16 @@ export function FlagSheet({ open, onClose, model, draft, onSave, saveError, onGo
     <Sheet open={open} onClose={onClose} side title={W.flagTitle} footer={<><Btn onClick={onClose}>{W.cancel}</Btn><Btn tone="primary" onClick={async () => { if(await onSave({ ...draft, flags: local })) onClose(); }}>{W.save}</Btn></>}>
       {saveError && <Banner kind="action">{plainWords(saveError)}</Banner>}
       <div className="grid gap-5">
+        {/* r7 extra: the title sits inside the card (no legend breaking the border). A kept toilet's
+            clearance is advice for Joe (kind "advisory"), shown calm — not the code flag. */}
         {model.flags.map((f) => (
-          <fieldset key={f.key} className="rounded-lg border-2 border-rule p-3">
-            <legend className="px-1 font-semibold text-flag">⚑ {f.section.label} · {f.field.def.label}</legend>
+          <section key={f.key} aria-label={`${f.section.label} · ${f.field.def.label}`} className={`rounded-lg border-2 p-3 ${f.kind === "advisory" ? "border-rule-soft bg-paper" : "border-rule"}`}>
+            <p className={`mb-1 font-semibold ${f.kind === "advisory" ? "text-ink" : "text-flag"}`}><span aria-hidden>{f.kind === "advisory" ? "⚐" : "⚑"} </span>{f.section.label} · {f.field.def.label}</p>
             <p className="mb-2 text-ink">{flagLead(f, model)}</p>
             {onGo && <div className="mb-3"><Btn tone="quiet" onClick={() => onGo(f.address.split(":")[0], f.address)}>{W.goToField}</Btn></div>}
             <Choice options={FLAG_CHOICES.map((c) => c.key)} labels={(k) => FLAG_CHOICES.find((c) => c.key === k)!.label} value={local[f.key]?.disposition ?? null} onPick={(v) => set(f.key, { disposition: v })} />
             <div className="mt-3"><TextInput label={W.flagNote} value={local[f.key]?.note ?? ""} onChange={(v) => set(f.key, { note: v })} multiline /></div>
-          </fieldset>
+          </section>
         ))}
       </div>
     </Sheet>
@@ -212,6 +219,9 @@ export function ClosingScreen({ closing, unsent, online, autoApply, findings, fi
   const [reopening, setReopening] = useState(false); const [reason, setReason] = useState(""); const [err, setErr] = useState<string | null>(null);
   const r = closing.result;
   const openN = r ? openItemCount(r) : 0;
+  // r7 R7-2: a slow office (408 / 429 / 5xx, the 15 s request deadline, or this device's answers still
+  // on their way after a timed-out send while online) is the calm "◐ Still closing…", never the red generic error.
+  const slow = closing.step === "error" && (closing.code === "close_timeout" || /^http_(408|429|5\d\d)$/.test(closing.code ?? "") || (online && closing.code === "manifest_sequence_gap"));
   return (
     <section className="mx-auto w-full max-w-[640px] px-4 py-6" aria-live="polite">
       {(closing.step === "sending" || closing.step === "closing") && <>
@@ -221,18 +231,18 @@ export function ClosingScreen({ closing, unsent, online, autoApply, findings, fi
         <p className="mt-2 text-ink-2" role="status">{unsent > 0 ? fill(W.closeWaitingN, { n: unsent }) : W.closeChecking}</p>
       </>}
       {closing.step === "waiting_signal" && <>
+        {/* r7 extra: no signal is said once — the strip and this heading; no third banner. */}
         <h1 className="font-serif text-[1.6em] font-semibold text-ink">{online ? W.visitClosedSending : W.visitClosedOffline}</h1>
-        <div className="mt-3"><Banner kind="status">{W.offlineStrip}</Banner></div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2"><Btn tone="primary" onClick={onRetry} disabled={!online}>{online ? W.sendNow : W.sendNowNeedsSignal}</Btn><Btn onClick={onKeepWorking}>{W.keepWorking}</Btn></div>
       </>}
-      {closing.step === "error" && closing.code === "close_timeout" && <>
-        {/* r4 R4-3: a close that hasn't answered in 20 s is a calm wait with a way forward, not an error. */}
+      {slow && <>
+        {/* r4 R4-3 / r7 R7-2: a close the office hasn't answered is a calm wait with a way forward, not an error. */}
         <h1 className="font-serif text-[1.6em] font-semibold text-ink"><span aria-hidden className="font-mono">◐ </span>{W.stillClosing}</h1>
         <div className="mt-3"><Banner kind="status">{W.stillClosingBody}</Banner></div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2"><Btn tone="primary" onClick={onRetry} disabled={!online}>{W.tryAgain}</Btn><Btn onClick={onKeepWorking}>{W.keepWorking}</Btn></div>
         {!online && <p className="mt-3 text-ink-2">{W.offlineStrip}</p>}
       </>}
-      {closing.step === "error" && closing.code !== "close_timeout" && <>
+      {closing.step === "error" && !slow && <>
         <h1 className="font-serif text-[1.6em] font-semibold text-ink">{W.visitClosedSending}</h1>
         <div className="mt-3"><Banner kind="action">{plainWords(closing.code)}</Banner></div>
         <div className="mt-4 grid gap-3 sm:grid-cols-2"><Btn tone="primary" onClick={onRetry}>{W.tryAgain}</Btn><Btn onClick={onKeepWorking}>{W.keepWorking}</Btn></div>

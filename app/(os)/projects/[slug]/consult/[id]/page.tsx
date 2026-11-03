@@ -8,9 +8,9 @@ import { consultDevices, lookOverExtra, readSnapshot, scheduleOptions, visitHead
 import { buildModel, emptyDraft, type EvidenceDraft, type FieldView, type SectionView } from "@/lib/consult/ui/model";
 import { pinnedDerivations } from "@/lib/consult/derive";
 import { openCheckPhrase, openItemCount } from "@/lib/consult/completeness";
-import { formatLength } from "@/lib/consult/length";
+import { displayLength } from "@/lib/consult/length";
 import type { LocalBlob } from "@/lib/consult/offline-engine";
-import { W, fill, plainWords, statusLabel } from "@/lib/consult/ui/words";
+import { W, fill, plainWords, skipLine, statusLabel } from "@/lib/consult/ui/words";
 import { ApplyFindings, OfficeConflict, ReopenButton } from "@/components/consult/office/LookOverActions";
 import { AssignControl } from "@/components/consult/office/ScheduleDialog";
 import { RecoveryControl } from "@/components/consult/office/RecoveryControl";
@@ -36,7 +36,7 @@ const interrupted = (iso: string) => new Date(iso).getTime() < Date.now() - 8640
 function show(v: unknown, f: FieldView["def"]): string {
   if (v === undefined || v === null) return "—";
   const p = f.precision && [1 / 16, 1 / 8, 1 / 4, 1 / 2, 1].includes(f.precision) ? f.precision : 1 / 8;
-  try { if (f.type === "length" && typeof v === "number") return formatLength(v, p); if (f.type === "length_pair" && Array.isArray(v)) return v.map((x) => (typeof x === "number" ? formatLength(x, p) : "—")).join(" × "); } catch { /* raw */ }
+  try { if (f.type === "length" && typeof v === "number") return displayLength(v, p); if (f.type === "length_pair" && Array.isArray(v)) return v.map((x) => (typeof x === "number" ? displayLength(x, p) : "—")).join(" × "); } catch { /* raw */ }
   if (v === true) return W.yes; if (v === false) return W.no;
   if (Array.isArray(v)) return v.join(", ");
   if (typeof v === "object") return (v as { text?: string }).text ?? JSON.stringify(v);
@@ -111,7 +111,7 @@ export default async function ConsultLookOver({ params, searchParams }: { params
     // r6 D6: an open check says what is left, in the words Before you wrap uses on the visit.
     const text = c.open_phrase ?? openCheckPhrase(c.code, c.open);
     if (c.code === "required_fields" && firstField) return { text, action: <Button variant="secondary" size="lg" href={fieldLink((firstField.item as FieldView).addr)}>{W.goToField}</Button> };
-    if (c.code === "required_photos" && (firstShot ?? firstField)) return { text, action: <Button variant="secondary" size="lg" href={sectionLink((firstShot ?? firstField)!.section)}>{W.goToSection}</Button> };
+    if (c.code === "required_photos" && (firstShot ?? firstField)) return { text, action: <Button variant="secondary" size="lg" href={sectionLink((firstShot ?? firstField)!.section)}>{W.goToPhoto}</Button> };
     return { text, ...finishOnDevice };
   };
 
@@ -165,7 +165,7 @@ export default async function ConsultLookOver({ params, searchParams }: { params
             </ul>
             <p className="eyebrow mb-2 mt-6">Status</p>
             <dl className="grid gap-1 text-body text-ink-2">
-              <div>Client ack {initials ? "✓ initials" : ev?.ack_reason ? `· ${ev.ack_reason}` : "· not yet"}</div>
+              <div>{initials ? "Client initialed ✓" : ev?.ack_reason ? `Client initials · ${ev.ack_reason}` : "Client initials · not yet"}</div>
               <div>Closed on device {extra.closedAt ? "✓" : "· not yet"}</div>
               <div>Notes · off (manual visit)</div>
             </dl>
@@ -187,15 +187,16 @@ export default async function ConsultLookOver({ params, searchParams }: { params
               <ul className="divide-y divide-rule-soft">
                 {section.fields.map((f) => {
                   const p = extra.provenance[f.addr]; const c = extra.conflicts[f.addr];
-                  const v = f.answer?.status === "answered" ? show(f.answer.value, f.def) : f.answer?.status === "skipped" ? `${f.mark === "not_applicable" ? "N/A" : "Skipped"} · ${f.answer.skip_reason}${f.skipCounts && f.answer.skip_reason !== "Not on this job" ? " — assumption written" : ""}` : "";
+                  // r7 R7-5: "Skipped · {reason} · {note}" — the N/A is said once, by the mark on the right.
+                  const v = f.answer?.status === "answered" ? show(f.answer.value, f.def) : f.answer?.status === "skipped" ? skipLine(f) : "";
                   return (
                     <li key={f.addr} id={`f-${f.addr}`} className="grid gap-1 py-2 @[520px]/sec:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] @[520px]/sec:items-baseline @[520px]/sec:gap-4">
                       <span className="text-body font-semibold text-ink">{f.def.label}{f.required && <span className="text-flag" aria-label={W.required}> *</span>}</span>
                       <span className="text-body text-ink">{v && <span className="font-mono">{v}</span>}{p && <span className="ml-2 text-meta text-ink-3">{p.source === "office" ? "picked in office" : "typed"} · {p.actor}</span>}</span>
                       <span className="flex flex-wrap justify-end gap-2"><CoverageMark variant="coverage" state={f.mark} size="sm" />{f.returnVisit && <CoverageMark variant="coverage" state="return_visit" size="sm" />}{c && <CoverageMark variant="coverage" state="conflict" size="sm" />}</span>
                       {c && <div className="@[520px]/sec:col-span-3"><OfficeConflict id={head.id} revision={Number(snap.consult.revision)} generation={Number(snap.consult.completion_generation)} instance={f.addr.split(":")[0]} fieldKey={f.key} label={`${section.label} ${f.def.label}`}
-                        current={{ id: c.current.id, text: c.current.status === "answered" ? show(c.current.value, f.def) : c.current.status, who: c.current.actor, at: fmt(c.current.at, { hour: "numeric", minute: "2-digit" }) }}
-                        proposed={{ id: c.proposed.id, text: c.proposed.status === "answered" ? show(c.proposed.value, f.def) : c.proposed.status, who: c.proposed.actor, at: fmt(c.proposed.at, { hour: "numeric", minute: "2-digit" }) }} /></div>}
+                        current={{ id: c.current.id, text: c.current.status === "answered" ? show(c.current.value, f.def) : c.current.status, from: c.current.source_label ?? (c.current.device_id ? W.anotherDevice : W.office), available: c.current.available !== false }}
+                        proposed={{ id: c.proposed.id, text: c.proposed.status === "answered" ? show(c.proposed.value, f.def) : c.proposed.status, from: c.proposed.source_label ?? (c.proposed.device_id ? W.anotherDevice : W.office), available: c.proposed.available !== false }} /></div>}
                       {f.answer?.status === "skipped" && draft.skips[f.addr]?.assumption && <p className="text-meta text-ink-2 @[520px]/sec:col-span-3">Assumption: {draft.skips[f.addr].assumption!.text} · {draft.skips[f.addr].assumption!.responsible_trade} · checked at {draft.skips[f.addr].assumption!.verification_point}</p>}
                     </li>
                   );
@@ -237,7 +238,7 @@ export default async function ConsultLookOver({ params, searchParams }: { params
                 })}
               </ul>
             ) : <p className="text-body text-ink-3">No photos yet.</p>}
-            {model.flags.length > 0 && <div className="mt-4"><p className="eyebrow mb-1">Flags</p><ul className="grid gap-1 text-body">{model.flags.map((f) => <li key={f.key}><span className="font-semibold text-flag">⚑</span> {f.issue} — {draft.flags[f.key] ? `${draft.flags[f.key].disposition.replace(/_/g, " ")} · ${draft.flags[f.key].note}` : "needs a decision"}</li>)}</ul></div>}
+            {model.flags.length > 0 && <div className="mt-4"><p className="eyebrow mb-1">Flags</p><ul className="grid gap-1 text-body">{model.flags.map((f) => <li key={f.key}>{f.kind === "advisory" ? <span className="text-ink-2"><span aria-hidden className="font-semibold">⚐</span> {f.hint}</span> : <><span className="font-semibold text-flag">⚑</span> {f.issue}</>} — {draft.flags[f.key] ? `${draft.flags[f.key].disposition.replace(/_/g, " ")} · ${draft.flags[f.key].note}` : "needs a decision"}</li>)}</ul></div>}
             {draft.trade_walks.length > 0 && <div className="mt-4"><p className="eyebrow mb-1">{W.tradeWalkTitle}</p><ul className="grid gap-1 text-body">{draft.trade_walks.map((w) => <li key={w.trade}>{w.trade}: {w.needed ? "walk-through needed" : "no walk-through"} · {w.reason}</li>)}</ul></div>}
             {ev?.promised_date && <p className="mt-4 text-body text-ink">{W.promisedBy} {fmt(`${ev.promised_date}T12:00:00-06:00`, { weekday: "short", month: "short", day: "numeric" })}</p>}
             {snap.conflicts.length > 0 && <p className="mt-4 text-body font-semibold text-flag">! {snap.conflicts.length} {snap.conflicts.length === 1 ? "conflict" : "conflicts"} to pick — whoever gets there first, the visitor or Joe, picks.</p>}

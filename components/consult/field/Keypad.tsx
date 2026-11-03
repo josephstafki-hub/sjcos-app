@@ -6,7 +6,7 @@
  * Hardware keyboard: digits . ' " x space, Backspace, Enter = Save, Escape = Close.
  */
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { formatLength, parseLength, parseLengthPair, prettyLength } from "@/lib/consult/length";
+import { displayLength, parseLength, parseLengthPair, prettyLength } from "@/lib/consult/length";
 import type { FieldDef } from "@/lib/consult/form-types";
 import { W, fill } from "@/lib/consult/ui/words";
 import { Btn, Sheet } from "./primitives";
@@ -30,11 +30,12 @@ function FracGlyph({ f }: { f: string }) {
 }
 
 export function precisionOf(def: FieldDef) { return def.precision && [1 / 16, 1 / 8, 1 / 4, 1 / 2, 1].includes(def.precision) ? def.precision : 1 / 8; }
+/** r7: lengths under 48″ read in inches (20″, not 1′ 8″) — clearances and door widths are said that way. */
 export function showLength(value: unknown, def: FieldDef): string {
   const p = precisionOf(def);
   try {
-    if (Array.isArray(value)) return value.map((v) => (typeof v === "number" ? formatLength(v, p) : "—")).join(" × ");
-    if (typeof value === "number") return formatLength(value, p);
+    if (Array.isArray(value)) return value.map((v) => (typeof v === "number" ? displayLength(v, p) : "—")).join(" × ");
+    if (typeof value === "number") return displayLength(value, p);
   } catch { /* fall through */ }
   return String(value ?? "");
 }
@@ -65,6 +66,16 @@ function ambiguous(text: string, mode: Mode, def: FieldDef): number | null {
   return n >= lo && n <= hi && n * 12 >= lo && n * 12 <= hi ? n : null;
 }
 
+/** The part of a label that tells fields apart ("at counter height (36″)"), from its first qualifier on. */
+export function labelTail(label: string): string | null {
+  const first = label.indexOf(" ") + 1;
+  if (first <= 0) return null;
+  const m = /\s(?:at|on|from|in|under|over|above|below|—|–)\s|\s\(/.exec(label.slice(first));
+  if (!m) return null;
+  const tail = label.slice(first + m.index).trim().replace(/^[—–]\s*/, "");
+  return tail ? tail : null;
+}
+
 export function Keypad({ open, def, label, initial, last, onSave, onClose }: { open: boolean; def: FieldDef; label: string; initial?: unknown; last?: unknown; onSave: (value: unknown) => Promise<void> | void; onClose: () => void }) {
   const pair = def.type === "length_pair";
   const [text, setText] = useState("");
@@ -76,6 +87,7 @@ export function Keypad({ open, def, label, initial, last, onSave, onClose }: { o
   const [fracRow, setFracRow] = useState<"8" | "16">("8");
 
   const amb = ambiguous(text, mode, def);
+  const tail = labelTail(label);
   const effective = amb !== null && unitPick ? `${text.trim()}${unitPick === "ft" ? "'" : '"'}` : text;
   const reading = useMemo(() => (effective.trim() ? interpret(effective, mode, def, pair) : null), [effective, mode, def, pair]);
   const warn = reading?.ok && typeof reading.value === "number" && def.warn && ((def.warn.below !== undefined && reading.value < def.warn.below) || (def.warn.above !== undefined && reading.value > def.warn.above)) ? def.warn.text : null;
@@ -131,7 +143,7 @@ export function Keypad({ open, def, label, initial, last, onSave, onClose }: { o
   const fracKeys = (list: string[]) => list.map((f) => key(f, <FracGlyph f={f} />, `${f} inch`, "text-[1.45em]"));
   const status = !text.trim() ? (initial !== undefined ? `Now ${showLength(initial, def)}` : "Type the measurement")
     : amb !== null && !unitPick ? W.unitAmbiguous
-    : reading?.ok ? fill(W.readsAs, { value: prettyLength(reading.display) })
+    : reading?.ok ? fill(W.readsAs, { value: prettyLength(showLength(reading.value, def)) })
     : reading?.error === "need_second" ? "Add the height after ×"
     : reading?.error === "out_of_range" ? W.outOfRange : W.invalidLength;
 
@@ -146,7 +158,9 @@ export function Keypad({ open, def, label, initial, last, onSave, onClose }: { o
       </>}>
       <div className="mb-3 flex items-start gap-2 rounded-md border-2 border-rule bg-paper px-3 py-2 [@media(max-height:700px)]:mb-2 [@media(max-height:700px)]:py-1">
         <div aria-live="polite" className="min-w-0 flex-1">
-          <p className="min-h-[1.4em] break-words font-mono text-[1.6em] font-semibold text-ink [@media(max-height:700px)]:text-[1.4em]">{prettyLength(text) || " "}</p>
+          <p className="min-h-[1.4em] break-words font-mono text-[1.6em] font-semibold text-ink [@media(max-height:700px)]:text-[1.4em]">{prettyLength(text) || (tail
+            // r7 extra: on short screens the title is one line; the words that tell this field apart sit here until typing starts.
+            ? <><span className="[@media(max-height:700px)]:hidden"> </span><span className="hidden truncate font-sans text-[0.68em] font-semibold text-ink-2 [@media(max-height:700px)]:block">{tail}</span></> : " ")}</p>
           <p className={`text-[0.95em] ${reading && !reading.ok && text.trim() && amb === null ? "font-semibold text-flag" : "text-ink-2"}`}>{reading && !reading.ok && text.trim() && amb === null ? "! " : ""}{status}</p>
           {warn && <p className="mt-1 text-[0.95em] font-semibold text-flag">! {warn}</p>}
         </div>
@@ -157,12 +171,14 @@ export function Keypad({ open, def, label, initial, last, onSave, onClose }: { o
           <Btn tone={unitPick === "ft" ? "primary" : "secondary"} role="radio" aria-checked={unitPick === "ft"} onClick={() => setUnitPick("ft")}>{amb}′ · feet</Btn>
         </div>
       )}
-      <div className="mb-3 grid grid-cols-3 gap-2 [@media(max-height:700px)]:mb-2" role="radiogroup" aria-label="Laser mode">
+      {/* r7 R7-4: while "inches or feet?" is asked, its two buttons take the laser-mode row's place,
+          so the last fraction row still clears Save on phones. */}
+      {!(amb !== null && !unitPick) && <div className="mb-3 grid grid-cols-3 gap-2 [@media(max-height:700px)]:mb-2" role="radiogroup" aria-label="Laser mode">
         {([["ftin", W.laserFtIn], ["decft", W.laserDecFt], ["m", W.laserMetric]] as const).map(([m, l]) => (
           <button key={m} type="button" role="radio" aria-checked={mode === m} onClick={() => { setMode(m); setUnitPick(null); }}
             className={`min-h-14 rounded-md border-2 px-1 text-[0.95em] font-semibold leading-tight ${mode === m ? "border-accent bg-accent-soft text-ink" : "border-rule bg-card text-ink-2"}`}>{l}</button>
         ))}
-      </div>
+      </div>}
       <div className="grid grid-cols-4 gap-2 [@media(max-height:700px)]:gap-1.5">
         {key("7")}{key("8")}{key("9")}{mode === "ftin" ? key("ft", "ft", "feet") : <span />}
         {key("4")}{key("5")}{key("6")}{mode === "ftin" ? key("in", "in", "inches") : <span />}

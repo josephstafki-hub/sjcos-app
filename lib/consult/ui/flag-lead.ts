@@ -3,17 +3,14 @@
  * that tripped it — "Measured 20″ — less than 24″ in front of the toilet …" — so the visitor sees
  * why it fired and can fix a typo instead of pricing it. Pure; shared by the visit and its tests.
  */
-import { formatLength } from '../length.ts';
+import { displayLength } from '../length.ts';
 import { curly } from '../typography.ts';
 import { W } from './words.ts';
 import type { VisitModel } from './model.ts';
 
-/** Inches as the flag hints write them (24″), feet and inches past 4 ft. */
+/** Inches as the flag hints write them (24″), feet and inches from 4 ft (r7: the shared displayLength). */
 function inchesText(v: number): string {
-  if (v >= 48) { try { return formatLength(v, 1 / 16); } catch { return `${v}″`; } }
-  const ticks = Math.round(v * 16); let num = ticks % 16, den = 16; const whole = (ticks - num) / 16;
-  while (num && num % 2 === 0) { num /= 2; den /= 2; }
-  return `${whole}${num ? ` ${num}/${den}` : ""}″`;
+  try { return displayLength(v, 1 / 16); } catch { return `${v}″`; }
 }
 const PROPER = /^(Renovate|SJC|MDH|EPA|Minnesota|I-joist)\b/;
 /** r6 D4: what was measured or answered, so the card says why it fired and a typo can be fixed. */

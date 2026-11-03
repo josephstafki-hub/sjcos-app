@@ -97,8 +97,10 @@ function SectionRows({ model, active, onOpen, onAdd, compact }: { model: VisitMo
   );
 }
 
-export function VisitScreen({ model, display, api, thumbs, online, draft, refused, hasInitials, userName, staff, lastSaved, forgotClose, startAt, prefill, visitorNotes, saveError, startAction, onStartAction }: {
+export function VisitScreen({ device, model, display, api, thumbs, online, draft, refused, hasInitials, userName, staff, lastSaved, forgotClose, startAt, prefill, visitorNotes, saveError, startAction, onStartAction }: {
   startAction?: string | null; onStartAction?: () => void;
+  /** This device's id, so a conflict side typed here says "this device" (r7 R7-3). */
+  device?: string;
   saveError?: string | null; prefill?: import("@/lib/consult/ui/model").Snapshot["prefill"]; visitorNotes?: string; startAt?: string | null; model: VisitModel; display: Display | undefined; api: VisitApi; thumbs: Record<string, string>; online: boolean; draft: EvidenceDraft; refused: number; hasInitials: boolean; userName: string; staff: boolean; lastSaved: string | null; forgotClose: boolean;
 }) {
   const [view, setView] = useState<"opening" | "list" | "section">(() => (startAt ? "section" : model.sections.some((s) => s.fields.some((f) => f.answer)) ? "list" : "opening"));
@@ -161,7 +163,7 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
   };
 
   const actions: FieldActions = {
-    thumbs, online, photosOk: model.photosOk, focusAddr, focusTick, showToClient: api.showToClient, clientNeedsDate: needDate,
+    device, thumbs, online, photosOk: model.photosOk, focusAddr, focusTick, showToClient: api.showToClient, clientNeedsDate: needDate,
     houseId: model.sections.find((s) => s.module.key === "house")?.instance.id,
     answer: async (f, p) => { const inst = f.addr.split(":")[0]; await wrap(api.answer(inst, f.key, f.def.label, p)); },
     keypad: (f) => {

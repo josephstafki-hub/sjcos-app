@@ -25,7 +25,7 @@ export interface Boot {
   consult_id: string; user: { id: string; name: string; role: string }; session_epoch: number;
   display: Display; auto_apply: boolean; capture_enabled: boolean; home: string;
 }
-export type Phase = 'loading' | 'get_ready' | 'unlock' | 'visit' | 'blocked' | 'disabled';
+export type Phase = 'loading' | 'get_ready' | 'unlock' | 'visit' | 'blocked' | 'disabled' | 'complete';
 export type ReadyResult = 'idle' | 'checking' | 'ready' | 'not_ready' | 'no_signal';
 export interface CloseResult { complete: boolean; checks: { check: number; code: string; action?: string; open: string[]; open_phrase?: string }[]; price_critical: { total: number; done: number; skipped: number }; record: { total: number; done: number; skipped: number }; revision: number }
 export interface ClosingState { step: 'sending' | 'closing' | 'done' | 'error' | 'waiting_signal'; result?: CloseResult; code?: string }
@@ -157,7 +157,8 @@ export class VisitController {
     window.addEventListener('online', this.onOnline); window.addEventListener('offline', this.onOffline); document.addEventListener('visibilitychange', this.onHide);
     const device = deviceId();
     const { boot, consultId } = this.state;
-    if (boot?.status==='complete') { window.location.replace(`${boot.home}/consult/${consultId}`); return; }
+    // r7 R7-1: a Complete visit is locked — no Get ready, no PIN; the calm read-only Complete screen.
+    if (boot?.status==='complete') { this.set({ device, phase: 'complete' }); return; }
     if (boot && !boot.capture_enabled) {
       if ('serviceWorker' in navigator) await registerConsultWorker(false).catch(() => null);
       this.set({ device, phase: 'disabled', code: 'capture_disabled' }); return;

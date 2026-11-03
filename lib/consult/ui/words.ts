@@ -176,6 +176,9 @@ export const W = {
   setupAgain: 'Set up sections',
   closeWaiting: 'Close visit is saved on this device and finishes by itself when it can send.',
   complete: 'Complete',
+  // r7 R7-1: a Complete visit opened on a device.
+  completeLocked: 'Answers are locked. Joe can reopen it from the office look-over.',
+  lookOver: 'Look over',
   needsFinishing: 'Needs finishing',
   needsFinishingN: '{n} open. A Finish consultation to-do was made.',
   otherDeviceWaiting: '1 other device hasn’t sent yet — Joe can recover it.',
@@ -186,6 +189,9 @@ export const W = {
   orKeepWorking: 'or keep working.',
   promisedBy: 'Formal estimate promised by',
   promisedMissing: 'Formal estimate date — not picked yet',
+  promisedJoeSets: 'Formal estimate date · Joe sets it ✓',
+  promisedSkipped: 'Formal estimate date · skipped',
+  stillOpen: 'still open',
   pickDate: 'Pick the date',
   // r5 domain 2: the client initials a sheet with the date on it.
   pickDateBeforeClient: 'Pick the estimate date first, so the client sees it.',
@@ -229,6 +235,9 @@ export const W = {
   rrpShortReceipt: 'receipt not recorded',
   rrpShortFirm: 'firm certification not current',
   rrpShortRenovator: 'renovator certification not current',
+  // r7 extra: until an expiry is entered it isn't "not current", it isn't on file yet.
+  rrpShortFirmMissing: 'firm certification not on file',
+  rrpShortRenovatorMissing: 'renovator certification not on file',
   // Client view §6.3/§6.4
   showToClient: 'Show to client',
   whatWeWentOver: 'What we went over today',
@@ -260,6 +269,10 @@ export const W = {
   conflictTitle: '! Conflict · {field}',
   conflictBody: 'This field changed on another device. Pick which value to keep.',
   pick: 'Pick {value}',
+  // r7 R7-3: where a conflict side came from, when the office didn't name it.
+  thisDevice: 'this device',
+  anotherDevice: 'another device',
+  office: 'office',
   enterAnother: 'Enter another',
   pickReason: 'Picked at close',
   // Visit page §6.8
@@ -364,8 +377,8 @@ export function readyReason(check: ReadyCheck, code: string, neededMb = 50): str
 export const SKIP_REASONS: SkipReason[] = ['Not on this job', 'No access', 'Not safe to measure', 'Client declined', 'Get on return visit', 'Sub/supplier will measure', 'Other'];
 export const skipReasonsFor = (field?: {type?:string;key?:string}): SkipReason[] => field?.type === 'signature' ? ['Client absent','Client declined','Other'] : field?.key === 'estimate_promised' ? ['Joe sets the date','Other'] : SKIP_REASONS;
 export const SKIP_HELP: Record<SkipReason, string> = {
-  'Client absent': 'The client is not here to initial.',
-  'Joe sets the date': 'Joe will set the estimate date.',
+  'Client absent': 'The client wasn’t here to initial.',
+  'Joe sets the date': 'Joe gets a to-do to set the date and tell the client.',
   'Not on this job': 'Counts once the job conditions show it isn’t needed.',
   'No access': 'Needs a written assumption or exclusion for the estimate.',
   'Not safe to measure': 'Needs a written assumption or exclusion for the estimate.',
@@ -374,6 +387,34 @@ export const SKIP_HELP: Record<SkipReason, string> = {
   'Sub/supplier will measure': 'Needs who measures, an assumption, and a trade walk decision.',
   'Other': 'Needs a note.',
 };
+/** r7 R7-5 / domain 4: signature fields get their own notes — no assumption is asked for there. */
+const SKIP_HELP_SIGNATURE: Partial<Record<SkipReason, string>> = {
+  'Client absent': 'The client wasn’t here to initial.',
+  'Client declined': 'The client chose not to initial. Write what they said.',
+  'Other': 'Needs a note.',
+};
+export function skipHelp(field: { type?: string; key?: string } | undefined, reason: SkipReason): string {
+  if (field?.type === 'signature') return SKIP_HELP_SIGNATURE[reason] ?? SKIP_HELP[reason];
+  return SKIP_HELP[reason];
+}
+/** The skip reasons that need a written assumption on a price-critical field (the skip sheet asks for one). */
+const ASSUMPTION_REASONS: SkipReason[] = ['No access', 'Not safe to measure', 'Client declined', 'Sub/supplier will measure', 'Other'];
+export function skipNeedsAssumption(def: { type?: string; key?: string; tier?: string }, reason: SkipReason | string | undefined): boolean {
+  return !!reason && def.type !== 'signature' && def.key !== 'estimate_promised' && (def.tier ?? 'price_critical') === 'price_critical' && ASSUMPTION_REASONS.includes(reason as SkipReason);
+}
+const MEASUREMENT = /^(length|length_pair|number|count)$/;
+/**
+ * r7 R7-5: one line for a skipped field, on the device and in the office — "Skipped · {reason} · {note}".
+ * The N/A is the mark's word, never repeated here; "assumption written" only on a measurement that has one.
+ */
+export function skipLine(f: { def: { type?: string; key?: string; tier?: string }; answer?: { skip_reason?: string; skip_note?: string }; skipCounts: boolean; returnVisit: boolean }): string {
+  const reason = f.answer?.skip_reason ?? '';
+  const note = f.answer?.skip_note?.trim();
+  let tail = '';
+  if (reason === 'Not on this job') tail = f.skipCounts ? '' : ' — the job needs it, so it stays Open';
+  else if (!f.returnVisit && skipNeedsAssumption(f.def, reason)) tail = !f.skipCounts ? ' — needs a written assumption to count' : MEASUREMENT.test(f.def.type ?? '') ? ' — assumption written' : '';
+  return `Skipped · ${reason}${tail}${note && note !== reason ? ` · ${note}` : ''}`;
+}
 
 /** §10.3 — the eleven checks in plain words, in order. */
 export const CHECK_WORDS: Record<string, string> = {
@@ -428,10 +469,11 @@ export const FLAG_CHOICES = [
  */
 export function plainWords(code: string | undefined | null, ctx: { name?: string; field?: string } = {}): string {
   const c = code ?? '';
+  // r7 R7-2: the office slow to answer (request deadline, rate limit, server busy) is a calm wait.
+  if (/^http_(408|429|5\d\d)$/.test(c)) return W.stillClosingBody;
   switch (c) {
     case 'send_stuck': return 'Nothing went out — your answers are safe on this device.';
     case 'send_in_progress': return 'Sending…';
-    case 'http_408':
     case 'close_timeout': return 'Still closing — try again. Your visit is saved on this device.';
     case 'controller_disposed': return 'This visit was closed. Open it again to send.';
     case 'retry_wait': return 'Saved on this device. Waiting briefly before trying again.';

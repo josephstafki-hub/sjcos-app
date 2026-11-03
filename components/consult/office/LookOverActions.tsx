@@ -7,7 +7,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui";
-import { W, plainWords } from "@/lib/consult/ui/words";
+import { W, fill, plainWords } from "@/lib/consult/ui/words";
 
 async function command(id: string, cmd: string, input: unknown) {
   const r = await fetch(`/api/consult/${id}`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "X-Consult-CSRF": "1" }, body: JSON.stringify({ command: cmd, input }) });
@@ -44,7 +44,8 @@ export function ApplyFindings({ id, generation, retry }: { id: string; generatio
 
 export function OfficeConflict({ id, revision, generation, instance, fieldKey, label, current, proposed }: {
   id: string; revision: number; generation: number; instance: string; fieldKey: string; label: string;
-  current: { id: string; text: string; who: string; at: string }; proposed: { id: string; text: string; who: string; at: string };
+  /** r7 R7-3: `from` names where the value came from; a side that couldn't be loaded isn't offered. */
+  current: { id: string; text: string; from: string; available: boolean }; proposed: { id: string; text: string; from: string; available: boolean };
 }) {
   const router = useRouter();
   const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false); const [other, setOther] = useState(false);
@@ -58,12 +59,11 @@ export function OfficeConflict({ id, revision, generation, instance, fieldKey, l
       <p className="text-body font-semibold text-flag">! Conflict · {label}</p>
       <p className="text-body text-ink">{W.conflictBody}</p>
       <div className="mt-2 grid gap-2 sm:grid-cols-2">
-        <Button size="lg" variant="secondary" disabled={busy} onClick={() => void pick("current")}>Pick {current.text} · {current.who} · {current.at}</Button>
-        <Button size="lg" variant="secondary" disabled={busy} onClick={() => void pick("proposed")}>Pick {proposed.text} · {proposed.who} · {proposed.at}</Button>
+        {current.available && <Button size="lg" variant="secondary" disabled={busy} onClick={() => void pick("current")}>{fill(W.pick, { value: current.text })} · {current.from}</Button>}
+        {proposed.available && <Button size="lg" variant="secondary" disabled={busy} onClick={() => void pick("proposed")}>{fill(W.pick, { value: proposed.text })} · {proposed.from}</Button>}
         <Button size="lg" variant="ghost" onClick={() => setOther(true)}>{W.enterAnother}</Button>
       </div>
       {other && <p className="mt-2 text-body text-ink">Pick one of the two first, then the visitor enters the new value on the visit device — the office page doesn’t type answers.</p>}
-      <p className="mt-2 text-meta text-ink-2">Times identify each value; they never decide which one wins.</p>
       {err && <p role="alert" className="mt-1 text-body font-semibold text-flag">! {err}</p>}
     </div>
   );

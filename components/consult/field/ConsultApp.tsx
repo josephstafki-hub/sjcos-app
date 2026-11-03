@@ -14,7 +14,7 @@ import { VisitController, type Boot } from "@/lib/consult/ui/controller";
 import { buildEvidence, refusedEntries, summaryInput, unsentCount } from "@/lib/consult/ui/model";
 import { W, fill, plainWords } from "@/lib/consult/ui/words";
 import { Banner, Btn, LinkBtn, Sheet, useWakeLock } from "./primitives";
-import { GetReadyCard, UnlockCard, ScreenHead, centralTime } from "./GetReady";
+import { CompleteCard, GetReadyCard, UnlockCard, ScreenHead, centralTime } from "./GetReady";
 import { MoreMenu, useSun } from "./MoreMenu";
 import { VisitScreen } from "./VisitScreen";
 import { ClosingScreen } from "./WrapClose";
@@ -125,6 +125,7 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
 
   let body: React.ReactNode = null;
   if (st.phase === "loading") body = <div className="mx-auto max-w-[560px]"><ScreenHead title={title} right={more} /><p className="px-4 py-6 text-ink-2" role="status">Opening…</p></div>;
+  else if (st.phase === "complete") body = <CompleteCard title={title} closedAt={boot?.closed_at} completeness={boot?.completeness} lookOver={`${home}/consult/${consultId}`} more={more} />;
   else if (st.phase === "disabled") body = <div className="mx-auto max-w-[560px]"><ScreenHead title={title} right={more} /><div className="px-4 py-6"><Banner kind="action">{plainWords("capture_disabled")}</Banner><div className="mt-4"><LinkBtn wide href={home}>{W.back}</LinkBtn></div></div></div>;
   else if (st.phase === "get_ready") body = <GetReadyCard title={title} result={st.ready.result} checks={st.ready.checks} enrolled={st.enrolled} expires={st.leaseExpires} code={st.code} readyCode={st.ready.code} userName={userName} onGetReady={(pin) => void ctl.getReady(pin)} more={more} />;
   else if (st.phase === "unlock") body = <UnlockCard title={title} onUnlock={(pin) => void ctl.unlock(pin)} busy={st.busy} code={st.code} expires={st.leaseExpires} olderBuild={st.olderBuild} more={more} />;
@@ -165,7 +166,8 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
         {/* r4: required sections are set up on start and on every load (an interrupted start finishes here). */}
         {st.busy && <Banner kind="status">{W.settingUp}</Banner>}
         {!st.busy && setupMissing && <Banner kind="status" actions={<Btn tone="primary" onClick={() => void ctl.ensureRequiredInstances().catch(() => undefined)}>{st.code ? W.tryAgain : W.setupAgain}</Btn>}>{W.setupNotDone}{st.code ? ` ${plainWords(st.code, { name: userName })}` : ""}</Banner>}
-        {failureDue && st.code !== "signed_out" && st.online && !st.sending && failure && unsent > 0 && <Banner kind="action" actions={<Btn tone="primary" onClick={() => void ctl.drain(true)}>{W.tryAgain}</Btn>}>{fill(W.notSentSince, { time: clock(st.local.last_send ?? failure.at) })} {plainWords(failure.code, { name: userName })}</Banner>}
+        {/* r7 R7-2: while closing, the close screen alone says how the send is going. */}
+        {!st.closing && failureDue && st.code !== "signed_out" && st.online && !st.sending && failure && unsent > 0 && <Banner kind="action" actions={<Btn tone="primary" onClick={() => void ctl.drain(true)}>{W.tryAgain}</Btn>}>{fill(W.notSentSince, { time: clock(st.local.last_send ?? failure.at) })} {plainWords(failure.code, { name: userName })}</Banner>}
       </div>
     );
     if (!model.started) {
@@ -177,7 +179,7 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
       body = <>{banners}<ClosingScreen closing={{ step: "done", result: { complete: true, checks: [], price_critical: { total: model.pc.total, done: model.pc.done, skipped: model.pc.skipped }, record: { total: model.record.total, done: model.record.done, skipped: model.record.skipped }, revision: 0 } }} unsent={unsent} online={st.online} autoApply={!!boot?.auto_apply}
         findings={(st.fresh?.findings_job as { status: string; last_error: string | null } | null) ?? null} findingsCode={st.findingsCode} onSend={() => void ctl.drain(true)} onRetry={() => void ctl.refresh()} onKeepWorking={() => undefined} onReopen={(r) => ctl.reopen(r)} onApply={() => void ctl.applyFindings()} home={home} /></>;
     } else {
-      body = <>{banners}<VisitScreen key={resume ?? "visit"} startAt={resume} saveError={st.code} prefill={snap?.prefill} visitorNotes={snap?.visitor_notes} model={model} display={display} thumbs={st.thumbs} online={st.online} draft={st.draft} refused={refusedEntries(entries).length} hasInitials={!!initials} userName={userName} staff={!!display?.visitor_staff} lastSaved={st.lastSaved} startAction={after} onStartAction={() => setAfter(null)}
+      body = <>{banners}<VisitScreen key={resume ?? "visit"} device={st.device} startAt={resume} saveError={st.code} prefill={snap?.prefill} visitorNotes={snap?.visitor_notes} model={model} display={display} thumbs={st.thumbs} online={st.online} draft={st.draft} refused={refusedEntries(entries).length} hasInitials={!!initials} userName={userName} staff={!!display?.visitor_staff} lastSaved={st.lastSaved} startAction={after} onStartAction={() => setAfter(null)}
         forgotClose={status === "in_progress" && visitDay < today}
         api={{
           answer: (i, f, label, p, d) => ctl.answer(i, f, label, f==="client_initials"&&p.status==="skipped"?{...p,summary_text:ctl.shownSummary ?? clientRecapText(summaryInput(model,display,visitDay,model.promised ?? ""))}:p, d),

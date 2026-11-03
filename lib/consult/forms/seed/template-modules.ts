@@ -41,7 +41,7 @@ export const bath_scope: ModuleDef = {
     choice('elec_dedicated_20a', 'Electrical in room — dedicated 20 A', ['Yes', 'No', 'Can\'t tell'], true),
     text('elec_light_locations', 'Electrical in room — light locations', true),
     len('toilet_front_clearance', 'Toilet front clearance', answered('toilet_plan'), {
-      note: 'R? toilet',
+      note: 'R? toilet', hint: 'From the front of the bowl to the nearest wall, vanity, tub or door swing in front of it.',
       flag: { when: lt('toilet_front_clearance', 24), issue: '<24″; 4714/UPC; also 15″ each side, 30″ center-to-center' },
     }),
     len('threshold_thickness', 'Total floor thickness at threshold', true, { note: 'tile build-up / transition' }),

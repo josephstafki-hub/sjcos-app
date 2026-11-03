@@ -9,7 +9,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { CoverageMark } from "@/components/ui/CoverageMark";
 import type { FieldView, ShotView } from "@/lib/consult/ui/model";
 import type { AnswerPayload } from "@/lib/consult/ui/ops";
-import { W, plainWords } from "@/lib/consult/ui/words";
+import { W, fill, plainWords, skipLine } from "@/lib/consult/ui/words";
 import { Btn, Choice, scrollInPane } from "./primitives";
 import { showLength } from "./Keypad";
 import { curly } from "@/lib/consult/typography";
@@ -22,6 +22,8 @@ export interface FieldActions {
   resolve: (f: FieldView, pick: "current" | "proposed" | "other") => void;
   discard: (eventId: string) => Promise<void>;
   thumbs: Record<string, string>;
+  /** This device's id (r7 R7-3: a conflict side typed here reads "this device"). */
+  device?: string;
   photosOk: boolean | null;
   online: boolean;
   showToClient: (field?: FieldView) => void;
@@ -124,7 +126,7 @@ export function PhotoRow({ shot, actions, fieldKey, sectionId }: { shot: ShotVie
         <MarkCell f={{ mark: shot.mark }} />
       </div>
       {shot.def.hint && <p className="text-[0.9em] text-ink-2">{shot.def.hint}</p>}
-      {shot.mark === "not_applicable" && shot.skip && <p className="text-[0.9em] text-ink-2">N/A · {shot.skip}</p>}
+      {shot.mark === "not_applicable" && shot.skip && <p className="text-[0.9em] text-ink-2">Skipped · {shot.skip}</p>}
       {latest && (
         <div className="mt-2 flex items-center gap-3">
           {actions.thumbs[latest.hash] && <img src={actions.thumbs[latest.hash]} alt={`Photo of ${shot.def.label}`} className="size-16 rounded-md border-2 border-rule object-cover" />}
@@ -146,13 +148,17 @@ export function PhotoRow({ shot, actions, fieldKey, sectionId }: { shot: ShotVie
 function ConflictPicker({ f, actions }: { f: FieldView; actions: FieldActions }) {
   const c = f.conflict!;
   const show = (v: unknown, status?: string) => (status && status !== "answered" ? (status === "skipped" ? "skipped" : "cleared") : f.def.type.startsWith("length") ? showLength(v, f.def) : v === true ? W.yes : v === false ? W.no : String(v ?? "—"));
+  // r7 R7-3: each side is named by where it came from; a side whose value can't be loaded isn't offered.
+  const from = (side: { device?: string | null; source_label?: string }, queuedHere: boolean) => (side.device && actions.device && side.device === actions.device ? W.thisDevice
+    : side.source_label ?? (queuedHere ? W.thisDevice : side.device ? W.anotherDevice : W.office));
+  const offer = (side: { value: unknown; status: string; available?: boolean } | undefined) => !!side && side.available !== false && !(side.status === "answered" && side.value === undefined);
   return (
     <div role="group" aria-label={`Conflict on ${f.def.label}`} className="mt-3 rounded-md border-2 border-flag bg-flag-soft p-3">
       <p className="font-semibold text-flag">! Conflict · {f.def.label}</p>
       <p className="text-[0.95em] text-ink">{c.rebase ? plainWords("rebase_required") : W.conflictBody}</p>
       <div className="mt-2 grid gap-3 sm:grid-cols-2">
-        {c.current && <Btn disabled={c.current.available===false} onClick={() => actions.resolve(f, "current")} >Pick {show(c.current.value, c.current.status)} · {c.current.source_label ?? "office"}</Btn>}
-        {c.proposed && !c.rebase && <Btn disabled={c.proposed.available===false} onClick={() => actions.resolve(f, "proposed")} >Pick {show(c.proposed.value, c.proposed.status)} · {c.proposed.source_label ?? "this device"}</Btn>}
+        {offer(c.current) && <Btn onClick={() => actions.resolve(f, "current")}>{fill(W.pick, { value: show(c.current!.value, c.current!.status) })} · {from(c.current!, false)}</Btn>}
+        {!c.rebase && offer(c.proposed) && <Btn onClick={() => actions.resolve(f, "proposed")}>{fill(W.pick, { value: show(c.proposed!.value, c.proposed!.status) })} · {from(c.proposed!, !c.proposed!.device)}</Btn>}
         <Btn onClick={() => actions.resolve(f, "other")}>{W.enterAnother}</Btn>
       </div>
     </div>
@@ -272,7 +278,8 @@ export function FieldRow({ f, actions, sectionId, last }: { f: FieldView; action
         <MarkCell f={f} />
       </div>
       {d.hint && <p className="text-[0.9em] text-ink-2">{d.hint}</p>}
-      {skipped && <p className="mt-1 text-[0.95em] text-ink-2">{f.mark === "not_applicable" ? "N/A · " : "Skipped · "}{f.answer!.skip_reason}{f.skipCounts ? (f.answer!.skip_reason === "Not on this job" ? "" : " — assumption written") : f.returnVisit ? "" : f.answer!.skip_reason === "Not on this job" ? " — the job needs it, so it stays Open" : " — needs a written assumption to count"}{f.answer!.skip_note ? ` · ${f.answer!.skip_note}` : ""}</p>}
+      {/* r7 R7-5: "Skipped · {reason} · {note}" — the mark on the right already says N/A. */}
+      {skipped && <p className="mt-1 text-[0.95em] text-ink-2">{skipLine(f)}</p>}
       {input}
       <Saved f={f} />
       {f.answer?.local === "invalid" && (
@@ -282,7 +289,9 @@ export function FieldRow({ f, actions, sectionId, last }: { f: FieldView; action
         </div>
       )}
       {f.conflict && <ConflictPicker f={f} actions={actions} />}
-      {f.flags.map((fl) => <p key={fl.key} className="mt-2 text-[0.95em] font-semibold text-flag">⚑ Flag · {fl.hint} Decide in {W.beforeYouWrap}.</p>)}
+      {f.flags.map((fl) => fl.kind === "advisory"
+        ? <p key={fl.key} className="mt-2 text-[0.95em] font-semibold text-ink-2"><span aria-hidden>⚐ </span>Flag · {fl.hint} Decide in {W.beforeYouWrap}.</p>
+        : <p key={fl.key} className="mt-2 text-[0.95em] font-semibold text-flag">⚑ Flag · {fl.hint} Decide in {W.beforeYouWrap}.</p>)}
       {f.shots.map((s) => <PhotoRow key={s.key} shot={s} actions={actions} fieldKey={f.key} sectionId={sectionId} />)}
       <div className="mt-2 flex flex-wrap gap-3">
         {last !== undefined && !answered && (d.type === "length" || d.type === "length_pair") && <Btn onClick={() => void actions.answer(f, { status: "answered", value: last, unit: d.unit })}>{W.sameAsLast} · {showLength(last, d)}</Btn>}

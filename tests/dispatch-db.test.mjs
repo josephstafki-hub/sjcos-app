@@ -95,6 +95,19 @@ test("V07: accepted-then-timeout is held (no resend), reconciliation confirms it
     assert.equal((await run(`SELECT count(*)::int AS n FROM notifications WHERE title LIKE 'Invoice ZZ-INV-1 sent%'`))[0].n, 1);
     assert.equal(sends("zz:invoice:1:send"), 1, "reconciliation never resends");
 
+    // 2b. an ACCEPTED send the Sent-mail search can't find is settled, never re-sent
+    //     (Egan review mail, 2026-11-02: 4-5 copies each)
+    const { intent: ia } = await enqueueIntent(run, { operationKey: "zz:email:accepted-miss", kind: "send_email", recipient: "a@example.test", payload: { to: "a@example.test", subject: "Invoice ($1,234.00)", bodyText: "b" }, policyRef: "owner:click", principal: owner });
+    await dispatchOnce(deps, { intentIds: [ia.id] });
+    assert.equal((await getIntent(run, ia.id)).state, "accepted");
+    assert.equal(sends("zz:email:accepted-miss"), 1);
+    const missing = { ...deps.providers, email: { ...deps.providers.email, reconcile: async () => ({ state: "pending", note: "not in Sent mail 15 minutes after the attempt; safe to retry" }) } };
+    const rMiss = await reconcileUnknown({ ...deps, providers: missing }, { minAgeSeconds: 0 });
+    assert.equal(rMiss.requeued, 0, "an accepted send is never put back in the queue");
+    assert.equal((await getIntent(run, ia.id)).state, "confirmed");
+    assert.equal((await dispatchOnce(deps, { intentIds: [ia.id] })).length, 0);
+    assert.equal(sends("zz:email:accepted-miss"), 1, "no second copy");
+
     // 3. stale worker: its lease expires mid-call; its late write is fenced and the
     //    truthful state is 'unknown'; nobody re-dispatches it
     const { intent: i2 } = await enqueueIntent(run, { operationKey: "zz:email:stale", kind: "send_email", recipient: "a@example.test", payload: { to: "a@example.test", subject: "s", bodyText: "b" }, policyRef: "owner:click", principal: owner });

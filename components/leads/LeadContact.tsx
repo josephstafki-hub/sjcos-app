@@ -113,7 +113,7 @@ export function LeadContact({
   );
 }
 
-function EditContactModal({
+export function EditContactModal({
   slug,
   name,
   email,

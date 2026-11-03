@@ -1,0 +1,38 @@
+# Build R5 — Engineering judge (discovery calls Phase 1)
+SCORES: design=10 completeness=10
+
+Reviewed `t3/discovery-checklist-backend` at `5e796796`, including `git show 53140dd9 db5aee40`, the round-4 engineering review and `docs/plans/discovery-call-plan.md:1190–1197` (§15 Phase 1). This report is the only intentional repository write. No code edits or commit; existing untracked `.next-qa-calls/` left alone. No Next commands, browsers, application servers, live/QA DB connections, service changes or paid model calls. The expressly authorized disposable test DB was stopped afterward.
+
+Independent verification, each test file executed separately:
+
+- All **41 `tests/inbox*.test.mjs` files: 318/318 passed**, including `inbox-notification` **2/2**, `inbox-phone-chrome` **4/4**, and `inbox-round2` **8/8** for the shared badge/topbar paths.
+- `approval-placement` **7/7**, new `approval-compact-entry` **3/3**, new `checklist-picker-cache` **2/2**.
+- `call-checklist` **4/4**, `checklist-rowsheet` **11/11**, `checklist-offline` **1/1**, `checklist-client-queue` **13/13**, `checklist-offline-store` **7/7**, `checklist-hook` **2/2**, `checklist-leads-route` **2/2**.
+- Harness only, with `SJC_TEST_CLUSTER_TAG=calls-judge`: `checklist-lead-search-db` **1/1**, `checklist-access-db` **3/3**, `checklist-actions-db` **3/3**. Cleanup returned **stopped**.
+- **377 passed overall; no failures or skips.** `flock /tmp/sjcos-tsc.lock nice -n 19 npx tsc --noEmit -p . ; echo exit=$?` returned **exit=0**. No exit 137.
+
+## Round-4 items
+
+1. **FIXED — approvals obstructing the lead-page discovery entry (required fix 1).** `components/leads/StartDiscoveryCall.tsx:46–51` claims compact placement when the header button mounts, before the trigger at `:107–110` is tapped, and releases it on cleanup; the menu variant does not claim. `components/shell/LiveCallBar.tsx:71–79` similarly claims only while showing a call and releases when empty or unmounted. `components/shell/Topbar.tsx:63` supplies the fallback beside the bell. `components/shell/NotificationCenter.tsx:57–60` prefers the page slot, then the topbar; `:67–74` handles pre-existing claims and listener cleanup; `:193–204` renders the compact badge and deliberately opened cards at z-35. Modal claims still suppress expansion (`lib/notification-placement.ts:86–96`; `components/calls/checklist/Sheet.tsx:40–43`). This closes the entry-state gap without raising the trigger above other controls.
+
+   New persistent `tests/approval-compact-entry.test.mjs:145–191` runs the real entry component and NotificationCenter with four pending approvals: no bottom stack before tapping, topbar badge, confirm open/Cancel, explicit badge expansion, Escape, and release on route departure. `:193–198` checks the menu exception; `:200–235` checks live-bar lifecycle and Inbox page-slot precedence. **3/3 pass**, alongside placement **7/7** and RowSheet **11/11**. These use a simulated hook host with stubbed Sheet, not browser hit testing; the real Sheet's modal/focus behavior has separate RowSheet coverage. The coordinator's round-5 production acceptance supplies the layout/interaction evidence closing the former lead-entry failure.
+
+2. **FIXED — recency, stable ordering, cache refresh and the missing persistent regression (required fix 2).** The prior SQL fix remains intact: `lib/checklist-coverage/lead-search-sql.ts:19`, `:37–48`, `:57–67` preserves creation/contact recency, caller-first matching, lost exclusion, deterministic ordering and literal wildcard matching. Real-query regression **1/1 passes**. `components/calls/checklist/Pickers.tsx:33–46`, `:75–79` revalidates retained stale data; `:171–175` invalidates after creation before returning the new lead. The requested deliverable now exists: `tests/checklist-picker-cache.test.mjs:102–119` exercises real prefetch → NewLeadSheet submission → reopened LeadPicker inside the freshness window and verifies the new lead plus exactly one new read. `:122–136` checks external creation, stale revalidation and reuse of the refreshed page. **2/2 pass**. Actions and fetch are stubbed; the component cache and handlers execute. No additional SQL rewrite is required.
+
+3. **FIXED — unknown-caller tablet/desktop Start (retained closure).** `components/calls/checklist/CallChecklistTab.tsx:111–124` still exposes the unknown-caller choices without a width-dependent hide condition; `lib/notification-placement.ts:26` keeps Calls compact before a checklist mounts. The new coordinator acceptance reports no remaining feature failure across phone/tablet/desktop. The focused checklist regressions pass. No evidence warrants reopening the previously closed issue.
+
+4. **FIXED — minimized picker payload and persistent route access tests (retained closure).** `lib/checklist-coverage/lead-search-sql.ts:16` selects only id/name/scope/phone; `lib/checklist-lead-search.ts:12–15` adds the caller marker. `app/api/calls/checklist-leads/route.ts:12–18` checks authentication and Calls permission before search and uses private/no-store caching. Route tests **2/2** and real-query test **1/1** pass, including exact fields and forbidden access. No new exposure found.
+
+5. **FIXED for this feature — §15 coordinator acceptance (required fix 3).** Accept the supplied round-5 coordinator results: 75 production-side shots; no 500s or console errors; no horizontal overflow, including 320 px and 200% zoom; the requested keyboard, screen-reader, zoom and daylight-contrast checks were run. I also read `/tmp/sjcqa/shots/calls-a11y/a11y.json`: the recorded WCAG 2.1 AA violations belong to the existing shell (sidebar labels at 4.11 contrast; phone Operator `aria-controls` target missing), with zero recorded violations in the feature UI. Desktop picker focus is explicitly `INPUT:search`, consistent with `components/calls/checklist/Pickers.tsx:96–98`. `Sheet.tsx:46–63` supplies initial focus, Tab trapping, Escape and restoration; `:74–78` supplies the named modal dialog. `ChecklistPane.tsx:332` announces count changes and `ChecklistSummary.tsx:233` exposes submitted status.
+
+   Tab starting in the Operator dock reflects shell order, not a demonstrated trap or an unreachable feature control. Neither shell issue is a new Phase 1 defect. Axe alone would not establish screen-reader operation or sunny-cab usability: closure relies on the explicitly supplied coordinator checks as well as the artifact and inspected semantics. The artifact also records two dialog-locator timeouts (`d-settings`, `s-submit`); those probe failures do not independently demonstrate broken product behavior, and the coordinator reports the acceptance checks complete. This is feature-scoped acceptance, not certification that the entire shell is WCAG-clean or a claim that this judge repeated browser/assistive-technology checks.
+
+Inbox refactor assessment: **no regression found**. The existing Inbox slot remains at `components/shell/Topbar.tsx:53`, ahead of the fallback selected by `NotificationCenter.tsx:58–60`; Inbox stays compact by pathname. All **318 Inbox tests pass**, and the new live-bar regression verifies page-slot precedence when both homes exist. Existing composer protection and registry/modal tests remain green. No duplicate fallback badge or required Inbox repair was found in the inspected paths.
+
+## New defects
+
+None requiring a Phase 1 fix found in the reviewed changes. The supplied pre-existing shell accessibility findings remain outside this feature's required fixes. Later telephony, AI and transcript phases are outside this review.
+
+## Required to reach 10
+
+None. All three round-4 required deliverables are closed; both scores are 10 because no required feature fix remains on the available code, test and coordinator evidence.

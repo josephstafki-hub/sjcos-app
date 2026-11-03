@@ -1,0 +1,27 @@
+{
+  "contract_version": 3,
+  "definition_version_id": "10000000-0000-4000-8000-000000000001",
+  "definition_item_id": "20000000-0000-4000-8000-000000000001",
+  "session_id": "30000000-0000-4000-8000-000000000001",
+  "late_items": [
+    {"instance_id":"40000000-0000-4000-8000-000000000001","item_id":"50000000-0000-4000-8000-000000000001"},
+    {"instance_id":"40000000-0000-4000-8000-000000000002","item_id":"50000000-0000-4000-8000-000000000002"}
+  ],
+  "segment": {
+    "id":"60000000-0000-4000-8000-000000000001", "seq":1,
+    "session_id":"30000000-0000-4000-8000-000000000001",
+    "source":"consult_audio",
+    "source_event_id":"70000000-0000-4000-8000-000000000001:80000000-0000-4000-8000-000000000001:0",
+    "source_ref":"80000000-0000-4000-8000-000000000001",
+    "revision":1,"supersedes_id":null,"speaker":"unknown","track":"mono",
+    "timing_basis":"receiver_relative","start_ms":1000,"end_ms":2000,
+    "text":"Keep the tub.","confidence":null,"section_key":"bath",
+    "received_at":"2026-11-02T16:00:02Z","cleared_at":null
+  },
+  "evidence": {
+    "session_id":"30000000-0000-4000-8000-000000000001",
+    "segment_id":"60000000-0000-4000-8000-000000000001",
+    "revision":1,"quote":"Keep the tub.","start_ms":1000,"end_ms":2000,
+    "speaker":"unknown","timing_basis":"receiver_relative"
+  }
+}

@@ -1,3 +1,4 @@
+import { ClearChecklistStorage } from "@/components/auth/ClearChecklistStorage";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Logo } from "@/components/shell/Logo";
@@ -64,7 +65,7 @@ export default async function LoginPage({
         )}
 
         <div className="rounded-xl border border-rule bg-card p-6 shadow-sm">
-          <LoginForm />
+          <ClearChecklistStorage /><LoginForm />
         </div>
 
         {/* No self-serve reset by design: the owner resets staff passwords (Settings › Team),

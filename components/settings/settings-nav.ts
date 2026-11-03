@@ -15,4 +15,5 @@ export const MORE_SETTINGS = [
   { title: "Overhead", href: "/settings/overhead" },
   { title: "Payments · Square", href: "/settings/payments" },
   { title: "Accounting · QuickBooks", href: "/settings/accounting" },
+  { title: "Calls · Discovery checklist", href: "/settings/calls" },
 ];

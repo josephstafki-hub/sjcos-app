@@ -6,7 +6,7 @@
 
 import type { Run } from "../commands/core.ts";
 
-export const FACT_KEYS = ["service_area", "job_type", "scope", "budget_fit", "timeline", "goals", "photos", "measurements", "address"] as const;
+export const FACT_KEYS = ["service_area", "job_type", "scope", "budget_fit", "timeline", "goals", "photos", "measurements", "address", "contact_info", "decision_makers", "referral_source", "other_bids", "house_history", "property", "paying_with"] as const;
 export type FactKey = (typeof FACT_KEYS)[number];
 
 export interface LeadFact {
@@ -74,6 +74,7 @@ export async function syncFactsFromIntake(run: Run, leadId: string): Promise<voi
     scope: scope && scope.length >= 20 ? scope : null,
     job_type: scope ? scope.split(/[.,\n]/)[0].trim().slice(0, 80) || null : null,
     timeline: ans(/timeline|timing|when/i),
+    other_bids: ans(/other bids|other contractors/i),
     budget_fit: ans(/budget/i),
     address: lead.address?.trim() || ans(/address|location/i),
     service_area: lead.scope_city?.trim() || null,

@@ -13,7 +13,7 @@ import { createGrant } from "@/lib/owner-grants";
 import { normalizeE164 } from "@/lib/comms/phone";
 import { getCall, getCallEvents, placeCall, voiceConfigured, type CallRow } from "@/lib/voice";
 
-export async function placeCallAction(phone: string, contactName?: string | null): Promise<{ ok: boolean; callId?: string; error?: string }> {
+export async function placeCallAction(phone: string, contactName?: string | null, callId?: string): Promise<{ ok: boolean; callId?: string; error?: string }> {
   await requireAccess("comms");
   if (!voiceConfigured()) {
     return { ok: false, error: connectionCopy("voice").error };
@@ -30,7 +30,7 @@ export async function placeCallAction(phone: string, contactName?: string | null
     maxUses: 1,
     expiresInMinutes: 5,
   });
-  const r = await placeCall({ to: norm.e164, grantId: grant.id, actor: "owner", contactName });
+  const r = await placeCall({ to: norm.e164, grantId: grant.id, actor: "owner", contactName, callId });
   revalidatePath("/calls");
   if (!r.ok) return { ok: false, error: r.error };
   return { ok: true, callId: r.callId };

@@ -63,14 +63,10 @@ export function MobileNav({ user }: { user: SidebarUser }) {
         <Menu className="size-5" strokeWidth={1.5} /><span className="text-label">More</span>
       </button>
 
+      {/* Shell's page container reserves the tab bar's height on phones
+          (max-sm:mb-…), so sticky bottom bars sit above it on every page,
+          with or without the live-call bar in between. */}
       <MobileTabBar user={user} />
-      {/* Topbar’s next sibling is Shell’s scroll container. Reserve space for
-          every account, including staff without the operator panel. */}
-      <style>{`@media (max-width: 639px) {
-        div:has(> [data-mobile-more]) + [class~="@container/page"] {
-          margin-bottom: calc(3.5rem + env(safe-area-inset-bottom));
-        }
-      }`}</style>
 
       {open && (
         <div ref={dialogRef} onClickCapture={(event) => { if ((event.target as HTMLElement).closest("a[href]")) setOpen(false); }} role="dialog" aria-label="More navigation" aria-modal="true" className="fixed inset-0 z-50 lg:hidden">

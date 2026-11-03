@@ -1,0 +1,406 @@
+[
+  {
+    "id": "1f11cf2e-c891-57fb-80d6-70609aeeb12d",
+    "key": "work",
+    "label": "Work",
+    "questions": [
+      "Tell me what you're hoping to do.",
+      "What's not working with the space now, and what would you like instead?"
+    ],
+    "covered_when": "A room or space plus the change wanted (\"upstairs bath, tub out, walk-in shower\")",
+    "partial_when": "\"Some work on the house\"; a room with no change; Joe's own suggestion the client didn't confirm",
+    "reminder": "Remember to ask what work they want done.",
+    "partial_reminders": {
+      "answer": "Remember to ask what they'd like to change in the {space}."
+    },
+    "components": [
+      {
+        "key": "space",
+        "label": "Space",
+        "required": true
+      },
+      {
+        "key": "change",
+        "label": "Change",
+        "required": true
+      }
+    ],
+    "fact_target": "scope",
+    "optional": false,
+    "enabled": true,
+    "reminder_enabled": true,
+    "reminder_priority": 1,
+    "section_key": null,
+    "source_ref": null
+  },
+  {
+    "id": "ee35c017-15d1-587d-9d4e-1f5045189d51",
+    "key": "budget",
+    "label": "Budget",
+    "questions": [
+      "Do you have a budget in mind, or are you still figuring that out?",
+      "Is there a range you'd like us to work within?"
+    ],
+    "covered_when": "An amount or range, **or** \"no budget yet\" / \"rather not say\"",
+    "partial_when": "\"Reasonable\"; \"fifty\" without units; Joe floats a number and gets no clear answer",
+    "reminder": "Remember to ask if they have a budget in mind.",
+    "partial_reminders": {
+      "answer": "Remember to confirm the budget amount."
+    },
+    "components": [
+      {
+        "key": "response",
+        "label": "Response",
+        "required": true
+      }
+    ],
+    "fact_target": "budget_fit",
+    "optional": false,
+    "enabled": true,
+    "reminder_enabled": true,
+    "reminder_priority": 3,
+    "section_key": null,
+    "source_ref": null
+  },
+  {
+    "id": "5754e77b-8be0-52b2-a109-ee89c1eec675",
+    "key": "timeline",
+    "label": "Timeline",
+    "questions": [
+      "When are you hoping to get started?",
+      "Is there a date you need it finished by, or are you flexible?"
+    ],
+    "covered_when": "A start or finish window, or \"flexible\" / \"not decided\"",
+    "partial_when": "\"Soon\"; a deadline with no date",
+    "reminder": "Remember to ask when they're hoping to start.",
+    "partial_reminders": {
+      "answer": "Remember to ask if that date is firm."
+    },
+    "components": [
+      {
+        "key": "window",
+        "label": "Window",
+        "required": true
+      }
+    ],
+    "fact_target": "timeline",
+    "optional": false,
+    "enabled": true,
+    "reminder_enabled": true,
+    "reminder_priority": 4,
+    "section_key": null,
+    "source_ref": null
+  },
+  {
+    "id": "e1c65fe0-9c84-57a4-b6c4-6321f5065ede",
+    "key": "address",
+    "label": "Address",
+    "questions": [
+      "Where is the house?",
+      "What's the project address, including the city?"
+    ],
+    "covered_when": "Street address and city confirmed by the client (or a saved address reconfirmed)",
+    "partial_when": "City only; unclear house number; mailing address not confirmed as the job address",
+    "reminder": "Remember to confirm the project address and city.",
+    "partial_reminders": {
+      "answer": "Remember to confirm the street address."
+    },
+    "components": [
+      {
+        "key": "street",
+        "label": "Street",
+        "required": true
+      },
+      {
+        "key": "city",
+        "label": "City",
+        "required": true
+      }
+    ],
+    "fact_target": "address",
+    "optional": false,
+    "enabled": true,
+    "reminder_enabled": true,
+    "reminder_priority": 2,
+    "section_key": null,
+    "source_ref": null
+  },
+  {
+    "id": "9a2539ab-3efb-5b55-9eb4-3b157c4bad94",
+    "key": "contact",
+    "label": "Contact",
+    "questions": [
+      "What's the best name, number and email for following up?",
+      "Is this the best callback number, and what email should I use?"
+    ],
+    "covered_when": "Name, callback number and email read back, or email declined with another way to reach them",
+    "partial_when": "Caller ID only; an email that wasn't spelled back; name only",
+    "reminder": "Remember to confirm the best callback number and email.",
+    "partial_reminders": {
+      "answer": "Remember to read back their email."
+    },
+    "components": [
+      {
+        "key": "name",
+        "label": "Name",
+        "required": true
+      },
+      {
+        "key": "callback",
+        "label": "Callback",
+        "required": true
+      },
+      {
+        "key": "email_or_alternative",
+        "label": "Email or alternative",
+        "required": true
+      }
+    ],
+    "fact_target": "contact_info",
+    "optional": false,
+    "enabled": true,
+    "reminder_enabled": true,
+    "reminder_priority": 0,
+    "section_key": null,
+    "source_ref": null
+  },
+  {
+    "id": "841007a1-cc1c-53f0-bf97-fd7d86596440",
+    "key": "who_decides",
+    "label": "Who decides",
+    "questions": [
+      "Who else will be involved in making decisions?",
+      "Would your spouse or partner like to be part of the next conversation?"
+    ],
+    "covered_when": "\"Just me\", or the other people/roles named",
+    "partial_when": "\"We\" or a spouse mentioned, involvement unclear",
+    "reminder": "Remember to ask who else should be involved.",
+    "partial_reminders": {
+      "answer": "Remember to ask if {person} should join the next conversation."
+    },
+    "components": [
+      {
+        "key": "people",
+        "label": "People",
+        "required": true
+      }
+    ],
+    "fact_target": "decision_makers",
+    "optional": false,
+    "enabled": true,
+    "reminder_enabled": true,
+    "reminder_priority": 5,
+    "section_key": null,
+    "source_ref": null
+  },
+  {
+    "id": "f4abe080-dbdd-517d-abf7-2e03bc0e0db0",
+    "key": "found_us",
+    "label": "How they found us",
+    "questions": [
+      "How did you hear about SJ Carpentry?",
+      "Did someone refer you, or did you find us online?"
+    ],
+    "covered_when": "A channel or referrer, or \"don't remember\"",
+    "partial_when": "Joe's guess; \"somewhere online\" never confirmed",
+    "reminder": "Remember to ask how they found us.",
+    "partial_reminders": {
+      "answer": "Remember to ask who referred them."
+    },
+    "components": [
+      {
+        "key": "channel",
+        "label": "Channel",
+        "required": true
+      }
+    ],
+    "fact_target": "referral_source",
+    "optional": false,
+    "enabled": true,
+    "reminder_enabled": true,
+    "reminder_priority": 9,
+    "section_key": null,
+    "source_ref": null
+  },
+  {
+    "id": "8ff2a254-7e82-5384-a125-b13b7ae3b1f5",
+    "key": "other_bids",
+    "label": "Other bids",
+    "questions": [
+      "Are you talking with any other contractors?",
+      "Are you getting other bids, or are we your first conversation?"
+    ],
+    "covered_when": "yes / no / undecided / declined",
+    "partial_when": "\"Shopping around\" with no context",
+    "reminder": "Remember to ask if they're getting other bids.",
+    "partial_reminders": {},
+    "components": [
+      {
+        "key": "answer",
+        "label": "Answer",
+        "required": true
+      }
+    ],
+    "fact_target": "other_bids",
+    "optional": false,
+    "enabled": true,
+    "reminder_enabled": true,
+    "reminder_priority": 8,
+    "section_key": null,
+    "source_ref": null
+  },
+  {
+    "id": "34dadc11-976f-54c6-9717-ba6a0722fa59",
+    "key": "years_staying",
+    "label": "Years in house / staying",
+    "questions": [
+      "How long have you lived there, and do you plan to stay a while?",
+      "Is this a long-term home for you, or are you thinking about selling?"
+    ],
+    "covered_when": "Both parts answered (uncertainty counts; \"not moved in yet\" counts)",
+    "partial_when": "Only one part",
+    "reminder": "Remember to ask how long they've lived there and plan to stay.",
+    "partial_reminders": {
+      "answer": "Remember to ask how long they plan to stay."
+    },
+    "components": [
+      {
+        "key": "occupancy",
+        "label": "Occupancy",
+        "required": true
+      },
+      {
+        "key": "stay_plan",
+        "label": "Stay plan",
+        "required": true
+      }
+    ],
+    "fact_target": "house_history",
+    "optional": false,
+    "enabled": true,
+    "reminder_enabled": true,
+    "reminder_priority": 12,
+    "section_key": null,
+    "source_ref": null
+  },
+  {
+    "id": "de810ce6-f82f-5bb4-baf9-b5bc4afd7861",
+    "key": "next_step",
+    "label": "Next step",
+    "questions": [
+      "What's the best next step for you — should I send the pre-con agreement and set up a time to come out?"
+    ],
+    "covered_when": "A dated meeting or visit; the client agrees Joe sends the pre-con agreement; or the client says they'll call back",
+    "partial_when": "\"Sounds good\" with nothing agreed",
+    "reminder": "Remember to agree on the next step.",
+    "partial_reminders": {
+      "answer": "Remember to set a date to come out."
+    },
+    "components": [
+      {
+        "key": "agreement",
+        "label": "Agreement",
+        "required": true
+      }
+    ],
+    "fact_target": null,
+    "optional": true,
+    "enabled": true,
+    "reminder_enabled": true,
+    "reminder_priority": 6,
+    "section_key": null,
+    "source_ref": null
+  },
+  {
+    "id": "bc06c781-30ff-5068-a947-ad3740aecfc0",
+    "key": "photos_request",
+    "label": "Photos",
+    "questions": [
+      "Could you text or email me a few photos of the space?"
+    ],
+    "covered_when": "Yes / no / already sent",
+    "partial_when": "—",
+    "reminder": "Remember to ask for photos.",
+    "partial_reminders": {},
+    "components": [
+      {
+        "key": "answer",
+        "label": "Answer",
+        "required": true
+      }
+    ],
+    "fact_target": null,
+    "optional": true,
+    "enabled": true,
+    "reminder_enabled": true,
+    "reminder_priority": 11,
+    "section_key": null,
+    "source_ref": null
+  },
+  {
+    "id": "ea7a6412-adf3-5a23-bc28-9db322440cc5",
+    "key": "property",
+    "label": "The property",
+    "questions": [
+      "Do you own the home? Is it a house, townhome or condo — any HOA?"
+    ],
+    "covered_when": "Owner yes/no (buying or renting → whose approval) **and** property type **and** HOA yes/no",
+    "partial_when": "Any one or two of the three",
+    "reminder": "Remember to ask if they own the home and if there's an HOA.",
+    "partial_reminders": {
+      "hoa": "Remember to ask if there's an HOA.",
+      "owner": "Remember to ask if they own the home.",
+      "type": "Remember to ask if it's a house, townhome or condo."
+    },
+    "components": [
+      {
+        "key": "owner",
+        "label": "Owner",
+        "required": true
+      },
+      {
+        "key": "type",
+        "label": "Type",
+        "required": true
+      },
+      {
+        "key": "hoa",
+        "label": "Hoa",
+        "required": true
+      }
+    ],
+    "fact_target": "property",
+    "optional": true,
+    "enabled": true,
+    "reminder_enabled": true,
+    "reminder_priority": 7,
+    "section_key": null,
+    "source_ref": null
+  },
+  {
+    "id": "3ce065d5-647b-5a2a-8a28-204b569f864b",
+    "key": "paying",
+    "label": "Paying for it",
+    "questions": [
+      "Will you pay for this out of pocket, or through a loan or insurance claim?"
+    ],
+    "covered_when": "cash / loan or HELOC / insurance claim / declined",
+    "partial_when": "\"We'll figure it out\"",
+    "reminder": "Remember to ask how they plan to pay.",
+    "partial_reminders": {},
+    "components": [
+      {
+        "key": "method",
+        "label": "Method",
+        "required": true
+      }
+    ],
+    "fact_target": "paying_with",
+    "optional": true,
+    "enabled": true,
+    "reminder_enabled": true,
+    "reminder_priority": 10,
+    "section_key": null,
+    "source_ref": null
+  }
+]

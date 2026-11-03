@@ -50,7 +50,7 @@ export function Topbar({ breadcrumb = "TODAY", unread = 0, leading }: TopbarProp
           })}
         </ol>
       </nav>
-      {/^\/inbox(?:\/|$)/.test(pathname) && <span id="inbox-approval-badge" className="order-last shrink-0 @min-[40rem]/shell:order-none" />}
+      {/^\/inbox(?:\/|$)/.test(pathname) && <span id="approval-badge-slot" className="order-last shrink-0 @min-[40rem]/shell:order-none" />}
       <CommandPalette />
       <Button className={inbox?"@max-[40rem]/shell:hidden":undefined} onClick={() => window.dispatchEvent(new Event(PALETTE_EVENT))} variant="ghost" size="sm" icon={Search} aria-label="Search" title="Search (⌘K)">
         <span className={inbox?"@max-[40rem]/shell:hidden":"@max-sm/shell:hidden"}>Search… <kbd className="ml-3 font-mono text-meta text-ink-3">⌘K</kbd></span>
@@ -58,6 +58,9 @@ export function Topbar({ breadcrumb = "TODAY", unread = 0, leading }: TopbarProp
       {inbox&&<Button className="hidden @max-[40rem]/shell:inline-flex size-11" variant="ghost" icon={Filter} iconOnly aria-label="Inbox views" title="Views" onClick={()=>window.dispatchEvent(new Event('inbox-views'))}/>}
       {inbox&&<Button className="hidden @max-[40rem]/shell:inline-flex size-11" variant="ghost" icon={Search} iconOnly aria-label="Search inbox" title="Search inbox" onClick={()=>window.dispatchEvent(new Event('inbox-search'))}/>}
       {inbox&&<Button className="hidden @max-[40rem]/shell:inline-flex size-11" variant="ghost" icon={PenSquare} iconOnly aria-label="Compose email" title="Compose email" onClick={()=>window.dispatchEvent(new Event('inbox-compose'))}/>}
+      {/* Compact approvals' "Decisions N" badge when the page has no slot of its
+          own (APPROVAL_TOPBAR_SLOT_ID, lib/notification-placement.ts), on every page. Hidden while empty. */}
+      <span id="approval-badge-topbar" className="shrink-0 empty:hidden" />
       <span className={inbox?"@max-[40rem]/shell:[&_a]:min-h-11 @max-[40rem]/shell:[&_a]:px-1 @max-[40rem]/shell:[&_a]:justify-center":undefined}><NotificationBell initial={unread} labelled={inbox} /></span>
     </div>
   );

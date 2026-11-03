@@ -2894,7 +2894,7 @@
       "note": "staff Gmail refresh tokens; only the website's own mailbox code reads them"
     },
     "users": {
-      "note": "logins and passwords: Joe's Settings › Team (website) or his own panel run only",
+      "note": "logins and passwords: Joe's Settings \u203a Team (website) or his own panel run only",
       "sjcos_agent": [
         "SELECT(id,email,name,role,initials,link_slug,active,permissions,created_at,portal_claimed_at,ai_scope,last_permission_change_at)"
       ],
@@ -3029,6 +3029,87 @@
       "sjcos_readonly": [
         "SELECT"
       ]
+    },
+    "checklist_definitions": {
+      "note": "Shared checklist v3: no raw content access; use signed scoped functions.",
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ]
+    },
+    "checklist_versions": {
+      "note": "Shared checklist v3: no raw content access; use signed scoped functions.",
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ]
+    },
+    "checklist_sessions": {
+      "note": "Shared checklist v3: no raw content access; use signed scoped functions."
+    },
+    "checklist_definition_items": {
+      "note": "Shared checklist v3: no raw content access; use signed scoped functions.",
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ]
+    },
+    "checklist_version_items": {
+      "note": "Shared checklist v3: no raw content access; use signed scoped functions.",
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ]
+    },
+    "checklist_session_items": {
+      "note": "Shared checklist v3: no raw content access; use signed scoped functions."
+    },
+    "conversation_segments": {
+      "note": "Shared checklist v3: no raw content access; use signed scoped functions."
+    },
+    "checklist_item_coverage": {
+      "note": "Shared checklist v3: no raw content access; use signed scoped functions."
+    },
+    "checklist_evidence_refs": {
+      "note": "Shared checklist v3: no raw content access; use signed scoped functions."
+    },
+    "checklist_events": {
+      "note": "Shared checklist v3: no raw content access; use signed scoped functions."
+    },
+    "checklist_jobs": {
+      "note": "Shared checklist v3: no raw content access; use signed scoped functions."
+    },
+    "checklist_context_keys": {
+      "note": "Shared checklist v3: no raw content access; use signed scoped functions."
+    },
+    "checklist_consent_evidence": {
+      "note": "Shared checklist v3: no raw content access; use signed scoped functions."
+    },
+    "checklist_legal_holds": {
+      "note": "Shared checklist v3: no raw content access; use signed scoped functions."
+    },
+    "checklist_purge_requests": {
+      "note": "Shared checklist v3: no raw content access; use signed scoped functions."
+    },
+    "checklist_purge_targets": {
+      "note": "Shared checklist v3: no raw content access; use signed scoped functions."
+    },
+    "checklist_content_lineage": {
+      "note": "Shared checklist v3: no raw content access; use signed scoped functions."
+    },
+    "checklist_operation_receipts": {
+      "note": "Shared checklist v3: no raw content access; use signed scoped functions."
+    },
+    "checklist_call_settings": {
+      "note": "Shared checklist v3: no raw content access; use signed scoped functions."
     }
   }
 }

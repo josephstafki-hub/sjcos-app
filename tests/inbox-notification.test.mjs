@@ -13,7 +13,8 @@ const url = new URL(
   import.meta.url,
 ).href;
 const source = readFileSync(new URL(url), "utf8");
-const fixture = { path: "/inbox", opened: false, surface: false, cursor: 0 };
+// The badge's home: Inbox's own slot in the top bar (portal stubbed below).
+const fixture = { path: "/inbox", opened: false, surface: false, cursor: 0, slot: { el: { id: "approval-badge-slot" }, page: true } };
 globalThis.__approvalUI = {
   React,
   fixture,
@@ -23,6 +24,7 @@ globalThis.__approvalUI = {
       let value = typeof initial === "function" ? initial() : initial;
       if (index === 0) value = fixture.surface;
       if (index === 1) value = fixture.opened;
+      if (index === 2) value = fixture.slot;
       if (Array.isArray(value)) value = [{ key: "decision-1" }];
       return [value, () => {}];
     },
@@ -34,6 +36,8 @@ globalThis.__approvalUI = {
 const stubs = {
   react:
     "const h=globalThis.__approvalUI.hooks;export const useState=h.useState,useRef=h.useRef,useEffect=h.useEffect,useCallback=h.useCallback;",
+  "react-dom":
+    "export const createPortal=(node,el)=>globalThis.__approvalUI.React.createElement('div',{'data-portal':el.id},node);",
   "next/navigation":
     "export const usePathname=()=>globalThis.__approvalUI.fixture.path;export const useRouter=()=>({refresh(){}});",
   "next/link":
@@ -47,7 +51,7 @@ const stubs = {
 };
 registerHooks({
   resolve(s, c, n) {
-    if (s in stubs && (s !== "react" || c.parentURL === url))
+    if (s in stubs && ((s !== "react" && s !== "react-dom") || c.parentURL === url))
       return { url: "stub:approval:" + s, shortCircuit: true };
     if (s === "@/lib/notification-placement")
       return n(
@@ -91,14 +95,15 @@ test("inbox renders only a compact badge until deliberately opened; active inbox
   ]) {
     const html = render(path, false, surface);
     assert.match(html, /1 waiting on you/);
-    assert.match(html, /Decisions 1/);
+    assert.match(html, /<div data-portal="approval-badge-slot"><button/, "the badge sits in the page's slot");
+    assert.match(html, /Decisions<\/span> <span>1<\/span>/);
     assert.match(html, /aria-expanded="false"/);
     assert.doesNotMatch(html, /data-approval-card|Decision details|bottom-\[/);
   }
 });
 test("explicitly opened inbox decisions use their own layer below dialogs; other pages retain the original stack", () => {
   const opened = render("/inbox", true);
-  assert.match(opened, /id="inbox-decisions"/);
+  assert.match(opened, /id="approval-decisions"/);
   assert.match(opened, /z-\[35\]/);
   assert.match(opened, /Close decisions/);
   assert.match(opened, /data-approval-card/);

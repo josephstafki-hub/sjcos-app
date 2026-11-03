@@ -45,10 +45,11 @@ async function visitScopeFacts(run:Run,projectId:string,scopeKey:string,consultI
  const moduleDefs=pins.map(p=>p.definition).filter(d=>'fields' in d);
  const templates=pins.map(p=>p.definition as unknown as TemplateDef).filter(d=>'derived' in d);
  const projection=pinnedDerivations(moduleDefs,templates,instances,answers);
+ const global:Record<string,unknown>={};for(const module of moduleDefs)for(const field of module.fields){const values=instances.filter(i=>i.module_key===module.key).map(i=>projection.scalar(i,field.key)).filter(v=>v!==undefined);if(values.length)global[`${module.key}.${field.key}`]=values.length===1?values[0]:values;}
  const groups=new Map<string,ConsultScopeFactsV1['measurements'][number]>();
  for(const instance of instances){
   const mod=pins.find(p=>p.definition.key===instance.module_key)?.definition;if(!mod?.fields)continue;
-  const rows=answers.filter(a=>a.instance_id===instance.id),values=Object.fromEntries(rows.filter(a=>a.status==='answered').map(a=>[a.field_key,a.value]));
+  const rows=answers.filter(a=>a.instance_id===instance.id),values={...global,...Object.fromEntries(mod.fields.map(f=>[f.key,projection.scalar(instance,f.key)]))};
   if(mod.key==='selections'){
    const who=rows.find(a=>a.field_key==='who_buys'&&a.status==='answered'&&a.value==='Client');
    const decision=rows.find(a=>a.field_key==='decision'&&a.status==='answered');
@@ -57,13 +58,14 @@ async function visitScopeFacts(run:Run,projectId:string,scopeKey:string,consultI
   for(const field of mod.fields){
    let a=rows.find(a=>a.field_key===field.key);const map=field.maps_to;
    let revisions=a?[safe(a.server_revision)]:[];
-   if(field.derive){
+   if(field.derive||field.derive_cases){
     const result=projection.field(instance,field.key);
     revisions=result?.answer_revisions??[];
     if(result)a={id:rows[0]?.id,instance_id:instance.id,field_key:field.key,status:'answered',value:result.value,unit:field.unit??'',server_revision:String(Math.max(0,...revisions)),skip_reason:'',skip_note:''};
    }
-   if(field.flag&&conditionMatches(field.flag.when,key=>values[key])){
-    const d=ev.flags?.[`${instance.id}:${field.key}`];out.flags.push({key:`${instance.id}:${field.key}`,text:field.flag.issue,disposition:d?.disposition??null,reason:d?.note??null,decided_by:d?evidence.actor:null,decided_at:d?new Date(evidence.updated_at).toISOString():null});
+   const derivedScalar=projection.scalar(instance,field.key);if(!a&&derivedScalar!==undefined&&rows[0])a={...rows[0],field_key:field.key,status:'answered',value:derivedScalar,unit:field.unit??''};
+   for(const [index,flag] of [...(field.flag?[field.flag]:[]),...(field.flags??[])].entries())if(conditionMatches(flag.when,key=>values[key])){
+    const key=`${instance.id}:${field.key}${index?':'+index:''}`,d=ev.flags?.[key];out.flags.push({key,text:flag.issue,disposition:d?.disposition??null,reason:d?.note??null,decided_by:d?evidence.actor:null,decided_at:d?new Date(evidence.updated_at).toISOString():null});
    }
    if(!map||map.scope_key!==scopeKey||!a)continue;
    if(a.status==='skipped'){

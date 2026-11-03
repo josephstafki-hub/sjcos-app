@@ -1,276 +1,173 @@
-# Phase 1 backend — current handoff (0078)
+# Phase 1 consult backend and offline integration — 0079
 
-This section supersedes all historical limitations below. Backend findings jobs,
-reconciliation/export, and scheduled maintenance are implemented on
-`t3/in-home-consult-backend`. **Remaining implementation: browser offline engine +
-service worker, and UI.** No build, browser, deployment, push, timer installation,
-service operation, live DB or QA connection was performed.
+This is the authoritative handoff for `t3/in-home-consult-backend`. It replaces
+previous continuation notes. Capture, publication, uploads, findings jobs,
+reconciliation, maintenance, offline modules and the service-worker protocol are
+implemented. This is a backend slice: the consultation UI and its compiled offline
+capture bundle are not supplied. No deployment, push, browser, Next build, live DB
+or QA connection was performed.
 
-## Findings job API and execution
+## UI integration order
 
-- Complete enqueues `(consult_id, completion_generation)` in `consult_findings_jobs`
-  in the same transaction when `consult_auto_apply_findings=true`. With the pilot
-  switch off, `apply_findings` / MCP `apply_consult_findings` enqueue that same key.
-  The immediate response is `{ok:true,generation,status,result}` (queued, leased,
-  done or failed), or `{ok:false,code}` for not-complete/stale requests. The old
-  synchronous `{generation,results}` response is now the persisted job `result`.
-- Snapshot/get_consult includes `findings_job` (or null): generation, status,
-  attempts, available_at, lease_until, last_error and result. UI maps failures to
-  the approved “Couldn't apply findings” copy; Try again enqueues the same key.
-- `lib/worker/consult.ts` commits a two-minute, UUID-fenced claim separately.
-  Processing locks project → consult → fence → scopes → pinned plan. All findings,
-  contributions, plan changes, estimator effects, task and application receipt
-  commit with the final fence acknowledgment. Expired or replaced leases cannot
-  commit effects. Process death rolls back effects; the next tick reclaims expiry.
-  Errors retry at exponential 30s–1h backoff; five failed attempts park one stable
-  owner repair task. A successful retry closes that repair task.
-- Reopen obsoletes pending jobs and retracts owned evidence. Complete immutable
-  generations retain historical application receipts; repeats cannot create twins.
-  Cancellation is owner-only `command:'cancel', input:{expected_revision,reason}`.
+1. Build the consult client UI into `public/consult/assets/capture.js`, with every
+   import, stylesheet, font, keypad and renderer dependency under that directory.
+   Mount on `#consult-root` in `public/consult/offline.html`; this shell must stay
+   data-free. In-tool navigation is local state, never an offline RSC fetch.
+2. Run `node scripts/consult-precache.mjs` after bundling. It generates
+   `public/consult/precache.json` with content hashes and a content-derived build ID.
+   It deliberately refuses an absent capture bundle. No placeholder renderer is
+   shipped or counted as ready. Supply that build ID in `OfflineIdentity.build`.
+3. Call `registerConsultWorker(enabled)` from a client. Registration uses `/sw.js`,
+   scope `/consult/`, updateViaCache `none`. Await an active worker. Redirect and
+   no-cache script/API headers are installed in `next.config.ts`; `proxy.ts`
+   preserves the scoped trailing slash and allows only the data-free static shell
+   assets through without cookies.
+4. Open `ConsultOfflineStore`, then call `getReady()` with the current identity,
+   stable device UUID, PIN, manifest, active worker, storage manager, byte budget,
+   and `onCheck`. It runs snapshot → checksum-pinned forms → verified precache →
+   actual IDB probe/capacity → online device reservation + signed lease + PIN
+   enrollment + durable local snapshot. Result is `{ok:true,engine,capacity,
+   expires_at}` or `{ok:false,code,check}`. Optional mic stays Notes off.
+5. The session epoch is the authenticated session time in whole seconds, as returned
+   by the signed lease payload. User/build/consult must match the authenticated
+   bootstrap. Do not substitute another user's identity or a current clock value.
+6. Cold offline reload uses `OfflineVault.unlock(identity,device,pin)` followed by
+   `OfflineEngine.unlockSigned(key,signed,device,issuer)`. No unlocked global
+   singleton, plaintext localStorage, or shared last snapshot. Never import the
+   server signer in a client. Only local CryptoKeys and ciphertext are persisted.
+7. Offline Start is an ordinary durable `type:'start', target:null, payload:{}` op,
+   based on the prepared consult revision. It precedes instance/answer operations.
+   Get ready reserves the device without changing scheduled to in_progress.
 
-## Reconciliation and v1 facts
+## Browser modules and states
 
-- Current generation facts aggregate disjoint sf/lf/ea across instances. Applied
-  visit contributions combine across visits into one `consult-aggregate:` quantity;
-  correction, removal, Reopen and cancellation rebuild from surviving contributions.
-  Manual/other-source quantities survive. Sent/signed formal estimates remain
-  proposals, never writable targets. Dedicated prices survive draft recomputation.
-- Replaced findings/contributions retain retraction/supersession timestamps.
-  Contribution manifests include formula version, answer revisions and photo IDs.
-  Nonadditive dimensions are evidence only. Plan answers use the pinned plan ID and
-  revision plus exact item IDs, scope, kind, unit and instance/field or photo shot.
-- Pinned arithmetic resolves sibling/cross-module formulas and template quantities,
-  tracks all contributing source revisions, and refuses missing/ambiguous dimensions.
-  Template-owned labels replace module intermediates (including basement context).
-  Version-1 conditional seed derivations are used only when the pinned module exactly
-  equals its executable seed definition; edits never inherit a guessed old formula.
-- Export retains strict v1 wire names. It combines visit evidence, actual trade-task
-  status, permit authority/inspectors and era certs/expiry, flags and human decisions,
-  assumptions, supplier/client-supplied exclusions, photos and explicit new-work
-  origin. New-work answer values are `{origin,text}` with the two approved origins;
-  both TS and SQL reject untyped new-work prose. No origin is inferred.
-- Scope facts carry sorted provenance and a stable aggregate hash. Nonowner MCP
-  callers must have access to every contributing visit. Estimate readiness uses
-  this same export and the six established consult gap codes.
-
-## Timer integration (not installed)
-
-`deploy/sjcos-consult.timer` / `.service` run `scripts/consult-tick.mjs` each minute.
-The launcher uses CRON_SECRET to POST `/api/cron/consult`; the route follows the
-existing cron guard/cron_runs pattern and uses the website's owner connection.
-Narrow database logins receive no additional table or approval privileges.
-The route processes at most ten jobs and performs idempotent maintenance:
-expired upload parts/status, recognizable disk orphans older than 48 hours,
-forgotten/incomplete visit finish tasks next business day, and return tasks on the
-owner's chosen date (undated when absent). All dated tasks use Central midnight and
-the existing future-day snooze trigger. No stage promotion or review task exists.
-
-## Validation
-
-The original 52 regression cases plus new job/fencing/crash, multi-visit/correction,
-export/readiness and maintenance cases are run one file at a time. The expanded
-regression set has 64 cases. Crash injection covers findings, contributions, scope
-quantities, pinned plans, work items, application receipts and final job acknowledgment.
-Locked/niced TypeScript and role-manifest/path checks are included. A disposable
-cluster with an earlier development migration checksum was discarded before the
-final regression run. An early cluster shutdown after the final role-path assertions
-caused a teardown failure; that file was rerun to process exit before cleanup.
-The `consult` disposable cluster is stopped before handback.
-See the implementation turn's final reply for final pass/fail counts and commit.
-
----
-
-# Historical handoff (superseded by the section above)
-
-# In-home consultation backend handoff — capture server slice implemented
-
-The current contract is in **Current server integration** below. Earlier continuation
-notes are historical and describe the pre-0076 foundation. Phase 1 as a whole still
-requires files/uploads, browser offline integration, and office findings. Do not deploy
-this as an end-to-end offline consultation feature. No deployment or push performed.
-
-Branch: `t3/in-home-consult-backend`.
-Phase 0 commit: `3e3e1cca` (only MCP kinds/aliases and estimating regression test).
-
-**Phase 1 is not implemented end to end. Do not treat this branch as a working capture backend.**
-The modules below are tested foundations. Migration 0075 now supplies storage and a tested subset of signed SQL commands.
-No consult routes, executable/published seed, full command protocol, file authorization
-changes, service worker, or reconciliation have been installed. Existing business behavior is unchanged except the Phase 0 fix.
-No dependency on the parallel 0073/0074 work was introduced. Nothing was pushed.
-
-## Implemented contracts
-
-| Import | Available API | Responsibility / integration constraint |
-|---|---|---|
-| `lib/consult/form-types.ts` | `FieldDef`, `ModuleDef`, `TemplateDef`, `When`, `ShotDef`, units/tiers | Plan §7.1 types, client-safe. These are definitions, not the seed. |
-| `lib/consult/forms/validate.ts` | `fieldSchema`, `moduleSchema`, `templateSchema`, `validateModule`, `validateTemplate` | Zod strict structural validation, tiers/units, duplicate fields/shots/coverage, registered mapping labels and module membership. Publication transaction and SQL validation remain unbuilt. Formula strings are not evaluated. |
-| `lib/consult/forms/approved-content.ts` | `approvedFormContent` | Exact §7.2–7.11 content preserved verbatim. **Not `forms/seed.ts`, not executable definitions, not publishable.** Includes all shared modules, seven template sections, template-specific fields, add-ons, scripts, shots, code flags, mappings and conditions as approved prose. |
-| `lib/consult/length.ts` | `parseLength`, `parseLengthPair`, `formatLength`, `LengthOptions` | Inches to 1/16 storage, configurable display precision; explicit feet/inches/metric, Unicode fractions, paired input, range-based bare-number interpretation. UI must show interpretation before Save. |
-| `lib/consult/completeness.ts` | `CompletionInput`, `CompletionItem`, `RiskAssumption`, `consultCompleteness`, `countingSkip`, `conditionMatches` | Eleven checks and separate price-critical/record counts. **Input must be built from trusted server records**, never accepted directly from a browser. No role argument, owner exemption or review step. Does not persist/lock Complete. Compound/nested conditions compile through `forms/conditions.ts` and are accepted by form validation; full seed conditions remain unbuilt. |
-| `lib/consult/queue.ts` | `ConsultOp`, `AnswerAddress`, `QueueState`, `emptyQueue`, `enqueue`, `payloadHash`, `canonicalJson`, `nextBatch`, `applyReceipt`, `applyServerEpoch`, `closeManifest`, `QueueDrain` | Pure queue transitions; stable IDs/hash, per-device sequence, bounded batches, backoff, visible conflicts, tombstones. Caller persists queue and projection together. `enqueue` expects a previously computed hash; the server must recompute/validate it. No transport/CSRF or server receipts exist. |
-| `lib/consult/offline.ts` | `OfflineIdentity`, `OfflineLease`, `partitionKey`, `assertOfflineLease`, `seal`, `unseal`, `ConsultOfflineStore.open/load/save/preflight/close` | AES-GCM encrypted whole-state IDB partition with revision CAS and commit acknowledgment. Online lease issuance, device-bound key/PIN management, unlock controller, quota sizing and takeover remain unbuilt. Browser IDB transactions have not been executed. |
-| `lib/consult/readiness.ts` | `ReadyCheck`, `readinessLabels`, `offlineReadiness` | First five readiness checks must pass; optional mic never blocks manual capture. Actual downloads, precache, storage estimate and lease issuance remain unbuilt. |
-| `lib/consult/client-summary.ts` | `ClientSummary`, `clientSummary`, `handBackAllowed` | Explicit allowlist excludes extra internal/price/transcript properties even on nested room objects. Two-second hold or verified PIN. UI must unmount visitor view and cancel hold on release; PIN verification is external. |
-| `lib/consult/copy.ts` | `failureCopy`, `controlCopy` | All 20 current §5.7 rows and the §3 visitor/office words table, with approved wording and placeholders. Arrays include audio/future-phase copy for later use; they do not enable those features. |
-| `lib/consult/scope-facts.ts`, `scope-facts-schema.ts` | `ConsultScopeFactsV1`, `consultScopeFactsV1Schema` | Exact v1 wire keys, strict validation, safe revisions, sorted provenance, empty `none`, source-labelled additions. `reviewed` means Complete, never a UI label or stored lifecycle status. **No `consultScopeFacts()` DB export exists.** |
-
-## Screen and state mapping for the UI builder (§5–§7)
-
-The available client-safe functions can be imported now. Entries marked **unbuilt**
-are dependencies to implement before wiring a screen to real client data. Do not add
-mock success responses or make readiness/completion promises from the pure reducers alone.
-
-| Screen / state | Available imports | Required action/loader still unbuilt |
-|---|---|---|
-| Overview / Schedule / Ops entry; today list, empty, loading | `controlCopy` for names | Assigned visit list loader, owner schedule command, area/assignment gate, enrollment-aware project links, visitor schedule to-do. |
-| Schedule dialog: who/date/time/templates/add-ons/notes/duration | `TemplateDef` only | Owner-authenticated schedule, pinned checksums/plan revision, future Central-day work item; no automatic stage promotion. |
-| Get ready: Checking / Not ready / No signal / Ready offline | `readinessLabels`, `offlineReadiness`, `ConsultOfflineStore.preflight`, `failureCopy` | Scoped snapshot, executable forms, static precache, capacity estimate, signed 24h lease and device/PIN key. First five checks actually run in order; mic absent in Phase 1. |
-| Start / opening script cards / Next | `approvedFormContent` has approved opening and staff variation | Published seed, pinned template loader, authenticated start operation, one-device registration. Notes must stay off in Phase 1. |
-| Phone field entry / tablet two panes / portrait grid | `FieldDef`, `ModuleDef`, parser and form validators | Pinned instances, answer-value validation, condition/mapping compiler, server sync. Layout does not alter logical address `{instance_id,field_key}`. |
-| Keypad / laser mode / Same as last / paired dimensions | `parseLength`, `parseLengthPair`, `formatLength` | Persist via IDB CAS before check/haptic. UI shows `display`/interpreted unit and handles `{ok:false,error}`; no save on parse failure. |
-| Repeat room/window/door / parent instances | `ConsultOp`, `AnswerAddress` | Server instance membership, pinned versions, once-module uniqueness, parent-cycle validation and removed-instance tombstones. |
-| Prefill: Still right / Correct | Queue payload can carry explicit confirmation | Scoped source/time prefill; hide financials without estimates permission; unconfirmed prefill cannot count. |
-| Per-field Skip / assumption fields / Return visit | `SkipReason`, `RiskAssumption`, `countingSkip` | Persist skip, validate contradictory N/A on server, return/trade walk tasks. Return visit remains open. No section-wide skip. |
-| Photo: Saved on device / Uploading / Uploaded / Retake | Encrypted partition can hold JSON state only; queue tracks logical op | Separate durable encrypted blob storage, bounded image decoding/EXIF stripping, upload init/part/status/commit and classification gates. Do not serialize raw blobs through JSON state. |
-| Compact status / expanded send sheet / Send now / Sun mode | Queue entries / `nextBatch` / `QueueDrain`; `controlCopy` | Transport and durable queue binding, last-send metadata, offline recovery controller. Only show Saved after IDB `save()` resolves. Phase 1 status is Notes off. Sun mode is a UI device preference. |
-| Leaving section / Go back / Leave for now | Completeness item/count output | Section projection from pinned answers/conditions; in-tool Back handling belongs to UI. |
-| Show to client: recap / initials / Renovate Right receipt | `clientSummary`, `ClientSummary`, `handBackAllowed` | Source recap generation, initials blob commit, receipt command; UI unmounts all visitor data, traps Back, returns to visitor preview after hold/PIN. Initials are acknowledgment, never consent/contract/price approval. |
-| Before you wrap: Open / Partly / flags / walks / conflicts | `consultCompleteness` gives named check/open-key groups and tier counts | Trusted completeness projection, flag/walk mutation handlers and target navigation. Pending AI chips do not block, but no AI in Phase 1. |
-| Close / closed—sending / Complete / Needs finishing | `closeManifest`, `consultCompleteness` | Exact digest acknowledgment, accepted sequences/committed blob check, server reducer/locked generation, finish/return/promise tasks. Local completion alone cannot show server Complete. |
-| Forgot Close / interrupted / cut short | `failureCopy` | Persisted lifecycle and device gap metadata; no idle completion. |
-| Conflict picker: Pick / Enter another | Queue entry `conflict` state and payload | Server revision pair, human resolution command with both revisions/reason, consciously rebased new op. Queue never chooses by time/source. |
-| Reopen | `applyServerEpoch` makes old queue entries `rebase_required` conflicts | Authorized visitor/owner action with expected revision/reason, generation increment, immutable history. |
-| Desktop optional look-over / phone stacked version | Completion counts, scope export types/schema, same conflict states | Snapshot/media/gaps loader, assignment check, Apply findings, Reopen. No review button or review to-do. Complete locks editing. |
-| Findings applied / failed / Try again / pilot Apply findings | Wire contract types only | Generation/hash reconciliation with exact plan IDs, aggregation/retraction/provenance, sent/signed locks, once-only job and repair task. |
-| Forms Settings list / pinned old preview / editor | `validateModule`, `validateTemplate`, definitions | All version persistence/publish/retire guards and owner APIs. Editor itself Phase 1.5. |
-| Transcript / chips / note lines / Delete transcript | Copy only | Intentionally Phases 2–3; no recorder, model, transcript or consent-evidence storage implemented. |
-| Sketch / helper devices / floor draft | Copy/type context only | Phase 4. No fake sketch evidence; no helper device capture. |
-
-## Error codes and copy
-
-Use `failureCopy` / `controlCopy` as the wording source; do not expose raw codes as labels.
-
-| Result / code | UI behavior and plan copy |
+| Import | Final API / UI obligation |
 |---|---|
-| parser `invalid_length`, `out_of_range`, `invalid_length_pair` | Keep keypad open, show interpretation and request correction; no queue write. §6.6 does not provide a universal error sentence. |
-| local `storage_unavailable`, `storage_blocked`, `storage_full` | Get ready's check reason or “Storage full — connect to save, or use paper.” No check/haptic/save tick. Retain last durable record. |
-| local `local_conflict` | Reload same-user encrypted partition and consciously reapply draft; never overwrite another tab's durable state. No plan-prescribed unique sentence. |
-| `offline_locked`, HTTP 401 | “Signed out — your answers are safe on this device. Sign in as {name} to send them.” [Sign in]. Key/lease controller must lock decrypted memory; not implemented. |
-| HTTP 403 | “Your access to this visit was removed. Your answers are locked on this device and Joe can recover them.” Quarantine original author/queue. |
-| HTTP 409 `conflict`, `rebase_required` | “This field changed on another device. Pick which value to keep.” [Pick] [Pick] [Enter another]. Preserve proposed/current revisions. |
-| HTTP 409 `idempotency_mismatch` | Stop drain; retain op; diagnose changed payload under same ID. Do not generate replacement IDs automatically. No approved separate copy specified. |
-| HTTP 410 / greater deletion epoch | Tombstone before exposing cached content, no replay. Transcript deletion uses “The transcript for this visit was deleted.” Form/media deletion needs a server-specific recovery flow. |
-| HTTP 422 | Keep rejected op visible for correction; upload uses “This photo couldn't be sent ({reason}). [Retake]”. |
-| HTTP 423 `complete_locked` | Require Reopen with expected revision/reason. Never silently edit a completed generation. |
-| HTTP 426 / unsupported protocol or checksum | “Update ready — reload between rooms.” [Reload]. Retain original build partition until explicit safe migration/recovery; never silently translate/drop. |
-| HTTP 429 / 5xx / lost connection | Jittered 2–60 second retry; same op IDs. No signal: “No signal · saved on this device”. |
-| findings apply failure | “Couldn't apply findings to the scope — [Try again]”. Same generation/application key on retry. |
+| `offline.ts` | `ConsultOfflineStore.open/load/save/preflight/keyRecord/saveBlob/loadBlob/deleteBlob/blobHashes/clearPartition/close`; encrypted IDB v2, identity/build partitions, revision CAS, transaction acknowledgment. Never call clearPartition on logout with pending work. |
+| `offline-vault.ts` | `OfflineVault.enroll/renew/unlock/recover`. Nonextractable device AES key + PBKDF2 PIN envelope, issuer pinning, persisted PIN backoff. Renew cannot replace issuer. Recover requires an owner-issued recovery-purpose lease and original PIN/device. |
+| `offline-engine.ts` | `OfflineEngine.unlockSigned/read/prepare/capture/captureBlob/replay/epochs/resumeAuthorized/lock/logout/recoveryManifest/orphanHashes/evictSyncedBlobs`. Read returns a clone. Expiry blocks all reads/capture. Revocation quarantines and locks. Logout clears decrypted references, retains ciphertext. |
+| `queue.ts` | Stable event IDs, canonical payload hash, sequence, bounded batches, conflict/rejection states, 2–60s backoff. `closeManifest` is local evidence only; server acknowledgment decides Complete. `426` blocks the entire queue without changing original ops. |
+| `get-ready.ts` | Ordered readiness coordinator; existing pending partition wins over newly downloaded data. Reauthentication only resumes signed-out operations after a successful authorized online bootstrap. Revoked partitions require owner recovery. |
+| `service-worker.ts` | `registerConsultWorker`, `prepareConsultShell`, `verifyConsultShell`, `activateConsultUpdate`, `workerMessage`. Failed checks never imply offline readiness. Activation requires zero pending work or explicit safe migration. |
+| `length.ts` | `parseLength/parseLengthPair/formatLength`; interpretation must be shown before save. Save tick/haptic only after `capture`/`captureBlob` resolves. |
+| `client-summary.ts` | `clientSummary` allowlist and `handBackAllowed`; UI unmounts all visitor information and cancels hold on release. |
+| `copy.ts`, `readiness.ts`, `completeness.ts` | Approved wording, ordered check labels, eleven completion checks and tier totals. Server supplies trusted completeness. |
 
-## Remaining backend work
+`LocalVisit` is `{queue,snapshot,blobs,last_send}`. Each blob metadata record has
+`hash,event_id,mime,kind,instance_id,field_key?,shot_key?,receipt?`. Blob bytes are
+separately AES-GCM encrypted, hash verified before persistence, never JSON arrays in
+the whole visit. Save blob bytes before metadata: a crash between commits leaves a
+recoverable encrypted orphan; `orphanHashes()` lists it for explicit classification.
+Never guess its room/shot. `evictSyncedBlobs()` removes only bytes with a committed
+server receipt and no pending same-hash reference. Call before retrying after quota;
+never evict pending media. On a storage failure, keep the prior durable state and
+stop capture until the visitor resolves it.
 
-- Files/uploads: authorization on every generic file path, bounded image/EXIF processing,
-  multipart/deterministic commit recovery, initials and photo capture. No upload command
-  is exposed by this slice. Required photos/initials cannot be faked by close evidence.
-- Offline browser engine: IDB/browser verification, encrypted blobs, device/PIN keys,
-  leases, quarantine/takeover, data-free shell and service worker, update/recovery flow.
-- Office outputs: findings reconciliation, provenance and sent/signed locks, generation
-  supersession, scope facts DB export and pricing readiness. No findings job is enqueued
-  by this slice. Complete itself requires no owner action/review.
-- Agent proposals remain a later slice. Agents cannot use website person commands.
-- Executable seed belongs to the parallel seed builder. It was absent at this slice's
-  final validation; publication was tested using small real module/template fixtures.
-  Run publication on the complete seed when it lands; do not infer seed acceptance.
+`replay()` is one drain per engine. Construct one engine per device/visit in the UI;
+IDB CAS also detects competing tabs. It calls the actual command API, preserves IDs
+on transport loss, processes per-op receipts, then resumes bounded multipart uploads
+and deterministic commit. Calling it again retries the same logical event, including
+acknowledgment loss after upload commit. UI schedules retries using queue next_at;
+there is no autonomous background timer or service-worker mutation replay.
 
-## Validation in this worktree
+`epochs(generation,device_epoch,deletion_epoch)` handles a fresh authorized server
+snapshot: stale snapshots fail, greater deletion epochs tombstone and clear visible
+content, generation/device changes require conscious rebase. Current server reads
+use fresh snapshots rather than incremental cursors; no cursor endpoint is promised.
+The app's removed-instance/media records are the authoritative tombstones.
 
-All commands use single named files and the `consult` disposable cluster where applicable.
-Initial regression failures encountered while writing the new tests were corrected.
+## Service worker lifecycle
 
-- `estimating-db.test.mjs`: 9 passing, including registered MCP schema/handler and real DB.
-- `consult-length.test.mjs`: 3 passing.
-- `consult-forms.test.mjs`: 3 passing (validator/content fidelity only; not full seed coverage).
-- `consult-completeness.test.mjs`: 5 passing (pure reducer; not persisted completion).
-- `consult-queue.test.mjs`: 4 passing.
-- `consult-offline.test.mjs`: 2 passing (Node crypto/lease only; IDB/browser unverified).
-- `consult-readiness.test.mjs`: 2 passing.
-- `consult-scope-facts.test.mjs`: 2 passing (wire schema/client allowlist, not DB export).
-- `db-roles-manifest-db.test.mjs`: 6 passing on existing schema.
-- `db-roles-paths-db.test.mjs`: 2 passing on existing code/schema.
-- `node scripts/db-roles-scan.mjs --diff`: exit 0, only documented intentionally withheld privileges.
-- Locked `tsc --noEmit -p .`: first run exit=0; expanded validation found and corrected one return-type mismatch; final run exit=0.
+Only `/consult/offline.html` and explicit `/consult/assets/*` hashes can enter
+CacheStorage. API, RSC, sign-in redirects and authenticated HTML never enter it.
+Online navigation passes through; disconnected navigation uses a complete verified
+shell. A missing asset/checksum/renderer refuses Ready. Old caches are retained;
+when several builds coexist, use `?consult_build=<build>` in the visit URL so cold
+navigation selects the correct build. One cache needs no selector.
 
-No Next server/build, browser, paid model call, live database connection, deployment or
-service operation. Disposable test cluster is stopped before handback. No visual check
-was run. A future coordinator must check phone/tablet/keypad, client Back/Hand back,
-no-signal cold reload, storage/quota/identity switch and recovery after a complete backend
-and UI exist.
+On build mismatch show “Update ready — reload between rooms”. Never drop or
+translate a queued old-build op. `activateConsultUpdate(registration,pending,
+safelyMigrated)` refuses unsafe activation. On a live kill-switch update call
+`registerConsultWorker(false)`: it sends STOP_CACHE to controlling/active/waiting
+workers, disables caching, removes shell caches, unregisters, and preserves all IDB
+notes for online recovery. UI must stop capture immediately on that flag/result.
 
-## 2026-11-02 continuation: SQL contracts implemented in 0075
+## Screen map (§5–§7)
 
-**This continuation remains incomplete; items 1–2 must not be marked done.**
-No executable seed was produced. SQL publication validation is structural and includes
-condition references/tiers/units but is not yet equivalent to the approved content and
-versioned registry requirements. No approval is needed to continue.
-
-New storage: `consult_context_keys`, `consult_form_versions`, `consults`,
-`consult_form_pins`, `consult_assignments`, `consult_devices`, `consult_instances`,
-`consult_events`, `consult_answers`, `consult_field_heads`, `consult_conflicts`,
-`consult_media`, `consult_operation_receipts`, `consult_uploads`,
-`consult_finding_applications`. Audio/suggestions/coverage/floor drafts are not created.
-All new tables are manifest-listed with zero raw narrow grants; generator output is
-empty and that result is recorded in the migration. No raw consult SELECT was granted
-for monitoring. `files.id` is text, so consult file references use text too.
-
-Context envelope: `{key_id, payload, signature}`. `payload` is an exact JSON string;
-`signature` is hex HMAC-SHA256 over UTF-8 payload using an owner-installed >=32-byte key.
-Claims: `kind: "in_home_consult"`, `sub`, current `role`, `areas`, `mode: person|agent`,
-`operation`, `consult_id` (null for global operations), `iat`, `exp` (<=5 minutes),
-`run_id`, `nonce` (>=16 characters). No keys are seeded. Only the owner connection can
-mint; website integration must authenticate freshly before minting. User active status,
-current projects area, session revocations and assignment are checked inside verification.
-Worker execution is withheld until fenced job commands are implemented.
-
-| SQL command | Access / result |
+| Screen/state | Integration |
 |---|---|
-| `consult_read(context,target,projection='capture')` | Agent execute; assignment-scoped consult/pins/instances/heads/unresolved conflicts JSON. Only capture projection supported. |
-| `consult_propose_form(context,definition,form_kind)` | Agent execute; draft UUID only, checksum/author set by DB. |
-| `consult_schedule(context,project,visit_time,visitor,forms,plan?,plan_revision?)` | Agent execute, verified owner subject required; creates visit, published pins and visitor. Flag must be enabled. Work-item creation remains server integration work. |
-| `consult_publish_form(context,form)` | Owner connection, person-owner claims only; validates, retires previous published version, returns checksum. |
-| `consult_start(context,target,device,expected_revision)` | Owner connection, person claims and assignment; registers one capture device, returns epoch. |
-| `consult_create_instance(context,target,instance,module,instance_label,parent,expected_revision)` | Owner connection, person/assignment; enforces pin, once-module and acyclic parent constraints, returns revision. |
-| `consult_capture_answer(context,target,device,epoch,event,operation)` | Owner connection, person/assignment/device; returns `{code,revision,answer_id}`. Operation keys: `instance_id,field_key,generation,base_revision,status,value,unit,skip_reason,skip_note`. Server digest + receipt retries; stale writes remain conflicts and do not move heads. |
-| `consult_reopen(context,target,expected_revision,reason)` | Owner connection, person/assignment; returns new generation; old history retained. |
+| Entry/list/loading/empty | GET list; show assigned visits, approved copy. |
+| Schedule | Owner schedule command; pin all template modules and nested templates; no stage advancement. |
+| Get ready / Not ready / No signal / Ready | `getReady`, `onCheck`; no prior preparation → approved open-once/paper copy. |
+| Door scripts / Start | Pinned opening or opening_staff; queue Start. Consent/manual flow is Phase 1; Notes off. |
+| Phone/tablet fields, repeats, parents, keypad, laser, Same as last | Pinned field types, parser, `capture`, logical `{instance_id,field_key}`; parent_module and presets are in pins. |
+| Skip / assumptions / return / trade walks | Queue skipped answer plus evidenceSchema; no section-wide skip. Future dated tasks stay snoozed. |
+| Prefill / Still right / Correct | Explicit answer confirmation; unconfirmed values do not count. |
+| Photos/initials / saved/uploading/uploaded/retake | `captureBlob`, local metadata/receipt, `replay`, restricted media GET; no generic file URL. |
+| Status / Send now / expanded sheet | Queue states + last_send + blob receipts; Save is durable local, Uploaded is committed server; Sun mode UI preference. |
+| Leaving section / Back | Completion item navigation; UI owns Back handling. |
+| Show to client / recap / initials / hand back | Allowlisted summary and hold/PIN; initials are acknowledgment only. |
+| Before wrap / open/partly/flags/conflicts | Trusted completeness, evidence mutation and conflict picker. |
+| Close / closed-sending / Complete / Needs finishing | Exact close manifest, all op/blob receipts, server Complete acknowledgment. |
+| Interrupted / forgot Close / cut short | Durable state, retry drain, maintenance finish task; no idle completion. |
+| Conflict picker / Reopen | Explicit resolve with both IDs/reason; fresh generation and conscious rebase. |
+| Optional desktop look-over / findings applied/failed/retry | Same snapshot, restricted media, findings_job and apply_findings; no review button/to-do. |
+| Forms list / pinned preview | Published immutable definitions and validation; visual editor is Phase 1.5. |
+| Owner recovery / locked device | recovery_lease → original PIN/device unlock → recover_device; stage proposals, never impersonate original author. |
+| Transcript/chips/sketch/helpers | Not Phase 1; do not enable from copy/type availability. |
 
-Person-command execute is **not** granted to `sjcos_agent` or worker. Agent contexts
-cannot use the person capture command to turn proposals into accepted answers.
-`consult_mint_context`, verifier, validators and triggers have no PUBLIC/narrow execute.
-Website routes/CSRF/Origin/DAL integration do not exist yet; SQL commands are not routes.
+## New server commands
 
-Client-safe conditional type now includes `{all: When[]}`, `{any: When[]}`, `{not: When}`
-alongside atomic conditions. `compileCondition(condition,knownFields)` returns a pure
-predicate, checks field references and bounds depth/node count. `validateModule`,
-`validateTemplate`, and `conditionMatches` use this compiler. No dynamic evaluation.
+All use POST `/api/consult/{id}` with `{command,input}`, cookie auth, same Origin,
+`X-Consult-CSRF: 1`, JSON, no-store. Expected failures are JSON data at the HTTP
+boundary; internal transaction functions throw to roll back. No Server Actions were
+introduced. Device reservation returns `{ok:false,code}` for expected conflicts.
 
-Continuation validation:
-- consult-access-db: 1 passing test covering the real scenarios above.
-- consult-forms: 4 passing (includes compound compiler; still no full seed fidelity).
-- consult-completeness: 5; length: 3; queue: 4; offline: 2; readiness: 2; scope-facts: 2 passing.
-- db-roles-manifest-db: 6; db-roles-paths-db: 2; estimating-db: 9 passing.
-- db-roles-scan --diff: exit 0 (only documented intentionally withheld privileges).
-- Shared-lock typecheck: exit=0.
-- No Next commands, browsers, live/QA database connection, deploy or service operations.
-  DB fixtures used the disposable `consult` cluster; it is stopped before handback.
+| command | input → result |
+|---|---|
+| prepare_device | `{device,expected_revision}` → `{ok:true,epoch,revision,generation}` or `{ok:false,code}`; single active device, does not start visit |
+| offline_lease | `{device,build}` → `{payload,signature,public_key}`; Ed25519 24h lease bound to authenticated user/session/consult/device/build; disabled capture refuses issuance |
+| recovery_lease | Owner only `{original_user,session_epoch,device,epoch,build,reason}` → same signed envelope with purpose recovery, 15-minute expiry; verifies historical device ownership and audits owner |
+| recover_device | Owner only `{operation_id,original_user,device,epoch,reason,ops,blobs?}` (≤50 ops) → `{ok:true,staged:true}`; verifies original hashes/address, preserves full manifest audit, stages answer/clear proposals under original actor, revokes old device; non-answer operations stay in audit for explicit human reconstruction |
 
-## Current server integration (0076 continuation; authoritative)
+Recovery never updates accepted heads or automatically rebases generations. Current
+form/value validation still runs when a person chooses Use through proposal_decision.
+After recovery use owner assignment and fresh device preparation; never reuse old
+sequence/author as the new capture device. Recovery retains optional original blob metadata in the audit. Vault.recover returns
+`{saved,readBlob(hash)}`; the owner explicitly classifies/re-enters recovered media on
+the new device rather than automatically sending it as the old author.
+Original key/PIN is required; server
+signing keys cannot decrypt local notes.
 
-Implemented in `lib/consult/protocol.ts`, `lib/consult/forms/formula.ts`,
-`app/api/consult/route.ts`, `app/api/consult/[id]/route.ts`, and migration 0076.
-The website runs these owner-connection transactions after fresh DAL authentication.
-Every command re-verifies the current user/area/assignment inside SQL. Capture mutations
-also check active device/user/epoch. Assignment/scheduling/publication require Joe;
-Reopen and conflict selection allow the assigned visitor or Joe. No narrow execute or
-raw consult privileges were added. Envelopes stay server-side; claims use the actual
-session authentication time, preserving revocation checks.
+## Forms, formulas and fresh-install publication
+
+`form-types.ts` and `forms/validate.ts` support parent_module, context_module,
+per-template module presets, derive_cases, multiple flags, instance_reference,
+pCi/L, and opening_staff/closing_staff. Instance references must name a live row of
+the same consult. Derived/context values cannot be submitted as typed answers.
+The server synthesizes the hidden visit context from pinned templates/add-ons;
+whole-home includes every explicitly pinned nested area template. Never show it.
+
+`forms/formula.ts` parses bounded ASTs: arithmetic, field.w/field.h, sqrt, ceil,
+abs, min/max, numeric comparisons and lazy `condition ? yes : no`. It never executes
+JavaScript. `derive.ts` evaluates additive repeat-module terms per live instance
+before summing (never product of sums), length pairs as square-inch area, false
+conditional applicability as zero, applicable missing/skipped inputs as gaps.
+Conditions across repeat rows mean any live row matches. Both provenance and
+pinned conditional cases survive publication. The unchanged seed fidelity tests
+remain the authority for the plan's content; old derivation-case tables are retained
+where replacing them would change those expectations.
+
+Migration 0079 preserves the latest new-work validation and adds instance-reference
+and prepared-device Start support. No new table or narrow-role write privilege.
+`db/migrate.mjs` invokes `db/seed-consult.mjs` once after applying 0079, staging all
+seed drafts then calling real `protocol.publish` (typed validation → checksum
+attestation → SQL publish) for every module/template/add-on. It does not overwrite
+Joe's published edits. A truly empty DB has no owner to author forms: after initial
+owner provisioning run the explicit-URL companion `scripts/seed-consult.mjs`.
+The seed publication test checks every DB checksum and real scheduling/pinning.
+
+## Existing capture HTTP API
 
 ### HTTP API for the UI
 
@@ -309,6 +206,7 @@ malformed envelopes, authorization/hash/sequence errors reject the batch atomica
 A dropped connection before commit rolls everything back; ack loss after commit is safe.
 
 Supported op types:
+- `start`: target `null`, payload `{}`, base consult revision; only a prepared device on a scheduled visit.
 - `answer` / `clear`: target `{instance_id,field_key}`, payload
   `{status:'answered'|'skipped'|'cleared',value?,unit?,skip_reason?,skip_note?}`.
   Clear requires `status:'cleared'`. Base revision is the **field** head revision.
@@ -352,90 +250,8 @@ to Joe (undated until he chooses), estimate promise to Joe on promised date, RRP
 re-delivery on its recorded day. All dated work is Central midnight; the existing table
 trigger snoozes future work. Completed visits close their finish/schedule task only.
 
-### Publication and schema mirror strategy
 
-There is one strict executable schema/semantic validator: `forms/validate.ts` against
-`FieldDef`/`ModuleDef`/`TemplateDef`. It validates registered mapping labels, template
-membership, field/shot/coverage uniqueness and references, compound conditions, bounded
-arithmetic grammar/references and formula cycles. No dynamic formula evaluation occurs.
-Owner-installed `consult_mapping_registries` are immutable, versioned rows; the browser
-cannot supply arbitrary mappings to publish. `publish()` validates and writes a
-checksum-bound, validator-version-1 attestation in the same transaction before calling
-SQL publish. SQL and its publication trigger require this attestation, including on
-raw INSERT/UPDATE attempts. A definition edit invalidates it. This replaces the partial
-PL/pgSQL schema interpreter and prevents TS/SQL schema drift; future schema changes must
-bump the validator/attestation version together and test both publish paths.
-
-Physical schema source is the ordered migration ledger: base `db/schema.sql` plus
-0075/0076, exactly as the disposable harness installs it. Do not copy CREATE statements
-into the base snapshot and then replay them a second time. Both new-table manifests and
-migration permission-generator output are included; all five 0076 tables have no narrow
-grants. Publication fixture and narrow-denial DB tests verify the installed schema.
-
-### This continuation's validation
-
-Passing: consult-access-db, consult-sync-db, consult-todos-db; all existing consult unit
-files (length, forms, completeness, queue, offline, readiness, scope-facts); estimating-db;
-db-roles-manifest-db; db-roles-paths-db. `db-roles-scan --diff` exits 0 (documented
-withheld privileges only). Locked niced `tsc --noEmit -p .` exits 0.
-No browser/build/server, production/QA connection, deploy, push or service operation.
-The disposable `consult` cluster is stopped before handback.
-
-## 2026-11-02 files / findings / proposals continuation (0077)
-
-**This continuation is substantial but does not finish the requested backend slice.**
-Do not claim Phase 1 is complete or ready to deploy. In particular, durable background
-findings jobs, full seed-to-export semantics, and production maintenance scheduling
-remain as listed below. The earlier 0076 capture contract still applies.
-
-### Implemented and tested
-
-- `files.classification` separates attachments, consult photos, and initials. Generic
-  readers/listings across website, portal, agent context, mail attachments and MCP
-  filter attachment rows before signing/reading/thumbnailing. The generic file route
-  rejects consult IDs before signature handling. `serveFile` also checks classification.
-  Narrow SQL roles have file RLS limiting them to attachments. Classified file
-  storage/hash/classification cannot change, and attachment aliases cannot use consult
-  blob basenames (including path-prefixed aliases). `readUpload` refuses consult blobs.
-- Consult image uploads use bounded 1 MiB parts, 25 MiB limits, original-byte SHA256,
-  JPEG/PNG/WebP sniff + full decoding through Sharp, 40M pixel limit, no animation,
-  EXIF stripping and orientation normalization. Both init and commit verify person,
-  assignment, device and photo permission. Commit also verifies generation/consent
-  epoch, all parts, exact size, event and original hash. HEIC conversion is not enabled.
-- Deterministic `consult-<upload UUID>.blob` files: fsync, atomic rename, directory fsync,
-  then one caller transaction for files/classification/upload/media/event/receipt.
-  The acknowledgment follows COMMIT. Retry after rename + DB rollback checks normalized
-  bytes and finishes the same transaction; committed retries return the original IDs.
-  `cleanupConsultUploads(client,root)` deletes expired DB parts and recognizable,
-  unreferenced disk orphans older than 48 hours under a shared advisory lock.
-- Restricted media reads recheck assignment and photo permission before bytes,
-  thumbnails and Range processing. In-process owner-only `readConsultPhotoForExport`
-  checks Complete, current upload generation, photo kind, current permission, tombstones,
-  storage hash and normalized bytes. It returns the v1 export bridge shape with no URL.
-- `consultScopeFacts(run,projectId,scopeKey)` in `findings.ts` returns strict v1 facts.
-  Repeated disjoint numeric sf/lf/ea contributions aggregate at four decimals, with sorted
-  instance IDs and source revisions. Nonadditive inches stay individual evidence.
-  Sibling arithmetic derived fields use the bounded formula grammar; missing inputs do
-  not become zero. Duplicate ownership within one instance makes an explicit conflict.
-  Two-room/four-revision DB tests reach `reviewed` through staff-only Complete.
-- Reconciliation requires the current Complete generation. It locks project, consult,
-  scope keys and pinned site plan; application receipts dedupe generation retries.
-  Other-source/ambiguous quantities and sent/signed formal estimates stay proposals.
-  Accepted quantities create auditable findings/contribution manifests and recompute a
-  draft formal estimate through the existing estimator. Dedicated prices are retained;
-  one stable pricing to-do is created. Unknown mapped scopes create “No scope item —
-  add one?” findings, never scope rows. Exact plan matching requires item ID plus pinned
-  plan revision, measurement kind, scope, unit, quantity label and `consult_target`.
-  Reopen retracts owned quantities/findings and reopens only their exact plan items;
-  other-source quantities survive. No stage advancement or review task exists.
-- Readiness calls the shared v1 export and adds/persists the six consult gap codes.
-  `tests/fixtures/consult-scope-facts/v1.json` is shared by export and readiness tests.
-- Ten MCP tools in `mcp/consult-tools.mjs` use strict input schemas and the authenticated
-  internal consult bridge. Agent values always enter `consult_agent_proposals`, never
-  accepted answers. A person uses/rejects a proposal through the capture command.
-  Run authentication time is preserved for session revocation. Mutation receipts bind
-  operation UUID + payload and are returned only after commit. Raw narrow access to
-  proposals, upload staging, contribution manifests and bridge receipts is withheld.
+## Uploads and proposals
 
 ### Exact additional UI API
 
@@ -457,43 +273,41 @@ For exact plan measurement matching, the pinned plan item's JSON must contain
 `quantity_label` and `consult_target:{instance_id,field_key}`. This continuation adds
 no first-kind/first-unit fallback and no UI for authoring these bindings.
 
-### Remaining work / limits (do not conceal)
 
-- Browser offline engine + service worker is the next UI/integration slice: durable
-  encrypted blobs, readiness, leases, PIN/key lifecycle, cold offline reload, takeover,
-  quarantine/recovery, uploader drain and progress. No browser or server was run.
-- Auto apply currently executes in the close transaction inside a savepoint, gated by
-  `consult_auto_apply_findings`; a failure leaves Complete intact and creates one repair
-  to-do. **It is not the required durable, fenced worker job with retry/backoff.** Wire
-  that before calling item 6 fully done. Cleanup is callable but has no daily scheduler.
-- Full §10.5 semantics need more work: aggregate across several consult sources,
-  template-level/cross-module formulas, explicit basement/room ownership, complete
-  photo/flag/decision/new-work finding application, correction supersession beyond
-  Reopen retraction, all scope-readiness projection sources, and locked-target decisions.
-  New-work origin capture still needs a typed capture contract; no string is guessed.
-- MCP: no instance-proposal creation in `record_consult_answers`; nonowner scheduling
-  currently refuses rather than stages Joe's request; schedule notes are not persisted.
-  Form proposal note is not persisted. Shared coverage/transcript/design tools are not
-  Phase 1 tools here. Procedure-specific tool allowlists have not been expanded.
-- Safety/coverage gaps still need tests: actual HTTP signature/thumbnail/Range requests,
-  HEIC conversion, explicit request rate caps, partial-part expiry cleanup and permission
-  withdrawal after external export. Existing original-photo attachment paths are closed,
-  but the shared fixture's full DB reproduction (flags/exclusions/new work) is unfinished.
-- Parallel seed builder owns seed files and their tests. During development, five missing
-  `maps_to` properties in its `templates.ts` prevented a clean full-worktree tsc. The
-  parallel builder corrected them; final full-worktree locked tsc exits 0. This
-  continuation did not edit or commit seed paths.
+## Findings, reconciliation and maintenance
 
-### Validation
+`apply_findings` takes `{expected_generation,operation_id}` and returns
+`{ok:true,generation,status,result}` or `{ok:false,code}`. It enqueues the same
+`(consult_id,generation)` job used by auto-apply on Complete; the historical
+synchronous apply result described above is now persisted in findings_job.result.
+Snapshot includes findings_job generation/status/attempts/available_at/lease_until/
+last_error/result. UI shows approved failure copy and retries the same generation.
 
-Single-file tests pass: consult-access-db (3), consult-findings-db (2),
-consult-scope-facts-db (1), consult-mcp (2), estimating-readiness-consult (1),
-consult-sync-db (2), consult-todos-db (1), consult-length (3), consult-forms (5),
-consult-completeness (5), consult-queue (4), consult-offline (2), consult-readiness (2),
-consult-scope-facts (2), estimating-db (9), db-roles-manifest-db (6),
-db-roles-paths-db (2). Initial development failures were corrected; a stale disposable
-migration ledger was discarded and regressions were rerun on a new consult cluster.
-`db-roles-scan --diff` exits 0, with only documented withheld permissions.
-Final locked/niced tsc exits 0; earlier seed errors were corrected by its builder.
-No push, deployment, live/QA connection, browser, Next command or service operation.
-Disposable consult cluster stopped before handback.
+`lib/worker/consult.ts` uses two-minute UUID-fenced claims, atomic effects and final
+ack, exponential 30s–1h retry and one repair task after five failures. Reopen obsoletes
+pending jobs and retracts owned evidence; cancellation is owner-only. Scope facts
+aggregate disjoint quantities across instances/visits with immutable provenance;
+correction/removal/Reopen rebuild surviving contributions. Sent/signed estimates,
+manual evidence and dedicated prices are preserved. Plan matching uses exact pinned
+IDs/revisions/targets. Explicit new-work origins, flags, exclusions, permits, RRP,
+trade walks and required readiness gaps are exported through the strict v1 schema.
+
+`deploy/sjcos-consult.timer`/`.service` and `scripts/consult-tick.mjs` call the cron
+route with CRON_SECRET, max ten findings jobs plus upload expiry/orphan and forgotten
+visit/return maintenance. Timer installation remains a deployment action, not done.
+No stage promotion, review task or client-facing send is part of this backend.
+
+## Validation and deployment boundary
+
+Tests run one file at a time with the consult-tagged disposable DB harness. Browser
+APIs use a small async transactional IDB adapter and VM worker fakes; actual browser
+verification is intentionally left to the coordinator under shared-server rules.
+Typecheck uses the shared flock and nice. Final validation: 99 passing cases across the 21 single-file regression/seed/offline
+files, including the original 64, unchanged seed 12/12, offline 17/17, queue
+5/5, formula 3/3, offline DB 3/3 and real seed publication 1/1. Shared-lock tsc
+exits 0; role scan and diff whitespace checks exit 0. The consult cluster is stopped.
+
+Remaining integration outside this backend slice: author/build the UI capture bundle,
+then generate its precache manifest; wire session/user-switch/kill-switch callbacks,
+perform coordinator visual/device checks, install timer and deploy when authorized.
+No claim of an end-to-end working offline UI is made by this backend handoff.

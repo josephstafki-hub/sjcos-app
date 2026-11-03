@@ -53,7 +53,7 @@ export function nextBatch(state: QueueState, now: number): ConsultOp[] {
     if (entry.status==='accepted') continue;
     if (entry.status!=='pending' || entry.next_at>now) break;
     const bytes=new TextEncoder().encode(canonicalJson(entry.op)).byteLength;
-    if (batch.length===50 || size+bytes>256*1024-16) break;
+    if (batch.length===50 || size+bytes>256*1024-256) break;
     batch.push(entry.op);size+=bytes+1;
   }
   return batch;
@@ -63,10 +63,10 @@ export function retryDelay(attempt: number, random=Math.random): number {
 }
 export function applyReceipt(state: QueueState, receipt: OpReceipt, now: number, random=Math.random): QueueState {
   if (!state.entries.some((entry)=>entry.op.client_event_id===receipt.id)) throw new Error('unknown_receipt');
-  const blocked=receipt.status===401?'signed_out':receipt.status===403?'revoked':receipt.status===410?'deleted':state.blocked;
+  const blocked=receipt.status===401?'signed_out':receipt.status===403?'revoked':receipt.status===410?'deleted':receipt.status===426?'update_required':state.blocked;
   const entries=state.entries.map((entry):QueueEntry=>{
     if (entry.status==='accepted') return entry;
-    if (blocked) return {...entry,status:blocked==='deleted'?'deleted':blocked==='revoked'?'quarantined':'locked'};
+    if (blocked) return {...entry,error_code:blocked,status:blocked==='deleted'?'deleted':blocked==='revoked'?'quarantined':blocked==='update_required'?'update_required':'locked'};
     if (entry.op.client_event_id!==receipt.id) return entry;
     const base={...entry,revision:receipt.revision,error_code:receipt.error_code,conflict:receipt.conflict};
     if (receipt.status>=200 && receipt.status<300) return {...base,status:'accepted'};

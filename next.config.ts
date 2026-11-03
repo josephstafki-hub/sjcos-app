@@ -1,6 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  skipTrailingSlashRedirect: true, // proxy preserves /consult/ for its scoped offline worker
+  async headers(){return [{source:'/sw.js',headers:[{key:'Cache-Control',value:'no-cache, no-store, must-revalidate'},{key:'Service-Worker-Allowed',value:'/consult/'}]},{source:'/api/consult/:path*',headers:[{key:'Cache-Control',value:'no-store'}]}];},
   // The live server (systemd `sjcos.service`) serves the prebuilt `.next`, and
   // a dev/build run that shares that directory clobbers it mid-flight — the
   // classic "half-built .next → dead hydration" failure. Setting SJC_DIST_DIR

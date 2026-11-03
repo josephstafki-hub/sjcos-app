@@ -30,14 +30,15 @@ export function compileCondition(condition: boolean | Condition, knownFields: Re
    const actual = Object.hasOwn(values,field) ? values[field] : undefined;
    // Unknown inputs never turn on a conditional requirement, including !=.
    if (actual === undefined || actual === null) return false;
-   switch(op) {
+   const check = (actual:unknown):boolean => { switch(op) {
     case 'answered': return actual !== '';
     case 'eq': return actual === value;
     case 'ne': return actual !== value;
-    case 'in': return (value as unknown[]).some(v => Array.isArray(actual) ? actual.includes(v) : actual === v);
+    case 'in': {const contains=(a:unknown):boolean=>Array.isArray(a)?a.some(contains):(value as unknown[]).includes(a);return contains(actual);}
     case 'lt': return typeof actual === 'number' && Number.isFinite(actual) && actual < (value as number);
     case 'gt': return typeof actual === 'number' && Number.isFinite(actual) && actual > (value as number);
-   }
+   } };
+   return Array.isArray(actual)&&op!=='in'?actual.some(check):check(actual);
   };
  }
  return compile(condition,0);

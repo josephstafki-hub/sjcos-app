@@ -8,6 +8,8 @@ import { validateModule, validateTemplate, type FormRegistry } from './validate.
 import { visit, sharedModules, sharedChildModules } from './seed/shared.ts';
 import { templateModules, templateChildModules, addOnModules, addOnChildModules } from './seed/template-modules.ts';
 import { templates, addOns, scopeMappings } from './seed/templates.ts';
+import { moduleParents, selectionDecisions } from './seed/templates.ts';
+import { OPENING_STAFF, CLOSING_STAFF } from './seed/scripts.ts';
 import { derivationCases } from './seed/derivations.ts';
 
 export * from './seed/scripts.ts';
@@ -22,6 +24,17 @@ export const SEED_VERSION = 1;
 export const contextModules: ModuleDef[] = [visit];
 /** Every module definition published by the seed (context module included). */
 export const seedModules: ModuleDef[] = [...contextModules, ...sharedModules, ...sharedChildModules, ...templateModules, ...templateChildModules, ...addOnModules, ...addOnChildModules];
+// Persist all semantic metadata in the immutable pinned definitions.
+for(const module of seedModules){
+ if(module.key==='visit')module.context_module=true;
+ if(moduleParents[module.key])module.parent_module=moduleParents[module.key];
+ for(const field of module.fields){const rule=derivationCases.find(d=>d.kind==='derived'&&d.module===module.key&&d.field===field.key);if(rule)field.derive_cases=rule.cases;}
+}
+for(const template of [...templates,...addOns]){
+ template.opening_staff=OPENING_STAFF.map(l=>l.text);template.closing_staff=CLOSING_STAFF.map(l=>l.text);
+ const decisions=selectionDecisions[template.key as keyof typeof selectionDecisions];
+ const selections=template.modules.find(m=>m.module==='selections');if(selections&&decisions)selections.presets=decisions.map(decision=>({decision}));
+}
 export const seedRegistry: FormRegistry = { modules: seedModules, mappings: scopeMappings };
 
 /** Runs validate.ts over the whole seed; throws on the first refusal. */

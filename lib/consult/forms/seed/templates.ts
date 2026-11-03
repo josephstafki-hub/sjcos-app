@@ -162,7 +162,7 @@ export const deck: TemplateDef = {
     { key: 'deck_area_decking', label: 'Deck area', formula: 'deck_scope.deck_area', maps_to: m('deck.decking', 'Deck area') },
     { key: 'railing_length', label: 'Railing length', formula: 'deck_scope.railing_length', maps_to: m('deck.railing', 'Railing length') },
     { key: 'footing_count', label: 'Footing count (draft) — posts ≤ 8′ apart on each beam line; shown as a suggestion that the visitor confirms or corrects on the form', formula: 'deck_scope.footing_count', maps_to: m('deck.footings', 'Footing count') },
-    { key: 'riser_count', label: 'Riser count — total rise ÷ 7.75 rounded up (context for stair pricing)', formula: 'deck_scope.total_rise / 7.75', maps_to: undefined },
+    { key: 'riser_count', label: 'Riser count — total rise ÷ 7.75 rounded up (context for stair pricing)', formula: 'ceil(deck_scope.total_rise / 7.75)', maps_to: undefined },
   ],
 };
 

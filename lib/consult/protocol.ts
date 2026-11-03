@@ -1,5 +1,7 @@
 /** Owner-connection transaction service. Caller authenticates freshly and supplies a
  * server-minted person envelope. Never expose an envelope or this client to browsers. */
+import {pinnedDerivations} from './derive.ts';
+import {signOfflineLease} from './offline-lease.ts';
 import {enqueueConsultFindings} from '../worker/consult.ts';
 import type { PoolClient } from 'pg';
 import { createHash, randomUUID } from 'node:crypto';
@@ -24,7 +26,7 @@ export const evidenceSchema=z.strictObject({
  return_day:day.optional(),
 });
 const address=z.strictObject({instance_id:uuid,field_key:z.string().regex(/^[a-z][a-z0-9_]*$/)});
-const opSchema=z.strictObject({protocol_version:z.literal(1),client_event_id:uuid,device_id:uuid,device_epoch:rev.min(1),seq:rev.min(1),base_revision:rev,generation:rev.min(1),type:z.enum(['answer','clear','create_instance','remove_instance','resolve','discard_rejection']),target:z.unknown(),payload:z.unknown(),payload_sha256:z.string().regex(/^[a-f0-9]{64}$/)});
+const opSchema=z.strictObject({protocol_version:z.literal(1),client_event_id:uuid,device_id:uuid,device_epoch:rev.min(1),seq:rev.min(1),base_revision:rev,generation:rev.min(1),type:z.enum(['start','answer','clear','create_instance','remove_instance','resolve','discard_rejection']),target:z.unknown(),payload:z.unknown(),payload_sha256:z.string().regex(/^[a-f0-9]{64}$/)});
 const answerPayload=z.strictObject({status:z.enum(['answered','skipped','cleared']),value:z.unknown().optional(),unit:z.string().optional(),skip_reason:skip.optional(),skip_note:z.string().max(8000).optional()});
 const instanceTarget=z.strictObject({instance_id:uuid,module_key:z.string(),parent_id:uuid.optional(),label:note});
 const manifestSchema=z.strictObject({device:uuid,epoch:rev.min(1),last_seq:rev,required_blob_hashes:z.array(z.string().regex(/^[a-f0-9]{64}$/)).max(10000),initials_hash:z.string().regex(/^[a-f0-9]{64}$/).nullable(),local_pending:z.literal(0)});
@@ -34,7 +36,14 @@ type Snapshot={consult:{id:string;project_id:string;status:string;revision:strin
 async function one<T=Record<string,unknown>>(c:PoolClient,sql:string,args:unknown[]=[]):Promise<T>{return (await c.query(sql,args)).rows[0] as T;}
 export async function snapshot(c:PoolClient,context:Context,target:string):Promise<Snapshot>{
  const result=(await one<{v:Snapshot}>(c,'SELECT consult_read($1,$2) v',[await scoped(c,context,'read',target),target])).v;
- const proposals=(await c.query("SELECT id,instance_id,field_key,base_revision,answer,source_note,generation FROM consult_agent_proposals WHERE consult_id=$1 AND status='pending' ORDER BY id",[target])).rows;
+ const visitPin=result.pins.find(p=>p.kind==='module'&&p.definition.key==='visit');
+ if(visitPin){
+  const instance=result.consult.id;const keys=result.pins.filter(p=>p.kind==='template').map(p=>p.definition.key);
+  const templateKeys=keys.filter(k=>!['garage','openings','flooring'].includes(k));
+  result.instances.push({id:instance,module_key:'visit',parent_id:null,removed_at:null});
+  for(const [field,value] of Object.entries({templates:templateKeys,add_ons:keys.filter(k=>['garage','openings','flooring'].includes(k))}))result.heads.push({id:instance,instance_id:instance,field_key:field,status:'answered',value,skip_reason:null,skip_note:null,server_revision:result.consult.revision});
+ }
+ const proposals=(await c.query("SELECT id,actor,instance_id,field_key,base_revision,answer,source_note,generation FROM consult_agent_proposals WHERE consult_id=$1 AND status='pending' ORDER BY id",[target])).rows;
  const findings_job=(await c.query('SELECT generation,status,attempts,available_at,lease_until,last_error,result FROM consult_findings_jobs WHERE consult_id=$1 AND generation=$2',[target,result.consult.completion_generation])).rows[0]??null;
  return {...result,proposals,findings_job} as Snapshot;
 }
@@ -94,7 +103,7 @@ export async function publish(c:PoolClient,context:Context,input:unknown){
  // Mappings are an owner-managed versioned registry, not a staff assertion.
  const form=await one<{definition:ModuleDef|TemplateDef;kind:string}>(c,'SELECT definition,kind FROM consult_form_versions WHERE id=$1 FOR UPDATE',[v.form_id]);
  if(!form)throw new Error('form_not_found');
- const modules=(await c.query("SELECT definition FROM consult_form_versions WHERE kind='module' AND status='published'")).rows.map(r=>r.definition as ModuleDef);
+ const modules=(await c.query("SELECT definition FROM consult_form_versions WHERE kind='module' AND (status='published' OR ($1='module' AND status='draft'))",[form.kind])).rows.map(r=>r.definition as ModuleDef);
  const registry:FormRegistry={modules,mappings:registered.mappings};
  if(form.kind==='module')validateModule(form.definition,{...registry,modules:[...modules.filter(m=>m.key!==form.definition.key),form.definition as ModuleDef]});else validateTemplate(form.definition,registry);
  await c.query('INSERT INTO consult_publication_validations(form_id,checksum,registry_id,validator_version) SELECT id,checksum,$2,1 FROM consult_form_versions WHERE id=$1',[v.form_id,v.registry_id]);
@@ -120,12 +129,16 @@ export async function batch(c:PoolClient,context:Context,target:string,input:unk
   if(op.seq!==seq+1)throw new Error('sequence_gap');
   const s=await snapshot(c,context,target);
   if(s.consult.status==='complete')throw new Error('complete_locked');
-  if(s.consult.status!=='in_progress'&&s.consult.status!=='incomplete')throw new Error('visit_not_started');
+  if(s.consult.status!=='in_progress'&&s.consult.status!=='incomplete'&&!(op.type==='start'&&s.consult.status==='scheduled'))throw new Error('visit_not_started');
   let receipt:Record<string,unknown>={id:op.client_event_id,status:200};
   await c.query('SAVEPOINT consult_op');
   try {
   if(Number(s.consult.completion_generation)!==op.generation){receipt={...receipt,status:409,error_code:'rebase_required'};}
-  else if(op.type==='discard_rejection'){
+  else if(op.type==='start'){
+   z.null().parse(op.target);z.strictObject({}).parse(op.payload);
+   if(s.consult.status!=='scheduled'||Number(s.consult.revision)!==op.base_revision)throw new Error('conflict');
+   await c.query("UPDATE consults SET status='in_progress',revision=revision+1,started_at=now(),started_by=$2 WHERE id=$1",[target,actor]);receipt.revision=op.base_revision+1;
+  }else if(op.type==='discard_rejection'){
    z.null().parse(op.target);const r=z.strictObject({event_id:uuid,hash:z.string(),reason:note}).parse(op.payload);
    const old=await one<{hash:string;result:{error_code?:string}}>(c,'SELECT hash,result FROM consult_sync_receipts WHERE consult_id=$1 AND event_id=$2',[target,r.event_id]);
    if(!old||old.hash!==r.hash||!old.result.error_code)throw new Error('invalid_rejection');
@@ -151,7 +164,7 @@ export async function batch(c:PoolClient,context:Context,target:string,input:unk
     if(field?.type==='multi'&&(!Array.isArray(p.value)||!p.value.length||new Set(p.value).size!==p.value.length))throw new Error('distinct_choices_required');
     if(field?.type==='length'||field?.type==='length_pair'){for(const value of Array.isArray(p.value)?p.value:[p.value])if(typeof value!=='number'||Math.abs(value*16-Math.round(value*16))>1e-8)throw new Error('length_precision');}
    }
-   if(field?.derive)throw new Error('derived_field_protected');
+   if(def?.context_module||def?.key==='visit'||field?.derive_cases||field?.derive)throw new Error('derived_field_protected');
    const operation={...p,...a,...(op.type==='resolve'?{resolution:op.payload}:{}),generation:op.generation,base_revision:op.base_revision};
    const result=(await one<{v:{code:string;revision:number;answer_id:string}}>(c,'SELECT consult_capture_answer($1,$2,$3,$4,$5,$6) v',[await scoped(c,context,'capture_answer',target),target,op.device_id,op.device_epoch,op.client_event_id,operation])).v;
    receipt={...receipt,revision:Number(result.revision)};
@@ -164,6 +177,9 @@ export async function batch(c:PoolClient,context:Context,target:string,input:unk
    }
   }else if(op.type==='create_instance'){
    const t=instanceTarget.parse(op.target);z.strictObject({}).parse(op.payload);
+   const module=s.pins.find(p=>p.kind==='module'&&p.definition.key===t.module_key)?.definition as ModuleDef|undefined;
+   if(module?.context_module||module?.key==='visit')throw new Error('context_protected');
+   if(module?.parent_module&&!s.instances.some(i=>i.id===t.parent_id&&i.module_key===module.parent_module&&!i.removed_at))throw new Error('invalid_parent');
    const r=await one<{v:string}>(c,'SELECT consult_create_instance($1,$2,$3,$4,$5,$6,$7) v',[await scoped(c,context,'create_instance',target),target,t.instance_id,t.module_key,t.label,t.parent_id??null,op.base_revision]);receipt.revision=Number(r.v);
   }else{
    const t=z.strictObject({instance_id:uuid}).parse(op.target);z.strictObject({}).parse(op.payload);
@@ -175,7 +191,7 @@ export async function batch(c:PoolClient,context:Context,target:string,input:unk
     await c.query('UPDATE consults SET revision=revision+1 WHERE id=$1',[target]);receipt.revision=op.base_revision+1;
    }
   }
-  if(op.type==='remove_instance'||op.type==='create_instance'||op.type==='discard_rejection'||Number(s.consult.completion_generation)!==op.generation){
+  if(op.type==='start'||op.type==='remove_instance'||op.type==='create_instance'||op.type==='discard_rejection'||Number(s.consult.completion_generation)!==op.generation){
    await c.query(`INSERT INTO consult_events(consult_id,event_id,actor,device_id,device_epoch,source,type,payload,payload_hash,server_revision,generation) VALUES($1,$2,$3,$4,$5,'typed',$6,$7,$8,$9,$10)`,[target,op.client_event_id,actor,op.device_id,op.device_epoch,op.type,op,opHash,receipt.revision??Number(s.consult.revision),op.generation]);
   }
   await c.query('RELEASE SAVEPOINT consult_op');
@@ -216,20 +232,21 @@ export async function completion(c:PoolClient,context:Context,target:string){
  const modules=s.pins.filter(p=>p.kind==='module').map(p=>p.definition as ModuleDef);
  const templates=s.pins.filter(p=>p.kind==='template').map(p=>p.definition as TemplateDef);
  const live=s.instances.filter(i=>!i.removed_at);
+ const projection=pinnedDerivations(modules,templates,live,s.heads);
  const known=new Set(modules.flatMap(m=>m.fields.map(f=>`${m.key}.${f.key}`)));
  const global:Record<string,unknown>={};
  // Ambiguous repeat values never pick a winner for a cross-module condition.
- for(const m of modules)for(const f of m.fields){const values=live.filter(i=>i.module_key===m.key).flatMap(i=>s.heads.filter(a=>a.instance_id===i.id&&a.field_key===f.key&&a.status==='answered').map(a=>a.value));if(values.length===1)global[`${m.key}.${f.key}`]=values[0];}
+ for(const m of modules)for(const f of m.fields){const values=live.filter(i=>i.module_key===m.key).flatMap(i=>s.heads.filter(a=>a.instance_id===i.id&&a.field_key===f.key&&a.status==='answered').map(a=>a.value));if(values.length)global[`${m.key}.${f.key}`]=values.length===1?values[0]:values;}
  const media=(await c.query('SELECT id,instance_id,shot_key,sha256,kind FROM consult_media WHERE consult_id=$1 AND removed_at IS NULL',[target])).rows;
  const fields:CompletionItem[]=[], photos:CompletionItem[]=[],flags:CompletionInput['flags']=[];
  for(const i of live){const m=modules.find(m=>m.key===i.module_key);if(!m)throw new Error('unknown_module');
-  const values={...global};for(const a of s.heads.filter(a=>a.instance_id===i.id&&a.status==='answered'))values[a.field_key]=a.value;
+  const values={...global};for(const a of s.heads.filter(a=>a.instance_id===i.id&&a.status==='answered'))values[a.field_key]=a.value;for(const f of m.fields){const derived=projection.scalar(i,f.key);if(derived!==undefined)values[f.key]=derived;}
   const localKnown=new Set([...known,...m.fields.map(f=>f.key)]);
   const required=(r:ModuleDef['fields'][number]['required'])=>compileCondition(r,localKnown)(values);
   for(const f of m.fields){const key=`${i.id}:${f.key}`, a=s.heads.find(a=>a.instance_id===i.id&&a.field_key===f.key);
    const sk=e?.skips[key];
    fields.push({key,tier:f.tier,required:required(f.required),applicable:true,mapped:!!f.maps_to,answered:a?.status==='answered',valid:a?.status==='answered'&&a.value!==null&&a.value!==''&&(!Array.isArray(a.value)||a.value.length>0),skip:a?.status==='skipped'?{reason:a.skip_reason as NonNullable<CompletionItem['skip']>['reason'],note:a.skip_note??undefined,...(sk?.reason===a.skip_reason?sk:{}),condition_validated:typeof f.required!=='boolean'&&!required(f.required)}:undefined});
-   if(f.flag&&required(f.flag.when)){const d=e?.flags[key];flags.push({key,disposition:d?.disposition??null,note:d?.note??'',actor:d?row.actor:null,at:d?String(row.updated_at):null});}
+   for(const [index,flag] of [...(f.flag?[f.flag]:[]),...(f.flags??[])].entries())if(required(flag.when)){const flagKey=index?`${key}:${index}`:key;const d=e?.flags[flagKey];flags.push({key:flagKey,disposition:d?.disposition??null,note:d?.note??'',actor:d?row.actor:null,at:d?String(row.updated_at):null});}
   }
   for(const shot of [...m.shots,...m.fields.flatMap(f=>f.shots??[])]){
    const key=`${i.id}:shot:${shot.key}`;photos.push({key,tier:shot.tier,required:required(shot.required),applicable:true,mapped:false,answered:media.some(p=>p.instance_id===i.id&&p.shot_key===shot.key),valid:true,skip:e?.skips[key]});
@@ -302,6 +319,58 @@ export async function resolveConflict(c:PoolClient,context:Context,target:string
  return {revision,answer_id:answer.id};
 }
 export async function command(c:PoolClient,context:Context,target:string,kind:string,input:unknown):Promise<unknown>{
+ if(kind==='prepare_device'){
+  if(!await one(c,"SELECT key FROM app_settings WHERE key='consult_capture' AND value='true'"))return {ok:false,code:'capture_disabled'};
+  const actor=await authorize(c,context,target,'prepare_device');const v=z.strictObject({device:uuid,expected_revision:rev}).parse(input);
+  const s=await snapshot(c,context,target);if(Number(s.consult.revision)!==v.expected_revision)return {ok:false,code:'conflict'};
+  if(!['scheduled','in_progress','incomplete'].includes(s.consult.status))return {ok:false,code:'complete_locked'};
+  const active=await one<{device_id:string;user_id:string;epoch:string}>(c,'SELECT * FROM consult_devices WHERE consult_id=$1 AND revoked_at IS NULL',[target]);
+  if(active&&(active.device_id!==v.device||active.user_id!==actor))return {ok:false,code:'device_access_denied'};
+  const epoch=active?Number(active.epoch):Number((await one<{epoch:string}>(c,'SELECT coalesce(max(epoch),0)+1 epoch FROM consult_devices WHERE consult_id=$1 AND device_id=$2',[target,v.device])).epoch);
+  if(!active){await c.query('INSERT INTO consult_devices(consult_id,device_id,user_id,epoch) VALUES($1,$2,$3,$4)',[target,v.device,actor,epoch]);await audit(c,target,actor,'device_prepared',{device:v.device,epoch});}
+  return {ok:true,epoch,revision:Number(s.consult.revision),generation:Number(s.consult.completion_generation)};
+ }
+ if(kind==='recovery_lease'){
+  const actor=await authorize(c,context,target,'recovery_lease',true);
+  const v=z.strictObject({original_user:uuid,session_epoch:rev,device:uuid,epoch:rev.min(1),build:note,reason:note}).parse(input);
+  if(!await one(c,'SELECT user_id FROM consult_devices WHERE consult_id=$1 AND device_id=$2 AND epoch=$3 AND user_id=$4',[target,v.device,v.epoch,v.original_user]))return {ok:false,code:'device_access_denied'};
+  const secret=(await c.query('SELECT secret FROM consult_context_keys WHERE key_id=$1 AND revoked_at IS NULL',[context.key_id])).rows[0]?.secret;
+  if(!secret)return {ok:false,code:'consult_key_unavailable'};
+  await audit(c,target,actor,'recovery_authorized',v);const now=Date.now();return signOfflineLease({user_id:v.original_user,session_epoch:v.session_epoch,consult_id:target,device_id:v.device,build:v.build,issued_at:now,expires_at:now+900000,purpose:'recovery'},secret);
+ }
+ if(kind==='recover_device'){
+  const actor=await authorize(c,context,target,'recover_device',true);
+  const v=z.strictObject({operation_id:uuid,original_user:uuid,device:uuid,epoch:rev.min(1),reason:note,ops:z.array(opSchema).max(50),blobs:z.array(z.strictObject({hash:z.string().regex(/^[a-f0-9]{64}$/),event_id:uuid,instance_id:uuid,kind:z.enum(['photo','initials']),mime:note,field_key:note.optional(),shot_key:note.optional(),receipt:z.strictObject({file_id:uuid,media_id:uuid}).optional()})).max(1000).optional()}).parse(input);
+  const device=await one(c,'SELECT user_id FROM consult_devices WHERE consult_id=$1 AND device_id=$2 AND epoch=$3 AND user_id=$4',[target,v.device,v.epoch,v.original_user]);
+  if(!device)throw new Error('device_access_denied');
+  const prior=await one<{payload_hash:string;payload:typeof v}>(c,'SELECT payload_hash,payload FROM consult_events WHERE consult_id=$1 AND event_id=$2',[target,v.operation_id]);
+  if(prior){if(prior.payload_hash!==hash(v))throw new Error('idempotency_mismatch');return {ok:true,staged:true};}
+  const s=await snapshot(c,context,target);
+  for(const op of v.ops){
+   if(op.device_id!==v.device||op.device_epoch!==v.epoch||hash(op.payload)!==op.payload_sha256)throw new Error('invalid_recovery_manifest');
+   // Revalidate address/generation/hash. Recovery stages proposals; no accepted answer is written.
+   if(op.type==='answer'||op.type==='clear'){
+    const a=address.parse(op.target),p=answerPayload.parse(op.payload),instance=s.instances.find(i=>i.id===a.instance_id&&!i.removed_at);
+    const module=s.pins.find(pin=>pin.kind==='module'&&pin.definition.key===instance?.module_key)?.definition as ModuleDef|undefined;
+    const field=module?.fields.find(f=>f.key===a.field_key);
+    if(!field||field.derive||field.derive_cases||module?.context_module)throw new Error('invalid_recovery_field');
+    await c.query(`INSERT INTO consult_agent_proposals(consult_id,operation_id,actor,generation,instance_id,field_key,base_revision,answer,source_note)
+     VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT DO NOTHING`,[target,op.client_event_id,v.original_user,s.consult.completion_generation,a.instance_id,a.field_key,op.base_revision,p,`Recovered by ${actor} from device ${v.device}, epoch ${v.epoch}, original generation ${op.generation}: ${v.reason}`]);
+   }
+  }
+  await c.query('UPDATE consult_devices SET revoked_at=coalesce(revoked_at,now()) WHERE consult_id=$1 AND device_id=$2 AND epoch=$3',[target,v.device,v.epoch]);
+  await c.query(`INSERT INTO consult_events(consult_id,event_id,actor,source,type,payload,payload_hash,server_revision,generation)
+   SELECT id,$2,$3,'office','device_recovery',$4,$5,revision,completion_generation FROM consults WHERE id=$1`,[target,v.operation_id,actor,v,hash(v)]);
+  return {ok:true,staged:true};
+ }
+ if(kind==='offline_lease'){
+  if(!await one(c,"SELECT key FROM app_settings WHERE key='consult_capture' AND value='true'"))return {ok:false,code:'capture_disabled'};
+  const v=z.strictObject({device:uuid,build:note}).parse(input);await snapshot(c,context,target);
+  const secret=(await c.query('SELECT secret FROM consult_context_keys WHERE key_id=$1 AND revoked_at IS NULL',[context.key_id])).rows[0]?.secret;
+  if(!secret)throw new Error('consult_key_unavailable');const claims=JSON.parse(context.payload),now=Date.now();
+  return signOfflineLease({user_id:claims.sub,session_epoch:Math.floor(claims.iat),consult_id:target,device_id:v.device,build:v.build,issued_at:now,expires_at:now+86400000},secret);
+ }
+
  // All callers, including tests, must wrap command in one transaction. Lock before
  // reading receipts/snapshots so two batches cannot observe the same base state.
  await c.query('SELECT p.id FROM projects p JOIN consults c ON c.project_id=p.id WHERE c.id=$1 FOR UPDATE OF p',[target]);

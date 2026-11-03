@@ -33,7 +33,7 @@ test('schedule notes and refreshed prefill are assignment scoped with rough pric
  assert.deepEqual((await snapshot(c,f.context('read',f.owner,id),id)).prefill.rough_estimate,[{label:'Cabinets',value:'$10,000'}]);
  await c.query("UPDATE lead_intake SET answer='1950' WHERE lead_id=$1",[lead]);assert.equal((await read()).prefill.year_built,'1950');
  await assert.rejects(snapshot(c,f.context('read',f.other,id),id),/access denied/);
- await f.run('assign',{visitor:f.other,expected_revision:await f.revision()},f.owner);
+ await f.run('assign',{visitor:f.other,expected_revision:await f.revision(),missing_device_reason:'Original device unavailable; Joe accepts missing work'},f.owner);
  await assert.rejects(snapshot(c,f.context('read'),f.consult),/access denied/);
 },{fresh:true}));
 

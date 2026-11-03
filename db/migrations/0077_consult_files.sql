@@ -14,7 +14,8 @@ CREATE TABLE consult_upload_parts (
  sha256 text NOT NULL CHECK(sha256 ~ '^[a-f0-9]{64}$'), bytes bytea NOT NULL CHECK(octet_length(bytes) BETWEEN 1 AND 1048576),
  PRIMARY KEY(upload_id,n)
 );
-REVOKE ALL ON consult_upload_parts FROM PUBLIC,sjcos_agent,sjcos_worker,sjcos_readonly;
+REVOKE ALL ON consult_upload_parts FROM PUBLIC;
+DO $$ DECLARE r text; BEGIN FOREACH r IN ARRAY ARRAY['sjcos_agent','sjcos_worker','sjcos_readonly'] LOOP IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=r) THEN EXECUTE format('REVOKE ALL ON consult_upload_parts FROM %I',r); END IF; END LOOP; END $$;
 -- node scripts/db-roles-sql.mjs consult_upload_parts: (empty; website-only storage)
 CREATE TABLE consult_quantity_contributions (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),consult_id uuid NOT NULL REFERENCES consults(id),
@@ -28,7 +29,8 @@ ALTER TABLE site_visit_findings ADD COLUMN consult_id uuid REFERENCES consults(i
 ALTER TABLE site_visit_findings ADD COLUMN superseded_at timestamptz;
 ALTER TABLE site_visit_findings ADD COLUMN retracted_at timestamptz;
 ALTER TABLE site_visit_findings ALTER COLUMN measurement TYPE numeric(18,4);
-REVOKE ALL ON consult_quantity_contributions FROM PUBLIC,sjcos_agent,sjcos_worker,sjcos_readonly;
+REVOKE ALL ON consult_quantity_contributions FROM PUBLIC;
+DO $$ DECLARE r text; BEGIN FOREACH r IN ARRAY ARRAY['sjcos_agent','sjcos_worker','sjcos_readonly'] LOOP IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=r) THEN EXECUTE format('REVOKE ALL ON consult_quantity_contributions FROM %I',r); END IF; END LOOP; END $$;
 -- node scripts/db-roles-sql.mjs consult_quantity_contributions: (empty; command-only)
 CREATE TABLE consult_agent_proposals (
  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),consult_id uuid NOT NULL REFERENCES consults(id),
@@ -39,7 +41,8 @@ CREATE TABLE consult_agent_proposals (
  UNIQUE(consult_id,operation_id,instance_id,field_key),
  FOREIGN KEY(consult_id,instance_id) REFERENCES consult_instances(consult_id,id)
 );
-REVOKE ALL ON consult_agent_proposals FROM PUBLIC,sjcos_agent,sjcos_worker,sjcos_readonly;
+REVOKE ALL ON consult_agent_proposals FROM PUBLIC;
+DO $$ DECLARE r text; BEGIN FOREACH r IN ARRAY ARRAY['sjcos_agent','sjcos_worker','sjcos_readonly'] LOOP IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=r) THEN EXECUTE format('REVOKE ALL ON consult_agent_proposals FROM %I',r); END IF; END LOOP; END $$;
 -- node scripts/db-roles-sql.mjs consult_agent_proposals: (empty; command-only)
 ALTER TABLE estimate_gaps DROP CONSTRAINT estimate_gaps_kind_check;
 ALTER TABLE estimate_gaps ADD CHECK(kind IN ('unknown_cost','missing_quantity','missing_unit','units_mismatch','stale_price','missing_quote','unallocated_scope','unverified_assumption','coverage_missing','competing_quotes','offer_changed','missing_freight','missing_tax','partial_choice','consult_not_complete','consult_conflict','trade_walk_pending','flag_sub_must_look','assumption_to_verify','rrp_cert_missing'));
@@ -62,7 +65,7 @@ END $$;
 CREATE TRIGGER consult_retract_generation AFTER UPDATE OF completion_generation ON consults FOR EACH ROW EXECUTE FUNCTION consult_retract_generation();
 REVOKE ALL ON FUNCTION consult_retract_generation() FROM PUBLIC;
 ALTER TABLE files ENABLE ROW LEVEL SECURITY;
-CREATE POLICY generic_attachment_rows ON files TO sjcos_agent,sjcos_worker,sjcos_readonly USING(classification='attachment') WITH CHECK(classification='attachment');
+CREATE POLICY generic_attachment_rows ON files TO PUBLIC USING(classification='attachment') WITH CHECK(classification='attachment');
 CREATE FUNCTION consult_file_class_guard() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
 BEGIN
  IF TG_OP='UPDATE' AND OLD.classification<>'attachment' AND (NEW.classification,NEW.storage_path,NEW.sha256) IS DISTINCT FROM (OLD.classification,OLD.storage_path,OLD.sha256) THEN RAISE EXCEPTION 'consult artifact is immutable'; END IF;
@@ -84,7 +87,8 @@ CREATE TABLE consult_agent_requests (
  actor uuid NOT NULL REFERENCES users(id),operation_id uuid NOT NULL,request_hash text NOT NULL,result jsonb NOT NULL,
  PRIMARY KEY(actor,operation_id)
 );
-REVOKE ALL ON consult_agent_requests FROM PUBLIC,sjcos_agent,sjcos_worker,sjcos_readonly;
+REVOKE ALL ON consult_agent_requests FROM PUBLIC;
+DO $$ DECLARE r text; BEGIN FOREACH r IN ARRAY ARRAY['sjcos_agent','sjcos_worker','sjcos_readonly'] LOOP IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=r) THEN EXECUTE format('REVOKE ALL ON consult_agent_requests FROM %I',r); END IF; END LOOP; END $$;
 -- node scripts/db-roles-sql.mjs consult_agent_requests: (empty; website bridge only)
 CREATE FUNCTION consult_photos_allowed(target uuid) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $$
  SELECT c.photos_ok IS TRUE AND NOT EXISTS(

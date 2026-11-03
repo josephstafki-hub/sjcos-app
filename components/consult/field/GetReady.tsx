@@ -52,14 +52,14 @@ function Rows({ checks, result }: { checks: Partial<Record<ReadyCheck, CheckResu
 function PinChoice({ enrolled, onGo, busy }: { enrolled: boolean; onGo: (pin: string) => void; busy: boolean }) {
   const [pin, setPin] = useState(""); const [again, setAgain] = useState(""); const [err, setErr] = useState<string | null>(null);
   const go = () => {
-    if (!/^\d{4,8}$/.test(pin)) { setErr(W.pinShort); return; }
+    if (!/^\d{6,12}$/.test(pin)) { setErr(W.pinShort); return; }
     if (!enrolled && pin !== again) { setErr(W.pinMismatch); return; }
     setErr(null); onGo(pin);
   };
   return (
     <form className="mt-5 grid gap-3" onSubmit={(e) => { e.preventDefault(); go(); }}>
-      <TextInput label={enrolled ? W.pinEnter : W.pinChoose} value={pin} onChange={(v) => setPin(v.replace(/\D/g, "").slice(0, 8))} type="password" inputMode="numeric" describedBy="pin-help" />
-      {!enrolled && <TextInput label={W.pinConfirm} value={again} onChange={(v) => setAgain(v.replace(/\D/g, "").slice(0, 8))} type="password" inputMode="numeric" />}
+      <TextInput label={enrolled ? W.pinEnter : W.pinChoose} value={pin} onChange={(v) => setPin(v.replace(/\D/g, "").slice(0, 12))} type="password" inputMode="numeric" describedBy="pin-help" />
+      {!enrolled && <TextInput label={W.pinConfirm} value={again} onChange={(v) => setAgain(v.replace(/\D/g, "").slice(0, 12))} type="password" inputMode="numeric" />}
       <p id="pin-help" className="text-[0.9em] text-ink-2">{W.pinChooseHelp}</p>
       {err && <p role="alert" className="font-semibold text-flag">! {err}</p>}
       <Btn tone="primary" wide type="submit" disabled={busy}>{W.getReady}</Btn>
@@ -103,7 +103,7 @@ export function GetReadyCard({ title, result, checks, enrolled, expires, code, u
           <div className="mt-5 grid gap-3">
             {signedOut
               ? <LinkBtn tone="primary" wide href={`/login?next=${encodeURIComponent(typeof location === "undefined" ? "/consult/" : location.pathname)}`}>{W.signIn}</LinkBtn>
-              : pin ? <Btn tone="primary" wide onClick={() => onGetReady(pin)}>{W.tryAgain}</Btn> : <PinChoice enrolled={enrolled} onGo={run} busy={!!busy} />}
+              : pin && code !== 'pin_invalid' && !checks.offline_lease?.reason ? <Btn tone="primary" wide onClick={() => onGetReady(pin)}>{W.tryAgain}</Btn> : <PinChoice enrolled={enrolled} onGo={run} busy={!!busy} />}
           </div>
         </>}
         {result === "no_signal" && <>
@@ -124,14 +124,14 @@ export function UnlockCard({ title, onUnlock, busy, code, expires, olderBuild }:
   return (
     <div className="mx-auto w-full max-w-[560px]">
       <ScreenHead title={title} />
-      <form className="grid gap-3 px-4 pb-8 pt-4" onSubmit={(e) => { e.preventDefault(); if (/^\d{4,8}$/.test(pin)) onUnlock(pin); }}>
+      <form className="grid gap-3 px-4 pb-8 pt-4" onSubmit={(e) => { e.preventDefault(); if (/^\d{6,12}$/.test(pin)) onUnlock(pin); }}>
         <h1 className="font-serif text-[1.6em] font-semibold text-ink">{W.app}</h1>
         <p className="text-ink">{W.unlockLead}</p>
         {expires && <p className="text-ink-2">{fill(W.worksUntil, { time: centralTime(expires) })}</p>}
         {olderBuild && <div role="status" className="rounded-lg border-2 border-info bg-info-soft px-4 py-3 text-ink">Update ready — reload between rooms. This visit keeps working on this device until its answers are sent.</div>}
-        <TextInput label={W.pinEnter} value={pin} onChange={(v) => setPin(v.replace(/\D/g, "").slice(0, 8))} type="password" inputMode="numeric" autoFocus />
+        <TextInput label={W.pinEnter} value={pin} onChange={(v) => setPin(v.replace(/\D/g, "").slice(0, 12))} type="password" inputMode="numeric" autoFocus />
         {code && <p role="alert" className="font-semibold text-flag">! {plainWords(code)}</p>}
-        <Btn tone="primary" wide type="submit" disabled={busy || !/^\d{4,8}$/.test(pin)}>{busy ? "Opening…" : W.openVisit}</Btn>
+        <Btn tone="primary" wide type="submit" disabled={busy || !/^\d{6,12}$/.test(pin)}>{busy ? "Opening…" : W.openVisit}</Btn>
       </form>
     </div>
   );

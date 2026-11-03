@@ -6,7 +6,8 @@ CREATE TABLE consult_findings_jobs (
  lease_token uuid, lease_until timestamptz, last_error text, result jsonb,
  PRIMARY KEY(consult_id,generation)
 );
-REVOKE ALL ON consult_findings_jobs FROM PUBLIC,sjcos_agent,sjcos_worker,sjcos_readonly;
+REVOKE ALL ON consult_findings_jobs FROM PUBLIC;
+DO $$ DECLARE r text; BEGIN FOREACH r IN ARRAY ARRAY['sjcos_agent','sjcos_worker','sjcos_readonly'] LOOP IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=r) THEN EXECUTE format('REVOKE ALL ON consult_findings_jobs FROM %I',r); END IF; END LOOP; END $$;
 -- node scripts/db-roles-sql.mjs consult_findings_jobs: empty (website-only).
 CREATE INDEX consult_findings_jobs_pending ON consult_findings_jobs(available_at) WHERE status IN ('queued','leased');
 
@@ -80,6 +81,7 @@ BEGIN
   ELSIF f->>'type'='length_pair' THEN
    IF jsonb_typeof(operation->'value') IS DISTINCT FROM 'array' OR jsonb_array_length(operation->'value')<>2 THEN RAISE EXCEPTION 'length pair required'; END IF;
    IF EXISTS(SELECT 1 FROM jsonb_array_elements(operation->'value') v WHERE jsonb_typeof(v)<>'number') THEN RAISE EXCEPTION 'numeric pair required'; END IF;
+   IF f ? 'component_ranges' AND EXISTS(SELECT 1 FROM jsonb_array_elements_text(operation->'value') WITH ORDINALITY a(v,n) WHERE v::numeric<(f->'component_ranges'->((n-1)::int)->>0)::numeric OR v::numeric>(f->'component_ranges'->((n-1)::int)->>1)::numeric) THEN RAISE EXCEPTION 'out_of_range'; END IF;
    IF f ? 'range' AND EXISTS(SELECT 1 FROM jsonb_array_elements_text(operation->'value') v WHERE v::numeric<(f->'range'->>0)::numeric OR v::numeric>(f->'range'->>1)::numeric) THEN RAISE EXCEPTION 'out_of_range'; END IF;
   ELSIF f->>'type' IN ('length','count','number','year') THEN
    IF jsonb_typeof(operation->'value') IS DISTINCT FROM 'number' THEN RAISE EXCEPTION 'number required'; END IF;

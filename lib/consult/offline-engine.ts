@@ -2,9 +2,10 @@
 import {ConsultOfflineStore,assertOfflineLease,partitionKey,verifyLease,type SignedLease,type OfflineIdentity,type OfflineLease} from './offline.ts';
 import {applyReceipt,applyServerEpoch,enqueue,nextBatch,type QueueState,type ConsultOp,type OpReceipt} from './queue.ts';
 export interface LocalBlob {hash:string;event_id:string;mime:string;kind:'photo'|'initials';instance_id:string;field_key?:string;shot_key?:string;receipt?:{file_id:string;media_id:string}}
-export interface LocalVisit {queue:QueueState;snapshot:unknown;blobs:LocalBlob[];last_send:number|null}
+export interface LocalVisit {queue:QueueState;snapshot:unknown;blobs:LocalBlob[];last_send:number|null;close_intent?:{evidence:Record<string,unknown>|null;request?:{expected_revision:number;manifest:unknown}};last_send_failure?:{code:string;at:number}|null}
 export type OfflineRepository=Pick<ConsultOfflineStore,'load'|'save'|'saveBlob'|'loadBlob'|'preflight'|'close'|'deleteBlob'|'blobHashes'>;
 export class OfflineEngine {
+ lastSendFailure:{code:string;at:number}|null=null;
  private device:string|null=null;private key:CryptoKey|null=null;private lease:OfflineLease|null=null;private value:LocalVisit|null=null;private revision=0;private running=false;
  private mutations:Promise<unknown>=Promise.resolve();
  private exclusive<T>(work:()=>Promise<T>):Promise<T>{const next=this.mutations.then(work);this.mutations=next.catch(()=>undefined);return next;}
@@ -19,6 +20,9 @@ export class OfflineEngine {
  read():LocalVisit|null{this.access();if(this.value?.queue.blocked==='deleted')return {...structuredClone(this.value),snapshot:null,blobs:[],queue:{...this.value.queue,projection:{},entries:[]}};return this.value?structuredClone(this.value):null;}
  private async commit(value:LocalVisit){const {key,lease}=this.access();const revision=await this.store.save(this.identity,lease,key,this.revision,value);this.access();this.revision=revision;this.value=structuredClone(value);}
  async prepare(value:LocalVisit){if(this.value)throw new Error('local_conflict');await this.store.preflight();await this.commit(value);}
+ async saveCloseIntent(evidence:Record<string,unknown>|null){return this.exclusive(async()=>{const v=this.read();if(v)await this.commit({...v,close_intent:{evidence}});});}
+ async saveCloseRequest(request:{expected_revision:number;manifest:unknown}){return this.exclusive(async()=>{const v=this.read();if(v?.close_intent)await this.commit({...v,close_intent:{...v.close_intent,request}});});}
+ async clearCloseIntent(){return this.exclusive(async()=>{const v=this.read();if(v)await this.commit({...v,close_intent:undefined});});}
  async capture(op:ConsultOp,projection:Record<string,unknown>){return this.exclusive(async()=>{const v=this.read();if(!v)throw new Error('not_prepared');await this.commit({...v,queue:enqueue(v.queue,op,projection)});});}
  async orphanHashes(){this.access();const v=this.read();const referenced=new Set(v?.blobs.map(b=>b.hash)??[]);return (await this.store.blobHashes(this.identity)).filter(h=>!referenced.has(h));}
  async evictSyncedBlobs(){const v=this.read();if(!v)return;for(const b of v.blobs)if(b.receipt&&!v.blobs.some(p=>p.hash===b.hash&&!p.receipt))await this.store.deleteBlob(this.identity,b.hash);}
@@ -30,8 +34,8 @@ export class OfflineEngine {
   * No replacement user is ever allowed to drain the old author's queue. */
  recoveryManifest(){const v=this.read();return {identity:this.identity,partition:partitionKey(this.identity),ops:v?.queue.entries.filter(e=>e.status!=='accepted').map(e=>e.op)??[],blobs:v?.blobs??[]};}
  private async post(path:string,body:unknown,method='POST',headers:Record<string,string>={}){return this.request(`/api/consult/${this.identity.consult_id}${path}`,{method,credentials:'same-origin',cache:'no-store',headers:{'X-Consult-CSRF':'1','Content-Type':'application/json',...headers},body:JSON.stringify(body)});}
- private async receipts(receipts:OpReceipt[]){const v=this.read();if(!v)return;let queue=v.queue;for(const r of receipts)queue=applyReceipt(queue,r,Date.now());await this.commit({...v,queue,last_send:receipts.some(r=>r.status>=200&&r.status<300)?Date.now():v.last_send,...(queue.blocked?{snapshot:null}: {})});if(queue.blocked==='signed_out'||queue.blocked==='revoked')this.lock();}
- async replay(){return this.exclusive(()=>this.replayWrite());}
+ private async receipts(receipts:OpReceipt[]){const v=this.read();if(!v)return;let queue=v.queue;const failure=receipts.find(r=>r.status!==200);if(!failure)this.lastSendFailure=null;if(failure)this.lastSendFailure={code:failure.error_code??(failure.status===0?'no_signal':'send_failed'),at:Date.now()};for(const r of receipts)queue=applyReceipt(queue,r,Date.now());await this.commit({...v,queue,last_send_failure:this.lastSendFailure,last_send:receipts.some(r=>r.status>=200&&r.status<300)?Date.now():v.last_send,...(queue.blocked?{snapshot:null}: {})});if(queue.blocked==='signed_out'||queue.blocked==='revoked')this.lock();}
+ async replay(){return this.exclusive(async()=>{try{await this.replayWrite();}catch(e){this.lastSendFailure={code:e instanceof Error?e.message:'unknown',at:Date.now()};const v=this.key?this.read():null;if(v)await this.commit({...v,last_send_failure:this.lastSendFailure});throw e;}});}
  private async replayWrite(){
   if(this.running)return;this.running=true;
   try{const v=this.read();if(!v||v.queue.blocked)return;
@@ -57,5 +61,5 @@ export class OfflineEngine {
   const committed=status.receipt?null:await this.post(`/uploads/${status.upload_id}/commit`,{event_id:meta.event_id,sha256:meta.hash});if(committed&&!committed.ok){await this.transportFailure(committed.status);return;}
   const receipt=status.receipt??await committed!.json(),latest=this.read()!;await this.commit({...latest,blobs:latest.blobs.map(b=>b.event_id===meta.event_id?{...b,receipt}:b)});
  }
- private async transportFailure(status:number){const v=this.read();if(!v)return;if([401,403,410,426].includes(status)){const queue={...v.queue,blocked:(status===401?'signed_out':status===403?'revoked':status===410?'deleted':'update_required') as QueueState['blocked'],projection:{}};await this.commit({...v,queue,snapshot:null});this.lock();}}
+ private async transportFailure(status:number){this.lastSendFailure={code:status===401?'signed_out':status===403?'revoked':`upload_${status}`,at:Date.now()};const v=this.read();if(!v)return;await this.commit({...v,last_send_failure:this.lastSendFailure});if([401,403,410,426].includes(status)){const queue={...v.queue,blocked:(status===401?'signed_out':status===403?'revoked':status===410?'deleted':'update_required') as QueueState['blocked'],projection:{}};await this.commit({...v,queue,snapshot:null});this.lock();}}
 }

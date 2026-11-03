@@ -20,10 +20,12 @@ const meetsEgress = all(
   not(lt('clear_width', 20)), not(lt('clear_height', 24)),
   any(all(isIn('grade_class', ['Grade-floor', 'Below-grade']), not(lt('clear_area', 5))), not(lt('clear_area', 5.7))),
   not(gt('floor_to_sill', 44)),
+  any(eq('grade_class', 'Grade-floor'), all(answered('well_depth'), any(not(gt('well_depth', 44)), eq('well_ladder', true)))),
   any(eq('grade_class', 'Grade-floor'), all(answered('well_width'), answered('well_projection'), not(lt('well_width', 36)), not(lt('well_projection', 36)), not(lt('well_area', 9)))),
 );
 
 export const derivationCases: Derivation[] = [
+  d('footing.required_depth', 'prefill', 'Metro default 42 inches; editable city requirement', [{ when: not(answered('required_depth')), formula: '42' }]),
   d('window.new_unit', 'derived', 'addition Window count = count of window Plan = New', [
     { when: eq('plan', 'New'), formula: '1' }, { when: answered('plan'), formula: '0' },
   ]),

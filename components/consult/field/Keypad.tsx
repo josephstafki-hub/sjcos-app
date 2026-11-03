@@ -35,7 +35,7 @@ function interpret(text: string, mode: Mode, def: FieldDef, pair: boolean) {
   if (pair) {
     const parts = text.split(/\s*[x×]\s*/i);
     if (parts.length !== 2 || !parts[1].trim()) return { ok: false as const, error: "need_second" as const };
-    const r = parseLengthPair(`${withUnit(parts[0])} x ${withUnit(parts[1])}`, [opts, opts]);
+    const r = parseLengthPair(`${withUnit(parts[0])} x ${withUnit(parts[1])}`, [{...opts,range:def.component_ranges?.[0]??def.range}, {...opts,range:def.component_ranges?.[1]??def.range}]);
     return r.ok ? { ok: true as const, value: r.inches as unknown, display: r.display } : { ok: false as const, error: "invalid_length_pair" as const };
   }
   const r = parseLength(withUnit(text), opts);

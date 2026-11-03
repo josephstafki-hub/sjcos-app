@@ -25,7 +25,7 @@ export function WrapSheet({ open, onClose, model, draft, hasInitials, refused, o
   const trades = [...new Set([...model.touchedTrades, ...draft.trade_walks.map((w) => w.trade)])].filter(Boolean);
   const undecidedTrades = trades.filter((t) => !draft.trade_walks.some((w) => w.trade === t && typeof w.needed === "boolean" && w.reason.trim()));
   const tradesOpen = trades.length ? undecidedTrades.length > 0 : !draft.no_trades_confirmed;
-  const rrpOpen = model.rrpApplies && !(draft.rrp.receipt && draft.rrp.firm_current && draft.rrp.renovator_current);
+  const rrpOpen = model.rrpApplies && !(model.rrp.receipt && model.rrp.firm_current && model.rrp.renovator_current);
   const ackOpen = !hasInitials && !draft.ack_reason?.trim();
   const blocking = required.length > 0 || undecidedFlags.length > 0 || tradesOpen || rrpOpen || ackOpen || model.conflicts.length > 0 || refused > 0 || !model.promised;
   const title = `${W.beforeYouWrap} · ${required.length} Open · ${partly.length} Partly`;
@@ -115,7 +115,7 @@ export function TradeSheet({ open, onClose, model, draft, onSave, saveError }: {
   );
 }
 
-export function RrpSheet({ open, onClose, draft, onSave, saveError }: { open: boolean; onClose: () => void; draft: EvidenceDraft; saveError?: string | null; onSave: (d: EvidenceDraft) => Promise<boolean> }) {
+export function RrpSheet({ model, onGo, open, onClose, draft, onSave, saveError }: { open: boolean; onClose: () => void; draft: EvidenceDraft; saveError?: string | null; onSave: (d: EvidenceDraft) => Promise<boolean>; model: VisitModel; onGo: () => void }) {
   const [rrp, setRrp] = useState(draft.rrp);
   const toggle = (k: "receipt" | "firm_current" | "renovator_current" | "redelivery_required", label: string) => (
     <button type="button" role="checkbox" aria-checked={rrp[k]} onClick={() => setRrp({ ...rrp, [k]: !rrp[k] })}
@@ -128,7 +128,7 @@ export function RrpSheet({ open, onClose, draft, onSave, saveError }: { open: bo
       {saveError && <Banner kind="action">{plainWords(saveError)}</Banner>}
       <p className="mb-3 text-ink-2">The house was built before 1978, or the year isn’t known.</p>
       <div className="grid gap-3">
-        {toggle("receipt", W.rrpReceipt)}{toggle("firm_current", W.rrpFirm)}{toggle("renovator_current", W.rrpRenovator)}{toggle("redelivery_required", W.rrpRedelivery)}
+        {([ ["receipt", W.rrpReceipt], ["firm_current", W.rrpFirm], ["renovator_current", W.rrpRenovator] ] as const).map(([key,label])=><p key={key}>{model.rrp[key] ? "✓" : "!"} {label}</p>)}<Btn onClick={onGo}>Go to Era answers</Btn>{toggle("redelivery_required", W.rrpRedelivery)}
         {rrp.redelivery_required && <label className="block"><span className="font-semibold">{W.rrpRedeliveryDay}</span><input type="date" value={rrp.redelivery_day ?? ""} onChange={(e) => setRrp({ ...rrp, redelivery_day: e.target.value || undefined })} className="mt-1 block min-h-14 rounded-md border-2 border-rule bg-card px-3 text-[max(16px,1em)]" /></label>}
       </div>
     </Sheet>

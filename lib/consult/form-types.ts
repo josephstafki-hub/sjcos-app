@@ -6,6 +6,7 @@ export type When = AtomicWhen | { all: When[] } | { any: When[] } | { not: When 
 export interface ShotDef { key: string; label: string; required: boolean | When; tier: "price_critical" | "record"; hint?: string }
 export interface FieldDef {
   key: string; label: string; type: FieldType; unit?: Unit;
+  component_ranges?: [[number, number], [number, number]];
   range?: [number, number];            // sanity range in the stored unit (inches for lengths)
   warn?: { below?: number; above?: number; text: string };
   precision?: number;                  // inches: 0.0625 | 0.125 | 0.5 | 1

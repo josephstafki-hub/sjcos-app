@@ -39,7 +39,11 @@ test('verified complete precache serves cold offline shell; kill switch blocks c
  const caches={keys:async()=>[...stores.keys()],delete:async key=>stores.delete(key),open:async key=>{if(!stores.has(key))stores.set(key,new Map());const s=stores.get(key);return {put:async(k,v)=>s.set(k,v.clone()),match:async k=>s.get(k)?.clone()};}};
  vm.runInNewContext(readFileSync(new URL('../public/sw.js',import.meta.url),'utf8'),{self:{addEventListener:(n,f)=>listeners[n]=f,location:{origin:'https://test'},clients:{claim:async()=>{},get:async()=>({url:'https://test/consult/'})},registration:{unregister:async()=>unregistered=true}},crypto,caches,URL,Response,fetch:async input=>{if(offline)throw Error('offline');return new Response(contents[typeof input==='string'?input:new URL(input.url).pathname]??'auth data');}});
  async function message(data){let task;listeners.message({data,ports:[{postMessage:m=>messages.push(m)}],waitUntil:p=>task=p});await task;return messages.at(-1);}
- assert.equal((await message({type:'PRECACHE',manifest})).ok,true);assert.equal((await message({type:'CHECK',manifest})).ok,true);offline=true;let response;listeners.fetch({clientId:'tab',request:{url:'https://test/consult/visit',method:'GET',headers:new Headers(),mode:'navigate'},respondWith:p=>response=p});assert.equal(await (await response).text(),contents['/consult/offline.html']);assert.equal((await message({type:'STOP_CACHE'})).capture_blocked,true);assert.equal(unregistered,true);assert.equal(stores.size,0);assert.equal((await message({type:'PRECACHE',manifest})).code,'capture_blocked');
+ assert.equal((await message({type:'PRECACHE',manifest})).ok,true);assert.equal((await message({type:'CHECK',manifest})).ok,true);offline=true;let response;listeners.fetch({clientId:'tab',request:{url:'https://test/consult/visit',method:'GET',headers:new Headers(),mode:'navigate'},respondWith:p=>response=p});assert.equal(await (await response).text(),contents['/consult/offline.html']);stores.set('sjcos-consult-shell:build2',new Map([['/consult/assets/ready',new Response('{}')],['/consult/offline.html',new Response('new shell')]]));
+ stores.set('sjcos-consult-shell:incomplete',new Map([['/consult/offline.html',new Response('partial shell')]]));
+ listeners.fetch({clientId:'',request:{url:'https://test/consult/visit?consult_build=build1',method:'GET',headers:new Headers(),mode:'navigate'},respondWith:p=>response=p});assert.equal(await (await response).text(),contents['/consult/offline.html']);
+ listeners.fetch({clientId:'',request:{url:'https://test/consult/visit?consult_build=incomplete',method:'GET',headers:new Headers(),mode:'navigate'},respondWith:p=>response=p});assert.equal((await response).status,503);
+ assert.equal((await message({type:'STOP_CACHE'})).capture_blocked,true);assert.equal(unregistered,true);assert.equal(stores.size,0);assert.equal((await message({type:'PRECACHE',manifest})).code,'capture_blocked');
 });
 
 import {getReady} from '../lib/consult/get-ready.ts';import {definitionChecksum} from '../lib/consult/forms/seed.ts';
@@ -88,4 +92,29 @@ test('decision-only saves survive cold reload, replay receipts, a new build and 
   await cold.replay();assert.equal(cold.read().queue.entries[0].status,'accepted');cold.lock();
  }
  assert.equal(ack,3);store.close();
+});
+
+test('offline Close intent and send failure survive cold unlock',async()=>{
+ const {store,key,lease,engine}=await setup(async()=>Response.json({wrong:'shape'}));
+ await engine.capture(await answer(),{});await engine.saveCloseIntent({photos_ok:false});
+ await assert.rejects(engine.replay(),/invalid_receipts/);
+ assert.equal(engine.read().last_send_failure.code,'invalid_receipts');
+ engine.lock();const cold=new OfflineEngine(id,store);await cold.unlock(key,lease);
+ assert.deepEqual(cold.read().close_intent,{evidence:{photos_ok:false}});
+ assert.equal(cold.read().last_send_failure.code,'invalid_receipts');
+ await cold.clearCloseIntent();assert.equal(cold.read().close_intent,undefined);store.close();
+});
+
+test('offline Close cold reload reconnect automatically closes exactly once',async()=>{
+ const {VisitController}=await import('../lib/consult/ui/controller.ts');
+ const {engine,store,key,lease}=await setup();
+ Object.defineProperty(globalThis.navigator,'onLine',{value:false,configurable:true});
+ const first=new VisitController(null,'visit');first.engine=engine;first.state.local=engine.read();first.state.device='device';
+ await first.close(null);assert.equal(first.getState().closing.step,'waiting_signal');engine.lock();
+ const cold=new OfflineEngine(id,store);await cold.unlock(key,lease);
+ const next=new VisitController(null,'visit');next.engine=cold;next.state.local=cold.read();next.state.device='device';
+ Object.defineProperty(globalThis.navigator,'onLine',{value:true,configurable:true});
+ let closes=0;const previous=globalThis.fetch;
+ globalThis.fetch=async(_url,init)=>{if(init?.method==='POST'){assert.equal(JSON.parse(init.body).command,'close');closes++;return Response.json({complete:true,checks:[],revision:1});}return Response.json({consult:{revision:1}});};
+ try{await next.drain();assert.equal(next.getState().closing.step,'done');assert.equal(cold.read().close_intent,undefined);await next.drain();assert.equal(closes,1);}finally{globalThis.fetch=previous;store.close();}
 });

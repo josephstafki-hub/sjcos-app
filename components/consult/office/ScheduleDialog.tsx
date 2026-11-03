@@ -6,6 +6,7 @@
  * modules are pinned with the chosen templates). Also "Change who goes" (`assign`).
  * Errors come back as data and are shown in plain words. No stage is advanced.
  */
+import { RecoveryControl } from './RecoveryControl';
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui";
@@ -77,7 +78,7 @@ export function ScheduleDialog({ projectId, client, options, ownerId }: { projec
               {options.addOns.length > 0 && <fieldset><legend className="font-semibold text-ink">{W.addOns}</legend>
                 <div className="mt-1 flex flex-wrap gap-3">{options.addOns.map((t) => <Tick key={t.key} on={addOns.includes(t.key)} label={t.title} onClick={() => toggle(addOns, setAddOns, t.key)} />)}</div></fieldset>}
               <label className="block"><span className="font-semibold text-ink">Visitor notes</span><textarea value={visitorNotes} maxLength={8000} onChange={(e)=>setVisitorNotes(e.target.value)} className="mt-1 block min-h-12 w-full rounded-md border-2 border-rule bg-card px-3 text-[16px]" /></label>
-              <p className="text-ink-2">{fill(W.estimatedVisit, { duration: visitDuration(templates) })}</p>
+              <p className="text-ink-2">{fill(W.estimatedVisit, { duration: visitDuration([...templates,...addOns]) })}</p>
               {err && <p role="alert" className="font-semibold text-flag">! {err}</p>}
             </div>
             <div className="mt-5 flex justify-end gap-3">
@@ -93,14 +94,17 @@ export function ScheduleDialog({ projectId, client, options, ownerId }: { projec
 
 export function AssignControl({ consultId, revision, visitors, current }: { consultId: string; revision: number; visitors: { id: string; name: string; role: string }[]; current: string }) {
   const router = useRouter();
+  const [reason, setReason] = useState('');
   const [open, setOpen] = useState(false); const [who, setWho] = useState(current); const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   if (!open) return <Button variant="secondary" size="md" onClick={() => setOpen(true)}>{W.reassign}</Button>;
   return (
     <div className="flex flex-wrap items-center gap-2">
       <label className="sr-only" htmlFor={`who-${consultId}`}>{W.whoGoes}</label>
       <select id={`who-${consultId}`} value={who} onChange={(e) => setWho(e.target.value)} className="min-h-11 rounded-md border-2 border-rule bg-card px-2 text-[16px]">{visitors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}</select>
-      <Button size="md" disabled={busy || who === current} onClick={async () => { setBusy(true); setErr(null); try { await command(consultId, "assign", { visitor: who, expected_revision: revision }); setOpen(false); router.refresh(); } catch (e) { setErr(plainWords(e instanceof Error ? e.message : "")); } finally { setBusy(false); } }}>{W.save}</Button>
+      <input aria-label="Reason for setting aside the previous device" placeholder="Set aside / move device — reason (unsent work may be missing)" value={reason} onChange={e=>setReason(e.target.value)} className="min-h-11 border px-2" />
+      <Button size="md" disabled={busy || (who === current && !reason.trim())} onClick={async () => { setBusy(true); setErr(null); try { await command(consultId, "assign", { visitor: who, expected_revision: revision, ...(reason.trim() ? {missing_device_reason:reason.trim()} : {}) }); setOpen(false); router.refresh(); } catch (e) { setErr(plainWords(e instanceof Error ? e.message : "")); } finally { setBusy(false); } }}>{W.save}</Button>
       <Button variant="ghost" size="md" onClick={() => setOpen(false)}>{W.cancel}</Button>
+      <RecoveryControl consultId={consultId} />
       {err && <p role="alert" className="w-full text-body font-semibold text-flag">! {err}</p>}
     </div>
   );

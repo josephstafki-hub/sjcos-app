@@ -12,6 +12,7 @@ export async function getReady(input:{identity:OfflineIdentity;device:string;pin
  const progress=(key:ReadyCheck)=>{check=key;input.onCheck(key,{state:'checking'});},done=()=>input.onCheck(check,{state:'done'});
  const post=async(command:string,data:unknown)=>{const r=await request(`/api/consult/${input.identity.consult_id}`,{method:'POST',credentials:'same-origin',cache:'no-store',headers:{'Content-Type':'application/json','X-Consult-CSRF':'1'},body:JSON.stringify({command,input:data})});const value=await r.json();if(!r.ok||value.ok===false)throw new Error(value.error_code??value.code??'not_ready');return value;};
  try{
+  if(!/^\d{6,12}$/.test(input.pin)){check='offline_lease';throw new Error('pin_invalid');}
   progress('visit_details');const response=await request(`/api/consult/${input.identity.consult_id}`,{credentials:'same-origin',cache:'no-store'});if(!response.ok)throw new Error(response.status===401?'signed_out':response.status===403?'revoked':'snapshot_unavailable');const snapshot=await response.json();done();
   progress('forms');for(const pin of snapshot.pins as {checksum:string;definition:ModuleDef|TemplateDef}[])if(await definitionChecksum(pin.definition)!==pin.checksum)throw new Error('checksum_mismatch');if(!snapshot.pins.length)throw new Error('missing_forms');done();
   progress('offline_pages');if(input.manifest.build!==input.identity.build)throw new Error('update_required');await prepareConsultShell(input.worker,input.manifest);done();

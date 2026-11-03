@@ -1,3 +1,5 @@
+import { mergeTemplateModules } from '../template-merge.ts';
+import { rrpFacts } from '../rrp.ts';
 /**
  * Pure view model for the in-home consultation field app (plan §6.1–§6.4, §10.2–§10.3).
  * Inputs: the stored/fresh server snapshot, the durable local queue and blob metadata,
@@ -23,7 +25,7 @@ export interface Snapshot {
   findings_job?: { generation: string | number; status: string; attempts: number; last_error: string | null; result: unknown } | null;
   display?: Display;
   visitor_notes?: string; decisions?: EvidenceDraft | null;
-  prefill?: {year_built: string | null; intake: {question:string;answer:string}[]; rough_estimate:{label:string;value?:unknown}[]; scope_items:{key:string;title:string;room:string;trade:string;quantities:{label:string;qty:number|null;unit:string;basis?:string}[]}[]; plan_items:{prompt:string;location:string}[]; photos:{id:string;name:string}[]; discovery_notes:{summary:string}[]};
+  prefill?: {firm_cert_number?: string | null; firm_cert_expiry?: string | null;year_built: string | null; intake: {question:string;answer:string}[]; rough_estimate:{label:string;value?:unknown}[]; scope_items:{key:string;title:string;room:string;trade:string;quantities:{label:string;qty:number|null;unit:string;basis?:string}[]}[]; plan_items:{prompt:string;location:string}[]; photos:{id:string;name:string}[]; discovery_notes:{summary:string}[]};
 }
 export interface EvidenceDraft {
   skips: Record<string, { reason: SkipReason; note?: string; assumption?: RiskAssumption; trade_walk_decided?: boolean }>;
@@ -49,13 +51,13 @@ export interface SectionView {
   fields: FieldView[]; hidden: FieldView[]; shots: ShotView[]; mark: Mark; conflict: boolean; returnVisit: boolean;
   pc: { done: number; total: number }; record: { done: number; total: number }; children: string[];
 }
-export interface ModuleSlot { module: ModuleDef; minimum: number; live: number; required: boolean; parent?: string; optional: boolean; label?: string }
+export interface ModuleSlot { module: ModuleDef; minimum: number; live: number; required: boolean; parent?: string; optional: boolean; presets?: Record<string, unknown>[]; label?: string }
 export interface VisitModel {
   modules: ModuleDef[]; templates: TemplateDef[]; sections: SectionView[]; slots: ModuleSlot[];
   pc: { done: number; total: number; skipped: number }; record: { done: number; total: number; skipped: number };
   open: { section: SectionView; item: FieldView | ShotView; kind: 'field' | 'shot'; partly: boolean }[];
   flags: { key: string; issue: string; section: SectionView; field: FieldView }[];
-  conflicts: ConflictView[]; touchedTrades: string[]; rrpApplies: boolean;
+  conflicts: ConflictView[]; touchedTrades: string[]; rrpApplies: boolean; rrp: ReturnType<typeof rrpFacts>;
   values: Record<string, unknown>; photosOk: boolean | null; promised: string | null;
   started: boolean; status: string; generation: number;
 }
@@ -214,8 +216,7 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
   global['visit.add_ons'] = templateKeys.filter((k) => ['garage', 'openings', 'flooring'].includes(k));
 
   // Template module order, merged across pinned templates.
-  const order: { module: string; required: boolean | When; min?: number; label?: string }[] = [];
-  for (const t of templates) for (const entry of t.modules) if (!order.some((o) => o.module === entry.module)) order.push(entry);
+  const order = mergeTemplateModules(templates, global);
   for (const m of modules) if (!isHiddenModule(m) && !order.some((o) => o.module === m.key) && live.some((i) => i.module_key === m.key)) order.push({ module: m.key, required: false });
 
   const slots: ModuleSlot[] = [];
@@ -223,7 +224,7 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
     const m = byKey.get(o.module); if (!m || isHiddenModule(m)) continue;
     const required = safeCondition(o.required, known, global);
     const minimum = required ? Math.max(1, o.min ?? 1) : 0;
-    slots.push({ module: m, minimum, live: live.filter((i) => i.module_key === m.key).length, required, parent: m.parent_module, optional: o.required === false, label: o.label });
+    slots.push({ presets: o.presets, module: m, minimum, live: live.filter((i) => i.module_key === m.key).length, required, parent: m.parent_module, optional: o.required === false, label: o.label });
   }
 
   const sections: SectionView[] = [];
@@ -309,14 +310,19 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
 
   const touched = new Set<string>();
   for (const i of live) if (TRADES[i.module_key]) touched.add(TRADES[i.module_key]);
+  if (allFlags.some(f => f.section.module.key === 'structure')) touched.add('Engineer/framer');
+  if (live.some(i => i.module_key === 'footing')) touched.add('Excavation/foundation');
+  if (Array.isArray(global['era.asbestos']) && global['era.asbestos'].some(v => v !== 'None')) touched.add('Abatement');
   const year = global['house.year_built'];
   const status = s.consult.status;
   const started = status !== 'scheduled' || entries.some((e) => e.op.type === 'start' && !['invalid', 'deleted'].includes(e.status));
   const photosOk = typeof global['house.photos_ok'] === 'boolean' ? (global['house.photos_ok'] as boolean) : null;
   const promisedRaw = global['closing.estimate_promised'];
+  const rrp = rrpFacts(global, blobs.some(b=>b.kind==='initials'&&b.field_key==='pamphlet_initials'&&!!b.receipt), String(s.consult.scheduled_at));
+  rrp.receipt ||= sections.some(sec=>sec.module.key==='era'&&sec.fields.some(f=>['pamphlet_given','pamphlet_initials'].includes(f.key)&&f.answer?.status==='skipped'&&!!f.answer.skip_note?.trim()&&f.skipCounts));
   return {
     modules, templates, sections, slots, pc: tally.pc, record: tally.record, open: allOpen, flags: allFlags, conflicts,
-    touchedTrades: [...touched], rrpApplies: typeof year !== 'number' || year < 1978, values: global, photosOk,
+    touchedTrades: [...touched], rrp, rrpApplies: rrpFacts(global, false, String(s.consult.scheduled_at)).applies, values: global, photosOk,
     promised: typeof promisedRaw === 'string' ? promisedRaw : null, started, status, generation: Number(s.consult.completion_generation),
   };
 }
@@ -388,7 +394,8 @@ export function buildEvidence(model: VisitModel, draft: EvidenceDraft, hasInitia
   for (const [key, v] of Object.entries(draft.flags)) if (flagKeys.has(key) && trim(v.note)) flags[key] = { disposition: v.disposition, note: trim(v.note) };
   const walks = draft.trade_walks.filter((w) => trim(w.trade) && typeof w.needed === 'boolean' && trim(w.reason)).map((w) => ({ trade: trim(w.trade), needed: w.needed as boolean, reason: trim(w.reason) }));
   const touched = [...new Set([...model.touchedTrades, ...draft.trade_walks.map((w) => trim(w.trade)).filter(Boolean)])];
-  const rrp = { receipt: draft.rrp.receipt, firm_current: draft.rrp.firm_current, renovator_current: draft.rrp.renovator_current, redelivery_required: draft.rrp.redelivery_required, ...(draft.rrp.redelivery_required && draft.rrp.redelivery_day && /^\d{4}-\d{2}-\d{2}$/.test(draft.rrp.redelivery_day) ? { redelivery_day: draft.rrp.redelivery_day } : {}) };
+  const derivedRrp = model.rrp;
+  const rrp = { receipt: derivedRrp.receipt, firm_current: derivedRrp.firm_current, renovator_current: derivedRrp.renovator_current, redelivery_required: draft.rrp.redelivery_required, ...(draft.rrp.redelivery_required && draft.rrp.redelivery_day && /^\d{4}-\d{2}-\d{2}$/.test(draft.rrp.redelivery_day) ? { redelivery_day: draft.rrp.redelivery_day } : {}) };
   return {
     photos_ok: model.photosOk === true, manual_confirmed: true, handed_back: true,
     ack_reason: hasInitials ? null : trim(draft.ack_reason) || null, promised_date: model.promised,

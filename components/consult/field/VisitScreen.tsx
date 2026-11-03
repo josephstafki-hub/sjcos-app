@@ -31,7 +31,7 @@ export interface VisitApi {
 }
 
 const fillScript = (line: string, display: Display | undefined, model: VisitModel) =>
-  line.replace(/\s*This is \{helper\}[^.]*\./, "").replace("{duration}", visitDuration(model.templates.map((t) => t.key)))
+  (!model.promised && line.includes("{estimate_date}") ? "Pick the date below first." : line).replace(/\s*This is \{helper\}[^.]*\./, "").replace("{duration}", visitDuration(model.templates.map((t) => t.key)))
     .replace("{name}", display?.visitor_name ?? "").replace("{estimate_date}", model.promised ? centralTime(`${model.promised}T12:00:00-06:00`, { weekday: "long", month: "long", day: "numeric" }) : "the date you pick below")
     .replace("{open_selections}", model.sections.filter((s) => s.module.key === "selections" && !s.fields.some((f) => f.key === "status" && f.answer?.value === "Exact product picked")).map((s) => s.label).join(", ") || "none");
 
@@ -89,7 +89,7 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
   const section = model.sections.find((s) => s.instance.id === active) ?? null;
   const tmpl = model.templates[0];
   const opening = useMemo(() => ((staff ? tmpl?.opening_staff : tmpl?.opening) ?? tmpl?.opening ?? []).map((l) => fillScript(l, display, model)), [tmpl, staff, display, model]);
-  const closingLines = useMemo(() => ((staff ? tmpl?.closing_staff : tmpl?.closing) ?? tmpl?.closing ?? []).map((l) => fillScript(l, display, model)), [tmpl, staff, display, model]);
+  const closingLines = useMemo(() => ((staff ? tmpl?.closing_staff : tmpl?.closing) ?? tmpl?.closing ?? []).filter(l => !l.includes("{open_selections}") || model.sections.some(s=>s.module.key==="selections" && !s.fields.some(f=>f.key==="status"&&f.answer?.value==="Exact product picked"))).map((l) => fillScript(l, display, model)), [tmpl, staff, display, model]);
   const head = `${display?.client ?? ""}${model.templates.length ? ` · ${model.templates.map((t) => t.title).join(" + ")}` : ""}`;
 
   // In-tool Back returns to the section list; from the list it stays in the tool.
@@ -283,7 +283,7 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
         onCloseVisit={() => { setSheet(null); api.close(); }} />
       {sheet === "flags" && <FlagSheet open onClose={() => setSheet("wrap")} model={model} draft={draft} saveError={saveError} onSave={api.setDraft} />}
       {sheet === "trades" && <TradeSheet open onClose={() => setSheet("wrap")} model={model} draft={draft} saveError={saveError} onSave={api.setDraft} />}
-      {sheet === "rrp" && <RrpSheet open onClose={() => setSheet("wrap")} draft={draft} saveError={saveError} onSave={api.setDraft} />}
+      {sheet === "rrp" && <RrpSheet model={model} onGo={() => {setSheet(null);const id=model.sections.find(s=>s.module.key==="era")?.instance.id;if(id)openSection(id);}} open onClose={() => setSheet("wrap")} draft={draft} saveError={saveError} onSave={api.setDraft} />}
       {sheet === "ack" && <AckSheet open onClose={() => setSheet("wrap")} draft={draft} saveError={saveError} onSave={api.setDraft} />}
       <Sheet open={!!remove} onClose={() => setRemove(null)} title={remove ? fill(W.removeInstance, { name: remove.label }) : ""}
         footer={<><Btn onClick={() => setRemove(null)}>{W.cancel}</Btn><Btn tone="danger" onClick={() => { const r = remove!; setRemove(null); setView("list"); void wrap(api.removeInstance(r.instance.id, r.label)); }}>{W.remove}</Btn></>}>

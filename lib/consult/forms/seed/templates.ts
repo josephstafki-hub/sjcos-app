@@ -1,6 +1,6 @@
 // Plan §7.4–§7.11 templates, add-ons, derived quantities and the versioned scope-label registry.
 import type { TemplateDef } from '../../form-types.ts';
-import { answered, any, eq, gt, isIn, tpl } from './helpers.ts';
+import { ne, answered, any, eq, gt, isIn, tpl } from './helpers.ts';
 import { CLOSING_JOE, OPENING_JOE } from './scripts.ts';
 import { EXTERIOR_SYSTEMS } from './template-modules.ts';
 
@@ -76,7 +76,7 @@ export const selectionRules = {
 } as const;
 
 const hvacFans = C('hvac_exhaust_fan', gt('hvac.other_exhaust_fan_count', 0), { label: 'one row per other exhaust fan (when hood > 300 cfm)' });
-const hvacVents = (required: Mod['required']) => C('hvac_vent', required, { min: 1, label: 'one row per fuel-burning appliance' });
+const hvacVents = (required: Mod['required']) => C('hvac_vent', required === false ? false : ne('hvac.fuel_appliances', false), { min: 1, label: 'one row per fuel-burning appliance' });
 
 export const bath: TemplateDef = {
   key: 'bath', version: 1, title: 'Bathroom', opening, closing,

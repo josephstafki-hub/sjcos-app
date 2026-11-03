@@ -31,7 +31,7 @@ export interface State {
   enrolled: boolean; olderBuild: boolean; leaseExpires: number | null;
   ready: { result: ReadyResult; checks: Partial<Record<ReadyCheck, CheckResult>>; failed?: ReadyCheck; code?: string };
   local: LocalVisit | null; fresh: Snapshot | null; freshSeq: number; draft: EvidenceDraft;
-  blocked: QueueState['blocked']; code: string | null; sending: boolean; lastSaved: string | null; storageFull: boolean;
+  blocked: QueueState['blocked']; code: string | null; sending: boolean; lastSendFailure: { code: string; at: number } | null; lastSaved: string | null; storageFull: boolean;
   closing: ClosingState | null; thumbs: Record<string, string>; busy: boolean; findingsCode: string | null;
 }
 
@@ -124,21 +124,24 @@ export class VisitController {
   private manifest: PrecacheManifest | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private draining = false;
+  private closing = false;
+  private expiryTimer: ReturnType<typeof setTimeout> | null = null;
   private writes: Promise<unknown> = Promise.resolve();
   private disposed = false;
+  private memoryEpoch = 0;
 
   constructor(boot: Boot | null, consultId: string) {
     this.state = {
       phase: 'loading', online: typeof navigator === 'undefined' ? true : navigator.onLine, boot, consultId, identity: null, device: '', enrolled: false, olderBuild: false, leaseExpires: null,
       ready: { result: 'idle', checks: {} }, local: null, fresh: null, freshSeq: 0, draft: emptyDraft(), blocked: null, code: null,
-      sending: false, lastSaved: null, storageFull: false, closing: null, thumbs: {}, busy: false, findingsCode: null,
+      sending: false, lastSendFailure: null, lastSaved: null, storageFull: false, closing: null, thumbs: {}, busy: false, findingsCode: null,
     };
   }
   subscribe = (fn: Listener) => { this.listeners.add(fn); return () => { this.listeners.delete(fn); }; };
-  getState = () => this.state;
+  getState = () => { if (this.lease && this.lease.expires_at <= Date.now()) this.deny('offline_locked'); return this.state; };
   private set(patch: Partial<State>) { if (this.disposed) return; this.state = { ...this.state, ...patch }; for (const fn of this.listeners) fn(); }
 
-  private onOnline = () => { this.set({ online: true }); void this.drain(); };
+  private onOnline = () => { this.set({ online: true }); void this.refresh().then(() => this.drain()); };
   private onOffline = () => this.set({ online: false });
   private onHide = () => { if (document.visibilityState === 'hidden') void this.drain(); };
 
@@ -170,6 +173,7 @@ export class VisitController {
 
   /** §5.2: six ordered checks; Ready offline only when the first five pass. */
   async getReady(pin: string) {
+    if (!/^\d{6,12}$/.test(pin)) { this.set({ ready: { result: 'not_ready', checks: {}, failed: 'offline_lease', code: 'pin_invalid' } }); return; }
     const { boot, consultId, device } = this.state;
     if (!boot) { this.set({ ready: { result: 'no_signal', checks: {} } }); return; }
     const identity: OfflineIdentity = this.state.enrolled && this.state.identity && !this.state.olderBuild ? this.state.identity : { user_id: boot.user.id, session_epoch: boot.session_epoch, build: this.manifest?.build ?? 'unbuilt', consult_id: consultId };
@@ -204,7 +208,7 @@ export class VisitController {
     try { const v = await new OfflineVault(this.store).unlock(identity, device, pin); this.key = v.key; this.lease = v.lease; } catch { /* thumbnails of earlier photos stay hidden */ }
     this.set({ identity, enrolled: true, olderBuild: false, leaseExpires: result.expires_at, ready: { result: 'ready', checks: { ...checks } } });
     try { const url = new URL(location.href); url.searchParams.set('consult_build', identity.build); history.replaceState(history.state, '', url); } catch { /* cosmetic */ }
-    this.afterUnlock();
+    await this.afterUnlock();
   }
 
   /** Offline unlock: original identity + device + PIN; lease expiry locks reads (§12.1). */
@@ -225,7 +229,7 @@ export class VisitController {
       }
       this.engine = engine; this.key = v.key; this.lease = v.lease;
       this.set({ busy: false, leaseExpires: v.lease.expires_at });
-      this.afterUnlock();
+      await this.afterUnlock();
     } catch (e) {
       const code = codeOf(e);
       if (code === 'offline_locked' && this.state.boot && !this.state.olderBuild) { this.set({ busy: false, phase: 'get_ready', code: null }); return; }
@@ -233,7 +237,11 @@ export class VisitController {
     }
   }
 
-  private afterUnlock() {
+  private async afterUnlock() {
+    if (navigator.onLine) await this.refresh();
+    if (!this.engine) return;
+    if (this.expiryTimer) clearTimeout(this.expiryTimer);
+    this.expiryTimer = setTimeout(() => this.deny('offline_locked'), Math.max(0, this.lease!.expires_at - Date.now()));
     const local = this.engine!.read();
     const draft = (local?.queue.projection as { draft?: EvidenceDraft })?.draft ?? (local?.snapshot as Snapshot)?.decisions ?? emptyDraft();
     this.set({ local, draft, phase: local?.queue.blocked ? 'blocked' : 'visit', blocked: local?.queue.blocked ?? null, code: local?.queue.blocked ?? null });
@@ -243,16 +251,19 @@ export class VisitController {
 
   private async loadThumbs() {
     const local = this.state.local; if (!local || !this.key || !this.lease || !this.store || !this.state.identity) return;
+    const epoch = this.memoryEpoch;
     const thumbs = { ...this.state.thumbs };
     for (const b of local.blobs) {
       if (thumbs[b.hash]) continue;
       try { const blob = await this.store.loadBlob(this.state.identity, this.lease, this.key, b.hash); if (blob) thumbs[b.hash] = URL.createObjectURL(new Blob([blob], { type: b.mime })); } catch { /* evicted after upload */ }
     }
+    if (epoch !== this.memoryEpoch) { for (const url of Object.values(thumbs)) URL.revokeObjectURL(url); return; }
     this.set({ thumbs });
   }
 
   /** The snapshot the screens read: fresh server copy when online, else the stored one. */
   snapshot(): Snapshot | null {
+    this.getState();
     const stored = this.state.local?.snapshot as Snapshot | null;
     const base = this.state.fresh ?? stored;
     if (!base) return null;
@@ -305,17 +316,23 @@ export class VisitController {
     const snap = this.snapshot(); if (!snap) return;
     const model = this.model()!;
     await this.commit((q, b) => startOp(q, this.state.device, b), 'Start visit');
+    await this.ensureRequiredInstances();
+    this.set({ phase: 'visit' });
+  }
+  private async ensureRequiredInstances() {
+    const snap = this.snapshot(); const model = this.model(); if (!snap || !model) return;
     // One instance for each required once-module, `min` for required repeats, presets for selections.
     for (const slot of model.slots) {
       if (!slot.required || slot.parent) continue;
-      const tmpl = model.templates.flatMap((t) => t.modules).find((m) => m.module === slot.module.key);
-      const presets = tmpl?.presets ?? [];
+      const presets = slot.presets ?? [];
       const need = Math.max(slot.minimum, presets.length) - slot.live;
       for (let i = 0; i < need; i++) {
         const preset = presets[slot.live + i] as Record<string, unknown> | undefined;
-        const label = preset?.decision ? String(preset.decision) : slot.module.repeatable ? `${slot.module.title} ${slot.live + i + 1}` : slot.module.title;
+        const area = model.templates.flatMap(t=>Array.from({length:t.modules.find(m=>m.module===slot.module.key)?.min??0},()=>t.title))[slot.live+i];
+        const label = preset?.decision ? String(preset.decision) : slot.module.repeatable ? `${slot.module.title} ${slot.live + i + 1} — ${area ?? model.templates[0]?.title ?? ""}` : slot.module.title;
         const op = await this.commit((q, b) => createInstanceOp(q, this.state.device, b, slot.module.key, label), label);
-        if (preset) for (const [field, value] of Object.entries(preset)) {
+        const defaults: Record<string, unknown> = slot.module.key === 'footing' ? {required_depth:42} : slot.module.key === 'era' ? Object.fromEntries(Object.entries({firm_cert_number:snap.prefill?.firm_cert_number,firm_cert_expiry:snap.prefill?.firm_cert_expiry}).filter(([,v])=>!!v)) : {};
+        for (const [field, value] of Object.entries({...defaults,...preset})) {
           const def = slot.module.fields.find((f) => f.key === field); if (!def) continue;
           const id = (op.target as { instance_id: string }).instance_id;
           await this.commit((q, b) => answerOp(q, this.state.device, b, id, field, { status: 'answered', value, unit: def.unit }), def.label);
@@ -325,8 +342,10 @@ export class VisitController {
     this.set({ phase: 'visit' });
   }
 
-  answer(instance_id: string, field_key: string, label: string, payload: AnswerPayload, draft?: EvidenceDraft) {
-    return this.commit((q, b) => answerOp(q, this.state.device, b, instance_id, field_key, payload), label, draft);
+  async answer(instance_id: string, field_key: string, label: string, payload: AnswerPayload, draft?: EvidenceDraft) {
+    const op = await this.commit((q, b) => answerOp(q, this.state.device, b, instance_id, field_key, payload), label, draft);
+    if (field_key === 'rooms_wanted') await this.ensureRequiredInstances();
+    return op;
   }
   addInstance(module_key: string, label: string, parent_id?: string | null) {
     return this.commit((q, b) => createInstanceOp(q, this.state.device, b, module_key, label, parent_id), label);
@@ -365,8 +384,9 @@ export class VisitController {
         const before = JSON.stringify(this.engine.read()?.queue.entries.map((e) => e.status));
         const blobsBefore = this.engine.read()?.blobs.filter((b) => !b.receipt).length;
         await this.engine.replay();
+        if (this.engine.lastSendFailure) this.set({lastSendFailure:this.engine.lastSendFailure});
         const local = this.engine.read();
-        this.set({ local, online: true, blocked: local?.queue.blocked ?? null });
+        this.set({ local, lastSendFailure: local?.last_send_failure ?? null, online: true, blocked: local?.queue.blocked ?? null });
         if (!local || local.queue.blocked) break;
         const after = JSON.stringify(local.queue.entries.map((e) => e.status));
         const sendable = local.queue.entries.some((e) => e.status === 'pending' && e.next_at <= Date.now());
@@ -374,12 +394,14 @@ export class VisitController {
         if (before === after && blobsBefore === local.blobs.filter((b) => !b.receipt).length) break;
       }
       await this.refresh();
+      if (this.engine?.read()?.close_intent && !this.closing) await this.resumeClose();
     } catch (e) {
       const code = codeOf(e);
       if (code === 'offline_locked') {
-        const blocked = this.state.local?.queue.blocked ?? 'signed_out';
-        this.set({ phase: 'blocked', blocked, code: blocked });
+        const blocked = /revoked|access_denied/.test(this.state.lastSendFailure?.code ?? '') ? 'revoked' : this.state.local?.queue.blocked ?? 'signed_out';
+        this.deny(blocked);
       } else this.set({ online: code !== 'no_signal' ? this.state.online : false });
+      this.set({ lastSendFailure: { code, at: Date.now() }, code });
     } finally {
       this.draining = false; this.set({ sending: false });
       const local = this.state.local;
@@ -391,14 +413,15 @@ export class VisitController {
 
   /** Fresh authorized snapshot for display/baseline; never replaces durable pending state. */
   async refresh() {
-    if (!this.state.boot) return;
+    const epoch = this.memoryEpoch;
     try {
       const r = await fetch(`/api/consult/${this.state.consultId}`, { credentials: 'same-origin', cache: 'no-store' });
-      if (r.status === 401) { this.set({ code: 'signed_out' }); return; }
+      if (r.status === 401 || r.status === 403) { this.deny(r.status === 401 ? 'signed_out' : 'revoked'); return; }
       if (!r.ok) return;
       const fresh = (await r.json()) as Snapshot;
       const entries = this.state.local?.queue.entries ?? [];
       const freshSeq = entries.filter((e) => e.status === 'accepted').reduce((m, e) => Math.max(m, e.op.seq), 0);
+      if (epoch !== this.memoryEpoch) return;
       this.set({ fresh, freshSeq, online: true });
     } catch (e) { if (offlineError(e)) this.set({ online: false }); }
   }
@@ -406,29 +429,40 @@ export class VisitController {
   /** §5.5 close: drain → evidence → exact manifest → server Complete / Needs finishing. */
   async close(evidence: Record<string, unknown> | null) {
     if (!this.engine) return;
-    this.set({ closing: { step: 'sending' } });
-    if (!navigator.onLine) { this.set({ closing: { step: 'waiting_signal' } }); return; }
+    await this.engine.saveCloseIntent(evidence);
+    this.set({ local: this.engine.read(), closing: { step: 'sending' } });
+    if (!navigator.onLine) { this.set({closing:{step:'waiting_signal'}}); return; }
     await this.drain(true);
+    if (this.engine?.read()?.close_intent && !this.closing) await this.resumeClose();
+  }
+  private async resumeClose() {
+    if (!this.engine || this.closing) return;
+    const evidence = this.engine.read()?.close_intent?.evidence ?? null;
+    this.closing = true;
+    if (!navigator.onLine) { this.closing = false; this.set({ closing: { step: 'waiting_signal' } }); return; }
     const local = this.engine.read();
-    if (!local) return;
-    if (unsentCount(local.queue.entries) > 0 || local.blobs.some((b) => !b.receipt)) { this.set({ closing: { step: navigator.onLine ? 'error' : 'waiting_signal', code: 'manifest_sequence_gap' } }); return; }
+    if (!local) { this.closing = false; return; }
+    if (unsentCount(local.queue.entries) > 0 || local.blobs.some((b) => !b.receipt)) { this.set({ closing: { step: navigator.onLine ? 'error' : 'waiting_signal', code: 'manifest_sequence_gap' } }); this.closing = false; return; }
     this.set({ closing: { step: 'closing' } });
     try {
       await this.refresh();
       let revision = Number(this.state.fresh!.consult.revision);
-      if (evidence) {
+      if (evidence && !local.close_intent?.request) {
         try { const r = await post(this.state.consultId, 'evidence', { device: this.state.device, epoch: local.queue.device_epoch, expected_revision: revision, evidence }); revision = Number(r.revision); }
-        catch (e) { if (codeOf(e) === 'no_signal') throw e; /* evidence refused: the server's checks will name what is missing */ }
+        catch (e) { throw e; }
       }
       const blobs = manifestBlobs(local.blobs);
       const manifest = { ...closeManifest({ ...local.queue, blocked: null }, this.state.device, blobs.photos, blobs.initials), local_pending: 0 };
-      const result = (await post(this.state.consultId, 'close', { expected_revision: revision, manifest })) as unknown as CloseResult;
+      const request = local.close_intent?.request ?? { expected_revision: revision, manifest };
+      await this.engine!.saveCloseRequest(request);
+      const result = (await post(this.state.consultId, 'close', request)) as unknown as CloseResult;
       await this.refresh();
+      await this.engine?.clearCloseIntent();
       this.set({ closing: { step: 'done', result } });
     } catch (e) {
       const code = codeOf(e);
       this.set({ closing: { step: code === 'no_signal' ? 'waiting_signal' : 'error', code } });
-    }
+    } finally { this.closing = false; }
   }
   dismissClosing() { this.set({ closing: null }); }
 
@@ -459,8 +493,10 @@ export class VisitController {
     try { await new OfflineVault(this.store).unlock(identity, device, pin); return true; } catch { return false; }
   }
   /** "Lock notes on this device": drop decrypted memory, keep ciphertext for the same user. */
-  lock() { this.engine?.lock(); this.engine = null; this.key = null; this.lease = null; for (const url of Object.values(this.state.thumbs)) URL.revokeObjectURL(url); this.set({ local: null, thumbs: {}, phase: this.state.enrolled ? 'unlock' : 'get_ready' }); }
+  private deny(code: string) { this.lock(); this.set({ phase: 'blocked', blocked: code === 'revoked' ? 'revoked' : 'signed_out', code }); }
+  lock() { this.memoryEpoch++; if (this.expiryTimer) clearTimeout(this.expiryTimer); this.engine?.lock(); this.engine = null; this.key = null; this.lease = null; for (const url of Object.values(this.state.thumbs)) URL.revokeObjectURL(url); this.set({ local: null, fresh: null, freshSeq: 0, draft: emptyDraft(), boot: null, thumbs: {}, closing: null, lastSaved: null, phase: this.state.enrolled ? 'unlock' : 'get_ready' }); }
   dispose() {
+    this.lock();
     this.disposed = true;
     if (this.timer) clearTimeout(this.timer);
     window.removeEventListener('online', this.onOnline); window.removeEventListener('offline', this.onOffline); document.removeEventListener('visibilitychange', this.onHide);

@@ -35,10 +35,10 @@ export const W = {
   startVisit: 'Start visit',
   // PIN (§12.1: offline unlock uses the visitor's PIN)
   pinChoose: 'Choose a PIN for this device',
-  pinChooseHelp: 'You type it to open this visit without signal. 4 to 8 digits.',
+  pinChooseHelp: 'You type it to open this visit without signal. 6 to 12 digits.',
   pinConfirm: 'Type the PIN again',
   pinMismatch: "The two PINs don't match.",
-  pinShort: 'Use 4 to 8 digits.',
+  pinShort: 'Use 6 to 12 digits.',
   pinEnter: 'PIN for this device',
   unlockLead: 'Unlock this device to open your prepared visit.',
   openVisit: 'Open visit',
@@ -248,7 +248,10 @@ export function readyReason(check: ReadyCheck, code: string, neededMb = 50): str
   if (check === 'offline_pages' || /precache|manifest|update_required|capture_blocked|no_worker/.test(code)) return READY_REASON.pages;
   if (check === 'saving_on_device') return READY_REASON.storage;
   if (check === 'visit_details' && code === 'snapshot_unavailable') return "couldn't download the visit details";
-  return READY_REASON.signin;
+  if (code === 'device_access_denied') return 'this visit is set up on another device — use that one, or ask Joe to move it here';
+  if (code === 'pin_invalid') return 'Use 6 to 12 digits.';
+  if (/^(signed_out|offline_locked|lease_.*|unauthorized)$/.test(code)) return READY_REASON.signin;
+  return plainWords(code);
 }
 
 /** §10.2 — the skip sheet lists exactly these, in this order. */
@@ -296,7 +299,9 @@ export function plainWords(code: string | undefined | null, ctx: { name?: string
     case 'no_signal': case 'network': return 'No signal. Saved on this device; sends when signal returns.';
     case 'signed_out': return fill('Signed out — your answers are safe on this device. Sign in as {name} to send them.', { name: ctx.name ?? 'yourself' });
     case 'offline_locked': return fill('Signed out — your answers are safe on this device. Sign in as {name} to send them.', { name: ctx.name ?? 'yourself' });
-    case 'revoked': case 'offline_quarantined': case 'device_access_denied': case 'access_denied':
+    case 'device_access_denied': return 'This visit is being filled in on another device. Use that device, or ask Joe to move it here.';
+    case 'pin_invalid': return 'Use 6 to 12 digits.';
+    case 'revoked': case 'offline_quarantined': case 'access_denied':
       return 'Your access to this visit was removed. Your answers are locked on this device and Joe can recover them.';
     case 'deleted': return 'This visit was removed from the office. Nothing more can be sent from this device.';
     case 'update_required': return 'Update ready — reload between rooms.';
@@ -322,6 +327,7 @@ export function plainWords(code: string | undefined | null, ctx: { name?: string
     case 'body_too_large': return 'too big';
     case 'upload_expired': return 'it took too long — take it again';
     case 'hash_mismatch': case 'invalid_hash': return 'the photo changed while sending — take it again';
+    case 'missing_device_manifest_required': return 'The previous device has not closed. Get its close manifest, or give Joe’s reason for setting it aside; unsent work may be missing.';
     case 'owner_required': return 'Only Joe can do this.';
     case 'invalid_visitor': return 'That person can’t do visits. Pick someone with Projects access.';
     case 'csrf': return 'Reload this page, then try again.';
@@ -337,12 +343,14 @@ export function plainWords(code: string | undefined | null, ctx: { name?: string
 }
 
 /** Plain duration from the template (§7.2 `{duration}`). */
-export const TEMPLATE_DURATION: Record<string, string> = {
-  bath: '90–120 min', kitchen: '2 hours', basement: '2 hours', deck: '60 min', addition: '2 hours', whole: '3–4 hours', general: '45 min',
+export const TEMPLATE_MINUTES: Record<string, [number, number]> = {
+ bath: [90,120], kitchen:[120,120], basement:[120,120], deck:[60,60], addition:[120,120], whole:[180,240], general:[45,45], garage:[30,60], flooring:[30,30], openings:[30,60],
 };
-export function visitDuration(keys: string[]): string {
-  const list = keys.filter((k) => TEMPLATE_DURATION[k]);
-  if (keys.includes('whole')) return '3–4 hours; offer separate visits';
-  if (list.length > 1) return `${list.map((k) => TEMPLATE_DURATION[k]).join(' + ')}; offer separate visits`;
-  return TEMPLATE_DURATION[list[0] ?? 'general'];
+const hours = (n: number) => { const h = Math.round(n / 30) / 2; return `${Math.floor(h) || ''}${h % 1 ? '½' : ''}` || '0'; };
+export function visitTiming(keys: string[]) {
+ const list = [...new Set(keys)].filter(k => TEMPLATE_MINUTES[k]);
+ const minutes = list.reduce<[number,number]>((sum,k) => [sum[0]+TEMPLATE_MINUTES[k][0],sum[1]+TEMPLATE_MINUTES[k][1]], [0,0]);
+ const duration = list.length ? `${hours(minutes[0])}${minutes[1] !== minutes[0] ? '–'+hours(minutes[1]) : ''} hours${keys.includes('whole') ? ', or two scheduled visits' : ''}` : '';
+ return { minutes, duration, suggestSplit: minutes[1] > 180 || keys.includes('whole'), components: list.map(key => ({key, minutes:TEMPLATE_MINUTES[key]})) };
 }
+export function visitDuration(keys: string[]): string { return visitTiming(keys).duration; }

@@ -145,7 +145,7 @@ export const windowModule: ModuleDef = {
     choice('wall', 'Wall (from the room\'s entry)', ['Left', 'Ahead', 'Right', 'Behind'], true, { help: 'for the floor plan' }),
     len('left_offset', 'Left corner to window edge', tpl('kitchen'), { help: 'R? kitchen; O otherwise. Cabinet layout and floor plan' }),
     len('casing_width', 'Casing width', tpl('kitchen'), { help: 'cabinet clearance' }),
-    pair('size', 'Width × height (frame, inside)', true, { range: [12, 144], help: '"36 × 60" in one entry; width 12–144 in × height 12–120 in' }),
+    pair('size', 'Width × height (frame, inside)', true, { range: [12, 144], component_ranges:[[12,144],[12,120]], help: '"36 × 60" in one entry; width 12–144 in × height 12–120 in' }),
     len('floor_to_sill', 'Floor to sill', tpl('bath', 'kitchen', 'basement'), { range: [0, 96] }),
     choice('type', 'Type', ['Double-hung', 'Casement', 'Slider', 'Picture', 'Awning', 'Glass block'], true),
     choice('condition', 'Condition', ['Good', 'Fogged', 'Rot', 'Won\'t open'], true),
@@ -179,7 +179,7 @@ export const door: ModuleDef = {
     choice('wall', 'Wall', ['Left', 'Ahead', 'Right', 'Behind'], true),
     len('left_offset', 'Left corner to door edge', tpl('kitchen'), { help: 'R? kitchen; O otherwise' }),
     len('casing_width', 'Casing width', tpl('kitchen'), { help: 'cabinet clearance' }),
-    pair('slab_size', 'Slab width × height', true, { range: [18, 96], help: 'width 18–72 in × height 72–96 in' }),
+    pair('slab_size', 'Slab width × height', true, { range: [18, 96], component_ranges:[[18,72],[72,96]], help: 'width 18–72 in × height 72–96 in' }),
     choice('type', 'Type', ['Interior passage', 'Bifold', 'Pocket', 'Barn', 'Exterior entry', 'Patio slider', 'French', 'Storm'], true),
     choice('swing', 'Swing', ['In-left', 'In-right', 'Out-left', 'Out-right', 'Slides'], true),
     len('wall_thickness', 'Wall thickness (jamb width)', isIn('plan', ['Replace', 'Move']), { range: [3, 12], help: 'R? Replace or Relocate (Move)' }),
@@ -264,7 +264,7 @@ export const plumb_fixture: ModuleDef = {
   coverage: [],
 };
 
-const largeTubOrSprays = any(isIn('bath_scope.shower_extras', ['Body sprays']), eq('bath_scope.tub_shower_plan', 'Freestanding tub'));
+const largeTubOrSprays = any(isIn('bath_scope.shower_extras', ['Body sprays']), eq('bath_scope.tub_shower_plan', 'Freestanding tub'), gt('bath_scope.new_tub_capacity', 60));
 export const water: ModuleDef = {
   key: 'water', version: 1, title: 'Plumbing & water heater', repeatable: false, say: [],
   fields: [
@@ -281,8 +281,9 @@ export const water: ModuleDef = {
     }),
     year('heater_year', 'Water heater year (from label)', true),
     num('heater_size', 'Water heater size', 'gal', false),
+    yesno('stack_cracks', 'Cracks, rust or weeping on the stack?', eq('main_stack', 'Cast iron')),
     choice('main_stack', 'Main drain stack', ['Cast iron', 'PVC-ABS', 'Galvanized', 'Clay', 'Orangeburg'], true, {
-      flag: { when: isIn('main_stack', ['Orangeburg', 'Cast iron']), issue: 'Orangeburg; Cast iron with cracks' },
+      flag: { when: any(eq('main_stack', 'Orangeburg'), all(eq('main_stack', 'Cast iron'), eq('stack_cracks', true))), issue: 'Orangeburg; Cast iron with cracks' },
     }),
     text('main_cleanout', 'Main cleanout location', false),
     text('backups_roots', 'Backups or roots history', false),
@@ -297,6 +298,8 @@ const HOOD_FLAG = '> 300 cfm in an existing home: HVAC sub calculates makeup air
 export const hvac: ModuleDef = {
   key: 'hvac', version: 1, title: 'Heating & cooling', repeatable: false, say: [],
   fields: [
+    yesno('fuel_appliances', 'Any fuel-burning appliances?', true),
+
     choice('heat', 'Heat', ['Gas forced air', 'Electric forced air', 'Heat pump', 'Boiler & radiators', 'Electric baseboard', 'In-floor'], true),
     year('furnace_year', 'Furnace/boiler year', false),
     choice('cooling', 'Cooling', ['Central', 'Mini-split', 'Window units', 'None'], true),
@@ -326,7 +329,7 @@ export const hvac_vent: ModuleDef = {
   key: 'hvac_vent', version: 1, title: 'How each fuel-burning appliance vents', repeatable: true, instance_label: 'Appliance {n} — {appliance}', say: [],
   fields: [
     choice('appliance', 'Appliance', ['Furnace', 'Boiler', 'Water heater', 'Fireplace or stove', 'Gas dryer', 'Other'], true),
-    choice('fuel', 'Fuel', ['Natural gas', 'Propane', 'Oil', 'Wood', 'Pellet'], true),
+    choice('fuel', 'Fuel', ['Electric — no venting', 'Natural gas', 'Propane', 'Oil', 'Wood', 'Pellet'], true),
     choice('venting', 'Venting', ['Atmospheric', 'Fan-assisted', 'Power-vent', 'Direct-vent sealed', 'Solid fuel', 'None'], true, {
       help: 'Atmospheric (draft hood or open metal flue into a chimney) / Fan-assisted (metal flue, fan inside the appliance) / Power-vent (fan on top, plastic pipe out the wall) / Direct-vent sealed (two pipes or one concentric pipe) / Solid fuel / None. Feeds the 1346.0501 table column',
       flag: { when: all(eq('venting', 'Atmospheric'), newExhaust), issue: 'backdraft risk — HVAC sub checks before pricing' },
@@ -408,6 +411,7 @@ export const era: ModuleDef = {
     yesno('before_1978', 'Built before 1978?', true, { help: 'filled from Year built, editable (prefill: derivationCases era.before_1978)' }),
     yesno('disturbs_paint', 'Will the work disturb more than 6 sq ft of painted surface in a room, or 20 sq ft outside?', before1978, { help: 'EPA RRP rule (40 CFR 745 Subpart E)' }),
     yesno('pamphlet_given', 'Renovate Right pamphlet given', rrpApplies, {
+      flag: { when: eq('pamphlet_given', false), issue: 'Renovate Right not given — give before work starts' },
       say: PAMPHLET_LINE,
       help: 'R? RRP applies (including window replacement). Pamphlet must reach the client within 60 days before work starts; if the start is later, the app files a to-do to re-deliver it before start',
     }),
@@ -430,7 +434,7 @@ export const exterior_site: ModuleDef = {
     choice('survey', 'Survey', ['Client has one', 'County GIS only', 'None'], true),
     len('lot_line_front', 'Distance from the new work to front / side / rear lot lines — front', true, {
       precision: 1,
-      flag: { when: all(answered('lot_line_front'), answered('lot_line_side'), answered('lot_line_rear')), issue: 'under the city setback (Joe checks the city)' },
+      flag: { when: all(answered('lot_line_front'), answered('lot_line_side'), answered('lot_line_rear')), issue: 'check the city setback for these distances (Joe checks the city)' },
     }),
     len('lot_line_side', 'Distance from the new work to front / side / rear lot lines — side', true, { precision: 1 }),
     len('lot_line_rear', 'Distance from the new work to front / side / rear lot lines — rear', true, { precision: 1 }),
@@ -456,7 +460,7 @@ export const footing: ModuleDef = {
     len('required_depth', 'Footing depth the city requires', true, {
       help: 'default 42 in. MN Rules 1303.1600: 42″ in the southern zone (metro), 60″ in the northern; confirm on the city\'s handout; floating option requires documented Minn. R. 1303.1600 criteria and city approval',
     }),
-    choice('footing_type', 'Footing type planned', ['Poured piers', 'Helical piles', 'Full foundation', 'Frost-protected shallow', 'Floating (freestanding, low deck — city must allow)'], true),
+    choice('footing_type', 'Footing type planned', ['Poured piers', 'Helical piles', 'Full foundation', 'Frost-protected shallow', 'Floating (freestanding, low deck — city must allow)'], true, { flag: { when: any(isIn('footing_type', ['Frost-protected shallow', 'Floating (freestanding, low deck — city must allow)']), lt('required_depth', 42)), issue: 'Shallow footing — written city-approved detail before pricing (Minn. R. 1303.1600)' } }),
     choice('reusable', 'Existing footings reusable?', ['Yes', 'No', 'Unknown'], eq('deck_scope.new_or_replace', 'Replace'), { help: 'R? replacing a deck/porch' }),
     text('old_concrete', 'Old concrete or roots where we\'d dig', false),
   ],

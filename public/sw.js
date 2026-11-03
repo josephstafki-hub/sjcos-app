@@ -35,7 +35,7 @@ self.addEventListener('fetch',event=>{
   if(event.request.mode==='navigate'){try{return await fetch(event.request);}catch{}}
   const keys=(await caches.keys()).filter(k=>k.startsWith(PREFIX));
   const client=event.clientId?await self.clients.get(event.clientId):null;
-  const build=client?new URL(client.url).searchParams.get('consult_build'):null;
+  const build=event.request.mode==='navigate'?url.searchParams.get('consult_build'):(client?new URL(client.url).searchParams.get('consult_build'):null);
   const candidates=build?[PREFIX+build]:keys.length===1?keys:[];
   for(const key of candidates){const cache=await caches.open(key);if(!await cache.match('/consult/assets/ready'))continue;const hit=await cache.match(event.request.mode==='navigate'?'/consult/offline.html':url.pathname);if(hit)return hit;}
   if(event.request.mode==='navigate')return new Response('Open once with signal before the visit. Or use paper and enter the answers here after the visit.',{status:503,headers:{'Content-Type':'text/plain'}});

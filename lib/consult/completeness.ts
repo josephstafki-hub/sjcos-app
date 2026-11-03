@@ -49,7 +49,7 @@ export interface CompletionInput {
   manifests: { device: string; acknowledged: boolean; rejected: number; missing: boolean }[];
   unresolved_conflicts: number;
   rrp: { applies: boolean; receipt: boolean; firm_current: boolean; renovator_current: boolean; redelivery_required: boolean; redelivery_todo: boolean };
-  flags: { key: string; disposition: 'price_it' | 'allowance' | 'sub_must_look' | 'not_an_issue' | null; actor: string | null; at: string | null; note: string }[];
+  flags: { key: string; address?:string; measured?:{field:string;value:unknown;unit?:string;address:string}[]; disposition: 'price_it' | 'allowance' | 'sub_must_look' | 'not_an_issue' | null; actor: string | null; at: string | null; note: string }[];
   touched_trades: string[];
   trade_walks: { trade: string; needed: boolean; reason: string; actor: string; at: string }[];
   no_trades_confirmed: boolean;
@@ -82,7 +82,7 @@ export function consultCompleteness(input: CompletionInput) {
     const items = [...fields, ...photos].filter((i) => i.tier === tier);
     return { total: items.length, done: items.filter(done).length, skipped: items.filter((i) => countingSkip(i)).length };
   };
-  return { complete: checks.every((c) => !c.open.length), checks: checks.map(c=>({...c,action:closeAction(c.code)})), price_critical: counts('price_critical'), record: counts('record') };
+  return { complete: checks.every((c) => !c.open.length), checks: checks.map(c=>({...c,action:closeAction(c.code),open_phrase:openCheckPhrase(c.code,c.open)})), price_critical: counts('price_critical'), record: counts('record') };
 }
 
 export function openItemCount(counts: {price_critical:{total:number;done:number};record:{total:number;done:number}}):number { const n=sectionCounts({pc:counts.price_critical,record:counts.record});return n.total-n.done; }
@@ -92,4 +92,10 @@ export function closeAction(code:string):string {
 }
 export function sectionCounts(section:{pc:{total:number;done:number};record:{total:number;done:number}}) {
  return {done:section.pc.done+section.record.done,total:section.pc.total+section.record.total};
+}
+
+/** Open-state copy shared by the field close result and office look-over. */
+export function openCheckPhrase(code:string,open:string[]):string {
+ const n=open.length;
+ return ({required_fields:`Answers: ${n} open`,required_photos:`Photos: ${n} open`,module_requirements:`Sections: ${n} still needed`,permissions:'Permissions — not yet',client_acknowledgement:'Client initials — not yet',promised_date:'Estimate date — not yet',close_manifests:open.includes('conflicts')?'Conflicts need a decision':`${n} devices still need to send`,rrp:'Renovate Right: receipt or certification still needed',flag_decisions:`Flags: ${n} need a decision`,risk_assumptions:`Assumptions: ${n} need a decision`,trade_walks:`Trade walks: ${open.join(', ')} — need a decision`} as Record<string,string>)[code]??`${n} still open`;
 }

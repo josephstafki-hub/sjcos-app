@@ -1,5 +1,5 @@
 import {saveAcknowledgedSummary} from './summary.ts';
-import {evaluatedFlags} from './flags.ts';
+import {evaluatedFlags,flagInputs} from './flags.ts';
 import { mergeTemplateModules } from './template-merge.ts';
 import { rrpFacts } from './rrp.ts';
 /** Owner-connection transaction service. Caller authenticates freshly and supplies a
@@ -289,7 +289,7 @@ export async function completion(c:PoolClient,context:Context,target:string){
    // A signature field can't be typed (capture_answer refuses it); committed initials media for that exact field answers it.
    const signed=f.type==='signature'&&media.some(p=>p.instance_id===i.id&&p.kind==='initials'&&p.field_key===f.key);
    fields.push({key,tier:f.tier,required:!['name','level','decision'].includes(f.key)&&required(f.required),applicable:true,mapped:!!f.maps_to,answered:prefilled||a?.status==='answered'||signed,valid:prefilled||signed||(a?.status==='answered'&&a.value!==null&&a.value!==''&&(!Array.isArray(a.value)||a.value.length>0)),skip:a?.status==='skipped'?{reason:a.skip_reason as NonNullable<CompletionItem['skip']>['reason'],note:a.skip_note??undefined,...(sk?.reason===a.skip_reason?sk:{}),condition_validated:typeof f.required!=='boolean'&&!required(f.required)}:undefined});
-   for(const flag of evaluatedFlags(f,key,values)){const flagKey=flag.key;const d=e?.flags[flagKey];flags.push({key:flagKey,disposition:d?.disposition??null,note:d?.note??'',actor:d?row.actor:null,at:d?String(row.updated_at):null});}
+   for(const flag of evaluatedFlags(f,key,values)){const flagKey=flag.key;const d=e?.flags[flagKey];flags.push({key:flagKey,address:key,measured:[...new Set(flagInputs(flag.when))].map(ref=>{const parts=ref.split('.'),def=parts.length===1?m.fields.find(f=>f.key===ref):modules.find(m=>m.key===parts[0])?.fields.find(f=>f.key===parts[1]);const source=parts.length===1?i:live.find(i=>i.module_key===parts[0]);return {field:ref,value:values[ref],unit:def?.unit==='in'?'″':def?.unit,address:source?`${source.id}:${def?.key??ref}`:key};}),disposition:d?.disposition??null,note:d?.note??'',actor:d?row.actor:null,at:d?String(row.updated_at):null});}
   }
   for(const shot of [...m.shots,...m.fields.flatMap(f=>f.shots??[])]){
    const key=`${i.id}:shot:${shot.key}`;photos.push({key,tier:shot.tier,required:required(shot.required),applicable:true,mapped:false,answered:media.some(p=>p.instance_id===i.id&&p.shot_key===shot.key),valid:true,skip:e?.skips[key]});
@@ -305,7 +305,7 @@ export async function completion(c:PoolClient,context:Context,target:string){
  manifests:devices.map(d=>({device:d.device_id,acknowledged:!!d.close_ack_at,rejected:0,missing:!d.close_manifest})),unresolved_conflicts:s.conflicts.length,
  rrp:{applies:rrpApplies,receipt:rrp.receipt||receiptException,firm_current:rrp.firm_current,renovator_current:rrp.renovator_current,redelivery_required:e?.rrp.redelivery_required??false,redelivery_todo:!!e?.rrp.redelivery_day},flags,
  touched_trades:e?.touched_trades??[],trade_walks:(e?.trade_walks??[]).map(w=>({...w,actor:row.actor,at:String(row.updated_at)})),no_trades_confirmed:e?.no_trades_confirmed??false};
- return {result:consultCompleteness(input),snapshot:s,evidence:e,receiptException:rrp.applies&&receiptException};
+ return {result:consultCompleteness(input),flags,snapshot:s,evidence:e,receiptException:rrp.applies&&receiptException};
 }
 export async function close(c:PoolClient,context:Context,target:string,input:unknown){
  const actor=await authorize(c,context,target,'close');

@@ -1,5 +1,5 @@
 import {PAMPHLET_UNKNOWN_YEAR_LINE} from '../forms/seed/shared.ts';
-import {evaluatedFlags} from '../flags.ts';
+import {evaluatedFlags,flagInputs} from '../flags.ts';
 import {pinnedDerivations} from '../derive.ts';
 import { mergeTemplateModules } from '../template-merge.ts';
 import { SELECTION_NAMES } from '../forms/seed/templates.ts';
@@ -49,7 +49,7 @@ export interface FieldView {
   key: string; addr: string; def: FieldDef; required: boolean; applicable: boolean; mark: Mark;
   prefilledFrom?: { field: string; value: unknown; label: string }; readOnly?: boolean;
   answer?: AnswerView; conflict?: ConflictView; returnVisit: boolean; skipNote?: string; skipCounts: boolean;
-  shots: ShotView[]; flags: { key: string; issue: string; hint: string }[]; initials?: LocalBlob;
+  shots: ShotView[]; flags: { key: string; issue: string; hint: string; address: string; measured: {field:string;value:unknown;unit?:string;address:string}[] }[]; initials?: LocalBlob;
 }
 export interface SectionView {
   instance: SnapInstance; module: ModuleDef; label: string; title: string; depth: number;
@@ -61,7 +61,7 @@ export interface VisitModel {
   modules: ModuleDef[]; templates: TemplateDef[]; sections: SectionView[]; slots: ModuleSlot[];
   pc: { done: number; total: number; skipped: number }; record: { done: number; total: number; skipped: number };
   open: { section: SectionView; item: FieldView | ShotView; kind: 'field' | 'shot'; partly: boolean }[];
-  flags: { key: string; issue: string; hint: string; section: SectionView; field: FieldView }[];
+  flags: { key: string; issue: string; hint: string; address: string; measured: {field:string;value:unknown;unit?:string;address:string}[]; section: SectionView; field: FieldView }[];
   conflicts: ConflictView[]; touchedTrades: string[]; rrpApplies: boolean; rrp: ReturnType<typeof rrpFacts>;
   values: Record<string, unknown>; photosOk: boolean | null; promised: string | null;
   started: boolean; status: string; generation: number;
@@ -356,7 +356,7 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
       let mark: Mark = answered ? (shotsDone ? 'covered' : 'partial') : counts ? 'not_applicable' : 'open';
       if (f.type === 'length_pair' && answered && Array.isArray(a?.value) && a!.value.some((v) => typeof v !== 'number')) mark = 'partial';
       const flags: FieldView['flags'] = [];
-      for (const flag of evaluatedFlags(f,addr,values)) flags.push({key:flag.key,issue:flag.issue,hint:flag.hint??visitorFlagText(flag.issue)});
+      for (const flag of evaluatedFlags(f,addr,values)) flags.push({key:flag.key,issue:flag.issue,hint:flag.hint??visitorFlagText(flag.issue),address:addr,measured:[...new Set(flagInputs(flag.when))].map(key=>{const parts=key.split('.'),def=parts.length===1?m.fields.find(f=>f.key===key):byKey.get(parts[0])?.fields.find(f=>f.key===parts[1]);const source=parts.length===1?inst:live.find(i=>i.module_key===parts[0]);return {field:key,value:values[key],unit:def?.unit==='in'?'″':def?.unit,address:source?addrOf(source.id,def?.key??key):addr};})});
       const view: FieldView = { key: f.key, addr, readOnly: m.key==='closing'&&f.key==='summary', ...(prefilled?{prefilledFrom:{field:'house.year_built',value:global['house.year_built'],label:`From Year built (${global['house.year_built']})`}}:{}), def: f.key==='pamphlet_given'&&m.key==='era'&&typeof global['house.year_built']!=='number'&&global['era.before_1978']!==true?{...f,say:PAMPHLET_UNKNOWN_YEAR_LINE}:f, required, applicable, mark, answer: a, conflict, returnVisit: a?.status === 'skipped' && a.skip_reason === 'Get on return visit', skipNote: a?.skip_note, skipCounts: counts, shots, flags, initials };
       for (const fl of flags) allFlags.push({ ...fl, section, field: view });
       if (isDerived(f) || !applicable) { hidden.push(view); continue; }

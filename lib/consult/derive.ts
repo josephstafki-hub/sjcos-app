@@ -40,6 +40,7 @@ export function pinnedDerivations(modules:ModuleDef[],templates:TemplateDef[],al
   try{
    const answer=answers.find(a=>a.instance_id===instance.id&&a.field_key===key&&a.status==='answered');if(answer)return answer.value;
    const module=modules.find(m=>m.key===instance.module_key),def=module?.fields.find(f=>f.key===key);if(!def)return undefined;
+   if(typeof def.required==='object'&&!conditionMatches(def.required,r=>raw(r,instance)))return undefined;
    const cases=def.derive_cases??(module&&seedModules.some(s=>canonicalJson(s)===canonicalJson(module))?derivationCases.find(d=>d.module===module.key&&d.field===key)?.cases:undefined);
    const choice=cases?.find(c=>conditionMatches(c.when,ref=>{
     const direct=raw(ref,instance);if(direct!==undefined)return direct;

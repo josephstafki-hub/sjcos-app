@@ -1,3 +1,4 @@
+import {parseConsultRequest} from '@/lib/consult/transport';
 import { randomUUID } from 'node:crypto';
 import { pool } from '@/lib/db';
 import { readSession } from '@/lib/session';
@@ -19,8 +20,7 @@ async function handle(request:Request,id:string,write:boolean){
  const c=await pool.connect();
  try{
   const raw=write?await request.text():'';
-  if(Buffer.byteLength(raw)>256*1024)return Response.json({error_code:'batch_too_large'},{status:413});
-  const body=write?bodySchema.parse(JSON.parse(raw)):null;
+  const body=write?bodySchema.parse(parseConsultRequest(raw)):null;
   const global=body?.command==='schedule'||body?.command==='publish_form';
   const target=global?null:z.string().uuid().parse(id);
   if(global&&id!=='new')throw new Error('invalid_global_target');
@@ -38,8 +38,8 @@ async function handle(request:Request,id:string,write:boolean){
  }catch(error){
   await c.query('ROLLBACK');
   const message=error instanceof Error?error.message:'internal_error';
-  const code=message.match(/update_required|idempotency_mismatch|rebase_required|complete_locked|conflict|sequence_gap|manifest_sequence_gap|manifest_blob_missing|manifest_initials_missing|unresolved_rejections|device_access_denied|owner_required|consult_key_unavailable/)?.[0];
-  const status=/^(42|08|53|57|XX)/.test((error as {code?:string}).code??'')&&(error as {code?:string}).code!=='42501'?500:code==='update_required'?426:error instanceof z.ZodError?422:code==='complete_locked'?423:code==='device_access_denied'||code==='owner_required'||(error as {code?:string}).code==='42501'?403:code==='consult_key_unavailable'?503:code?409:422;
+  const code=message.match(/evidence_too_large|batch_too_large|stale_snapshot|missing_device_manifest_required|update_required|idempotency_mismatch|rebase_required|complete_locked|evidence_conflict|conflict|manifest_sequence_gap|sequence_gap|manifest_blob_missing|manifest_initials_missing|unresolved_rejections|device_access_denied|owner_required|consult_key_unavailable/)?.[0];
+  const status=code==='evidence_too_large'||code==='batch_too_large'?413:/^(42|08|53|57|XX)/.test((error as {code?:string}).code??'')&&(error as {code?:string}).code!=='42501'?500:code==='update_required'?426:error instanceof z.ZodError?422:code==='complete_locked'?423:code==='device_access_denied'||code==='owner_required'||(error as {code?:string}).code==='42501'?403:code==='consult_key_unavailable'?503:code?409:422;
   return Response.json({error_code:code??(status===403?'access_denied':'invalid_command')},{status});
  }finally{c.release();}
 }

@@ -14,7 +14,7 @@ import { ConsultOfflineStore, type OfflineIdentity, type OfflineLease, type Sign
 import { OfflineVault } from '../offline-vault.ts';
 import { OfflineEngine, type LocalBlob, type LocalVisit } from '../offline-engine.ts';
 import { getReady } from '../get-ready.ts';
-import { enqueue, closeManifest, type QueueState } from '../queue.ts';
+import { canonicalJson, enqueue, closeManifest, type QueueState } from '../queue.ts';
 import { registerConsultWorker, type PrecacheManifest } from '../service-worker.ts';
 import type { ReadyCheck, CheckResult } from '../readiness.ts';
 import { HOUSE_WIDE, baselineOf, buildModel, emptyDraft, manifestBlobs, moduleNoun, predictRevisions, unsentCount, type Baseline, type Display, type EvidenceDraft, type Snapshot } from './model.ts';
@@ -546,7 +546,7 @@ export class VisitController {
       if (!owns()) return;
       let revision = Number((this.state.fresh ?? local.snapshot as Snapshot).consult.revision);
       if (evidence && !local.close_intent?.request) {
-        try { const r = await post(this.state.consultId, 'evidence', { device: this.state.device, epoch: local.queue.device_epoch, expected_revision: revision, generation: local.queue.generation, baseline: (local.snapshot as Snapshot).close_evidence ?? null, evidence: { ...((local.snapshot as Snapshot).close_evidence ?? {}), ...evidence } }); if (!owns()) return; revision = Number(r.revision); }
+        try { const r = await post(this.state.consultId, 'evidence', { device: this.state.device, epoch: local.queue.device_epoch, expected_revision: revision, generation: local.queue.generation, baseline_hash: (local.snapshot as Snapshot).close_evidence_hash, evidence: Object.fromEntries(Object.entries(evidence).filter(([key,value]) => canonicalJson(value) !== canonicalJson((local.snapshot as Snapshot).close_evidence?.[key] ?? null))) }); if (!owns()) return; revision = Number(r.revision); }
         catch (e) { throw e; }
       }
       const blobs = manifestBlobs(local.blobs);

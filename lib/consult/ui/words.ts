@@ -563,7 +563,8 @@ export function plainWords(code: string | undefined | null, ctx: { name?: string
     case 'missing_precache': case 'checksum_mismatch': case 'invalid_manifest': return "Couldn’t download the offline pages.";
     case 'snapshot_unavailable': return "Couldn’t download the visit details.";
     case 'unknown_proposal': case 'proposal_mismatch': return 'That value was already decided.';
-    case 'stale_snapshot': return 'This device has an older copy of the visit. Reload.';
+    case 'evidence_too_large': case 'batch_too_large': return 'The office could not take this much visit evidence at once. Your answers are saved here. Keep working and ask Joe to review the visit.';
+    case 'evidence_conflict': case 'stale_snapshot': return 'This device has an older copy of the visit. Reload.';
     case 'findings_failed': return "Couldn’t apply findings to the scope — Try again";
     default: return 'Something went wrong. Your answers are still saved on this device. Try again.';
   }

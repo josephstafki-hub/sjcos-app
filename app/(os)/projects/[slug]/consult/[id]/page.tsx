@@ -1,3 +1,4 @@
+import {sectionCounts} from '@/lib/consult/completeness';
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Shell } from "@/components/shell/Shell";
@@ -133,6 +134,7 @@ export default async function ConsultLookOver({ params, searchParams }: { params
         {extra.pendingDevice && <div role="status" className="mb-4 rounded-lg border-2 border-info bg-info-soft px-4 py-3 text-body text-ink">{fill(W.notSyncedYet, { photos: `${extra.pendingDevice.photos} ${extra.pendingDevice.photos === 1 ? "photo" : "photos"}`, name: head.visitor_name })}</div>}
         {/* r5 R5-4: Needs finishing is a normal outcome — the calm ◐ heading and one ○ Open row per open
             check on the neutral card, each with its count and its way forward. ! only for a conflict. */}
+        {snap.certification_warnings?.map(w => <p role="note" key={w.field_address} className="mb-3 rounded-lg border border-rule bg-card p-3">⚐ {w.message}</p>)}
         {status === "incomplete" && openChecks.length > 0 && (
           <section aria-labelledby="nf-h" className="mb-4 rounded-lg border border-rule bg-card px-4 py-3 text-body text-ink">
             <h2 id="nf-h" className="font-serif text-title font-semibold text-ink"><span aria-hidden className="font-mono">◐ </span>{W.needsFinishing} · <span className="whitespace-nowrap">{openN} open</span></h2>
@@ -161,7 +163,7 @@ export default async function ConsultLookOver({ params, searchParams }: { params
                 <li key={x.instance.id}>
                   <Link href={sectionLink(x)} aria-current={x === section ? "page" : undefined} className={`grid min-h-12 grid-cols-[1fr_auto] items-center gap-2 rounded-md px-2 py-1.5 text-body hover:bg-hover ${x === section ? "bg-selected" : ""}`}>
                     <span className="min-w-0 font-semibold text-ink">{x.depth ? "↳ " : ""}{x.label}</span>
-                    <span className="font-mono text-meta text-ink-2">{x.pc.done}/{x.pc.total}</span>
+                    <span className="font-mono text-meta text-ink-2">{sectionCounts(x).done}/{sectionCounts(x).total}</span>
                     {/* r9 extra: a section in conflict shows "! Conflict" alone until it is picked — the device's form. */}
                     <span className="col-span-2 flex flex-wrap gap-2">{x.conflict ? <CoverageMark variant="coverage" state="conflict" size="sm" /> : <><CoverageMark variant="coverage" state={x.mark} size="sm" />{x.returnVisit && <CoverageMark variant="coverage" state="return_visit" size="sm" />}</>}</span>
                   </Link>
@@ -187,7 +189,7 @@ export default async function ConsultLookOver({ params, searchParams }: { params
             {section ? <>
               <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-rule pb-2">
                 <h2 id="sec-h" className="font-serif text-title font-semibold text-ink">{section.label}</h2>
-                <span className="flex items-center gap-3 font-mono text-body text-ink-2">Price-critical {section.pc.done}/{section.pc.total}<CoverageMark variant="coverage" state={section.mark} /></span>
+                <span className="flex items-center gap-3 font-mono text-body text-ink-2">{sectionCounts(section).done}/{sectionCounts(section).total}<CoverageMark variant="coverage" state={section.mark} /></span>
               </div>
               <ul className="divide-y divide-rule-soft">
                 {section.fields.map((f) => {

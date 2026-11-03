@@ -1,3 +1,11 @@
+/** Evidence supports full whole-house/addition visits; ops retain their 256 KiB cap. */
+export const EVIDENCE_REQUEST_LIMIT = 2 * 1024 * 1024;
+export function parseConsultRequest(raw: string): unknown {
+ if (Buffer.byteLength(raw) > EVIDENCE_REQUEST_LIMIT) throw new Error('evidence_too_large');
+ const body = JSON.parse(raw);
+ if (body.command !== 'evidence' && Buffer.byteLength(raw) > 256 * 1024) throw new Error('batch_too_large');
+ return body;
+}
 /** Only recognizable browser network failures may be called “no signal”. */
 export function isNetworkFailure(e: unknown): boolean {
  return e instanceof Error && /^(Failed to fetch|fetch failed|NetworkError(?: when attempting to fetch resource\.)?|Load failed|Network request failed)$/i.test(e.message);

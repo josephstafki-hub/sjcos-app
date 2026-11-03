@@ -14,9 +14,13 @@ export function rrpFacts(values: Record<string, unknown>, initials: boolean, vis
 }
 
 /** Advisory only: expiry during the planned job never changes the close gate. */
-export function certificationWarnings(values:Record<string,unknown>, finish?:string|null):string[]{
- if(!finish)return [];
- return [['era.firm_cert_expiry','Firm'],['era.renovator_expiry','Renovator']].flatMap(([key,label])=>{
- const date=values[key];return typeof date==='string' && /^\d{4}-\d{2}-\d{2}$/.test(date) && date<finish.slice(0,10)?[`${label} certification expires ${date}, before the planned finish`]:[];
+export interface CertificationWarning { who:string; expiry_date:string; planned_finish:string; field_address:string; message:string }
+export function certificationWarnings(values:Record<string,unknown>, finish?:string|null):CertificationWarning[]{
+ if(!finish || !compileCondition(rrpApplies,new Set(['era.before_1978','house.year_built','era.disturbs_paint','era.window_door_replacement']))(values))return [];
+ const format=(date:string)=>new Date(date+'T12:00:00Z').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric',timeZone:'UTC'});
+ return ['era.firm_cert_expiry','era.renovator_expiry'].flatMap(key=>{
+ const date=values[key]; if(typeof date!=='string'||!/^\d{4}-\d{2}-\d{2}$/.test(date)||date>=finish.slice(0,10))return [];
+ const firm=key==='era.firm_cert_expiry',who=firm?'SJC firm':String(values['era.renovator_name']||'Assigned renovator');
+ return [{who,expiry_date:date,planned_finish:finish.slice(0,10),field_address:key,message:`${firm?who:'Certified renovator ('+who+')'} certification runs out ${format(date)} — before the planned finish, ${format(finish.slice(0,10))}. Joe ${firm?'renews it before then.':'renews it or assigns another renovator.'}`}];
  });
 }

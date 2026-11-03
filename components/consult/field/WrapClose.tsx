@@ -34,11 +34,11 @@ export function ReopenedNote({ reopened, className = "" }: { reopened?: Snapshot
 }
 
 /** r9: a certification that runs out before the planned finish — advice, never a close block. */
-export function CertWarnings({ list, className = "" }: { list: string[]; className?: string }) {
+export function CertWarnings({ list, className = "" }: { list: import("@/lib/consult/rrp").CertificationWarning[]; className?: string }) {
   if (!list.length) return null;
   return (
     <div role="note" className={`rounded-md border-2 border-rule-soft bg-paper px-3 py-2 text-ink ${className}`}>
-      {list.map((w) => <p key={w}><span aria-hidden className="mr-1 font-semibold">⚐</span>{w}</p>)}
+      {list.map((w) => <p key={w.field_address}><span aria-hidden className="mr-1 font-semibold">⚐</span>{w.message}</p>)}
     </div>
   );
 }
@@ -71,7 +71,7 @@ export function WrapSheet({ open, onClose, model, draft, hasInitials, refused, o
   // r9 R9-2: while a conflict is open the button says why it waits, and one line above it says what to do.
   const closeLabel = conflictN ? (conflictN === 1 ? W.closeVisitPickConflict : W.closeVisitPickConflicts) : blocking ? W.closeVisitNeeds : W.closeVisit;
   const conflictName = (c: VisitModel["conflicts"][number]) => { const s = model.sections.find((x) => x.instance.id === c.instance_id); const f = s?.fields.find((x) => x.addr === c.key); return [s?.label, f?.def.label ?? c.field_key].filter(Boolean).join(" › "); };
-  const title = `${W.beforeYouWrap} · ${openItemCount({price_critical:model.pc,record:model.record})} ${W.stillOpen}${partly.length ? ` · ${partly.length} Partly` : ""}`;
+  const title = `${W.beforeYouWrap} · ${openItemCount({price_critical:model.pc,record:model.record}, [undecidedFlags.length > 0,tradesOpen,rrpOpen,ackOpen,!dateOk,conflictN > 0,refused > 0].filter(Boolean).length)} ${W.stillOpen}${partly.length ? ` · ${partly.length} Partly` : ""}`;
   return (
     <Sheet open={open} onClose={onClose} side title={title}
       footer={<>

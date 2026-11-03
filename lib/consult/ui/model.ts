@@ -28,11 +28,11 @@ export interface Snapshot {
   pins: { kind: string; key?: string; version?: number; checksum?: string; definition: ModuleDef | TemplateDef }[];
   instances: SnapInstance[]; heads: SnapHead[]; conflicts: SnapConflict[];
   reopened?: {who:string;when:string;reason:string}|null;
-  certification_warnings?: string[];
+  certification_warnings?: ReturnType<typeof certificationWarnings>;
   proposals?: unknown[];
   findings_job?: { generation: string | number; status: string; attempts: number; last_error: string | null; result: unknown } | null;
   display?: Display;
-  close_evidence?: Record<string,unknown> | null; visitor_notes?: string; decisions?: EvidenceDraft | null;
+  close_evidence_hash?: string; close_evidence?: Record<string,unknown> | null; visitor_notes?: string; decisions?: EvidenceDraft | null;
   prefill?: {target_end_date?:string|null;start_date?: string | null;firm_cert_number?: string | null; firm_cert_expiry?: string | null;year_built: string | null; intake: {question:string;answer:string}[]; rough_estimate:{label:string;value?:unknown}[]; scope_items:{key:string;title:string;room:string;trade:string;quantities:{label:string;qty:number|null;unit:string;basis?:string}[]}[]; plan_items:{prompt:string;location:string}[]; photos:{id:string;name:string}[]; discovery_notes:{summary:string}[]};
 }
 export interface EvidenceDraft {
@@ -66,7 +66,7 @@ export interface VisitModel {
   pc: { done: number; total: number; skipped: number }; record: { done: number; total: number; skipped: number };
   open: { section: SectionView; item: FieldView | ShotView; kind: 'field' | 'shot'; partly: boolean }[];
   flags: { kind?:string; key: string; issue: string; hint: string; address: string; measured: {field:string;value:unknown;unit?:string;address:string}[]; section: SectionView; field: FieldView }[];
-  conflicts: ConflictView[]; touchedTrades: string[]; certificationWarnings:string[]; rrpApplies: boolean; rrp: ReturnType<typeof rrpFacts>;
+  conflicts: ConflictView[]; touchedTrades: string[]; certificationWarnings:ReturnType<typeof certificationWarnings>; rrpApplies: boolean; rrp: ReturnType<typeof rrpFacts>;
   values: Record<string, unknown>; photosOk: boolean | null; promised: string | null;
   started: boolean; status: string; generation: number;
   /** r8 domain E4: quantities that feed the estimate with no measured answer behind them. */

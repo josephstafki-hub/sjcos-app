@@ -144,7 +144,7 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
     if (client) {
       const formal = model.promised ? centralTime(`${model.promised}T12:00:00-06:00`, { weekday: "short", month: "short", day: "numeric" }) : "";
       return <div className="consult-root min-h-dvh" data-sun={sun ? "1" : undefined}><ClientView summary={summaryInput(model, display, centralTime(snap?.consult.scheduled_at ?? nowIso(), { month: "short", day: "numeric" }), formal)} pamphlet={client.field === "pamphlet_initials"} hasInitials={st.local.blobs.some(b=>b.kind==="initials"&&b.instance_id===client.instance&&b.field_key===client.field)}
-        onInitials={async (png) => { await ctl.photo(png, { instance_id: client.instance, field_key: client.field, kind: "initials" }, W.initials); }}
+        onInitials={async (png, summaryText) => { await ctl.photo(png, { instance_id: client.instance, field_key: client.field, kind: "initials" }, W.initials, summaryText); }}
         verifyPin={(pin) => ctl.verifyPin(pin)}
         onHandBack={() => { setClient(null); setResume(client.instance); }} /></div>;
     }

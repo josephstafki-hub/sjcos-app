@@ -1,4 +1,5 @@
 "use client";
+import {sectionCounts} from "@/lib/consult/completeness";
 /**
  * The visitor's screens (plan §6.3 phone portrait, §6.4 tablet landscape):
  * opening script → section list → section fields. Phone/tablet portrait: one column,
@@ -67,7 +68,7 @@ function SectionRows({ model, active, onOpen, onAdd, compact }: { model: VisitMo
               className={`grid min-h-14 w-full items-center gap-x-3 border-b-2 border-rule-soft px-2 py-2 text-left hover:bg-hover focus-visible:outline-3 focus-visible:outline-focus ${compact ? "grid-cols-[1fr_auto]" : "grid-cols-[minmax(0,1fr)_auto_auto_auto]"} ${active === s.instance.id ? "bg-accent-soft" : ""} ${s.depth ? "pl-6" : ""}`}>
               <span className="min-w-0 break-words font-semibold text-ink">{s.depth ? "↳ " : ""}{s.label}</span>
               {/* r3 C9: count · mark, chevron last. */}
-              <span className="font-mono text-[0.9em] text-ink-2">{s.pc.done}/{s.pc.total}</span>
+              <span className="font-mono text-[0.9em] text-ink-2">{sectionCounts(s).done}/{sectionCounts(s).total}</span>
               <span className={compact ? "col-span-2 justify-self-start" : ""}><MarkCell f={{ mark: s.mark, conflict: s.conflict, returnVisit: s.returnVisit }} /></span>
               {!compact && <span aria-hidden className="font-mono text-ink-3">›</span>}
             </button>

@@ -22,8 +22,8 @@ export const num = (key: string, label: string, unit: Unit | undefined, required
 export const year = (key: string, label: string, required: Req, extra: Extra = {}) => field(key, label, 'year', required, extra);
 export const date = (key: string, label: string, required: Req, extra: Extra = {}) => field(key, label, 'date', required, extra);
 export const signature = (key: string, label: string, required: Req, extra: Extra = {}) => field(key, label, 'signature', required, extra);
-export const len = (key: string, label: string, required: Req, extra: Extra = {}) => field(key, label, 'length', required, { unit: 'in', ...extra });
-export const pair = (key: string, label: string, required: Req, extra: Extra = {}) => field(key, label, 'length_pair', required, { unit: 'in', ...extra });
+export const len = (key: string, label: string, required: Req, extra: Extra = {}) => field(key, label, 'length', required, { unit: 'in', precision: 0.0625, ...extra });
+export const pair = (key: string, label: string, required: Req, extra: Extra = {}) => field(key, label, 'length_pair', required, { unit: 'in', precision: 0.0625, ...extra });
 export const choice = (key: string, label: string, options: string[], required: Req, extra: Extra = {}) => field(key, label, 'choice', required, { options, ...extra });
 export const multi = (key: string, label: string, options: string[], required: Req, extra: Extra = {}) => field(key, label, 'multi', required, { options, ...extra });
 /** A derived row (plan "derived" / "Derived"): never typed, never required, Price-critical. */

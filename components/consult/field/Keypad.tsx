@@ -27,7 +27,7 @@ function FracGlyph({ f }: { f: string }) {
   );
 }
 
-function precisionOf(def: FieldDef) { return def.precision && [1 / 16, 1 / 8, 1 / 4, 1 / 2, 1].includes(def.precision) ? def.precision : 1 / 8; }
+export function precisionOf(def: FieldDef) { return def.precision && [1 / 16, 1 / 8, 1 / 4, 1 / 2, 1].includes(def.precision) ? def.precision : 1 / 8; }
 export function showLength(value: unknown, def: FieldDef): string {
   const p = precisionOf(def);
   try {
@@ -156,7 +156,7 @@ export function Keypad({ open, def, label, initial, last, onSave, onClose }: { o
       {mode === "ftin" && (
         // Seven across only where each key stays ≥ 44 px; narrower phones get 4 + 3 rows.
         <div className="mt-2 grid grid-cols-4 gap-2 min-[400px]:grid-cols-7 [@media(max-height:700px)]:mt-1.5 [@media(max-height:700px)]:gap-1.5">
-          {FRACTIONS.map((f) => key(f, <FracGlyph f={f} />, `${f} inch`, "text-[1.45em]"))}
+          {(precisionOf(def) === 1/16 ? [...FRACTIONS,...Array.from({length:8},(_,i)=>`${i*2+1}/16`)] : FRACTIONS).map((f) => key(f, <FracGlyph f={f} />, `${f} inch`, "text-[1.45em]"))}
         </div>
       )}
     </Sheet>

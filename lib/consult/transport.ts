@@ -9,8 +9,15 @@ export function transientClose(code: string): boolean { return code === 'no_sign
 /** Bound every transport attempt so a stalled radio cannot hold Send/Close forever. */
 export async function deadlineFetch(request:typeof fetch,input:Parameters<typeof fetch>[0],init?:Parameters<typeof fetch>[1]):Promise<Response> {
  const controller=new AbortController();
- const timer=setTimeout(()=>controller.abort(),15_000);
- try {return await request(input,{...init,signal:init?.signal?AbortSignal.any([init.signal,controller.signal]):controller.signal});}
- catch(e){if(controller.signal.aborted)throw new Error('http_408');throw e;}
- finally{clearTimeout(timer);}
+ let timer: ReturnType<typeof setTimeout>;
+ const expired=new Promise<never>((_,reject)=>{timer=setTimeout(()=>{controller.abort();reject(new Error('http_408'));},15_000);});
+ try {
+  // Consume inside the deadline. Racing also settles fetch implementations which ignore abort.
+  return await Promise.race([expired,(async()=>{
+   const response=await request(input,{...init,signal:init?.signal?AbortSignal.any([init.signal,controller.signal]):controller.signal});
+   const bytes=await response.arrayBuffer();
+   return new Response(response.status===204||response.status===205||response.status===304?null:bytes,{status:response.status,statusText:response.statusText,headers:response.headers});
+  })()]);
+ } catch(e){if(controller.signal.aborted)throw new Error('http_408');throw e;}
+ finally{clearTimeout(timer!);}
 }

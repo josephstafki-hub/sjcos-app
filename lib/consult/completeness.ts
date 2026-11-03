@@ -80,7 +80,14 @@ export function consultCompleteness(input: CompletionInput) {
     const items = [...fields, ...photos].filter((i) => i.tier === tier);
     return { total: items.length, done: items.filter(done).length, skipped: items.filter((i) => countingSkip(i)).length };
   };
-  return { complete: checks.every((c) => !c.open.length), checks, price_critical: counts('price_critical'), record: counts('record') };
+  return { complete: checks.every((c) => !c.open.length), checks: checks.map(c=>({...c,action:closeAction(c.code)})), price_critical: counts('price_critical'), record: counts('record') };
 }
 
-export function openItemCount(counts: {price_critical:{total:number;done:number};record:{total:number;done:number}}):number { return counts.price_critical.total-counts.price_critical.done+counts.record.total-counts.record.done; }
+export function openItemCount(counts: {price_critical:{total:number;done:number};record:{total:number;done:number}}):number { const n=sectionCounts({pc:counts.price_critical,record:counts.record});return n.total-n.done; }
+
+export function closeAction(code:string):string {
+ return ({required_fields:'go_field',required_photos:'take_photo',module_requirements:'add_instance',permissions:'review_permissions',client_acknowledgement:'show_client',promised_date:'pick_date',close_manifests:'review_sync',rrp:'review_rrp',flag_decisions:'review_flags',risk_assumptions:'review_assumptions',trade_walks:'review_trades'} as Record<string,string>)[code]??'review_sync';
+}
+export function sectionCounts(section:{pc:{total:number;done:number};record:{total:number;done:number}}) {
+ return {done:section.pc.done+section.record.done,total:section.pc.total+section.record.total};
+}

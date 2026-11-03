@@ -1,3 +1,4 @@
+import {evaluatedFlags} from './flags.ts';
 import { mergeTemplateModules } from './template-merge.ts';
 import { rrpFacts } from './rrp.ts';
 /** Owner-connection transaction service. Caller authenticates freshly and supplies a
@@ -268,7 +269,7 @@ export async function completion(c:PoolClient,context:Context,target:string){
  const known=new Set(modules.flatMap(m=>m.fields.map(f=>`${m.key}.${f.key}`)));
  const global:Record<string,unknown>={};
  // Ambiguous repeat values never pick a winner for a cross-module condition.
- for(const m of modules)for(const f of m.fields){const values=live.filter(i=>i.module_key===m.key).flatMap(i=>s.heads.filter(a=>a.instance_id===i.id&&a.field_key===f.key&&a.status==='answered').map(a=>a.value));if(values.length)global[`${m.key}.${f.key}`]=values.length===1?values[0]:values;}
+ for(const m of modules)for(const f of m.fields){const values=live.filter(i=>i.module_key===m.key).map(i=>projection.scalar(i,f.key)).filter(v=>v!==undefined);if(values.length)global[`${m.key}.${f.key}`]=values.length===1?values[0]:values;}
  const media=(await c.query('SELECT id,instance_id,field_key,shot_key,sha256,kind FROM consult_media WHERE consult_id=$1 AND removed_at IS NULL',[target])).rows;
  const fields:CompletionItem[]=[], photos:CompletionItem[]=[],flags:CompletionInput['flags']=[];
  for(const i of live){const m=modules.find(m=>m.key===i.module_key);if(!m)throw new Error('unknown_module');
@@ -280,7 +281,7 @@ export async function completion(c:PoolClient,context:Context,target:string){
    // A signature field can't be typed (capture_answer refuses it); committed initials media for that exact field answers it.
    const signed=f.type==='signature'&&media.some(p=>p.instance_id===i.id&&p.kind==='initials'&&p.field_key===f.key);
    fields.push({key,tier:f.tier,required:!['name','level','decision'].includes(f.key)&&required(f.required),applicable:true,mapped:!!f.maps_to,answered:a?.status==='answered'||signed,valid:signed||(a?.status==='answered'&&a.value!==null&&a.value!==''&&(!Array.isArray(a.value)||a.value.length>0)),skip:a?.status==='skipped'?{reason:a.skip_reason as NonNullable<CompletionItem['skip']>['reason'],note:a.skip_note??undefined,...(sk?.reason===a.skip_reason?sk:{}),condition_validated:typeof f.required!=='boolean'&&!required(f.required)}:undefined});
-   for(const [index,flag] of [...(f.flag?[f.flag]:[]),...(f.flags??[])].entries())if(required(flag.when)){const flagKey=index?`${key}:${index}`:key;const d=e?.flags[flagKey];flags.push({key:flagKey,disposition:d?.disposition??null,note:d?.note??'',actor:d?row.actor:null,at:d?String(row.updated_at):null});}
+   for(const flag of evaluatedFlags(f,key,values)){const flagKey=flag.key;const d=e?.flags[flagKey];flags.push({key:flagKey,disposition:d?.disposition??null,note:d?.note??'',actor:d?row.actor:null,at:d?String(row.updated_at):null});}
   }
   for(const shot of [...m.shots,...m.fields.flatMap(f=>f.shots??[])]){
    const key=`${i.id}:shot:${shot.key}`;photos.push({key,tier:shot.tier,required:required(shot.required),applicable:true,mapped:false,answered:media.some(p=>p.instance_id===i.id&&p.shot_key===shot.key),valid:true,skip:e?.skips[key]});

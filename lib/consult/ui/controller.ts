@@ -26,7 +26,7 @@ export interface Boot {
 }
 export type Phase = 'loading' | 'get_ready' | 'unlock' | 'visit' | 'blocked' | 'disabled';
 export type ReadyResult = 'idle' | 'checking' | 'ready' | 'not_ready' | 'no_signal';
-export interface CloseResult { complete: boolean; checks: { check: number; code: string; open: string[] }[]; price_critical: { total: number; done: number; skipped: number }; record: { total: number; done: number; skipped: number }; revision: number }
+export interface CloseResult { complete: boolean; checks: { check: number; code: string; action?: string; open: string[] }[]; price_critical: { total: number; done: number; skipped: number }; record: { total: number; done: number; skipped: number }; revision: number }
 export interface ClosingState { step: 'sending' | 'closing' | 'done' | 'error' | 'waiting_signal'; result?: CloseResult; code?: string }
 export interface State {
   phase: Phase; online: boolean; boot: Boot | null; consultId: string; identity: OfflineIdentity | null; device: string;
@@ -400,7 +400,7 @@ export class VisitController {
   async answer(instance_id: string, field_key: string, label: string, payload: AnswerPayload, draft?: EvidenceDraft) {
     const op = await this.commit((q, b) => answerOp(q, this.state.device, b, instance_id, field_key, payload), label, draft);
     if (field_key === 'frost_zone' && payload.status === 'answered') { const zone=frostZones.find(z=>z.label===payload.value); if(zone) await this.answer(instance_id,'required_depth','Footing depth the city requires',{status:'answered',value:zone.depth}); }
-    if (field_key === 'rooms_wanted') await this.ensureRequiredInstances();
+    await this.ensureRequiredInstances();
     return op;
   }
   addInstance(module_key: string, label: string, parent_id?: string | null) {
@@ -417,13 +417,13 @@ export class VisitController {
   /** Every local decision is a durable, independently receipted sync operation. */
   setDraft(draft: EvidenceDraft) { this.set({code:null});return this.commit((q,b)=>decisionsOp(q,this.state.device,b,draft), 'Decision', draft).then(()=>true).catch(e=>{this.set({code:codeOf(e)});return false;}); }
 
-  async photo(file: Blob, meta: { instance_id: string; field_key?: string; shot_key?: string; kind?: 'photo' | 'initials' }, label: string) {
+  async photo(file: Blob, meta: { instance_id: string; field_key?: string; shot_key?: string; kind?: 'photo' | 'initials' }, label: string, summaryText?: string) {
     if (!this.engine) throw new Error('not_prepared');
     if (this.state.storageFull) throw new Error('storage_full');
     const blob = meta.kind === 'initials' ? file : await preparePhoto(file);
     const hash = await sha256(blob);
     const metadata: LocalBlob = { hash, event_id: uuid(), mime: meta.kind === 'initials' ? 'image/png' : blob.type === 'image/png' || blob.type === 'image/webp' ? blob.type : 'image/jpeg', kind: meta.kind ?? 'photo', instance_id: meta.instance_id, ...(meta.field_key ? { field_key: meta.field_key } : {}), ...(meta.shot_key ? { shot_key: meta.shot_key } : {}) };
-    try { await this.engine.captureBlob(blob, metadata); } catch (e) { if (/storage|quota/i.test(codeOf(e))) this.set({ storageFull: true }); throw e; }
+    try { const local=this.engine.read()!; const baseline=this.baseline(); const op=summaryText!==undefined&&meta.field_key==="client_initials"?await answerOp(local.queue,this.state.device,baseline,meta.instance_id,"summary",{status:"answered",value:summaryText}):undefined; await this.engine.captureBlob(blob, metadata,op,this.projection()); } catch (e) { if (/storage|quota/i.test(codeOf(e))) this.set({ storageFull: true }); throw e; }
     try { navigator.vibrate?.(10); } catch { /* not supported */ }
     this.set({ local: this.engine.read(), lastSaved: label, thumbs: { ...this.state.thumbs, [hash]: URL.createObjectURL(blob) } });
     this.schedule(0);

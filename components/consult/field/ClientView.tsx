@@ -22,7 +22,7 @@ function dataUrlToBlob(url: string): Blob {
 }
 
 export function ClientView({ summary, pamphlet = false, hasInitials, onInitials, onHandBack, verifyPin }: {
-  summary: ClientSummary; pamphlet?: boolean; hasInitials: boolean; onInitials: (png: Blob) => Promise<void>; onHandBack: () => void; verifyPin: (pin: string) => Promise<boolean>;
+  summary: ClientSummary; pamphlet?: boolean; hasInitials: boolean; onInitials: (png: Blob, summaryText: string) => Promise<void>; onHandBack: () => void; verifyPin: (pin: string) => Promise<boolean>;
 }) {
   const s = clientSummary(summary); // allowlist: nothing else reaches this view
   const pad = useRef<SignaturePadHandle>(null);
@@ -52,17 +52,18 @@ export function ClientView({ summary, pamphlet = false, hasInitials, onInitials,
   const cancel = () => { start.current = null; if (raf.current) cancelAnimationFrame(raf.current); setHeld(0); };
   useEffect(() => () => { start.current = null; if (raf.current) cancelAnimationFrame(raf.current); }, []);
 
+  const recap = useRef<HTMLElement | null>(null);
   const ack = async () => {
     const url = pad.current?.toDataUrl(); if (!url) return;
     setSaving(true);
-    try { await onInitials(dataUrlToBlob(url)); setSaved(true); } finally { setSaving(false); }
+    try { await onInitials(dataUrlToBlob(url), recap.current?.innerText ?? ""); setSaved(true); } finally { setSaving(false); }
   };
   const pct = Math.min(100, Math.round((held / 2000) * 100));
 
   return (
     <main className="consult-client min-h-dvh bg-paper text-[20px] text-ink" aria-label={W.whatWeWentOver}>
       <div className="mx-auto grid max-w-[1180px] gap-6 px-5 py-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,460px)] lg:gap-10 lg:py-10">
-        <section className="min-w-0">
+        <section ref={recap} className="min-w-0">
           <h1 className="font-serif text-[1.5em] font-semibold leading-tight text-ink">{pamphlet ? "Renovate Right receipt" : W.whatWeWentOver}</h1>
           <p className="mt-1 text-ink-2">{s.client_name}{s.visit_date ? ` · ${s.visit_date}` : ""}</p>
           {pamphlet ? <p className="mt-5">I received the Renovate Right pamphlet about lead-safe renovation work.</p> : <>

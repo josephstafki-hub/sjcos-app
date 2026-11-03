@@ -1,3 +1,5 @@
+import {PAMPHLET_UNKNOWN_YEAR_LINE} from '../forms/seed/shared.ts';
+import {evaluatedFlags} from '../flags.ts';
 import {pinnedDerivations} from '../derive.ts';
 import { mergeTemplateModules } from '../template-merge.ts';
 import { rrpFacts } from '../rrp.ts';
@@ -50,7 +52,7 @@ export interface FieldView {
 export interface SectionView {
   instance: SnapInstance; module: ModuleDef; label: string; title: string; depth: number;
   fields: FieldView[]; hidden: FieldView[]; shots: ShotView[]; mark: Mark; conflict: boolean; returnVisit: boolean;
-  pc: { done: number; total: number }; record: { done: number; total: number }; children: string[];
+  pc: { done: number; total: number }; record: { done: number; total: number }; children: string[]; missingRequiredChildren: {module_key:string; title:string; live:number; minimum:number; missing:number}[];
 }
 export interface ModuleSlot { module: ModuleDef; minimum: number; live: number; required: boolean; parent?: string; optional: boolean; presets?: Record<string, unknown>[]; label?: string }
 export interface VisitModel {
@@ -253,7 +255,7 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
   // Global values for cross-module conditions; ambiguous repeats stay arrays (server rule).
   const global: Record<string, unknown> = {};
   for (const m of modules) for (const f of m.fields) {
-    const vals = live.filter((i) => i.module_key === m.key).map((i) => answers.get(addrOf(i.id, f.key))).filter((a) => a?.status === 'answered').map((a) => a!.value);
+    const vals = live.filter((i) => i.module_key === m.key).map(i=>projection.scalar(i,f.key)).filter(v=>v!==undefined);
     if (vals.length) global[`${m.key}.${f.key}`] = vals.length === 1 ? vals[0] : vals;
   }
   const templateKeys = templates.map((t) => t.key);
@@ -298,7 +300,7 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
     const localKnown = new Set([...known, ...m.fields.map((f) => f.key)]);
     const req = (r: boolean | When) => safeCondition(r, localKnown, values);
     const fieldViews: FieldView[] = []; const hidden: FieldView[] = [];
-    const section: SectionView = { instance: inst, module: m, label: '', title: m.title, depth: inst.parent_id ? 1 : 0, fields: [], hidden: [], shots: [], mark: 'open', conflict: false, returnVisit: false, pc: { done: 0, total: 0 }, record: { done: 0, total: 0 }, children: live.filter((c) => c.parent_id === inst.id).map((c) => c.id) };
+    const section: SectionView = { instance: inst, module: m, label: '', title: m.title, depth: inst.parent_id ? 1 : 0, fields: [], hidden: [], shots: [], mark: 'open', conflict: false, returnVisit: false, pc: { done: 0, total: 0 }, record: { done: 0, total: 0 }, missingRequiredChildren: slots.filter(slot=>slot.parent===m.key&&slot.required).map(slot=>{const count=live.filter(c=>c.parent_id===inst.id&&c.module_key===slot.module.key).length;return {module_key:slot.module.key,title:slot.module.title,live:count,minimum:slot.minimum,missing:Math.max(0,slot.minimum-count)};}), children: live.filter((c) => c.parent_id === inst.id).map((c) => c.id) };
     const count = (tier: 'price_critical' | 'record', done: boolean, skipped: boolean) => {
       const t = tier === 'price_critical' ? section.pc : section.record; t.total++; if (done) t.done++;
       const g = tier === 'price_critical' ? tally.pc : tally.record; g.total++; if (done) g.done++; if (skipped) g.skipped++;
@@ -313,7 +315,7 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
       return { key: shot.key, def: shot, required, mark: mine.length ? 'covered' : done ? 'not_applicable' : 'open', skip: sk?.reason, blobs: mine, addr: key };
     };
     for (const f of m.fields) {
-      if (isDerived(f)) continue;
+
       const addr = addrOf(inst.id, f.key);
       const a = answers.get(addr);
       const conditional = typeof f.required !== 'boolean';
@@ -331,9 +333,10 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
       let mark: Mark = answered ? (shotsDone ? 'covered' : 'partial') : counts ? 'not_applicable' : 'open';
       if (f.type === 'length_pair' && answered && Array.isArray(a?.value) && a!.value.some((v) => typeof v !== 'number')) mark = 'partial';
       const flags: FieldView['flags'] = [];
-      for (const [index, flag] of [...(f.flag ? [f.flag] : []), ...(f.flags ?? [])].entries()) if (req(flag.when)) flags.push({ key: index ? `${addr}:${index}` : addr, issue: flag.issue, hint: flag.hint ?? visitorFlagText(flag.issue) });
-      const view: FieldView = { key: f.key, addr, def: f, required, applicable, mark, answer: a, conflict, returnVisit: a?.status === 'skipped' && a.skip_reason === 'Get on return visit', skipNote: a?.skip_note, skipCounts: counts, shots, flags, initials };
-      if (!applicable) { hidden.push(view); continue; }
+      for (const flag of evaluatedFlags(f,addr,values)) flags.push({key:flag.key,issue:flag.issue,hint:flag.hint??visitorFlagText(flag.issue)});
+      const view: FieldView = { key: f.key, addr, def: f.key==='pamphlet_given'&&m.key==='era'&&typeof global['house.year_built']!=='number'?{...f,say:PAMPHLET_UNKNOWN_YEAR_LINE}:f, required, applicable, mark, answer: a, conflict, returnVisit: a?.status === 'skipped' && a.skip_reason === 'Get on return visit', skipNote: a?.skip_note, skipCounts: counts, shots, flags, initials };
+      for (const fl of flags) allFlags.push({ ...fl, section, field: view });
+      if (isDerived(f) || !applicable) { hidden.push(view); continue; }
       fieldViews.push(view);
       if (required && !['name','level','decision'].includes(f.key)) {
         count(f.tier, answered || counts, counts);
@@ -341,7 +344,6 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
         else if (mark === 'partial') allOpen.push({ section, item: view, kind: 'field', partly: true });
       }
       for (const s of shots) if (s.required) { const done = s.mark !== 'open'; count(s.def.tier, done, s.mark === 'not_applicable'); if (!done && (answered || counts)) allOpen.push({ section, item: s, kind: 'shot', partly: false }); }
-      for (const fl of flags) allFlags.push({ ...fl, section, field: view });
       if (conflict) section.conflict = true;
       if (view.returnVisit) section.returnVisit = true;
     }

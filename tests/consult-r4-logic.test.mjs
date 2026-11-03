@@ -33,7 +33,7 @@ test('Bath + Kitchen interrupted legacy start recovers on cold load exactly once
  assert.ok(m.sections.some(s=>s.module.key==='kitchen_appliance'));
  assert.equal(m.slots.at(-1).module.key,'closing');
  assert.equal(m.sections.at(-1).module.key,'closing');
- assert.equal(m.sections.find(s=>s.module.key==='closing').fields.filter(f=>f.required&&f.def.tier==='price_critical').length,4);
+ assert.equal(m.sections.find(s=>s.module.key==='closing').fields.filter(f=>f.required&&f.def.tier==='price_critical').length,3);
  assert.ok(m.sections.filter(s=>s.module.key==='selections').every(s=>s.pc.done===0&&s.mark==='open'&&s.fields.find(f=>f.key==='decision').answer));
  assert.deepEqual(engine.read().queue.entries.slice(0,prior.length).map(e=>e.op),prior);
  const entries=engine.read().queue.entries.length;await c.ensureRequiredInstances();assert.equal(engine.read().queue.entries.length,entries);
@@ -121,4 +121,92 @@ test('photo-only authorization loss cancels automatic retry and clears decrypted
  await engine.captureBlob(blob,{hash,event_id:crypto.randomUUID(),mime:'image/jpeg',kind:'photo',instance_id:op.target.instance_id});c.state.local=engine.read();
  Object.defineProperty(navigator,'onLine',{value:true,configurable:true});c.refresh=async()=>{};
  await c.drain();assert.equal(c.state.local,null);assert.equal(c.state.phase,'blocked');assert.equal(c.timer,null);assert.throws(()=>engine.read(),/offline_locked/);
+});
+
+test('R5 catalog ordering is independent of template selection order',async()=>{
+ const {mergeTemplateModules}=await import('../lib/consult/template-merge.ts');
+ const bath=seedTemplates.find(t=>t.key==='bath'),kitchen=seedTemplates.find(t=>t.key==='kitchen');
+ const a=mergeTemplateModules([bath,kitchen]).map(m=>m.module);
+ assert.deepEqual(a,mergeTemplateModules([kitchen,bath]).map(m=>m.module));
+ assert.ok(a.indexOf('house')<a.indexOf('bath_scope'));
+ assert.ok(a.indexOf('kitchen_scope')<a.indexOf('selections'));
+ assert.deepEqual(a.slice(-2),['selections','closing']);
+});
+test('R5 No with unknown year requires a written reason; sixteenths parse',async()=>{
+ const {rrpYearConflict}=await import('../lib/consult/rrp.ts');
+ const {parseLength}=await import('../lib/consult/length.ts');
+ assert.equal(compileCondition(rrpYearConflict,new Set(['era.before_1978','house.year_built']))({'era.before_1978':false}),true);
+ assert.equal(parseLength('13/16',{precision:1/16}).inches,13/16);
+ assert.equal(parseLength('24 13/16',{precision:1/16}).inches,24+13/16);
+});
+test('R5 offline answers create required vented appliance children',async t=>{
+ const {controller}=await setup(t); const c=controller(); await c.start();
+ const hvac=c.model().sections.find(s=>s.module.key==='hvac');
+ await c.answer(hvac.instance.id,'fuel_appliances','Fuel appliances',{status:'answered',value:true});
+ assert.ok(c.model().sections.some(s=>s.module.key==='hvac_vent'&&s.instance.parent_id===hvac.instance.id));
+});
+test('R5 header-only stalled body expires, retry succeeds and late body is ignored',async t=>{
+ const {deadlineFetch}=await import('../lib/consult/transport.ts');
+ const timer=globalThis.setTimeout;
+ globalThis.setTimeout=(f,ms,...args)=>timer(f,ms===15000?10:ms,...args);
+ t.after(()=>{globalThis.setTimeout=timer;});
+ let old;
+ const stalled=new Response(new ReadableStream({start(c){old=c;}}));
+ await assert.rejects(deadlineFetch(async()=>stalled,'https://example.test'),/http_408/);
+ const fresh=await deadlineFetch(async()=>Response.json({attempt:2}),'https://example.test');
+ assert.deepEqual(await fresh.json(),{attempt:2});
+ old.enqueue(new TextEncoder().encode('{"attempt":1}'));old.close();
+});
+test('R5 Close retries the saved request after a stalled body, direct and drain-owned',async t=>{
+ for(const drainOwned of [false,true]){
+  const {engine,controller}=await setup(t),c=controller();c.refresh=async()=>{};
+  await engine.saveCloseIntent(null);
+  const request={expected_revision:0,manifest:{devices:[]}};await engine.saveCloseRequest(request);
+  const original=globalThis.fetch,timer=globalThis.setTimeout;let calls=0,old;const inputs=[];
+  globalThis.setTimeout=(f,ms,...args)=>timer(f,ms===15000?10:ms,...args);
+  globalThis.fetch=async(_url,init)=>{inputs.push(JSON.parse(init.body).input);calls++;return calls===1?new Response(new ReadableStream({start(x){old=x;}})):Response.json({complete:false,checks:[],price_critical:{total:0,done:0,skipped:0},record:{total:0,done:0,skipped:0},revision:1});};
+  try{
+   if(drainOwned)await c.drain(true);else await c.resumeClose();
+   assert.equal(c.state.closing.code,'http_408');assert.equal(c.closing,false);
+   await c.close(null);assert.equal(c.state.closing.step,'done');
+   assert.deepEqual(inputs,[request,request]);
+   old.enqueue(new TextEncoder().encode('{"complete":true}'));old.close();
+   await new Promise(resolve=>timer(resolve,0));
+   assert.equal(c.state.closing.result.complete,false);
+  }finally{globalThis.fetch=original;globalThis.setTimeout=timer;clearTimeout(c.closeTimer);}
+ }
+});
+test('R5 device flags include derived fields with the same shared evaluation as close',async()=>{
+ const {pinnedDerivations}=await import('../lib/consult/derive.ts');
+ const {evaluatedFlags}=await import('../lib/consult/flags.ts');
+ const s=snapshot();s.instances=[{id:'house',module_key:'house'},{id:'era',module_key:'era'}];
+ s.heads=[{id:'alarm',instance_id:'house',field_key:'alarms_missing',status:'answered',value:['Missing'],server_revision:1},{id:'year',instance_id:'house',field_key:'year_built',status:'answered',value:1950,server_revision:1}];
+ const house=s.pins.find(p=>p.kind==='module'&&p.definition.key==='house');
+ house.definition={...house.definition,fields:[...house.definition.fields,{key:'derived_year',label:'Derived year',type:'number',required:false,tier:'price_critical',derive:'year_built',flag:{when:{field:'derived_year',op:'gt',value:1900},issue:'Derived flag'}}]};
+ const m=buildModel(s,[],[],emptyDraft()),mods=s.pins.filter(p=>p.kind==='module').map(p=>p.definition);
+ const projection=pinnedDerivations(mods,seedTemplates.filter(t=>['bath','kitchen'].includes(t.key)),s.instances,s.heads);
+ const global={};for(const mod of mods)for(const field of mod.fields){const vals=s.instances.filter(i=>i.module_key===mod.key).map(i=>projection.scalar(i,field.key)).filter(v=>v!==undefined);if(vals.length)global[mod.key+'.'+field.key]=vals.length===1?vals[0]:vals;}
+ const serverKeys=s.instances.flatMap(i=>{const mod=mods.find(m=>m.key===i.module_key);const values={...global};for(const f of mod.fields){const v=projection.scalar(i,f.key);if(v!==undefined)values[f.key]=v;}return mod.fields.flatMap(f=>evaluatedFlags(f,i.id+':'+f.key,values).map(f=>f.key));});
+ assert.deepEqual(m.flags.map(f=>f.key).sort(),serverKeys.sort());
+ assert.ok(m.flags.some(f=>f.key==='house:derived_year'));
+});
+test('R5 acknowledgment saves rendered summary with initials and summary is not visitor-required',async t=>{
+ const {controller,engine}=await setup(t),c=controller();await c.start();
+ const closing=c.model().sections.find(s=>s.module.key==='closing');
+ const text='What we went over\nBathroom\nMeasured\nNext\nJoe sends your formal estimate.';
+ await c.photo(new Blob(['png'],{type:'image/png'}),{instance_id:closing.instance.id,field_key:'client_initials',kind:'initials'},'Initials',text);
+ const m=c.model(),section=m.sections.find(s=>s.instance.id===closing.instance.id);
+ assert.equal(section.fields.find(f=>f.key==='summary').answer.value,text);
+ assert.equal(section.fields.find(f=>f.key==='summary').required,false);
+ assert.ok(engine.read().blobs.some(b=>b.kind==='initials'&&b.instance_id===closing.instance.id));
+ assert.ok(section.fields.findIndex(f=>f.key==='estimate_promised')<section.fields.findIndex(f=>f.key==='client_initials'));
+});
+test('R5 section and wrap count the same required fields across tiers; unknown-year Say is conservative',async()=>{
+ const {sectionCounts,openItemCount,closeAction}=await import('../lib/consult/completeness.ts');
+ const s=snapshot();s.instances=[{id:'bath',module_key:'bath_scope'},{id:'era',module_key:'era'}];
+ const m=buildModel(s,[],[],emptyDraft());
+ for(const sec of m.sections){const n=sectionCounts(sec);assert.equal(n.total-n.done,m.open.filter(o=>o.section===sec&&!o.partly).length);}
+ assert.equal(openItemCount({price_critical:m.pc,record:m.record}),m.open.filter(o=>!o.partly).length);
+ assert.equal(closeAction('flag_decisions'),'review_flags');
+ assert.match(m.sections.find(s=>s.module.key==='era').fields.find(f=>f.key==='pamphlet_given').def.say,/We don’t know for sure/);
 });

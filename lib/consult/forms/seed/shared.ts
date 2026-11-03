@@ -1,3 +1,4 @@
+import {curly} from '../../typography.ts';
 import {frostZones} from '../../frost.ts';
 import {rrpBefore,rrpApplies,rrpYearConflict} from '../../rrp.ts';
 // Plan §7.3 shared modules, as executable data. Labels are the plan's words.
@@ -394,6 +395,7 @@ export const moisture: ModuleDef = {
 };
 
 export const PAMPHLET_LINE = 'Because the house was built before 1978, the law requires us to give you this pamphlet about lead-safe work — it\'s called Renovate Right. Could you initial here that you got it?';
+export const PAMPHLET_UNKNOWN_YEAR_LINE = curly("We don't know for sure the house was built after 1978, so we give you this pamphlet about lead-safe work — it's called Renovate Right. Could you initial here that you got it?");
 const before1978 = rrpBefore;
 const ASBESTOS = ['9×9 floor tile', 'Popcorn ceiling', 'Pipe or boiler wrap', 'Old duct tape', 'Vermiculite', 'Transite siding'];
 export const era: ModuleDef = {
@@ -495,9 +497,9 @@ export const selections: ModuleDef = {
 export const closing: ModuleDef = {
   key: 'closing', version: 1, title: 'Closing', repeatable: false, say: [],
   fields: [
-    text('summary', 'Walk-through summary text', true, { hint: 'Filled from today’s answers. Edit as needed.', note: 'prefilled from answers, editable' }),
-    signature('client_initials', 'Client initials — "This is what we went over"', true, { note: 'or skip with reason' }),
+    text('summary', 'Walk-through summary text', false, { hint: 'What the client initialed. Filled when they tap This is what we went over.' }),
     date('estimate_promised', 'Formal estimate promised by', true, { hint: 'Joe gets a to-do for this date.', note: 'files Joe\'s to-do' }),
+    signature('client_initials', 'Client initials — "This is what we went over"', true, { note: 'or skip with reason' }),
     choice('best_contact', 'Best way to reach them with questions', ['Call', 'Text', 'Email'], true),
     text('client_questions', 'Client\'s questions', false),
     text('worried', 'Anything that worried you (internal, not shown to client)', false, { hint: 'Goes to Joe only. The client never sees it.', note: 'goes to Joe' }),

@@ -172,19 +172,19 @@ test('every ⚑ flag is present with its plan text and citations', () => {
 
 test('code rows carry the round-2/3 fixes: egress, makeup air, tempered glass, toilet clearance, RRP, smoke/CO', () => {
   const f = (m, k) => byKey[m].fields.find((x) => x.key === k);
-  assert.match(f('egress', 'clear_area').help, /5\.0 sf for grade-floor or below-grade openings; 5\.7 sf otherwise/);
-  assert.match(f('egress', 'clear_width').help, /≥ 20″/); assert.match(f('egress', 'clear_height').help, /≥ 24″/);
-  assert.match(f('egress', 'floor_to_sill').help, /≤ 44″/); assert.match(f('egress', 'well_width').help, /≥ 36″ each, ≥ 9 sf/);
-  assert.match(f('hvac', 'year_1994_or_later').help, /Table 501\.4\.3\(1\) vs \(2\)/);
+  assert.match(f('egress', 'clear_area').note, /5\.0 sf for grade-floor or below-grade openings; 5\.7 sf otherwise/);
+  assert.match(f('egress', 'clear_width').note, /≥ 20″/); assert.match(f('egress', 'clear_height').note, /≥ 24″/);
+  assert.match(f('egress', 'floor_to_sill').note, /≤ 44″/); assert.match(f('egress', 'well_width').note, /≥ 36″ each, ≥ 9 sf/);
+  assert.match(f('hvac', 'year_1994_or_later').note, /Table 501\.4\.3\(1\) vs \(2\)/);
   assert.deepEqual(f('hvac_vent', 'venting').options, ['Atmospheric', 'Fan-assisted', 'Power-vent', 'Direct-vent sealed', 'Solid fuel', 'None']);
-  assert.match(f('hvac', 'dryer').help, /1346\.0501/); assert.match(f('hvac', 'other_exhaust_fan_count').help, /vented central vacuum/);
+  assert.match(f('hvac', 'dryer').note, /1346\.0501/); assert.match(f('hvac', 'other_exhaust_fan_count').note, /vented central vacuum/);
   assert.deepEqual(f('hvac', 'dryer').required, { any: [{ field: 'hood_cfm', op: 'gt', value: 300 }, { field: 'visit.templates', op: 'in', value: ['kitchen', 'basement', 'whole'] }] });
-  assert.match(f('era', 'pamphlet_given').help, /within 60 days before work starts/);
+  assert.match(f('era', 'pamphlet_given').note, /within 60 days before work starts/);
   assert.equal(f('era', 'pamphlet_given').say, seed.LEAD_SAFE_PAMPHLET.text);
-  assert.match(f('era', 'disturbs_paint').help, /40 CFR 745 Subpart E/);
+  assert.match(f('era', 'disturbs_paint').note, /40 CFR 745 Subpart E/);
   assert.equal(f('house', 'alarms_locations').required, true);
-  assert.match(f('footing', 'required_depth').help, /1303\.1600: 42″ in the southern zone \(metro\), 60″ in the northern/);
-  assert.match(f('deck_scope', 'height_far_edge').help, /R312\.1\.1/);
+  assert.match(f('footing', 'required_depth').note, /1303\.1600: 42″ in the southern zone \(metro\), 60″ in the northern/);
+  assert.match(f('deck_scope', 'height_far_edge').note, /R312\.1\.1/);
   assert.match(f('panel', 'location').label, /Panel location/); assert.deepEqual(byKey.panel.say, ['Never take the panel cover off. Open the door only; photograph the label and the breakers.']);
 });
 
@@ -264,7 +264,7 @@ test('all conditions compile, all formulas and derivation cases parse against kn
   }
   // every case-derived field has a derivation; no derived field is required
   for (const m of seed.seedModules) for (const f of m.fields) if (reqCode(m, f) === 'D') assert.equal(f.required, false, `${m.key}.${f.key}`);
-  for (const m of seed.seedModules) for (const f of m.fields) if (/Derived — not asked/.test(f.help ?? '')) assert.ok(caseKeys.has(`${m.key}.${f.key}`), `${m.key}.${f.key}`);
+  for (const m of seed.seedModules) for (const f of m.fields) if (/Derived — not asked/.test(f.note ?? '')) assert.ok(caseKeys.has(`${m.key}.${f.key}`), `${m.key}.${f.key}`);
   // pitch factor is exact to 4 decimals
   const pf = seed.derivationCases.find((d) => d.key === 'exterior_site.pitch_factor');
   assert.equal(pf.cases.find((c) => c.when.value === 12).formula, '1.4142');

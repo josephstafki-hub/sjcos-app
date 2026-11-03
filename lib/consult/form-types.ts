@@ -3,7 +3,7 @@ export type FieldType = "length" | "length_pair" | "count" | "number" | "choice"
 export type Unit = "in" | "sf" | "lf" | "ea" | "amp" | "gal" | "cfm" | "pct" | "psi" | "pitch" | "V" | "BTU/h" | "ton" | "lb" | "pCi/L";
 export interface AtomicWhen { field: string; op: "eq" | "ne" | "in" | "lt" | "gt" | "answered"; value?: unknown }   // sibling or "house.year_built"
 export type When = AtomicWhen | { all: When[] } | { any: When[] } | { not: When };
-export interface ShotDef { key: string; label: string; required: boolean | When; tier: "price_critical" | "record"; hint?: string }
+export interface ShotDef { key: string; label: string; required: boolean | When; tier: "price_critical" | "record"; hint?: string; note?: string }
 export interface FieldDef {
   key: string; label: string; type: FieldType; unit?: Unit;
   component_ranges?: [[number, number], [number, number]];
@@ -14,6 +14,11 @@ export interface FieldDef {
   required: boolean | When;
   tier: "price_critical" | "record";
   say?: string;                        // script line shown above the field
+  /** Office/plan note: never rendered on the visit screens. */
+  note?: string;
+  /** One plain visitor sentence shown under the field (Joe's words; no internal terms). */
+  hint?: string;
+  /** Legacy (published before notes/hints split): never rendered. */
   help?: string;
   shots?: ShotDef[];                   // photos that prove this field
   derive?: string;                     // formula over keys in the same instance/consult, e.g. "length*width/144"

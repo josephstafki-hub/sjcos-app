@@ -33,12 +33,14 @@ export const derived = (key: string, label: string, type: FieldType, derive: str
 /** A derived row whose value comes from `derivationCases` (branches, yes/no tests, indicators) — no `derive`
  *  string because formula.ts has no comparisons or branches. Never typed, never required. */
 export const caseField = (key: string, label: string, type: FieldType, extra: Extra = {}) =>
-  field(key, label, type, false, { tier: 'price_critical', help: 'Derived — not asked; value from the seed derivation cases', ...extra });
+  field(key, label, type, false, { tier: 'price_critical', note: 'Derived — not asked; value from the seed derivation cases', ...extra });
 
 /** Every shot is Price-critical (§7.1: "Shots … are always Price-critical"). */
-export const shot = (key: string, label: string, required: Req, hint?: string): ShotDef => {
+/** `hint` is shown to the visitor (plain words); `note` is the plan's shorthand, never rendered. */
+export const shot = (key: string, label: string, required: Req, hint?: string, note?: string): ShotDef => {
   const s: ShotDef = { key, label, required, tier: 'price_critical' };
   if (hint) s.hint = hint;
+  if (note) s.note = note;
   return s;
 };
 

@@ -19,13 +19,13 @@ export const whenSchema: z.ZodType<When> = z.lazy(() => z.union([
 ]));
 const required=z.union([z.boolean(),whenSchema]);
 export const mappingSchema=z.strictObject({scope_key:text,quantity_label:text.optional(),kind:z.enum(['measurement','observation','client_answer','decision','issue','new_work','photo'])});
-export const shotSchema=z.strictObject({key,label:text,required,tier,hint:text.optional()});
+export const shotSchema=z.strictObject({key,label:text,required,tier,hint:text.optional(),note:text.optional()});
 export const fieldSchema=z.strictObject({
  key,label:text,type:z.enum(['length','length_pair','count','number','choice','multi','yesno','text','year','date','signature','instance_reference']),unit:unit.optional(),
  component_ranges:z.tuple([z.tuple([z.number(),z.number()]),z.tuple([z.number(),z.number()])]).optional(),
  range:z.tuple([z.number().finite(),z.number().finite()]).optional(),warn:z.strictObject({below:z.number().finite().optional(),above:z.number().finite().optional(),text}).optional(),
  precision:z.union([z.literal(0.0625),z.literal(0.125),z.literal(0.25),z.literal(0.5),z.literal(1)]).optional(),options:z.array(text).min(1).optional(),
- required,tier,say:text.optional(),help:text.optional(),shots:z.array(shotSchema).optional(),derive:text.optional(),
+ required,tier,say:text.optional(),note:text.optional(),hint:text.optional(),help:text.optional(),shots:z.array(shotSchema).optional(),derive:text.optional(),
  derive_cases:z.array(z.union([z.strictObject({when:whenSchema,formula:text}),z.strictObject({when:whenSchema,value:z.union([text,z.boolean()])}),z.strictObject({when:whenSchema,gap:z.literal(true)})])).optional(),
  flags:z.array(z.strictObject({when:whenSchema,issue:text})).optional(),
  flag:z.strictObject({when:whenSchema,issue:text}).optional(),maps_to:mappingSchema.optional(),

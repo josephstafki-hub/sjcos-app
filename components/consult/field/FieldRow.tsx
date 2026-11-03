@@ -109,7 +109,7 @@ export function PhotoRow({ shot, actions, fieldKey, sectionId }: { shot: ShotVie
         <MarkCell f={{ mark: shot.mark }} />
       </div>
       {shot.def.hint && <p className="text-[0.9em] text-ink-2">{shot.def.hint}</p>}
-      {shot.mark === "not_applicable" && shot.skip && <p className="text-[0.9em] text-ink-2">— N/A · {shot.skip}</p>}
+      {shot.mark === "not_applicable" && shot.skip && <p className="text-[0.9em] text-ink-2">N/A · {shot.skip}</p>}
       {latest && (
         <div className="mt-2 flex items-center gap-3">
           {actions.thumbs[latest.hash] && <img src={actions.thumbs[latest.hash]} alt={`Photo of ${shot.def.label}`} className="size-16 rounded-md border-2 border-rule object-cover" />}
@@ -212,8 +212,8 @@ export function FieldRow({ f, actions, sectionId, last }: { f: FieldView; action
         </p>
         <MarkCell f={f} />
       </div>
-      {d.help && !d.help.startsWith("Derived") && <p className="text-[0.85em] text-ink-3">{d.help}</p>}
-      {skipped && <p className="mt-1 text-[0.95em] text-ink-2">{f.mark === "not_applicable" ? "— N/A · " : "Skipped · "}{f.answer!.skip_reason}{f.skipCounts ? (f.answer!.skip_reason === "Not on this job" ? "" : " — assumption written") : f.returnVisit ? "" : f.answer!.skip_reason === "Not on this job" ? " — the job needs it, so it stays Open" : " — needs a written assumption to count"}{f.answer!.skip_note ? ` · ${f.answer!.skip_note}` : ""}</p>}
+      {d.hint && <p className="text-[0.9em] text-ink-2">{d.hint}</p>}
+      {skipped && <p className="mt-1 text-[0.95em] text-ink-2">{f.mark === "not_applicable" ? "N/A · " : "Skipped · "}{f.answer!.skip_reason}{f.skipCounts ? (f.answer!.skip_reason === "Not on this job" ? "" : " — assumption written") : f.returnVisit ? "" : f.answer!.skip_reason === "Not on this job" ? " — the job needs it, so it stays Open" : " — needs a written assumption to count"}{f.answer!.skip_note ? ` · ${f.answer!.skip_note}` : ""}</p>}
       {input}
       <Saved f={f} />
       {f.answer?.local === "invalid" && (

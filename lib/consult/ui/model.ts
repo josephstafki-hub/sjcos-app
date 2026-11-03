@@ -71,7 +71,7 @@ const BUMPS = new Set(['start', 'create_instance', 'remove_instance', 'answer', 
 export function modulesOf(s: Snapshot): ModuleDef[] { return s.pins.filter((p) => p.kind === 'module').map((p) => p.definition as ModuleDef); }
 export function templatesOf(s: Snapshot): TemplateDef[] { return s.pins.filter((p) => p.kind === 'template').map((p) => p.definition as TemplateDef); }
 export const isHiddenModule = (m: ModuleDef) => m.key === 'visit' || !!m.context_module;
-export const isDerived = (f: FieldDef) => !!f.derive || !!f.derive_cases || (f.help ?? '').startsWith('Derived');
+export const isDerived = (f: FieldDef) => !!f.derive || !!f.derive_cases || (f.note ?? f.help ?? '').startsWith('Derived');
 
 /** Live instances = snapshot instances + local create/remove ops that weren't refused. */
 export function liveInstances(s: Snapshot, entries: QueueEntry[]): SnapInstance[] {

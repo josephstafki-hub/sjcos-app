@@ -327,7 +327,7 @@ by Joe/staff don't feed the weekly update (only sub logs do).
       site (Facebook page, Instagram, Google Business Profile). Joe approves the `publish_marketing` card,
       the dispatcher's `publication` kind hands it to a memory-capped posting run, and Claude puts it up in
       a browser on this server that Joe signed in to himself (live sign-in window on /marketing). The draft
-      gets the post's link. Migration 0056. Design and safety: `docs/marketing-posting-agent.md`.
+      gets the post's link. Migration 0056. Design and safety: `docs/marketing.md`. **Removed 2026-11-03** (Joe: not worth it); never posted.
 - ~~**Designer (A21):**~~ **Done (branch `t3/tier3-designer`):**
   - "Estimate from plan" now reads a pinned design version. It reuses the newest version when that version
     is the live drawing; otherwise it snapshots a new one first.

@@ -17,7 +17,6 @@ const STUBS = {
   "@/lib/ai": ["ai"],
   "@/lib/notify": ["emit"],
   "@/lib/commands/db": ["runDirect", "userPrincipal", "withTransaction"],
-  "@/lib/publisher/server": ["retryPost", "savePostingAccounts", "settlePost"],
   "@/lib/upload-store": ["storeUpload"],
 };
 registerHooks({
@@ -81,12 +80,12 @@ test("photo OK-to-share: owner only, scoped to the job's photos, withdraw takes 
   });
 });
 
-test("posting photos: picking a site picks the newest shareable photos up to its limit; Joe's own uploads are OK to share and go in the post; staff uploads wait for Joe", { skip }, async () => {
+test("adding photos to a post: Joe's own are OK to share (ready to download), staff uploads wait for Joe", { skip }, async () => {
   await withTestDb(async (url, client) => {
     process.env.DATABASE_URL = url;
     {
       await cleanFoundation(client);
-      await client.query(`TRUNCATE publication_rights, marketing_draft_media, document_revisions RESTART IDENTITY CASCADE`);
+      await client.query(`TRUNCATE publication_rights, document_revisions RESTART IDENTITY CASCADE`);
       await client.query(`DELETE FROM projects WHERE slug = 'zz-mk2'`);
       await client.query(`DELETE FROM files WHERE id LIKE 'zz-k-%' OR id LIKE 'zz-up-%'`);
       const [p] = (await client.query(`INSERT INTO projects (slug, name, status, client_name) VALUES ('zz-mk2', 'ZZ Kitchen', 'warranty', 'ZZ') RETURNING id`)).rows;
@@ -116,35 +115,15 @@ test("posting photos: picking a site picks the newest shareable photos up to its
           return { ok: true, id: fid, type: "img" };
         },
       };
-      const { setPostTarget, addPostPhotos } = await import("../lib/actions/marketing.ts");
-      const media = async () => (await client.query(`SELECT file_id FROM marketing_draft_media WHERE draft_id = $1 ORDER BY sort`, [id])).rows.map((r) => r.file_id);
-
-      // Picking a site with nothing picked: newest shareable first, never the unshared one.
-      let r = await setPostTarget(id, "facebook", []);
-      assert.equal(r.ok, true);
-      assert.deepEqual(await media(), ["zz-k-new", "zz-k-mid", "zz-k-old"]);
-      assert.match(r.message, /Picked 3 photos/);
-      // Joe changes them: reorder and take one out — kept as he set it.
-      r = await setPostTarget(id, "facebook", ["zz-k-old", "zz-k-new"]);
-      assert.deepEqual(await media(), ["zz-k-old", "zz-k-new"]);
-      // Same site, nothing picked on purpose: no automatic pick.
-      await setPostTarget(id, "facebook", []);
-      assert.deepEqual(await media(), []);
-      // Google takes one photo: cut to the first.
-      r = await setPostTarget(id, "google_business", ["zz-k-mid", "zz-k-new"]);
-      assert.deepEqual(await media(), ["zz-k-mid"]);
-      assert.match(r.message, /takes 1; 1 left out/);
-
-      // Joe's own photos: kept on the job, OK to share, into the post.
-      await setPostTarget(id, "instagram", ["zz-k-mid"]);
+      const { addPostPhotos } = await import("../lib/actions/marketing.ts");
       const photo = () => new File([new Uint8Array([0xff, 0xd8, 0xff])], "mine.jpg", { type: "image/jpeg" });
       const fd = new FormData();
       fd.set("draftId", String(id));
       fd.append("photos", photo());
       fd.append("photos", photo());
-      r = await addPostPhotos(fd);
+      let r = await addPostPhotos(fd);
       assert.equal(r.ok, true, r.error);
-      assert.deepEqual(await media(), ["zz-k-mid", "zz-up-1", "zz-up-2"]);
+      assert.match(r.message, /Added 2 photos, OK to share and ready to download/);
       const rights = (await client.query(`SELECT count(*)::int AS n FROM publication_rights WHERE file_id LIKE 'zz-up-%' AND withdrawn_at IS NULL AND project_id = $1`, [p.id])).rows[0].n;
       assert.equal(rights, 2);
       // Not a photo type the sites take → refused, nothing stored.
@@ -154,7 +133,7 @@ test("posting photos: picking a site picks the newest shareable photos up to its
       assert.equal((await addPostPhotos(bad)).ok, false);
       assert.equal(n, 2);
 
-      // Staff: on the job, but not shareable and not in the post until Joe says.
+      // Staff: on the job, but not shareable until Joe says.
       user = { id: null, role: "staff", name: "Abigail" };
       const sfd = new FormData();
       sfd.set("draftId", String(id));
@@ -162,8 +141,39 @@ test("posting photos: picking a site picks the newest shareable photos up to its
       r = await addPostPhotos(sfd);
       assert.equal(r.ok, true);
       assert.match(r.message, /Joe ticks OK to share/);
-      assert.deepEqual(await media(), ["zz-k-mid", "zz-up-1", "zz-up-2"]);
       assert.equal((await client.query(`SELECT count(*)::int AS n FROM publication_rights WHERE file_id = 'zz-up-3'`)).rows[0].n, 0);
+
     }
+  });
+});
+
+test("job facts for drafting: the signed estimate's lines and approved changes, the city, never prices; a draft estimate isn't work done", { skip }, async () => {
+  await withTestDb(async (url, client) => {
+    await cleanFoundation(client);
+    await client.query(`DELETE FROM projects WHERE slug = 'zz-facts'`);
+    const run = async (sql, params) => (await client.query(sql, params)).rows;
+    const { loadJobFacts } = await import("../lib/closeout/marketing.ts");
+    const [p] = await run(`INSERT INTO projects (slug, name, status, client_name, address) VALUES ('zz-facts', 'Elaine Zz', 'warranty', 'Elaine Zz', '13186 Crane Street Northwest, Minneapolis, Minnesota, 55448') RETURNING id`);
+    // Only a draft so far: no work to speak of.
+    const [draft] = await run(`INSERT INTO estimates (project_id, title, kind, status) VALUES ($1, 'Bathroom idea', 'formal', 'draft') RETURNING id`, [p.id]);
+    await run(`INSERT INTO estimate_lines (estimate_id, section, description, unit_cost, extended) VALUES ($1, 'Tile', 'Tile the shower', 100, 100)`, [draft.id]);
+    let f = await loadJobFacts(run, p.id);
+    assert.equal(f.work, "");
+    assert.deepEqual(f.lines, []);
+    assert.equal(f.city, "Minneapolis");
+    // The signed one is the record.
+    const [est] = await run(`INSERT INTO estimates (project_id, title, kind, status) VALUES ($1, 'Kitchen Refresh', 'formal', 'draft') RETURNING id`, [p.id]);
+    await run(
+      `INSERT INTO estimate_lines (estimate_id, section, description, unit_cost, extended, sort_order) VALUES ($1, 'Countertops', 'Install quartz counters — Cambria Beaumont', 500000, 500000, 2), ($1, 'Cabinets', 'Install island cabinets', 300000, 300000, 1), ($1, 'General', '  ', 0, 0, 3)`,
+      [est.id],
+    );
+    await run(`UPDATE estimates SET status = 'approved', approved_at = now() WHERE id = $1`, [est.id]);
+    await run(`INSERT INTO change_orders (project_id, title, description, status) VALUES ($1, 'Pendant lights', 'Two pendants over the island', 'approved'), ($1, 'Wine fridge', '', 'declined')`, [p.id]);
+    f = await loadJobFacts(run, p.id);
+    assert.equal(f.work, "Kitchen Refresh");
+    assert.deepEqual(f.lines, [{ section: "Cabinets", text: "Install island cabinets" }, { section: "Countertops", text: "Install quartz counters — Cambria Beaumont" }]);
+    assert.deepEqual(f.changes, ["Pendant lights: Two pendants over the island"]);
+    assert.ok(f.privateWords.includes("Elaine Zz"));
+    assert.doesNotMatch(JSON.stringify({ ...f, privateWords: [] }), /5000|Crane|13186|Bathroom|shower/);
   });
 });

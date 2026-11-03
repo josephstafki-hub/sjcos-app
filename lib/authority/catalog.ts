@@ -42,7 +42,7 @@ export const AUTHORITY_ACTIONS: readonly AuthorityActionDef[] = [
   { key: "purchase", label: "Commit purchases", description: "Accept a binding supplier or sub offer (award a bid, place an order).", amountBound: true },
   { key: "payment", label: "Pay approved bills", description: "Release payment on a matched vendor/sub bill.", amountBound: true },
   { key: "refund", label: "Refund a client payment", description: "Return money to a client on an original payment.", amountBound: true },
-  { key: "publication", label: "Publish newsletter / social", description: "Release a newsletter issue or social post to its audience.", amountBound: false },
+  { key: "publication", label: "Publish newsletter", description: "Release a newsletter issue to its audience.", amountBound: false },
   { key: "schedule", label: "Confirm construction schedule", description: "Confirm dates with the client and subs (after agreement + initial payment).", amountBound: false },
   { key: "funding", label: "Approve company cash for a project", description: "Let a project spend company money beyond what the client has paid in.", amountBound: true },
   { key: "markup", label: "Change markup / profit targets", description: "Alter default markup or profit targets on estimates.", amountBound: false },

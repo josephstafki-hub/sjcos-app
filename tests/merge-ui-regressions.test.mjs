@@ -50,29 +50,31 @@ test('sub-document review accepts W-9s without expiry while a COI still requires
   assert.doesNotMatch(accept, / disabled=/);
 });
 
-test('marketing: redesigned card keeps every posting-agent piece; job photos offer downloads only for approved photos', () => {
-  const draft = { id: 1, title: 'Clean headline', body: 'Finished work.', status: 'draft', kind: 'social', kindLabel: 'Social', projectSlug: 'job', projectName: 'Kitchen', createdLabel: 'Oct 30', media: [], platform: null, stage: 'draft', photos: [{ id: 'allowed', name: 'Approved.jpg', shareable: true }, { id: 'private', name: 'Private.jpg', shareable: false }] };
+test('marketing: the card is copy-and-post by hand; job photos offer downloads only for approved photos, with no posting agent', () => {
+  const draft = { id: 1, title: 'Clean headline', body: 'Finished work.', status: 'draft', kind: 'social', kindLabel: 'Social', projectSlug: 'job', projectName: 'Kitchen', createdLabel: 'Oct 30', photos: [{ id: 'allowed', name: 'Approved.jpg', shareable: true }, { id: 'private', name: 'Private.jpg', shareable: false }] };
   const marker = (name) => () => React.createElement('i', null, name);
-  const stubs = { './PostingPanel': { PostingPanel: marker('[posting-panel]'), InPostToggle: () => null, StageChip: ({ stage }) => React.createElement('i', null, `[stage:${stage}]`), editableStage: (s) => s === 'draft' || s === 'failed' || s === 'awaiting_approval' }, './PostingAccounts': { PostingAccounts: marker('[posting-accounts]') }, './PostPreview': { PostPreview: marker('[preview]') } };
-  const Marketing = component('components/marketing/MarketingClient.tsx', 'MarketingClient', { ...stubs, './PostPhotos': { PostPhotos: marker('[post-photos]') } });
-  const html = render(Marketing, { projects: [{ slug: 'job', name: 'Kitchen' }], accounts: {}, isOwner: true, drafts: [draft, { ...draft, id: 2, kind: 'blog', stage: 'posting', status: 'posting' }] });
+  const Marketing = component('components/marketing/MarketingClient.tsx', 'MarketingClient', { './PostPreview': { PostPreview: marker('[preview]') }, './PostPhotos': { PostPhotos: marker('[post-photos]') } });
+  const html = render(Marketing, { projects: [{ slug: 'job', name: 'Kitchen' }], isOwner: true, drafts: [draft, { ...draft, id: 2, kind: 'blog', status: 'posted' }] });
   // the redesign
   assert.match(html, /Headline<input[^>]*value="Clean headline"/);
   assert.match(html, /href="\/projects\/job"/);
+  assert.match(html, /Copy/);
   assert.match(html, /Mark posted/);
-  // the posting agent's pieces are all still there (first card is open)
-  assert.match(html, /\[posting-accounts\]/);
   assert.match(html, /\[post-photos\]/);
-  assert.match(html, /\[posting-panel\]/);
-  assert.match(html, /\[stage:posting\]/, 'a post going up shows its stage chip');
-  // a post going up can't be edited
-  const busy = render(Marketing, { projects: [], accounts: null, isOwner: true, drafts: [{ ...draft, stage: 'posting', status: 'posting' }] });
-  assert.match(busy, /Headline<input disabled=""/);
-  assert.doesNotMatch(busy, /Mark posted/);
-  const Photos = component('components/marketing/PostPhotos.tsx', 'PostPhotos', stubs);
+  assert.match(html, /posted<\/span>/, 'a posted draft shows its chip');
+  // no posting agent left on the page
+  assert.doesNotMatch(html, /posting agent|Ask to post|Posting accounts|Sign in|Where to\?/i);
+  // a posted post is locked until it's moved back to drafts
+  const done = render(Marketing, { projects: [], isOwner: true, drafts: [{ ...draft, status: 'posted' }] });
+  assert.match(done, /Headline<input disabled=""/);
+  assert.doesNotMatch(done, /Mark posted/);
+  assert.match(done, /Move to drafts/);
+  const Photos = component('components/marketing/PostPhotos.tsx', 'PostPhotos');
   const photos = render(Photos, { draft, isOwner: true });
   assert.match(photos, /href="\/api\/files\/allowed\?download=1"/);
   assert.doesNotMatch(photos, /href="\/api\/files\/private\?download=1"/);
+  assert.match(photos, /1 OK to share\./);
+  assert.doesNotMatch(photos, /In post|In this post/);
 });
 
 test('purchase-order table retains commitment status and excludes void orders from its total', () => {

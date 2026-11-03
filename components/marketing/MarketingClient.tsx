@@ -6,36 +6,31 @@ import { useRouter } from "next/navigation";
 import { Check, ChevronRight, Copy, Megaphone, Sparkles } from "lucide-react";
 import { Button, Card, Chip, EmptyState, PageHeader, Segmented } from "@/components/ui";
 import type { MarketingDraft } from "@/lib/marketing";
-import type { PostingAccounts as Accounts } from "@/lib/publisher/core";
 import { deleteDraft, generateDraft, markDraft, markPosted, updateDraft } from "@/lib/actions/marketing";
 import { runAction } from "@/lib/run-action";
-import { editableStage, PostingPanel, StageChip } from "./PostingPanel";
 import { PostPhotos } from "./PostPhotos";
-import { PostingAccounts } from "./PostingAccounts";
 import { PostPreview } from "./PostPreview";
 
 const input = "min-w-0 rounded-md border border-rule bg-card px-3 py-2 text-body text-ink";
 
 /** /marketing — AI-drafted social + blog posts. Draft from a project, edit the
- *  headline and copy (with a rendered preview), then either copy and post it by
- *  hand or pick a site + photos and approve the posting agent to put it up. */
+ *  headline and copy (with a rendered preview), then copy it, download the
+ *  photos the client OK'd and post it by hand. */
 export function MarketingClient({
   drafts,
   projects,
   isOwner,
-  accounts,
 }: {
   drafts: MarketingDraft[];
   projects: { slug: string; name: string }[];
   isOwner: boolean;
-  accounts: Accounts | null;
 }) {
   const router = useRouter();
   const [slug, setSlug] = useState(projects[0]?.slug ?? "");
   const [kind, setKind] = useState("social");
   const [pending, start] = useTransition();
   const [error, setError] = useState("");
-  const open = drafts.filter((d) => d.stage !== "posted").length;
+  const open = drafts.filter((d) => d.status !== "posted").length;
 
   function generate() {
     if (!slug) return setError("Choose a project to draft about.");
@@ -51,10 +46,8 @@ export function MarketingClient({
     <div className="mx-auto max-w-4xl space-y-6 px-4 py-6 @3xl/page:px-6">
       <PageHeader
         title="Marketing"
-        meta={`${open} ${open === 1 ? "post" : "posts"} not posted yet · Post them yourself, or approve one and the posting agent puts it up.`}
+        meta={`${open} ${open === 1 ? "post" : "posts"} not posted yet · Copy the text, download the photos, post it yourself.`}
       />
-
-      {isOwner && accounts && <PostingAccounts accounts={accounts} />}
 
       <Card className="p-4">
         <h2 className="mb-3 text-subheading font-semibold">Draft from a project</h2>
@@ -103,9 +96,9 @@ function DraftRow({ draft, isOwner, initiallyOpen }: { draft: MarketingDraft; is
   const [pending, start] = useTransition();
   const [copied, setCopied] = useState(false);
   const dirty = body !== draft.body || title !== draft.title;
-  // Text can change while it's a draft, not posted, or waiting on Joe's OK
-  // (an edit retires that card); not while it's going up or once it's up.
-  const editable = editableStage(draft.stage);
+  // Locked once it's marked posted (Move to drafts to change it).
+  const posted = draft.status === "posted";
+  const editable = !posted;
 
   const run = (fn: () => Promise<{ ok: boolean; error?: string }>, done = "Saved") =>
     start(async () => {
@@ -138,7 +131,7 @@ function DraftRow({ draft, isOwner, initiallyOpen }: { draft: MarketingDraft; is
         </button>
         <span className="self-center text-meta text-ink-3 max-sm:hidden">{open ? "Hide post" : "Open post"}</span>
         <ChevronRight aria-hidden="true" className={`size-4 shrink-0 self-center text-ink-3 transition-transform ${open ? "rotate-90" : ""}`} />
-        <span className="self-center">{draft.stage === "draft" ? <Chip kind="ghost">Draft</Chip> : <StageChip stage={draft.stage} />}</span>
+        <span className="self-center">{posted ? <Chip kind="money" dot>posted</Chip> : <Chip kind="ghost">Draft</Chip>}</span>
       </div>
 
       {open && (
@@ -149,7 +142,7 @@ function DraftRow({ draft, isOwner, initiallyOpen }: { draft: MarketingDraft; is
             </Link>
           )}
           <p role="status" className={`text-meta ${feedback && feedback !== "Saved" && !pending ? "text-flag" : "text-ink-2"}`}>
-            {pending ? "Saving…" : feedback || (dirty ? "Unsaved changes" : editable ? "Saved" : "Locked while it's going up or once it's posted")}
+            {pending ? "Saving…" : feedback || (dirty ? "Unsaved changes" : editable ? "Saved" : "Posted. Move it back to drafts to edit it.")}
           </p>
 
           <Segmented
@@ -195,12 +188,12 @@ function DraftRow({ draft, isOwner, initiallyOpen }: { draft: MarketingDraft; is
                 </Button>
               </>
             )}
-            {(draft.stage === "draft" || draft.stage === "failed") && (
+            {!posted && (
               <Button variant="secondary" size="sm" disabled={pending || dirty || !body.trim()} title={dirty ? "Save your edits first" : undefined} onClick={() => run(() => markPosted(draft.id), "Marked posted")}>
                 Mark posted
               </Button>
             )}
-            {draft.stage === "posted" && (
+            {posted && (
               <Button variant="ghost" size="sm" disabled={pending} onClick={() => run(() => markDraft(draft.id), "Moved back to drafts")}>
                 Move to drafts
               </Button>
@@ -218,7 +211,6 @@ function DraftRow({ draft, isOwner, initiallyOpen }: { draft: MarketingDraft; is
           </div>
 
           <PostPhotos draft={draft} isOwner={isOwner} />
-          {draft.kind === "social" && <PostingPanel draft={draft} isOwner={isOwner} dirty={dirty} />}
         </div>
       )}
     </section>

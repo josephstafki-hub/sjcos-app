@@ -1,0 +1,7 @@
+[Unit]
+Description=SJC OS consult findings retries and maintenance
+[Timer]
+OnCalendar=*-*-* *:*:00
+Persistent=true
+[Install]
+WantedBy=timers.target

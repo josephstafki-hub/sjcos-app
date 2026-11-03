@@ -1,6 +1,6 @@
 /** Owner-connection transaction service. Caller authenticates freshly and supplies a
  * server-minted person envelope. Never expose an envelope or this client to browsers. */
-import {reconcileConsultFindings} from './findings.ts';
+import {enqueueConsultFindings} from '../worker/consult.ts';
 import type { PoolClient } from 'pg';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -35,7 +35,8 @@ async function one<T=Record<string,unknown>>(c:PoolClient,sql:string,args:unknow
 export async function snapshot(c:PoolClient,context:Context,target:string):Promise<Snapshot>{
  const result=(await one<{v:Snapshot}>(c,'SELECT consult_read($1,$2) v',[await scoped(c,context,'read',target),target])).v;
  const proposals=(await c.query("SELECT id,instance_id,field_key,base_revision,answer,source_note,generation FROM consult_agent_proposals WHERE consult_id=$1 AND status='pending' ORDER BY id",[target])).rows;
- return {...result,proposals} as Snapshot;
+ const findings_job=(await c.query('SELECT generation,status,attempts,available_at,lease_until,last_error,result FROM consult_findings_jobs WHERE consult_id=$1 AND generation=$2',[target,result.consult.completion_generation])).rows[0]??null;
+ return {...result,proposals,findings_job} as Snapshot;
 }
 async function scoped(c:PoolClient,context:Context,operation:string,target:string|null):Promise<Context>{
  const claims=JSON.parse(context.payload);return (await one<{v:Context}>(c,'SELECT consult_mint_context($1,$2) v',[{...claims,operation,consult_id:target},context.key_id])).v;
@@ -53,6 +54,7 @@ async function deviceGate(c:PoolClient,target:string,device:string,epoch:number,
 async function todo(c:PoolClient,s:Snapshot,kind:string,key:string,title:string,assignee:string,date:string|null){
  // Serial consult lock + stable source key makes retries exactly once. No promotion.
  const source=`${s.consult.id}:${kind}:${key}`;
+ if(date)await c.query("UPDATE work_items SET due_at=$2::date::timestamp AT TIME ZONE 'America/Chicago' WHERE source_kind='consult' AND source_id=$1 AND status NOT IN ('done','cancelled')",[source,date]);
  await c.query(`INSERT INTO work_items(title,project_id,assignee_key,due_at,source_kind,source_id,requires_approval,created_by)
  SELECT $1,$2,$3,$4::date::timestamp AT TIME ZONE 'America/Chicago','consult',$5,false,'consult'
  WHERE NOT EXISTS(SELECT 1 FROM work_items WHERE source_kind='consult' AND source_id=$5)`,[title,s.consult.project_id,assignee,date,source]);
@@ -143,7 +145,8 @@ export async function batch(c:PoolClient,context:Context,target:string,input:unk
    const def=s.pins.find(p=>p.kind==='module'&&p.definition.key===pinned?.module_key)?.definition as ModuleDef|undefined;
    const field=def?.fields.find(f=>f.key===a.field_key);
    if(p.status==='answered'){
-    if(field?.type==='text'&&(typeof p.value!=='string'||!p.value.trim()))throw new Error('text_required');
+    if(field?.maps_to?.kind==='new_work')z.strictObject({origin:z.enum(['client_requested_optional','found_condition_required']),text:note}).parse(p.value);
+    if(field?.maps_to?.kind!=='new_work'&&field?.type==='text'&&(typeof p.value!=='string'||!p.value.trim()))throw new Error('text_required');
     if(field?.type==='date')day.parse(p.value);
     if(field?.type==='multi'&&(!Array.isArray(p.value)||!p.value.length||new Set(p.value).size!==p.value.length))throw new Error('distinct_choices_required');
     if(field?.type==='length'||field?.type==='length_pair'){for(const value of Array.isArray(p.value)?p.value:[p.value])if(typeof value!=='number'||Math.abs(value*16-Math.round(value*16))>1e-8)throw new Error('length_precision');}
@@ -276,9 +279,7 @@ export async function close(c:PoolClient,context:Context,target:string,input:unk
  await c.query("UPDATE work_items SET status='done',completed_at=now() WHERE source_kind='consult' AND (source_id=$1 OR ($3 AND source_id=$2)) AND status NOT IN ('done','cancelled')",[`${target}:schedule:visit`,`${target}:finish:visit`,result.complete]);
  await audit(c,target,actor,'close',{manifest:m,digest,result});
  if(result.complete && (await one<{value:string}>(c,"SELECT value FROM app_settings WHERE key='consult_auto_apply_findings'"))?.value==='true'){
-  await c.query('SAVEPOINT consult_auto_apply');
-  try{await reconcileConsultFindings(c,await scoped(c,context,'apply',target),{consult_id:target,expected_generation:Number(s.consult.completion_generation),operation_id:randomUUID()});await c.query('RELEASE SAVEPOINT consult_auto_apply');}
-  catch{await c.query('ROLLBACK TO SAVEPOINT consult_auto_apply');await todo(c,s,'repair','findings',"Couldn't apply consultation findings — try again",owner,null);}
+  await enqueueConsultFindings(c,target,Number(s.consult.completion_generation));
  }
  return {digest,...result,revision:Number(s.consult.revision)+1};
 }
@@ -305,9 +306,17 @@ export async function command(c:PoolClient,context:Context,target:string,kind:st
  // reading receipts/snapshots so two batches cannot observe the same base state.
  await c.query('SELECT p.id FROM projects p JOIN consults c ON c.project_id=p.id WHERE c.id=$1 FOR UPDATE OF p',[target]);
  await c.query('SELECT id FROM consults WHERE id=$1 FOR UPDATE',[target]);
+ if(kind==='cancel'){
+  await authorize(c,await scoped(c,context,'reopen',target),target,'reopen',true);
+  const v=z.strictObject({expected_revision:rev,reason:note}).parse(input);
+  const row=await one<{revision:string}>(c,'SELECT revision FROM consults WHERE id=$1',[target]);if(Number(row.revision)!==v.expected_revision)return {ok:false,code:'conflict'};
+  await c.query("UPDATE consults SET status='cancelled',revision=revision+1 WHERE id=$1",[target]);
+  await audit(c,target,JSON.parse(context.payload).sub,'cancel',{reason:v.reason});return {ok:true};
+ }
  if(kind==='apply_findings'){
   const v=z.strictObject({expected_generation:rev.min(1),operation_id:uuid}).parse(input);
-  return reconcileConsultFindings(c,await scoped(c,context,'apply',target),{consult_id:target,...v});
+  await authorize(c,await scoped(c,context,'apply',target),target,'apply');
+  return enqueueConsultFindings(c,target,v.expected_generation);
  }
  if(kind==='proposal_decision'){
   const actor=await authorize(c,context,target,'proposal_decision');

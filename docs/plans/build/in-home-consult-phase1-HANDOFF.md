@@ -1,3 +1,87 @@
+# Phase 1 backend — current handoff (0078)
+
+This section supersedes all historical limitations below. Backend findings jobs,
+reconciliation/export, and scheduled maintenance are implemented on
+`t3/in-home-consult-backend`. **Remaining implementation: browser offline engine +
+service worker, and UI.** No build, browser, deployment, push, timer installation,
+service operation, live DB or QA connection was performed.
+
+## Findings job API and execution
+
+- Complete enqueues `(consult_id, completion_generation)` in `consult_findings_jobs`
+  in the same transaction when `consult_auto_apply_findings=true`. With the pilot
+  switch off, `apply_findings` / MCP `apply_consult_findings` enqueue that same key.
+  The immediate response is `{ok:true,generation,status,result}` (queued, leased,
+  done or failed), or `{ok:false,code}` for not-complete/stale requests. The old
+  synchronous `{generation,results}` response is now the persisted job `result`.
+- Snapshot/get_consult includes `findings_job` (or null): generation, status,
+  attempts, available_at, lease_until, last_error and result. UI maps failures to
+  the approved “Couldn't apply findings” copy; Try again enqueues the same key.
+- `lib/worker/consult.ts` commits a two-minute, UUID-fenced claim separately.
+  Processing locks project → consult → fence → scopes → pinned plan. All findings,
+  contributions, plan changes, estimator effects, task and application receipt
+  commit with the final fence acknowledgment. Expired or replaced leases cannot
+  commit effects. Process death rolls back effects; the next tick reclaims expiry.
+  Errors retry at exponential 30s–1h backoff; five failed attempts park one stable
+  owner repair task. A successful retry closes that repair task.
+- Reopen obsoletes pending jobs and retracts owned evidence. Complete immutable
+  generations retain historical application receipts; repeats cannot create twins.
+  Cancellation is owner-only `command:'cancel', input:{expected_revision,reason}`.
+
+## Reconciliation and v1 facts
+
+- Current generation facts aggregate disjoint sf/lf/ea across instances. Applied
+  visit contributions combine across visits into one `consult-aggregate:` quantity;
+  correction, removal, Reopen and cancellation rebuild from surviving contributions.
+  Manual/other-source quantities survive. Sent/signed formal estimates remain
+  proposals, never writable targets. Dedicated prices survive draft recomputation.
+- Replaced findings/contributions retain retraction/supersession timestamps.
+  Contribution manifests include formula version, answer revisions and photo IDs.
+  Nonadditive dimensions are evidence only. Plan answers use the pinned plan ID and
+  revision plus exact item IDs, scope, kind, unit and instance/field or photo shot.
+- Pinned arithmetic resolves sibling/cross-module formulas and template quantities,
+  tracks all contributing source revisions, and refuses missing/ambiguous dimensions.
+  Template-owned labels replace module intermediates (including basement context).
+  Version-1 conditional seed derivations are used only when the pinned module exactly
+  equals its executable seed definition; edits never inherit a guessed old formula.
+- Export retains strict v1 wire names. It combines visit evidence, actual trade-task
+  status, permit authority/inspectors and era certs/expiry, flags and human decisions,
+  assumptions, supplier/client-supplied exclusions, photos and explicit new-work
+  origin. New-work answer values are `{origin,text}` with the two approved origins;
+  both TS and SQL reject untyped new-work prose. No origin is inferred.
+- Scope facts carry sorted provenance and a stable aggregate hash. Nonowner MCP
+  callers must have access to every contributing visit. Estimate readiness uses
+  this same export and the six established consult gap codes.
+
+## Timer integration (not installed)
+
+`deploy/sjcos-consult.timer` / `.service` run `scripts/consult-tick.mjs` each minute.
+The launcher uses CRON_SECRET to POST `/api/cron/consult`; the route follows the
+existing cron guard/cron_runs pattern and uses the website's owner connection.
+Narrow database logins receive no additional table or approval privileges.
+The route processes at most ten jobs and performs idempotent maintenance:
+expired upload parts/status, recognizable disk orphans older than 48 hours,
+forgotten/incomplete visit finish tasks next business day, and return tasks on the
+owner's chosen date (undated when absent). All dated tasks use Central midnight and
+the existing future-day snooze trigger. No stage promotion or review task exists.
+
+## Validation
+
+The original 52 regression cases plus new job/fencing/crash, multi-visit/correction,
+export/readiness and maintenance cases are run one file at a time. The expanded
+regression set has 64 cases. Crash injection covers findings, contributions, scope
+quantities, pinned plans, work items, application receipts and final job acknowledgment.
+Locked/niced TypeScript and role-manifest/path checks are included. A disposable
+cluster with an earlier development migration checksum was discarded before the
+final regression run. An early cluster shutdown after the final role-path assertions
+caused a teardown failure; that file was rerun to process exit before cleanup.
+The `consult` disposable cluster is stopped before handback.
+See the implementation turn's final reply for final pass/fail counts and commit.
+
+---
+
+# Historical handoff (superseded by the section above)
+
 # In-home consultation backend handoff — capture server slice implemented
 
 The current contract is in **Current server integration** below. Earlier continuation

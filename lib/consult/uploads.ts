@@ -105,7 +105,8 @@ export async function commitConsultBlob(c:PoolClient,ctx:ConsultContext,id:strin
 export async function cleanupConsultUploads(c:PoolClient,root:string){
  await c.query('SELECT pg_advisory_xact_lock(771077)');
  await c.query("DELETE FROM consult_upload_parts WHERE upload_id IN (SELECT id FROM consult_uploads WHERE status<>'committed' AND expires_at<now())");
- for(const name of await readdir(root)){
+ await c.query("UPDATE consult_uploads SET status='expired' WHERE status IN ('pending','uploading') AND expires_at<now()");
+ for(const name of await readdir(root).catch((e:NodeJS.ErrnoException)=>{if(e.code==='ENOENT')return [];throw e;})){
   if(!/^consult-[a-f0-9-]{36}\.blob(?:\.[a-f0-9-]{36}\.tmp)?$/.test(name))continue;
   const file=path.join(root,name);if(Date.now()-(await stat(file)).mtimeMs<48*3600_000)continue;
   if(!(await c.query('SELECT 1 FROM files WHERE storage_path=$1',[name])).rowCount)await unlink(file);

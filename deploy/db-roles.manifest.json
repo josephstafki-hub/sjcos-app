@@ -3101,6 +3101,9 @@
     },
     "consult_agent_requests": {
       "note": "Authenticated bridge operation receipts; no narrow raw access."
+    },
+    "consult_findings_jobs": {
+      "note": "Website-only fenced job executor via authenticated cron; no raw narrow access."
     }
   }
 }

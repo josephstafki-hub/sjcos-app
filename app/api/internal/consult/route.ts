@@ -7,7 +7,8 @@ import {servicePrincipal} from '@/lib/commands/db';
 import {boundedBytes} from '@/lib/consult/http';
 import {snapshot,schedule,hash} from '@/lib/consult/protocol';
 import {proposeConsultAnswers} from '@/lib/consult/proposals';
-import {consultScopeFacts,reconcileConsultFindings} from '@/lib/consult/findings';
+import {consultScopeFacts} from '@/lib/consult/findings';
+import {enqueueConsultFindings} from '@/lib/worker/consult';
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
 export async function POST(req:Request){
@@ -22,6 +23,7 @@ export async function POST(req:Request){
    const p=(await c.query('SELECT id FROM projects WHERE slug=$1',[z.string().parse(body.project_slug)])).rows[0];if(!p)throw new Error('not_found');
    target=(await c.query("SELECT id FROM consults WHERE project_id=$1 AND status<>'cancelled' ORDER BY scheduled_at DESC,id LIMIT 1",[p.id])).rows[0]?.id??null;
    if(!target&&user.role!=='owner')throw new Error('forbidden');
+   if(user.role!=='owner'&&(await c.query("SELECT 1 FROM consults v WHERE v.project_id=$1 AND v.status<>'cancelled' AND NOT EXISTS(SELECT 1 FROM consult_assignments a WHERE a.consult_id=v.id AND a.user_id=$2 AND a.revoked_at IS NULL) LIMIT 1",[p.id,actor])).rowCount)throw new Error('forbidden');
   }
   if(target)z.string().uuid().parse(target);
   const op=body.action==='record_consult_answers'?'propose_answers':body.action==='propose_consult_form_version'?'propose_form':body.action==='schedule_consult'?'schedule':body.action==='apply_consult_findings'?'apply':'read';
@@ -50,7 +52,7 @@ export async function POST(req:Request){
   }else if(body.action==='propose_consult_form_version'){
    if(body.definition?.key!==body.key)throw new Error('invalid_input');
    data={form_id:(await c.query('SELECT consult_propose_form($1,$2,$3) id',[ctx,body.definition,body.kind])).rows[0].id};
-  }else if(body.action==='apply_consult_findings')data=await reconcileConsultFindings(c,ctx,{consult_id:target,expected_generation:body.expected_generation,operation_id:body.operation_id});
+  }else if(body.action==='apply_consult_findings')data=await enqueueConsultFindings(c,target,z.number().int().positive().safe().parse(body.expected_generation));
   else if(body.action==='schedule_consult'){
    if(user.role!=='owner')throw new Error('forbidden');
    const project=(await c.query('SELECT id FROM projects WHERE slug=$1',[body.project_slug])).rows[0];if(!project)throw new Error('not_found');

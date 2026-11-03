@@ -126,3 +126,19 @@ export async function lookOverExtra(id: string): Promise<LookOverExtra> {
   const pendingPhotos = await queryOne<{ n: number }>(`SELECT count(*)::int AS n FROM consult_uploads WHERE consult_id=$1 AND status NOT IN ('committed','expired')`, [id]).catch(() => null);
   return { media, evidence: ev?.evidence ?? null, provenance, conflicts, pendingDevice: pendingPhotos?.n ? { photos: pendingPhotos.n } : null, closedAt: row?.closed_at ?? null, completedAt: row?.completed_at ?? null, reopenReason: row?.reopen_reason ?? null, completeness: row?.completeness_cache ?? null, autoApply: await flag("consult_auto_apply_findings") };
 }
+
+/** Devices that captured this visit (owner look-over: move / recover). Plain ids and names only. */
+export interface ConsultDeviceRow { device_id: string; epoch: number; user_id: string; user_name: string; closed: boolean; revoked: boolean; created_at: string }
+export async function consultDevices(id: string): Promise<ConsultDeviceRow[]> {
+  const { rows } = await query<ConsultDeviceRow>(`SELECT d.device_id::text, d.epoch::int AS epoch, d.user_id::text, u.name AS user_name, (d.close_manifest IS NOT NULL) AS closed, (d.revoked_at IS NOT NULL) AS revoked, d.created_at
+     FROM consult_devices d JOIN users u ON u.id=d.user_id WHERE d.consult_id=$1 ORDER BY d.created_at`, [id]).catch(() => ({ rows: [] as ConsultDeviceRow[] }));
+  return rows.map((r) => ({ ...r, epoch: Number(r.epoch), created_at: new Date(r.created_at).toISOString() }));
+}
+
+/** The visit a project strip shows: the latest one scheduled, in progress or needing finishing. */
+export async function liveProjectConsult(slug: string): Promise<ProjectConsult | null> {
+  const project = await queryOne<{ id: string }>(`SELECT id FROM projects WHERE slug=$1`, [slug]).catch(() => null);
+  if (!project) return null;
+  const visits = await projectConsults(project.id).catch(() => [] as ProjectConsult[]);
+  return visits.find((v) => ["scheduled", "in_progress", "incomplete"].includes(v.status)) ?? null;
+}

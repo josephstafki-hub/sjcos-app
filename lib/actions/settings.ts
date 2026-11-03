@@ -107,6 +107,12 @@ export async function updateCompanyDocs(formData: FormData) {
   const autoDraftSocial = String(formData.get("autoDraftSocial") ?? "") === "on";
 
   await upsertSetting("company.license", license);
+  // Lead-safe firm certification (in-home consultation Era prefill). Only a real date is kept.
+  if (formData.has("rrpCertNumber")) await upsertSetting("rrp_firm_cert_number", String(formData.get("rrpCertNumber") ?? "").trim().slice(0, 64));
+  if (formData.has("rrpCertExpiry")) {
+    const expiry = String(formData.get("rrpCertExpiry") ?? "").trim();
+    await upsertSetting("rrp_firm_cert_expiry", /^\d{4}-\d{2}-\d{2}$/.test(expiry) ? expiry : "");
+  }
   await upsertSetting("company.address", address);
   await upsertSetting("contract.deposit_pct", depositPct);
   await upsertSetting("contract.terms", terms);

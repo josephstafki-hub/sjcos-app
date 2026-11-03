@@ -77,6 +77,8 @@ import { RecordOps } from "@/components/engine/RecordOps";
 import { getRecordOps } from "@/lib/record-ops";
 import { getActiveRunbookInstancesFor } from "@/lib/runbook-engine";
 import { ConsultProjectCard } from "@/components/consult/office/ConsultProjectCard";
+import { ConsultVisitStrip } from "@/components/consult/office/ConsultVisitStrip";
+import { liveProjectConsult } from "@/lib/consult/ui/server";
 
 /** Small "View →" affordance that jumps an Overview card to its full tab. */
 function ViewTab({ tab, section }: { tab: ProjectTab; section?: string }) {
@@ -837,9 +839,12 @@ export default async function ProjectDetailPage({
     />
   );
 
+  // In-home consultation entry points (plan §4): a strip under the header on every tab, and the Ops stage guidance.
+  const liveConsult = viewer && can(viewer, "projects") ? await liveProjectConsult(slug) : null;
+  const consultHref = liveConsult ? `/projects/${slug}/consult/${liveConsult.id}` : undefined;
   const panels: Partial<Record<ProjectTab, ReactNode>> = {
     Overview: overview,
-    Ops: ops ? <RecordOps ops={ops} /> : null,
+    Ops: ops ? <RecordOps ops={ops} consultHref={consultHref} /> : null,
     Floor: floorPanel,
     Mood: moodPanel,
     Selections: selectionsPanel,
@@ -919,6 +924,7 @@ export default async function ProjectDetailPage({
           </>
         }
       />
+      <ConsultVisitStrip visit={liveConsult} slug={slug} viewerId={viewer?.id ?? null} />
     </div>
   );
 

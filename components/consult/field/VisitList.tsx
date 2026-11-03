@@ -13,12 +13,14 @@ import { centralTime } from "./GetReady";
 export interface ListVisit { id: string; status: string; scheduled_at: string; client: string; templates: string; address: string | null; visitor: string; open?: number }
 
 function Row({ v, prepared, now }: { v: ListVisit; prepared?: Enrollment; now: number }) {
+  const ready = !!prepared?.expires_at && prepared.expires_at > now;
   return (
     <li className="grid gap-3 border-b-2 border-rule-soft py-3 sm:grid-cols-[1fr_auto] sm:items-center">
       <div className="min-w-0">
         <p className="font-semibold text-ink">{v.client}{v.templates ? ` · ${v.templates}` : ""}</p>
         <p className="text-[0.95em] text-ink-2">{centralTime(v.scheduled_at, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}{v.address ? ` · ${v.address}` : ""} · {v.visitor}</p>
-        <p className="text-[0.95em] font-semibold text-ink">{statusLabel(v.status, v.open)}{prepared && prepared.expires_at && prepared.expires_at > now ? ` · ${W.readyOffline}` : ""}</p>
+        {/* §6.3: a prepared, still-valid scheduled visit reads "Ready offline ✓ [Start visit]". */}
+        <p className="text-[0.95em] font-semibold text-ink">{v.status === "scheduled" && ready ? W.readyOffline : `${statusLabel(v.status, v.open)}${ready ? ` · ${W.readyOffline}` : ""}`}</p>
       </div>
       <LinkBtn tone={v.status === "scheduled" || v.status === "in_progress" || v.status === "incomplete" ? "primary" : "secondary"} href={`/consult/${v.id}`}>
         {v.status === "scheduled" ? (prepared ? W.startVisit : W.getReady) : v.status === "in_progress" || v.status === "incomplete" ? "Open visit" : "Open"}
@@ -41,10 +43,7 @@ export function VisitList({ visits, owner }: { visits: ListVisit[] | null; owner
   const onDevice = device.filter((e) => !list.some((v) => v.id === e.identity.consult_id) || visits === null);
   return (
     <div className="mx-auto w-full max-w-[720px] px-4 pb-10 pt-4">
-      <div className="flex min-h-14 items-center justify-between gap-3">
-        <h1 className="font-serif text-[1.5em] font-semibold text-ink">{W.app}</h1>
-        <a href={owner ? "/today" : "/"} className="inline-flex min-h-14 items-center font-semibold text-accent no-underline">{W.back}</a>
-      </div>
+      <h1 className="flex min-h-14 items-center font-serif text-[1.5em] font-semibold leading-tight text-ink">{W.app}</h1>
       {visits === null && (
         <div role="status" className="mt-2 rounded-lg border-2 border-info bg-info-soft px-4 py-3 text-ink">{W.noSignal}. {W.unlockLead}</div>
       )}
@@ -69,6 +68,8 @@ export function VisitList({ visits, owner }: { visits: ListVisit[] | null; owner
       {upcoming.length > 0 && <section className="mt-6"><Eyebrow>{W.upcoming}</Eyebrow><ul>{upcoming.map((v) => <Row key={v.id} v={v} prepared={prepared(v.id)} now={now} />)}</ul></section>}
       {earlier.length > 0 && <section className="mt-6"><Eyebrow>{W.earlier}</Eyebrow><ul>{earlier.map((v) => <Row key={v.id} v={v} prepared={prepared(v.id)} now={now} />)}</ul></section>}
       {visits !== null && list.length === 0 && <p className="mt-2 text-ink-2">{W.noVisits}</p>}
+      {/* The way out sits under the list on one line, never squeezed beside the title. */}
+      <div className="mt-8 border-t-2 border-rule-soft pt-4"><LinkBtn wide tone="quiet" href={owner ? "/today" : "/"} className="whitespace-nowrap">‹ {W.back}</LinkBtn></div>
     </div>
   );
 }

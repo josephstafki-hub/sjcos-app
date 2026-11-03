@@ -49,9 +49,24 @@ export const W = {
   offlineStrip: 'No signal. Saved on this device; sends when signal returns.',
   sendNow: 'Send now',
   sunMode: 'Sun mode',
+  on: 'On',
+  off: 'Off',
   more: 'More',
+  sending: 'Sending',
+  sendingNow: 'sending…',
+  answersWaiting: 'Answers waiting',
+  photosWaiting: 'Photos waiting',
+  lastSent: 'Last sent',
+  lastTry: 'Last try',
+  notYet: 'Not yet',
+  signal: 'Signal',
+  notes: 'Notes',
+  weakSignal: 'Sending answers and photos first.',
+  notSentSince: 'Not sent since {time}.',
   // Opening / sections
   opening: 'Opening',
+  openingLine: 'Today is the detailed visit · about {duration}',
+  nextLine: 'Next:',
   sections: 'Sections',
   script: 'Script',
   say: 'Say:',
@@ -125,6 +140,7 @@ export const W = {
   tradeWalksLine: 'Trade walks: {trade} — needs a decision',
   conflictsLine: 'Conflicts: {field} — changed on another device',
   visitClosedSending: 'Visit closed — sending',
+  closeWaiting: 'Close visit is saved on this device and finishes by itself when it can send.',
   complete: 'Complete',
   needsFinishing: 'Needs finishing',
   needsFinishingN: 'Needs finishing — {n} open; a Finish consultation to-do was made.',
@@ -155,6 +171,17 @@ export const W = {
   rrpRenovator: 'Certified renovator certification is current',
   rrpRedelivery: 'Work starts more than 60 days from today — re-deliver before start',
   rrpRedeliveryDay: 'Re-deliver on',
+  rrpWhy: 'Built before 1978 (or the year isn’t known), and this job disturbs paint or replaces windows or doors.',
+  rrpReceiptOpen: 'Answer “Pamphlet given” Yes in Era hazards and get the client’s initials — or skip it with a reason.',
+  rrpFirmOpen: 'Firm certification expiry is missing or before the visit day. Settings › Company fills it in.',
+  rrpRenovatorOpen: 'Certified renovator expiry is missing or before the visit day.',
+  rrpGoEra: 'Go to Era hazards',
+  rrpReview: 'Review',
+  rrpRecorded: 'Renovate Right: recorded ✓',
+  rrpNeeds: 'Renovate Right: {list}',
+  rrpShortReceipt: 'receipt not recorded',
+  rrpShortFirm: 'firm certification not current',
+  rrpShortRenovator: 'renovator certification not current',
   // Client view §6.3/§6.4
   showToClient: 'Show to client',
   whatWeWentOver: 'What we went over today',
@@ -199,7 +226,20 @@ export const W = {
   templates: 'Templates',
   addOns: 'Add-ons',
   visitorNotes: 'Visitor notes',
-  estimatedVisit: 'Estimated visit: {duration}',
+  estimatedVisit: 'Estimated visit: about {duration}',
+  offerSplit: 'offer separate visits',
+  visitorNotesHint: 'No door codes here — they go in Access & logistics on the visit.',
+  moveTitle: 'Move this visit',
+  moveLead: 'Pick who goes. To move it to another device, keep the same person and give the reason.',
+  moveReason: 'Why move it (the old device may still hold unsent answers)',
+  moveSave: 'Move visit',
+  recoverTitle: 'Recover answers from this device',
+  recoverLead: 'Use this on the original device. Type the visitor’s PIN; the answers go back in under their name for a person to accept.',
+  recoverPin: 'Visitor’s PIN on this device',
+  recoverReason: 'Why recover them',
+  recoverGo: 'Recover answers',
+  recoverDone: 'Answers recovered under the original visitor’s name. Photos still waiting on this device need a separate recovery — keep this device.',
+  recoverNoCopy: 'This device has no saved copy of this visit. Use the device the visit was filled in on.',
   reassign: 'Change who goes',
   // List §6.3
   today: 'Today',
@@ -238,18 +278,19 @@ export const READY_REASON = {
   forms: "couldn't download the forms",
   pages: "couldn't download the offline pages",
   signin: 'sign-in for offline use failed — sign in again',
+  otherDevice: 'this visit is set up on another device — use that one, or ask Joe to move it here',
 } as const;
 
 /** Which §5.7 reason a Get ready failure code gets, by the check it failed in. */
 export function readyReason(check: ReadyCheck, code: string, neededMb = 50): string {
+  if (code === 'device_access_denied') return READY_REASON.otherDevice;
+  if (code === 'pin_invalid') return W.pinShort;
   if (code === 'storage_full') return fill(READY_REASON.space, { n: neededMb });
   if (/storage|invalid_capacity/.test(code)) return READY_REASON.storage;
   if (check === 'forms' || code === 'checksum_mismatch' || code === 'missing_forms') return READY_REASON.forms;
   if (check === 'offline_pages' || /precache|manifest|update_required|capture_blocked|no_worker/.test(code)) return READY_REASON.pages;
   if (check === 'saving_on_device') return READY_REASON.storage;
   if (check === 'visit_details' && code === 'snapshot_unavailable') return "couldn't download the visit details";
-  if (code === 'device_access_denied') return 'this visit is set up on another device — use that one, or ask Joe to move it here';
-  if (code === 'pin_invalid') return 'Use 6 to 12 digits.';
   if (/^(signed_out|offline_locked|lease_.*|unauthorized)$/.test(code)) return READY_REASON.signin;
   return plainWords(code);
 }
@@ -342,15 +383,49 @@ export function plainWords(code: string | undefined | null, ctx: { name?: string
   }
 }
 
-/** Plain duration from the template (§7.2 `{duration}`). */
+/** Visit length from the pinned templates and add-ons (§7.2 `{duration}`, §6.9). Minutes [min, max]. */
 export const TEMPLATE_MINUTES: Record<string, [number, number]> = {
- bath: [90,120], kitchen:[120,120], basement:[120,120], deck:[60,60], addition:[120,120], whole:[180,240], general:[45,45], garage:[30,60], flooring:[30,30], openings:[30,60],
+  bath: [90, 120], kitchen: [120, 120], basement: [120, 120], deck: [60, 60], addition: [120, 120], whole: [180, 240], general: [45, 45], garage: [30, 60], flooring: [30, 30], openings: [30, 60],
 };
+/** Nearest half hour, written with ½: 210 → "3½", 30 → "½". */
 const hours = (n: number) => { const h = Math.round(n / 30) / 2; return `${Math.floor(h) || ''}${h % 1 ? '½' : ''}` || '0'; };
+const span = ([lo, hi]: [number, number]) => `${hours(lo)}${hours(hi) !== hours(lo) ? `–${hours(hi)}` : ''}`;
+const unit = ([, hi]: [number, number]) => (Math.round(hi / 30) / 2 <= 1 ? 'hour' : 'hours');
+/**
+ * Office estimate. `duration` is the summed range ("3½–4 hours"; whole-home adds ", or two
+ * scheduled visits"); `suggestSplit` is the separate office hint and is never read aloud.
+ */
 export function visitTiming(keys: string[]) {
- const list = [...new Set(keys)].filter(k => TEMPLATE_MINUTES[k]);
- const minutes = list.reduce<[number,number]>((sum,k) => [sum[0]+TEMPLATE_MINUTES[k][0],sum[1]+TEMPLATE_MINUTES[k][1]], [0,0]);
- const duration = list.length ? `${hours(minutes[0])}${minutes[1] !== minutes[0] ? '–'+hours(minutes[1]) : ''} hours${keys.includes('whole') ? ', or two scheduled visits' : ''}` : '';
- return { minutes, duration, suggestSplit: minutes[1] > 180 || keys.includes('whole'), components: list.map(key => ({key, minutes:TEMPLATE_MINUTES[key]})) };
+  const list = [...new Set(keys)].filter((k) => TEMPLATE_MINUTES[k]);
+  const minutes = list.reduce<[number, number]>((sum, k) => [sum[0] + TEMPLATE_MINUTES[k][0], sum[1] + TEMPLATE_MINUTES[k][1]], [0, 0]);
+  const whole = list.includes('whole');
+  const duration = list.length ? `${span(minutes)} ${unit(minutes)}${whole ? ', or two scheduled visits' : ''}` : '';
+  return { minutes, duration, suggestSplit: minutes[1] > 180 || whole, components: list.map((key) => ({ key, minutes: TEMPLATE_MINUTES[key] })) };
 }
 export function visitDuration(keys: string[]): string { return visitTiming(keys).duration; }
+/** One component in the office breakdown: "Kitchen 2 h", "Bathroom 1½–2 h". */
+export function componentDuration(minutes: [number, number]): string { return `${span(minutes)} h`; }
+
+const NUM = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
+const spokenFull = (h: number): string => {
+  if (h === 0.5) return 'half an hour';
+  if (h === 1) return 'an hour';
+  if (h === 1.5) return 'an hour and a half';
+  const n = Math.floor(h);
+  return `${NUM[n] ?? String(n)}${h % 1 ? ' and a half' : ''} hours`;
+};
+const spokenBare = (h: number): string => (h === 1 ? 'one' : h < 2 ? spokenFull(h) : `${NUM[Math.floor(h)] ?? String(Math.floor(h))}${h % 1 ? ' and a half' : ''}`);
+/**
+ * Spoken `{duration}` for opening line 3 (§7.2): words only, no office hint.
+ * bath → "an hour and a half to two hours"; bath + kitchen → "three and a half to four hours";
+ * general → "forty-five minutes"; whole → "three to four hours, or two scheduled visits".
+ */
+export function spokenDuration(keys: string[]): string {
+  const t = visitTiming(keys);
+  if (!t.duration) return '';
+  const [lo, hi] = t.minutes;
+  if (hi < 60 && hi % 30 !== 0) return lo === hi && lo === 45 ? 'forty-five minutes' : `${lo} to ${hi} minutes`;
+  const a = Math.round(lo / 30) / 2, b = Math.round(hi / 30) / 2;
+  const said = a === b ? spokenFull(b) : `${spokenBare(a)} to ${spokenFull(b)}`;
+  return `${said}${keys.includes('whole') ? ', or two scheduled visits' : ''}`;
+}

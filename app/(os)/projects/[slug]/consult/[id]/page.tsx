@@ -4,13 +4,28 @@ import { Shell } from "@/components/shell/Shell";
 import { Button, PageHeader } from "@/components/ui";
 import { CoverageMark } from "@/components/ui/CoverageMark";
 import { requireAccess } from "@/lib/dal";
-import { lookOverExtra, readSnapshot, visitHead } from "@/lib/consult/ui/server";
+import { consultDevices, lookOverExtra, readSnapshot, scheduleOptions, visitHead } from "@/lib/consult/ui/server";
 import { buildModel, emptyDraft, type EvidenceDraft, type FieldView, type SectionView } from "@/lib/consult/ui/model";
 import { pinnedDerivations } from "@/lib/consult/derive";
 import { formatLength } from "@/lib/consult/length";
 import type { LocalBlob } from "@/lib/consult/offline-engine";
 import { CHECK_WORDS, W, fill, plainWords, statusLabel } from "@/lib/consult/ui/words";
 import { ApplyFindings, OfficeConflict, ReopenButton } from "@/components/consult/office/LookOverActions";
+import { AssignControl } from "@/components/consult/office/ScheduleDialog";
+import { RecoveryControl } from "@/components/consult/office/RecoveryControl";
+import { scopeLabelRegistry } from "@/lib/consult/forms/seed/templates";
+import { SCOPE_RULES } from "@/lib/estimating/rules";
+
+/** Scope item title for a FEEDS row: the scope register's own title, never the raw key. */
+const SCOPE_TITLES = new Map(SCOPE_RULES.flatMap((r) => r.items.map((i) => [i.key, i.title] as const)));
+function scopeTitle(key: string): string {
+  const known = SCOPE_TITLES.get(key);
+  if (known) return known;
+  const [area, item = ""] = key.split(".");
+  const words = `${area} ${item}`.replace(/_/g, " ").trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+const unitOf = (key: string, label: string) => scopeLabelRegistry.find((r) => r.scope_key === key && r.quantity_label === label)?.unit ?? null;
 
 export const dynamic = "force-dynamic";
 
@@ -53,26 +68,35 @@ export default async function ConsultLookOver({ params, searchParams }: { params
   const openN = openChecks.reduce((n, c) => n + c.open.length, 0);
   const job = snap.findings_job;
   const live = snap.instances.filter((i) => !i.removed_at);
-  let feeds: { label: string; scope: string; value: number }[] = [];
+  // FEEDS (§6.8): scope title · quantity label, value + unit in mono; "○ Open" until an answer feeds it.
+  let feeds: { label: string; scope: string; title: string; value: number | null; unit: string | null }[] = [];
   try {
     feeds = pinnedDerivations(model.modules, model.templates, live, snap.heads.map((h) => ({ ...h, server_revision: String(h.server_revision) }))).derived
-      .filter((d) => d.definition.maps_to && d.result).map((d) => ({ label: d.definition.maps_to!.quantity_label ?? d.definition.label, scope: d.definition.maps_to!.scope_key, value: d.result!.value }));
+      .filter((d) => d.definition.maps_to).map((d) => {
+        const scope = d.definition.maps_to!.scope_key, label = d.definition.maps_to!.quantity_label ?? d.definition.label;
+        const measured = !!d.result && d.result.answer_revisions.length > 0;
+        return { label, scope, title: scopeTitle(scope), value: measured ? d.result!.value : null, unit: unitOf(scope, label) };
+      });
   } catch { feeds = []; }
+  const owner = user.role === "owner";
+  const movable = owner && !["complete", "cancelled"].includes(status);
+  const [devices, moveOptions] = owner ? await Promise.all([consultDevices(head.id), movable ? scheduleOptions(head.project_id).catch(() => null) : Promise.resolve(null)]) : [[], null];
   const photos = extra.media.filter((m) => m.kind !== "initials");
   const initials = extra.media.find((m) => m.kind === "initials");
+  const chip: "covered" | "partial" | null = status === "complete" ? "covered" : status === "incomplete" ? "partial" : null;
   const headline = status === "complete" ? `Complete · ${fmt(extra.completedAt)}` : status === "incomplete" ? `Needs finishing · ${openN} open` : status === "in_progress" && interrupted(snap.consult.scheduled_at) ? W.visitInterrupted : statusLabel(status);
   const sectionLink = (x: SectionView) => `/projects/${slug}/consult/${head.id}?s=${x.instance.id}`;
 
   return (
     <Shell breadcrumb={`PROJECTS › ${head.project.toUpperCase()} › IN-HOME CONSULTATION`}>
       <div className="mx-auto max-w-[1440px] px-4 pb-16 pt-6 @xl/page:px-7">
-        <PageHeader title={`${head.client} › ${W.app}`} className="mb-4"
-          meta={`${fmt(snap.consult.scheduled_at, { month: "short", day: "numeric" })} · ${head.visitor_name}`}
+        {/* §6.8 head: "{client} › In-home consultation · Nov 3 · Abigail Stafki", a status chip (not a control), then actions. */}
+        <PageHeader variant="record" title={`${head.client} › ${W.app} · ${fmt(snap.consult.scheduled_at, { month: "short", day: "numeric" })} · ${head.visitor_name}`} className="mb-4"
+          badge={<span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-[20px] border border-rule-soft bg-paper-2 px-2.5 py-0.5 text-meta font-semibold text-ink-2">
+            {chip === "covered" && <span aria-hidden>✓</span>}{chip === "partial" && <span aria-hidden>◐</span>}{headline}
+          </span>}
           actions={<>
-            <span className="inline-flex min-h-12 items-center gap-2 rounded-full border border-rule bg-card px-3 text-body font-semibold text-ink">
-              {status === "complete" ? <CoverageMark variant="coverage" state="covered" size="sm" /> : status === "incomplete" ? <CoverageMark variant="coverage" state="partial" size="sm" /> : null}{headline}
-            </span>
-            {(status === "complete" || status === "incomplete") && (user.role === "owner" || head.assigned) && <ReopenButton id={head.id} revision={Number(snap.consult.revision)} />}
+            {(status === "complete" || status === "incomplete") && (owner || head.assigned) && <ReopenButton id={head.id} revision={Number(snap.consult.revision)} />}
             <Button variant="secondary" size="lg" href={`/projects/${slug}`}>← Project</Button>
           </>} />
         {extra.pendingDevice && <div role="status" className="mb-4 rounded-lg border-2 border-info bg-info-soft px-4 py-3 text-body text-ink">{fill(W.notSyncedYet, { photos: `${extra.pendingDevice.photos} ${extra.pendingDevice.photos === 1 ? "photo" : "photos"}`, name: head.visitor_name })}</div>}
@@ -84,8 +108,10 @@ export default async function ConsultLookOver({ params, searchParams }: { params
         )}
         {extra.reopenReason && status !== "complete" && <p className="mb-4 text-body text-ink-2">Reopened: {extra.reopenReason}</p>}
 
-        <div className="grid gap-6 xl:grid-cols-[240px_minmax(0,1fr)_320px]">
-          <nav aria-label={W.sections} className="min-w-0">
+        {/* Columns follow the content area, not the window (the Operator panel can take half the screen):
+            one column, then sections | section with evidence under it, then three columns. */}
+        <div className="grid gap-6 @[600px]/page:grid-cols-[220px_minmax(0,1fr)] @[1040px]/page:grid-cols-[240px_minmax(0,1fr)_320px]">
+          <nav aria-label={W.sections} className="min-w-0 @[600px]/page:row-span-2 @[1040px]/page:row-span-1">
             <p className="eyebrow mb-2">{W.sections}</p>
             <ul className="grid gap-1">
               {model.sections.map((x) => (
@@ -103,9 +129,16 @@ export default async function ConsultLookOver({ params, searchParams }: { params
               <div>Sent from device {extra.closedAt ? "✓" : "· not yet"}</div>
               <div>Notes · off (manual visit)</div>
             </dl>
+            {owner && (movable || devices.some((d) => d.revoked && !d.closed)) && (
+              <div className="mt-6 grid gap-3">
+                <p className="eyebrow">Owner</p>
+                {movable && moveOptions && <AssignControl consultId={head.id} revision={Number(snap.consult.revision)} visitors={moveOptions.visitors} current={head.conducted_by} />}
+                <RecoveryControl consultId={head.id} devices={devices} />
+              </div>
+            )}
           </nav>
 
-          <section className="min-w-0" aria-labelledby="sec-h">
+          <section className="@container/sec min-w-0" aria-labelledby="sec-h">
             {section ? <>
               <div className="flex flex-wrap items-baseline justify-between gap-2 border-b border-rule pb-2">
                 <h2 id="sec-h" className="font-serif text-title font-semibold text-ink">{section.label}</h2>
@@ -116,14 +149,14 @@ export default async function ConsultLookOver({ params, searchParams }: { params
                   const p = extra.provenance[f.addr]; const c = extra.conflicts[f.addr];
                   const v = f.answer?.status === "answered" ? show(f.answer.value, f.def) : f.answer?.status === "skipped" ? `— N/A · ${f.answer.skip_reason}${f.skipCounts && f.answer.skip_reason !== "Not on this job" ? " — assumption written" : ""}` : "";
                   return (
-                    <li key={f.addr} id={`f-${f.addr}`} className="grid gap-1 py-2 md:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] md:items-baseline md:gap-4">
+                    <li key={f.addr} id={`f-${f.addr}`} className="grid gap-1 py-2 @[520px]/sec:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)_auto] @[520px]/sec:items-baseline @[520px]/sec:gap-4">
                       <span className="text-body font-semibold text-ink">{f.def.label}{f.required && <span className="text-flag" aria-label={W.required}> *</span>}</span>
                       <span className="text-body text-ink">{v && <span className="font-mono">{v}</span>}{p && <span className="ml-2 text-meta text-ink-3">{p.source === "office" ? "picked in office" : "typed"} · {p.actor}</span>}</span>
                       <span className="flex flex-wrap justify-end gap-2"><CoverageMark variant="coverage" state={f.mark} size="sm" />{f.returnVisit && <CoverageMark variant="coverage" state="return_visit" size="sm" />}{c && <CoverageMark variant="coverage" state="conflict" size="sm" />}</span>
-                      {c && <div className="md:col-span-3"><OfficeConflict id={head.id} revision={Number(snap.consult.revision)} generation={Number(snap.consult.completion_generation)} instance={f.addr.split(":")[0]} fieldKey={f.key} label={`${section.label} ${f.def.label}`}
+                      {c && <div className="@[520px]/sec:col-span-3"><OfficeConflict id={head.id} revision={Number(snap.consult.revision)} generation={Number(snap.consult.completion_generation)} instance={f.addr.split(":")[0]} fieldKey={f.key} label={`${section.label} ${f.def.label}`}
                         current={{ id: c.current.id, text: c.current.status === "answered" ? show(c.current.value, f.def) : c.current.status, who: c.current.actor, at: fmt(c.current.at, { hour: "numeric", minute: "2-digit" }) }}
                         proposed={{ id: c.proposed.id, text: c.proposed.status === "answered" ? show(c.proposed.value, f.def) : c.proposed.status, who: c.proposed.actor, at: fmt(c.proposed.at, { hour: "numeric", minute: "2-digit" }) }} /></div>}
-                      {f.answer?.status === "skipped" && draft.skips[f.addr]?.assumption && <p className="text-meta text-ink-2 md:col-span-3">Assumption: {draft.skips[f.addr].assumption!.text} · {draft.skips[f.addr].assumption!.responsible_trade} · checked at {draft.skips[f.addr].assumption!.verification_point}</p>}
+                      {f.answer?.status === "skipped" && draft.skips[f.addr]?.assumption && <p className="text-meta text-ink-2 @[520px]/sec:col-span-3">Assumption: {draft.skips[f.addr].assumption!.text} · {draft.skips[f.addr].assumption!.responsible_trade} · checked at {draft.skips[f.addr].assumption!.verification_point}</p>}
                     </li>
                   );
                 })}
@@ -133,7 +166,16 @@ export default async function ConsultLookOver({ params, searchParams }: { params
 
             <div className="mt-6 rounded-lg border border-rule bg-card p-4">
               <p className="eyebrow">{W.feeds}</p>
-              {feeds.length ? <ul className="mt-2 grid gap-1 font-mono text-body text-ink">{feeds.map((x) => <li key={`${x.scope}:${x.label}`}>Scope: {x.scope} · {x.label} {Math.round(x.value * 10) / 10}</li>)}</ul> : <p className="mt-2 text-body text-ink-3">No quantities worked out yet.</p>}
+              {feeds.length ? (
+                <ul className="mt-2 grid gap-1 text-body text-ink">
+                  {feeds.map((x) => (
+                    <li key={`${x.scope}:${x.label}`} className="grid grid-cols-[minmax(0,1fr)_auto] items-baseline gap-3 border-b border-rule-soft py-1.5 last:border-0">
+                      <span className="min-w-0 break-words">{x.title} · <span className="text-ink-2">{x.label}</span></span>
+                      {x.value === null ? <CoverageMark variant="coverage" state="open" size="sm" /> : <span className="whitespace-nowrap font-mono">{Math.round(x.value * 10) / 10}{x.unit ? ` ${x.unit}` : ""}</span>}
+                    </li>
+                  ))}
+                </ul>
+              ) : <p className="mt-2 text-body text-ink-3">No quantities worked out yet.</p>}
               <div className="mt-3">
                 {status !== "complete" ? <p className="text-body text-ink-3">Findings go to the scope when the visit is Complete.</p>
                   : job?.status === "done" ? <p className="text-body font-semibold text-accent-2">{fill(W.findingsApplied, { when: "" }).trim()}</p>
@@ -145,7 +187,7 @@ export default async function ConsultLookOver({ params, searchParams }: { params
             </div>
           </section>
 
-          <aside className="min-w-0" aria-label={W.evidence}>
+          <aside className="min-w-0 @[600px]/page:col-start-2 @[1040px]/page:col-start-3 @[1040px]/page:row-start-1" aria-label={W.evidence}>
             <p className="eyebrow mb-2">{W.evidence}</p>
             {photos.length ? (
               <ul className="grid grid-cols-3 gap-2">

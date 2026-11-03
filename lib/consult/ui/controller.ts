@@ -397,8 +397,15 @@ export class VisitController {
       if (this.engine?.read()?.close_intent && !this.closing) await this.resumeClose();
     } catch (e) {
       const code = codeOf(e);
+      const last = this.engine?.lastSendFailure ?? this.state.lastSendFailure;
+      if (code === 'offline_locked' && last?.code === 'device_access_denied') {
+        // Another device holds this visit: keep that code so the screen says so (§5.7), not "access removed".
+        this.deny('device_access_denied');
+        this.set({ lastSendFailure: last, code: 'device_access_denied' });
+        return;
+      }
       if (code === 'offline_locked') {
-        const blocked = /revoked|access_denied/.test(this.state.lastSendFailure?.code ?? '') ? 'revoked' : this.state.local?.queue.blocked ?? 'signed_out';
+        const blocked = /revoked|access_denied/.test(last?.code ?? '') ? 'revoked' : this.state.local?.queue.blocked ?? 'signed_out';
         this.deny(blocked);
       } else this.set({ online: code !== 'no_signal' ? this.state.online : false });
       this.set({ lastSendFailure: { code, at: Date.now() }, code });
@@ -493,7 +500,7 @@ export class VisitController {
     try { await new OfflineVault(this.store).unlock(identity, device, pin); return true; } catch { return false; }
   }
   /** "Lock notes on this device": drop decrypted memory, keep ciphertext for the same user. */
-  private deny(code: string) { this.lock(); this.set({ phase: 'blocked', blocked: code === 'revoked' ? 'revoked' : 'signed_out', code }); }
+  private deny(code: string) { this.lock(); this.set({ phase: 'blocked', blocked: code === 'revoked' || code === 'device_access_denied' ? 'revoked' : 'signed_out', code }); }
   lock() { this.memoryEpoch++; if (this.expiryTimer) clearTimeout(this.expiryTimer); this.engine?.lock(); this.engine = null; this.key = null; this.lease = null; for (const url of Object.values(this.state.thumbs)) URL.revokeObjectURL(url); this.set({ local: null, fresh: null, freshSeq: 0, draft: emptyDraft(), boot: null, thumbs: {}, closing: null, lastSaved: null, phase: this.state.enrolled ? 'unlock' : 'get_ready' }); }
   dispose() {
     this.lock();

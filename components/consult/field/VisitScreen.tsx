@@ -10,7 +10,7 @@ import { CoverageMark } from "@/components/ui/CoverageMark";
 import type { FieldView, SectionView, ShotView, VisitModel, EvidenceDraft, Display } from "@/lib/consult/ui/model";
 import { leaveList, nextOpen } from "@/lib/consult/ui/model";
 import type { AnswerPayload } from "@/lib/consult/ui/ops";
-import { W, fill, plainWords, visitDuration } from "@/lib/consult/ui/words";
+import { W, fill, plainWords, spokenDuration, visitDuration } from "@/lib/consult/ui/words";
 import { Banner, Btn, Eyebrow, Sheet } from "./primitives";
 import { FieldRow, MarkCell, PhotoRow, type FieldActions } from "./FieldRow";
 import { Keypad } from "./Keypad";
@@ -31,9 +31,19 @@ export interface VisitApi {
 }
 
 const fillScript = (line: string, display: Display | undefined, model: VisitModel) =>
-  (!model.promised && line.includes("{estimate_date}") ? "Pick the date below first." : line).replace(/\s*This is \{helper\}[^.]*\./, "").replace("{duration}", visitDuration(model.templates.map((t) => t.key)))
+  (!model.promised && line.includes("{estimate_date}") ? "Pick the date below first." : line).replace(/\s*This is \{helper\}[^.]*\./, "").replace("{duration}", spokenDuration(model.templates.map((t) => t.key)))
     .replace("{name}", display?.visitor_name ?? "").replace("{estimate_date}", model.promised ? centralTime(`${model.promised}T12:00:00-06:00`, { weekday: "long", month: "long", day: "numeric" }) : "the date you pick below")
     .replace("{open_selections}", model.sections.filter((s) => s.module.key === "selections" && !s.fields.some((f) => f.key === "status" && f.answer?.value === "Exact product picked")).map((s) => s.label).join(", ") || "none");
+
+/** §6.1 thumb zone: the primary action bottom-right, 56 px, fixed on phone and tablet portrait, inline from 1024 px. */
+function BottomBar({ left, right }: { left?: React.ReactNode; right: React.ReactNode }) {
+  return (
+    <div className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-between gap-3 border-t-2 border-rule-soft bg-paper px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:static lg:mt-6 lg:border-0 lg:bg-transparent lg:px-0">
+      {left ?? <span />}
+      {right}
+    </div>
+  );
+}
 
 function counts(s: { pc: { done: number; total: number }; record: { done: number; total: number } }) {
   return `Price-critical ${s.pc.done}/${s.pc.total}${s.record.total ? ` · Record ${s.record.done}/${s.record.total}` : ""}`;
@@ -154,20 +164,20 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
   const clientList = houseInst?.fields.find((f) => f.key === "client_list");
 
   // ── Opening (one card per line, Next advances) ──
+  const visitLength = visitDuration(model.templates.map((t) => t.key));
+  const openingLine = visitLength ? fill(W.openingLine, { duration: visitLength }) : W.openingLine.split(" · ")[0];
   const openingView = (
-    <section className="px-4 py-5" aria-labelledby="opening-h">
+    <section className="px-4 pb-28 pt-5 lg:pb-8" aria-labelledby="opening-h">
       <Eyebrow>{W.opening} · {openingStep + 1} of {opening.length || 1}</Eyebrow>
-      <h1 id="opening-h" className="sr-only">{W.opening}</h1>
+      <h1 id="opening-h" className="mt-1 font-serif text-[1.15em] font-semibold text-ink">{openingLine}</h1>
       <div className="mt-3 rounded-lg border-2 border-rule bg-card p-5 shadow-card">
         <p className="font-serif text-[1.25em] leading-snug text-ink">“{opening[openingStep] ?? ""}”</p>
       </div>
       {/photos/i.test(opening[openingStep] ?? "") && photosField && <FieldRow f={photosField} actions={actions} sectionId={houseInst!.instance.id} />}
       {/anything you want to make sure/i.test(opening[openingStep] ?? "") && clientList && <FieldRow f={clientList} actions={actions} sectionId={houseInst!.instance.id} />}
-      <div className="mt-5 flex flex-wrap justify-end gap-3">
-        {openingStep > 0 && <Btn onClick={() => setOpeningStep(openingStep - 1)}>{W.previous}</Btn>}
-        <Btn tone="primary" className="min-w-[8em]" onClick={() => (openingStep + 1 < opening.length ? setOpeningStep(openingStep + 1) : setView("list"))}>{W.next}</Btn>
-      </div>
-      <div className="mt-6"><Btn tone="quiet" onClick={() => setView("list")}>{W.sections}</Btn></div>
+      <BottomBar
+        left={openingStep > 0 ? <Btn onClick={() => setOpeningStep(openingStep - 1)}>{W.previous}</Btn> : <Btn className="lg:hidden" onClick={() => setView("list")}>‹ {W.sections}</Btn>}
+        right={<Btn tone="primary" className="ml-auto min-w-[8em]" onClick={() => (openingStep + 1 < opening.length ? setOpeningStep(openingStep + 1) : setView("list"))}>{W.next}</Btn>} />
     </section>
   );
 
@@ -242,13 +252,16 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
       {section.module.repeatable && section.children.length === 0 && (
         <div className="mt-6"><Btn tone="quiet" onClick={() => setRemove(section)}>{fill(W.removeInstance, { name: section.label })}</Btn></div>
       )}
-      <div className="fixed inset-x-0 bottom-0 z-30 flex justify-between gap-3 border-t-2 border-rule-soft bg-paper px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:static lg:mt-6 lg:border-0 lg:bg-transparent lg:px-0">
-        <Btn className="lg:hidden" onClick={() => guard(() => setView("list"))}>‹ {W.sections}</Btn>
-        <Btn tone="primary" className="ml-auto min-w-[8em]" onClick={next}>{W.next}</Btn>
-      </div>
+      <BottomBar left={<Btn className="lg:hidden" onClick={() => guard(() => setView("list"))}>‹ {W.sections}</Btn>}
+        right={<Btn tone="primary" className="ml-auto min-w-[8em]" onClick={next}>{W.next}</Btn>} />
     </section>
   );
 
+  // Left pane on tablet landscape: while the opening card shows a line, the pane shows only the
+  // *next* line (never the same one twice); on the list there is no script, so no heading either.
+  const paneScript = view === "opening"
+    ? (opening[openingStep + 1] ? [opening[openingStep + 1]] : [])
+    : view === "section" && section ? (section.module.say.length ? section.module.say : section.fields.filter((f) => f.def.say).slice(0, 2).map((f) => f.def.say!)) : [];
   const body = view === "opening" ? openingView : view === "section" && section ? sectionView : listView;
   return (
     <>
@@ -256,9 +269,11 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
       <div className="lg:grid lg:min-h-0 lg:flex-1 lg:grid-cols-[360px_minmax(0,1fr)]">
         <aside className="hidden border-r-2 border-rule-soft lg:block lg:overflow-y-auto" aria-label={W.sections}>
           <div className="px-4 py-4">
-            <Eyebrow>{W.script}</Eyebrow>
-            {(view === "opening" ? [opening[openingStep] ?? ""] : section?.module.say.length ? section.module.say : section?.fields.filter((f) => f.def.say).slice(0, 2).map((f) => f.def.say!) ?? []).map((l, i) => <p key={i} className="mt-2 font-serif text-[1.05em] italic text-ink-2">“{l}”</p>)}
-            <Eyebrow className="mt-6">{W.sections}</Eyebrow>
+            {paneScript.length > 0 && <>
+              <Eyebrow>{W.script}</Eyebrow>
+              <div className="mb-6">{paneScript.map((l, i) => <p key={i} className="mt-2 font-serif text-[1.05em] italic text-ink-2">{view === "opening" && <span className="not-italic font-semibold text-ink">{W.nextLine} </span>}“{l}”</p>)}</div>
+            </>}
+            <Eyebrow>{W.sections}</Eyebrow>
             <p className="font-mono text-[0.85em] text-ink-2">{counts(model)}</p>
             <div className="mt-2"><SectionRows compact model={model} active={active} onOpen={(id) => guard(() => openSection(id))} onAdd={(m) => addInstance(m)} /></div>
             <div className="mt-4 grid gap-3"><Btn onClick={() => { setOpeningStep(0); setView("opening"); }}>{W.opening}</Btn><Btn tone="primary" onClick={() => setSheet("wrap")}>{W.beforeYouWrap}</Btn></div>

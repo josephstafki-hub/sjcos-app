@@ -36,9 +36,9 @@ export async function ConsultProjectCard({ slug, client, viewer, preconstruction
               <span>{statusLabel(v.status, v.open ?? undefined)}</span>
             </p>
             <div className="mt-2 flex flex-wrap gap-2">
-              {v.conducted_by === viewer.id && !["complete", "cancelled"].includes(v.status) && <Button size="md" href={`/consult/${v.id}`}>{v.status === "scheduled" ? W.getReady : "Open visit"}</Button>}
+              {v.conducted_by === viewer.id && !["complete", "cancelled"].includes(v.status) && <Button size="md" href={`/consult/${v.id}`}>{v.status === "scheduled" ? W.getReady : W.openVisit}</Button>}
               <Button variant="secondary" size="md" href={`/projects/${slug}/consult/${v.id}`}>Visit page</Button>
-              {owner && options && v.status === "scheduled" && <AssignControl consultId={v.id} revision={Number(v.revision)} visitors={options.visitors} current={v.conducted_by} />}
+              {owner && options && ["scheduled", "in_progress", "incomplete"].includes(v.status) && <AssignControl consultId={v.id} revision={Number(v.revision)} visitors={options.visitors} current={v.conducted_by} />}
             </div>
           </li>
         ))}

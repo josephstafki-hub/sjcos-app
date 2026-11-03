@@ -6,11 +6,10 @@
  * modules are pinned with the chosen templates). Also "Change who goes" (`assign`).
  * Errors come back as data and are shown in plain words. No stage is advanced.
  */
-import { RecoveryControl } from './RecoveryControl';
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { Button } from "@/components/ui";
-import { W, fill, plainWords, visitDuration } from "@/lib/consult/ui/words";
+import { W, componentDuration, fill, plainWords, visitTiming } from "@/lib/consult/ui/words";
 import type { ScheduleOptions } from "@/lib/consult/ui/server";
 
 async function command(target: string, cmd: string, input: unknown) {
@@ -44,6 +43,10 @@ export function ScheduleDialog({ projectId, client, options, ownerId }: { projec
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const toggle = (list: string[], set: (v: string[]) => void, key: string) => set(list.includes(key) ? list.filter((k) => k !== key) : [...list, key]);
+  // §6.9: the summed length of what is ticked, in the dialog's own order; nothing when no template is ticked.
+  const ordered = [...options.templates, ...options.addOns].filter((t) => templates.includes(t.key) || addOns.includes(t.key));
+  const timing = visitTiming(ordered.map((t) => t.key));
+  const estimate = templates.length === 0 || !timing.duration ? "" : `${fill(W.estimatedVisit, { duration: timing.duration })}${ordered.length > 1 ? ` (${ordered.map((t) => `${t.title} ${componentDuration(timing.components.find((c) => c.key === t.key)?.minutes ?? [0, 0])}`).join(" + ")})` : ""}${timing.suggestSplit && !templates.includes("whole") ? `; ${W.offerSplit}` : ""}`;
   const ready = !!who && /^\d{4}-\d{2}-\d{2}$/.test(date) && /^\d{2}:\d{2}$/.test(time) && templates.length > 0;
   const submit = async () => {
     if (!ready) return;
@@ -77,8 +80,8 @@ export function ScheduleDialog({ projectId, client, options, ownerId }: { projec
                 <div className="mt-1 flex flex-wrap gap-3">{options.templates.map((t) => <Tick key={t.key} on={templates.includes(t.key)} label={t.title} onClick={() => toggle(templates, setTemplates, t.key)} />)}</div></fieldset>
               {options.addOns.length > 0 && <fieldset><legend className="font-semibold text-ink">{W.addOns}</legend>
                 <div className="mt-1 flex flex-wrap gap-3">{options.addOns.map((t) => <Tick key={t.key} on={addOns.includes(t.key)} label={t.title} onClick={() => toggle(addOns, setAddOns, t.key)} />)}</div></fieldset>}
-              <label className="block"><span className="font-semibold text-ink">Visitor notes</span><textarea value={visitorNotes} maxLength={8000} onChange={(e)=>setVisitorNotes(e.target.value)} className="mt-1 block min-h-12 w-full rounded-md border-2 border-rule bg-card px-3 text-[16px]" /></label>
-              <p className="text-ink-2">{fill(W.estimatedVisit, { duration: visitDuration([...templates,...addOns]) })}</p>
+              <label className="block"><span className="font-semibold text-ink">{W.visitorNotes}</span><textarea value={visitorNotes} maxLength={8000} onChange={(e)=>setVisitorNotes(e.target.value)} aria-describedby="sched-notes-hint" className="mt-1 block min-h-12 w-full rounded-md border-2 border-rule bg-card px-3 py-2 text-[16px]" /><span id="sched-notes-hint" className="mt-1 block text-meta text-ink-3">{W.visitorNotesHint}</span></label>
+              {estimate && <p className="text-body text-ink" aria-live="polite">{estimate}</p>}
               {err && <p role="alert" className="font-semibold text-flag">! {err}</p>}
             </div>
             <div className="mt-5 flex justify-end gap-3">
@@ -92,20 +95,39 @@ export function ScheduleDialog({ projectId, client, options, ownerId }: { projec
   );
 }
 
+/**
+ * Owner move (plan §5.4, §5.7 "ask Joe to move it here"): change who goes, or keep the same
+ * person and move the visit to another device. Moving away from a device that never closed
+ * needs Joe's written reason — that device may still hold unsent answers (it can be
+ * recovered later from the visit page). Uses the `assign` command with `missing_device_reason`.
+ */
 export function AssignControl({ consultId, revision, visitors, current }: { consultId: string; revision: number; visitors: { id: string; name: string; role: string }[]; current: string }) {
   const router = useRouter();
-  const [reason, setReason] = useState('');
-  const [open, setOpen] = useState(false); const [who, setWho] = useState(current); const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);
-  if (!open) return <Button variant="secondary" size="md" onClick={() => setOpen(true)}>{W.reassign}</Button>;
+  const [open, setOpen] = useState(false); const [who, setWho] = useState(current); const [reason, setReason] = useState("");
+  const [err, setErr] = useState<string | null>(null); const [needReason, setNeedReason] = useState(false); const [busy, setBusy] = useState(false);
+  if (!open) return <Button variant="secondary" size="md" onClick={() => setOpen(true)}>{W.moveTitle}</Button>;
+  const same = who === current;
+  const reasonRequired = same || needReason;
+  const field = "mt-1 block min-h-12 w-full rounded-md border-2 border-rule bg-card px-3 text-[16px] text-ink";
+  const save = async () => {
+    setBusy(true); setErr(null);
+    try { await command(consultId, "assign", { visitor: who, expected_revision: revision, ...(reason.trim() ? { missing_device_reason: reason.trim() } : {}) }); setOpen(false); setReason(""); router.refresh(); }
+    catch (e) { const code = e instanceof Error ? e.message : ""; if (code === "missing_device_manifest_required") setNeedReason(true); setErr(plainWords(code)); }
+    finally { setBusy(false); }
+  };
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <label className="sr-only" htmlFor={`who-${consultId}`}>{W.whoGoes}</label>
-      <select id={`who-${consultId}`} value={who} onChange={(e) => setWho(e.target.value)} className="min-h-11 rounded-md border-2 border-rule bg-card px-2 text-[16px]">{visitors.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}</select>
-      <input aria-label="Reason for setting aside the previous device" placeholder="Set aside / move device — reason (unsent work may be missing)" value={reason} onChange={e=>setReason(e.target.value)} className="min-h-11 border px-2" />
-      <Button size="md" disabled={busy || (who === current && !reason.trim())} onClick={async () => { setBusy(true); setErr(null); try { await command(consultId, "assign", { visitor: who, expected_revision: revision, ...(reason.trim() ? {missing_device_reason:reason.trim()} : {}) }); setOpen(false); router.refresh(); } catch (e) { setErr(plainWords(e instanceof Error ? e.message : "")); } finally { setBusy(false); } }}>{W.save}</Button>
-      <Button variant="ghost" size="md" onClick={() => setOpen(false)}>{W.cancel}</Button>
-      <RecoveryControl consultId={consultId} />
-      {err && <p role="alert" className="w-full text-body font-semibold text-flag">! {err}</p>}
-    </div>
+    <form className="grid w-full gap-3 rounded-md border border-rule bg-card p-3" onSubmit={(e) => { e.preventDefault(); void save(); }} aria-labelledby={`move-h-${consultId}`}>
+      <p id={`move-h-${consultId}`} className="text-body font-semibold text-ink">{W.moveTitle}</p>
+      <p className="text-meta text-ink-3">{W.moveLead}</p>
+      <label className="block text-body"><span className="font-semibold text-ink">{W.whoGoes}</span>
+        <select value={who} onChange={(e) => setWho(e.target.value)} className={field}>{visitors.map((v) => <option key={v.id} value={v.id}>{v.name}{v.id === current ? " — goes now" : ""}</option>)}</select></label>
+      <label className="block text-body"><span className="font-semibold text-ink">{W.moveReason}{reasonRequired && <span className="text-flag" aria-label={W.required}> *</span>}</span>
+        <textarea value={reason} onChange={(e) => setReason(e.target.value)} rows={2} className={`${field} py-2 ${needReason && !reason.trim() ? "border-flag" : ""}`} aria-invalid={needReason && !reason.trim() ? true : undefined} /></label>
+      {err && <p role="alert" className="text-body font-semibold text-flag">! {err}</p>}
+      <div className="flex flex-wrap justify-end gap-2">
+        <Button variant="secondary" size="lg" type="button" onClick={() => { setOpen(false); setErr(null); setNeedReason(false); }}>{W.cancel}</Button>
+        <Button size="lg" type="submit" disabled={busy || (reasonRequired && !reason.trim())}>{W.moveSave}</Button>
+      </div>
+    </form>
   );
 }

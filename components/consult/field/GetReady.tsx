@@ -19,10 +19,11 @@ export function centralTime(iso: string | number | null | undefined, opts: Intl.
   return new Intl.DateTimeFormat("en-US", { timeZone: "America/Chicago", ...opts }).format(d).replace(" AM", " am").replace(" PM", " pm");
 }
 
+/** `‹ Visits · title` head (§6.2). `right` is the ⋯ menu on screens without the status bar. */
 export function ScreenHead({ title, back = "/consult/", right }: { title: string; back?: string | null; right?: ReactNode }) {
   return (
-    <div className="flex min-h-14 items-center gap-3 border-b-2 border-rule-soft px-4">
-      {back && <a href={back} className="inline-flex min-h-14 items-center pr-2 font-semibold text-accent no-underline focus-visible:outline-3 focus-visible:outline-focus">‹ {W.visits}</a>}
+    <div className={`flex min-h-14 items-center gap-3 border-b-2 border-rule-soft ${right ? "pl-4 pr-1" : "px-4"}`}>
+      {back && <a href={back} className="inline-flex min-h-14 items-center pr-2 font-semibold text-accent no-underline focus-visible:outline-3 focus-visible:outline-offset-[-3px] focus-visible:outline-focus">‹ {W.visits}</a>}
       <p className="min-w-0 flex-1 truncate text-right text-[0.95em] text-ink-2">{title}</p>
       {right}
     </div>
@@ -36,7 +37,7 @@ function Rows({ checks, result }: { checks: Partial<Record<ReadyCheck, CheckResu
         const c = checks[key];
         const state = c?.state === "done" || (result === "ready") ? "done" : c?.state === "problem" ? "problem" : "not_yet";
         return (
-          <li key={key} className="grid min-h-12 grid-cols-[minmax(7.5em,auto)_1fr] items-start gap-3 py-1.5">
+          <li key={key} className="grid min-h-12 grid-cols-[auto_1fr] items-start gap-3 py-1.5">
             <CoverageMark variant="ready" state={state} />
             <span className={`min-w-0 ${state === "problem" ? "font-semibold text-flag" : "text-ink"}`}>
               {READY_LABEL[key]}{c?.state === "checking" && <span className="text-ink-3"> · checking…</span>}
@@ -49,35 +50,53 @@ function Rows({ checks, result }: { checks: Partial<Record<ReadyCheck, CheckResu
   );
 }
 
-function PinChoice({ enrolled, onGo, busy }: { enrolled: boolean; onGo: (pin: string) => void; busy: boolean }) {
-  const [pin, setPin] = useState(""); const [again, setAgain] = useState(""); const [err, setErr] = useState<string | null>(null);
+/**
+ * PIN for offline unlock: 6 to 12 digits, checked here before anything is sent, and the
+ * same rule the device key uses. A refused PIN (`pin_invalid`) shows the same inline
+ * "! Use 6 to 12 digits." under the field; the field stays so it can be corrected.
+ */
+function PinChoice({ enrolled, onGo, busy, refused }: { enrolled: boolean; onGo: (pin: string) => void; busy: boolean; refused?: boolean }) {
+  const [pin, setPin] = useState(""); const [again, setAgain] = useState(""); const [err, setErr] = useState<string | null>(refused ? W.pinShort : null);
   const go = () => {
     if (!/^\d{6,12}$/.test(pin)) { setErr(W.pinShort); return; }
     if (!enrolled && pin !== again) { setErr(W.pinMismatch); return; }
     setErr(null); onGo(pin);
   };
+  const short = err === W.pinShort;
   return (
-    <form className="mt-5 grid gap-3" onSubmit={(e) => { e.preventDefault(); go(); }}>
-      <TextInput label={enrolled ? W.pinEnter : W.pinChoose} value={pin} onChange={(v) => setPin(v.replace(/\D/g, "").slice(0, 12))} type="password" inputMode="numeric" describedBy="pin-help" />
-      {!enrolled && <TextInput label={W.pinConfirm} value={again} onChange={(v) => setAgain(v.replace(/\D/g, "").slice(0, 12))} type="password" inputMode="numeric" />}
-      <p id="pin-help" className="text-[0.9em] text-ink-2">{W.pinChooseHelp}</p>
-      {err && <p role="alert" className="font-semibold text-flag">! {err}</p>}
+    <form className="mt-5 grid gap-3" onSubmit={(e) => { e.preventDefault(); go(); }} noValidate>
+      <TextInput label={enrolled ? W.pinEnter : W.pinChoose} value={pin} onChange={(v) => { setPin(v.replace(/\D/g, "").slice(0, 12)); if (short) setErr(null); }} type="password" inputMode="numeric" describedBy={short ? "pin-help pin-err" : "pin-help"} />
+      <p id="pin-help" className="-mt-1 text-[0.9em] text-ink-2">{W.pinChooseHelp}</p>
+      {short && <p id="pin-err" role="alert" className="-mt-1 font-semibold text-flag">! {W.pinShort}</p>}
+      {!enrolled && <TextInput label={W.pinConfirm} value={again} onChange={(v) => { setAgain(v.replace(/\D/g, "").slice(0, 12)); if (err === W.pinMismatch) setErr(null); }} type="password" inputMode="numeric" describedBy={err === W.pinMismatch ? "pin-mismatch" : undefined} />}
+      {err && !short && <p id="pin-mismatch" role="alert" className="-mt-1 font-semibold text-flag">! {err}</p>}
       <Btn tone="primary" wide type="submit" disabled={busy}>{W.getReady}</Btn>
     </form>
   );
 }
 
-export function GetReadyCard({ title, result, checks, enrolled, expires, code, userName, onGetReady, onStart, started, busy }: {
-  title: string; result: ReadyResult; checks: Partial<Record<ReadyCheck, CheckResult>>; enrolled: boolean; expires: number | null; code?: string | null; userName: string;
-  onGetReady: (pin: string) => void; onStart?: () => void; started?: boolean; busy?: boolean;
+export function GetReadyCard({ title, result, checks, enrolled, expires, code, readyCode, userName, onGetReady, onStart, started, busy, more }: {
+  title: string; result: ReadyResult; checks: Partial<Record<ReadyCheck, CheckResult>>; enrolled: boolean; expires: number | null; code?: string | null; readyCode?: string | null; userName: string;
+  onGetReady: (pin: string) => void; onStart?: () => void; started?: boolean; busy?: boolean; more?: ReactNode;
 }) {
   const [pin, setPin] = useState<string | null>(null);
   const run = (p: string) => { setPin(p); onGetReady(p); };
-  const signedOut = code === "signed_out" || checks.visit_details?.reason === "signed_out";
+  const signinCode = (c?: string | null) => !!c && /^(signed_out|lease_.*|unauthorized)$/.test(c);
+  const signedOut = code === "signed_out" || signinCode(checks.visit_details?.reason) || signinCode(checks.offline_lease?.reason);
+  // A refused PIN never ran a check: stay on the PIN step with the inline line, checks "Not yet".
+  const pinRefused = result === "not_ready" && (readyCode === "pin_invalid" || checks.offline_lease?.reason === "pin_invalid");
+  // Device-key step failed for a reason other than sign-in: a new PIN is the way forward, not the same one again.
+  const leaseFailed = !!checks.offline_lease?.reason && !signinCode(checks.offline_lease.reason) && checks.offline_lease.reason !== "device_access_denied";
   return (
     <div className="mx-auto w-full max-w-[560px]">
-      <ScreenHead title={title} />
+      <ScreenHead title={title} right={more} />
       <section className="px-4 pb-8 pt-4" aria-live="polite">
+        {pinRefused && <>
+          <h1 className="font-serif text-[1.6em] font-semibold text-ink">{W.getReady}</h1>
+          <p className="mt-1 text-ink-2">Do this with signal — at the office, in the truck or in the driveway.</p>
+          <Rows checks={{}} result="idle" />
+          <PinChoice key="refused" enrolled={enrolled} onGo={run} busy={!!busy} refused />
+        </>}
         {result === "idle" && <>
           <h1 className="font-serif text-[1.6em] font-semibold text-ink">{W.getReady}</h1>
           <p className="mt-1 text-ink-2">Do this with signal — at the office, in the truck or in the driveway.</p>
@@ -96,14 +115,14 @@ export function GetReadyCard({ title, result, checks, enrolled, expires, code, u
           <p className="mt-3 text-ink-2">{W.installHint}<br />{W.keepDevice}</p>
           {onStart && <div className="mt-5"><Btn tone="primary" wide onClick={onStart} disabled={busy}>{started ? W.openVisit : W.startVisit}</Btn></div>}
         </>}
-        {result === "not_ready" && <>
+        {result === "not_ready" && !pinRefused && <>
           <h1 className="font-serif text-[1.6em] font-semibold text-flag">{W.notReady}</h1>
           <Rows checks={checks} result={result} />
           <p className="mt-3 text-ink">{W.usePaper}</p>
           <div className="mt-5 grid gap-3">
             {signedOut
               ? <LinkBtn tone="primary" wide href={`/login?next=${encodeURIComponent(typeof location === "undefined" ? "/consult/" : location.pathname)}`}>{W.signIn}</LinkBtn>
-              : pin && code !== 'pin_invalid' && !checks.offline_lease?.reason ? <Btn tone="primary" wide onClick={() => onGetReady(pin)}>{W.tryAgain}</Btn> : <PinChoice enrolled={enrolled} onGo={run} busy={!!busy} />}
+              : pin && !leaseFailed ? <Btn tone="primary" wide onClick={() => onGetReady(pin)}>{W.tryAgain}</Btn> : <PinChoice enrolled={enrolled} onGo={run} busy={!!busy} />}
           </div>
         </>}
         {result === "no_signal" && <>
@@ -113,17 +132,17 @@ export function GetReadyCard({ title, result, checks, enrolled, expires, code, u
           <p className="mt-3 text-ink">{W.usePaper}</p>
           <div className="mt-5"><Btn tone="primary" wide onClick={() => (pin ? onGetReady(pin) : location.reload())}>{W.tryAgain}</Btn></div>
         </>}
-        {code && result !== "not_ready" && code !== "signed_out" && <p role="alert" className="mt-4 font-semibold text-flag">! {plainWords(code, { name: userName })}</p>}
+        {code && result !== "not_ready" && code !== "signed_out" && code !== "pin_invalid" && <p role="alert" className="mt-4 font-semibold text-flag">! {plainWords(code, { name: userName })}</p>}
       </section>
     </div>
   );
 }
 
-export function UnlockCard({ title, onUnlock, busy, code, expires, olderBuild }: { title: string; onUnlock: (pin: string) => void; busy: boolean; code: string | null; expires: number | null; olderBuild: boolean }) {
+export function UnlockCard({ title, onUnlock, busy, code, expires, olderBuild, more }: { title: string; onUnlock: (pin: string) => void; busy: boolean; code: string | null; expires: number | null; olderBuild: boolean; more?: ReactNode }) {
   const [pin, setPin] = useState("");
   return (
     <div className="mx-auto w-full max-w-[560px]">
-      <ScreenHead title={title} />
+      <ScreenHead title={title} right={more} />
       <form className="grid gap-3 px-4 pb-8 pt-4" onSubmit={(e) => { e.preventDefault(); if (/^\d{6,12}$/.test(pin)) onUnlock(pin); }}>
         <h1 className="font-serif text-[1.6em] font-semibold text-ink">{W.app}</h1>
         <p className="text-ink">{W.unlockLead}</p>

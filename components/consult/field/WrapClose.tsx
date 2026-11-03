@@ -50,7 +50,7 @@ export function WrapSheet({ open, onClose, model, draft, hasInitials, refused, o
       <div className="mt-4 grid gap-3">
         {model.flags.length > 0 && <Line text={undecidedFlags.length ? fill(undecidedFlags.length === 1 ? W.flagsLine : W.flagsLinePlural, { n: undecidedFlags.length }) : `Flags: all ${model.flags.length} decided ✓`} action={<Btn onClick={onFlags}>{W.reviewFlags}</Btn>} warn={undecidedFlags.length > 0} />}
         <Line text={trades.length ? (undecidedTrades.length ? fill(W.tradeWalksLine, { trade: undecidedTrades.join(", ") }) : "Trade walks: all decided ✓") : draft.no_trades_confirmed ? "Trade walks: none — no trade is touched ✓" : "Trade walks: confirm none is needed"} action={<Btn onClick={onTrades}>{W.decide}</Btn>} warn={tradesOpen} />
-        {model.rrpApplies && <Line text={rrpOpen ? `${W.rrpTitle}: receipt and certifications — needs a decision` : `${W.rrpTitle}: recorded ✓`} action={<Btn onClick={onRrp}>{W.decide}</Btn>} warn={rrpOpen} />}
+        {model.rrpApplies && <Line text={rrpOpen ? fill(W.rrpNeeds, { list: [!model.rrp.receipt && W.rrpShortReceipt, !model.rrp.firm_current && W.rrpShortFirm, !model.rrp.renovator_current && W.rrpShortRenovator].filter(Boolean).join(" · ") }) : W.rrpRecorded} action={<Btn onClick={onRrp}>{W.rrpReview}</Btn>} warn={rrpOpen} />}
         <Line text={hasInitials ? "Client initials ✓" : draft.ack_reason ? `No initials · ${draft.ack_reason}` : "Client initials — not yet"} action={hasInitials ? undefined : <span className="flex flex-wrap gap-3"><Btn onClick={onClient}>{W.showToClient}</Btn><Btn tone="quiet" onClick={onAck}>{W.noInitialsWhy.replace("?", "")}</Btn></span>} warn={ackOpen} />
         {model.conflicts.map((c) => { const s = model.sections.find((x) => x.instance.id === c.instance_id); const f = s?.fields.find((x) => x.addr === c.key); return <Line key={c.key} text={fill(W.conflictsLine, { field: `${s?.label ?? ""} ${f?.def.label ?? c.field_key}`.trim() })} action={<Btn onClick={() => onGo(c.instance_id, c.key)}>{W.goToField}</Btn>} warn />; })}
         {refused > 0 && <Line text={`${refused} ${refused === 1 ? "answer was" : "answers were"} refused by the office — enter again or remove`} warn />}
@@ -126,9 +126,18 @@ export function RrpSheet({ model, onGo, open, onClose, draft, onSave, saveError 
   return (
     <Sheet open={open} onClose={onClose} side title={W.rrpTitle} footer={<><Btn onClick={onClose}>{W.cancel}</Btn><Btn tone="primary" onClick={async () => { if(await onSave({ ...draft, rrp })) onClose(); }}>{W.save}</Btn></>}>
       {saveError && <Banner kind="action">{plainWords(saveError)}</Banner>}
-      <p className="mb-3 text-ink-2">The house was built before 1978, or the year isn’t known.</p>
-      <div className="grid gap-3">
-        {([ ["receipt", W.rrpReceipt], ["firm_current", W.rrpFirm], ["renovator_current", W.rrpRenovator] ] as const).map(([key,label])=><p key={key}>{model.rrp[key] ? "✓" : "!"} {label}</p>)}<Btn onClick={onGo}>Go to Era answers</Btn>{toggle("redelivery_required", W.rrpRedelivery)}
+      <p className="mb-3 text-ink-2">{W.rrpWhy}</p>
+      {/* Read from the Era answers (model.rrp) — never ticked here, so it can't disagree with them. */}
+      <ul className="grid gap-2" aria-label={W.rrpTitle}>
+        {([["receipt", W.rrpReceipt, W.rrpReceiptOpen], ["firm_current", W.rrpFirm, W.rrpFirmOpen], ["renovator_current", W.rrpRenovator, W.rrpRenovatorOpen]] as const).map(([key, label, open]) => (
+          <li key={key} className={`grid grid-cols-[auto_1fr] items-start gap-3 rounded-md border-2 px-3 py-2 ${model.rrp[key] ? "border-rule-soft bg-paper" : "border-flag bg-flag-soft"}`}>
+            <CoverageMark variant="ready" state={model.rrp[key] ? "done" : "problem"} size="sm" />
+            <span className="min-w-0 text-ink"><span className="font-semibold">{label}</span>{!model.rrp[key] && <span className="block text-[0.95em]">{open}</span>}</span>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-3 grid gap-3">
+        <Btn onClick={onGo}>{W.rrpGoEra}</Btn>{toggle("redelivery_required", W.rrpRedelivery)}
         {rrp.redelivery_required && <label className="block"><span className="font-semibold">{W.rrpRedeliveryDay}</span><input type="date" value={rrp.redelivery_day ?? ""} onChange={(e) => setRrp({ ...rrp, redelivery_day: e.target.value || undefined })} className="mt-1 block min-h-14 rounded-md border-2 border-rule bg-card px-3 text-[max(16px,1em)]" /></label>}
       </div>
     </Sheet>

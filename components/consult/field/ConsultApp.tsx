@@ -12,49 +12,55 @@ import { buildEvidence, refusedEntries, summaryInput, unsentCount } from "@/lib/
 import { W, fill, plainWords } from "@/lib/consult/ui/words";
 import { Banner, Btn, LinkBtn, Sheet, useWakeLock } from "./primitives";
 import { GetReadyCard, UnlockCard, ScreenHead, centralTime } from "./GetReady";
+import { MoreMenu, useSun } from "./MoreMenu";
 import { VisitScreen } from "./VisitScreen";
 import { ClosingScreen } from "./WrapClose";
 import { ClientView } from "./ClientView";
 
-const SUN_KEY = "sjcos-consult-sun";
-const sunListeners = new Set<() => void>();
-const sunStore = {
-  subscribe: (fn: () => void) => { sunListeners.add(fn); return () => { sunListeners.delete(fn); }; },
-  get: () => { try { return localStorage.getItem(SUN_KEY) === "1"; } catch { return false; } },
-  set: (v: boolean) => { try { localStorage.setItem(SUN_KEY, v ? "1" : "0"); } catch { /* private mode */ } for (const fn of sunListeners) fn(); },
-};
 const nowIso = () => new Date().toISOString();
+const clock = (t: number) => centralTime(t, { hour: "numeric", minute: "2-digit" });
+/** No signal is already said by the offline strip; every other failed send is shown in words. */
+const sendFailed = (f: { code: string; at: number } | null | undefined) => !!f && !/^(no_signal|network)$/.test(f.code);
+/** Weak or unknown connection (iOS reports none): only then is "answers and photos first" true to say. */
+function weakLink(): boolean {
+  const c = (typeof navigator === "undefined" ? undefined : (navigator as Navigator & { connection?: { effectiveType?: string; saveData?: boolean } }).connection);
+  if (!c?.effectiveType) return true;
+  return !!c.saveData || /2g|3g/.test(c.effectiveType);
+}
+/** Re-renders once `at + ms` has passed, so a banner can wait a minute before it shows. */
+function useAfter(at: number | null | undefined, ms: number): boolean {
+  const [, bump] = useState(0);
+  const due = at ? at + ms - Date.now() : null;
+  useEffect(() => { if (due === null || due <= 0) return; const t = setTimeout(() => bump((n) => n + 1), due + 50); return () => clearTimeout(t); }, [due]);
+  return due !== null && due <= 0;
+}
 
-function StatusBar({ unsent, photos, answers, online, lastSend, onSend, sending, sun, onSun, onExit, wide }: { unsent: number; photos: number; answers: number; online: boolean; lastSend: number | null; onSend: () => void; sending: boolean; sun: boolean; onSun: () => void; onExit: () => void; wide?: boolean }) {
+/** §6.2 status bar: one 56 px row. Focus rings sit inside the row (offset −3 px) so none is clipped. */
+function StatusBar({ unsent, photos, answers, online, lastSend, failure, onSend, sending, onExit, wide }: { unsent: number; photos: number; answers: number; online: boolean; lastSend: number | null; failure: { code: string; at: number } | null; onSend: () => void; sending: boolean; onExit: () => void; wide?: boolean }) {
   const [sheet, setSheet] = useState(false);
-  const [menu, setMenu] = useState(false);
+  const failed = sendFailed(failure);
   return (
     <header className="sticky top-0 z-40 border-b-2 border-rule bg-paper-2">
-      <div className="flex min-h-14 items-center gap-2 px-2">
-        <button type="button" onClick={() => setSheet(true)} aria-label={`${W.notesOff}. ${unsent} waiting to send. ${online ? W.online : W.offlineLine}. Open send details.`}
-          className="flex min-h-14 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left font-semibold text-ink hover:bg-hover focus-visible:outline-3 focus-visible:outline-focus">
+      <div className="flex min-h-14 items-center gap-2 pl-2 pr-1">
+        <button type="button" onClick={() => setSheet(true)} aria-label={`${W.notesOff}. ${unsent} waiting to send. ${online ? W.online : W.offlineLine}.${failed ? ` ${W.lastTry}: ${plainWords(failure!.code)}` : ""} Open send details.`}
+          className="flex min-h-14 min-w-0 flex-1 items-center gap-2 rounded-md px-2 text-left font-semibold text-ink hover:bg-hover focus-visible:outline-3 focus-visible:outline-offset-[-3px] focus-visible:outline-focus">
           <span aria-hidden className="font-mono">○</span>
-          <span className="min-w-0 truncate">{W.notesOff} · <span className="font-mono">⇅ {unsent}</span><span className={wide ? "" : "max-md:hidden"}>{online ? ` · ${W.online}` : ""}</span>{sending ? <span className="text-ink-3"> · sending…</span> : null}</span>
+          <span className="min-w-0 truncate">{W.notesOff} · <span className="font-mono">⇅ {unsent}</span><span className={wide ? "" : "max-md:hidden"}>{online ? ` · ${W.online}` : ""}</span>{sending ? <span className="text-ink-3"> · {W.sendingNow}</span> : null}</span>
         </button>
-        <button type="button" onClick={() => setMenu(true)} aria-label={W.more} aria-haspopup="dialog" className="inline-flex size-14 shrink-0 items-center justify-center rounded-md text-[1.4em] font-bold text-ink hover:bg-hover focus-visible:outline-3 focus-visible:outline-focus">⋯</button>
+        <MoreMenu onExit={onExit} />
       </div>
       {!online && <p role="status" className="border-t-2 border-info bg-info-soft px-4 py-1.5 text-[0.95em] font-semibold text-ink"><span aria-hidden>⇣ </span>{W.offlineLine}</p>}
-      <Sheet open={sheet} onClose={() => setSheet(false)} title="Sending" footer={<Btn tone="primary" onClick={() => { onSend(); }} disabled={!online || sending || unsent === 0}>{W.sendNow}</Btn>}>
+      <Sheet open={sheet} onClose={() => setSheet(false)} title={W.sending} footer={<Btn tone="primary" onClick={() => { onSend(); }} disabled={!online || sending || unsent === 0}>{failed ? W.tryAgain : W.sendNow}</Btn>}>
         <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-2 text-ink">
-          <dt className="text-ink-2">Notes</dt><dd>{W.notesOff}</dd>
-          <dt className="text-ink-2">Answers waiting</dt><dd className="font-mono">{answers}</dd>
-          <dt className="text-ink-2">Photos waiting</dt><dd className="font-mono">{photos}</dd>
-          <dt className="text-ink-2">Last sent</dt><dd>{lastSend ? centralTime(lastSend, { hour: "numeric", minute: "2-digit" }) : "Not yet"}</dd>
-          <dt className="text-ink-2">Signal</dt><dd>{online ? W.online : W.noSignal}</dd>
+          <dt className="text-ink-2">{W.notes}</dt><dd>{W.notesOff}</dd>
+          <dt className="text-ink-2">{W.answersWaiting}</dt><dd className="font-mono">{answers}</dd>
+          <dt className="text-ink-2">{W.photosWaiting}</dt><dd className="font-mono">{photos}</dd>
+          <dt className="text-ink-2">{W.lastSent}</dt><dd>{lastSend ? clock(lastSend) : W.notYet}</dd>
+          {failed && <><dt className="text-ink-2">{W.lastTry}</dt><dd className="text-ink"><span aria-hidden className="font-bold text-flag">⚠ </span>{clock(failure!.at)} — {plainWords(failure!.code)}</dd></>}
+          <dt className="text-ink-2">{W.signal}</dt><dd>{online ? W.online : W.noSignal}</dd>
         </dl>
         {!online && <p className="mt-3 text-ink">{W.offlineStrip}</p>}
-        {online && unsent > 0 && <p className="mt-3 text-ink-2">Sending answers and photos first.</p>}
-      </Sheet>
-      <Sheet open={menu} onClose={() => setMenu(false)} title={W.more}>
-        <div className="grid gap-3">
-          <Btn wide role="switch" aria-checked={sun} onClick={onSun} className="justify-between"><span>{W.sunMode}</span><span className="font-mono">{sun ? "● On" : "○ Off"}</span></Btn>
-          <Btn wide onClick={() => { setMenu(false); onExit(); }}>{W.back}</Btn>
-        </div>
+        {online && sending && unsent > 0 && weakLink() && <p className="mt-3 text-ink-2">{W.weakSignal}</p>}
       </Sheet>
     </header>
   );
@@ -63,7 +69,7 @@ function StatusBar({ unsent, photos, answers, online, lastSend, onSend, sending,
 export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: string }) {
   const ctl = useMemo(() => new VisitController(boot, consultId), [boot, consultId]);
   const st = useSyncExternalStore(ctl.subscribe, ctl.getState, ctl.getState);
-  const sun = useSyncExternalStore(sunStore.subscribe, sunStore.get, () => false);
+  const [sun] = useSun();
   const [client, setClient] = useState<{instance:string;field:string} | null>(null);
   const [resume, setResume] = useState<string | null>(null);
   const [exit, setExit] = useState(false);
@@ -71,7 +77,7 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
   useEffect(() => { void ctl.init(); return () => ctl.dispose(); }, [ctl]);
   useEffect(() => { const q = matchMedia("(min-width: 1024px)"); const f = () => setWide(q.matches); f(); q.addEventListener("change", f); return () => q.removeEventListener("change", f); }, []);
   useWakeLock(st.phase === "visit");
-  const toggleSun = () => sunStore.set(!sun);
+  const failureDue = useAfter(sendFailed(st.lastSendFailure) ? st.lastSendFailure!.at : null, 60_000);
 
   const snap = st.local ? ctl.snapshot() : null;
   const display = snap?.display ?? boot?.display;
@@ -82,18 +88,22 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
   const unsent = unsentOps + unsentPhotos;
   const userName = boot?.user.name ?? display?.visitor_name ?? "yourself";
   const home = boot?.home ?? (display?.slug ? `/projects/${display.slug}` : "/");
-  const title = display ? `${display.client}${display.scheduled_label ? ` · ${display.scheduled_label}` : ""}` : W.app;
+  // One time format everywhere: the label is always made by centralTime from the stored visit time.
+  const when = snap?.consult.scheduled_at ? centralTime(snap.consult.scheduled_at) : display?.scheduled_label ?? "";
+  const title = display ? `${display.client}${when ? ` · ${when}` : ""}` : W.app;
   const leave = () => { if (unsent > 0) setExit(true); else location.href = home; };
+  const more = <MoreMenu exitHref={home} />;
 
   let body: React.ReactNode = null;
-  if (st.phase === "loading") body = <div className="mx-auto max-w-[560px]"><ScreenHead title={title} /><p className="px-4 py-6 text-ink-2" role="status">Opening…</p></div>;
-  else if (st.phase === "disabled") body = <div className="mx-auto max-w-[560px]"><ScreenHead title={title} /><div className="px-4 py-6"><Banner kind="action">{plainWords("capture_disabled")}</Banner><div className="mt-4"><LinkBtn wide href={home}>{W.back}</LinkBtn></div></div></div>;
-  else if (st.phase === "get_ready") body = <GetReadyCard title={title} result={st.ready.result} checks={st.ready.checks} enrolled={st.enrolled} expires={st.leaseExpires} code={st.code} userName={userName} onGetReady={(pin) => void ctl.getReady(pin)} />;
-  else if (st.phase === "unlock") body = <UnlockCard title={title} onUnlock={(pin) => void ctl.unlock(pin)} busy={st.busy} code={st.code} expires={st.leaseExpires} olderBuild={st.olderBuild} />;
+  if (st.phase === "loading") body = <div className="mx-auto max-w-[560px]"><ScreenHead title={title} right={more} /><p className="px-4 py-6 text-ink-2" role="status">Opening…</p></div>;
+  else if (st.phase === "disabled") body = <div className="mx-auto max-w-[560px]"><ScreenHead title={title} right={more} /><div className="px-4 py-6"><Banner kind="action">{plainWords("capture_disabled")}</Banner><div className="mt-4"><LinkBtn wide href={home}>{W.back}</LinkBtn></div></div></div>;
+  else if (st.phase === "get_ready") body = <GetReadyCard title={title} result={st.ready.result} checks={st.ready.checks} enrolled={st.enrolled} expires={st.leaseExpires} code={st.code} readyCode={st.ready.code} userName={userName} onGetReady={(pin) => void ctl.getReady(pin)} more={more} />;
+  else if (st.phase === "unlock") body = <UnlockCard title={title} onUnlock={(pin) => void ctl.unlock(pin)} busy={st.busy} code={st.code} expires={st.leaseExpires} olderBuild={st.olderBuild} more={more} />;
   else if (st.phase === "blocked") {
-    const code = st.blocked ?? st.code ?? "signed_out";
+    // Another device holds this visit: its own words (§5.7), never "access removed" or "sign in".
+    const code = st.code === "device_access_denied" || st.lastSendFailure?.code === "device_access_denied" ? "device_access_denied" : st.blocked ?? st.code ?? "signed_out";
     body = (
-      <div className="mx-auto max-w-[560px]"><ScreenHead title={title} />
+      <div className="mx-auto max-w-[560px]"><ScreenHead title={title} right={more} />
         <div className="grid gap-4 px-4 py-6">
           <Banner kind="action">{plainWords(code, { name: userName })}</Banner>
           {code === "signed_out" && <LinkBtn tone="primary" wide href={`/login?next=${encodeURIComponent(`/consult/${consultId}`)}`}>{W.signIn}</LinkBtn>}
@@ -120,10 +130,13 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
         {st.storageFull && <Banner kind="action">{fill(W.storageFull, { field: st.lastSaved ?? "—" })}</Banner>}
         {(st.olderBuild || st.blocked === "update_required") && <Banner kind="status" actions={<Btn onClick={() => location.reload()}>{W.reload}</Btn>}>Update ready — reload between rooms.</Banner>}
         {st.code === "signed_out" && <Banner kind="action" actions={<LinkBtn href={`/login?next=${encodeURIComponent(`/consult/${consultId}`)}`}>{W.signIn}</LinkBtn>}>{plainWords("signed_out", { name: userName })}</Banner>}
+        {/* A close made without signal is kept (close_intent) and resumes by itself; keep working never cancels it. */}
+        {!st.closing && st.local.close_intent && <Banner kind="status" actions={st.online ? <Btn onClick={() => void ctl.drain(true)}>{W.sendNow}</Btn> : undefined}>{W.closeWaiting}</Banner>}
+        {failureDue && st.code !== "signed_out" && st.online && !st.sending && st.lastSendFailure && <Banner kind="action" actions={<Btn tone="primary" onClick={() => void ctl.drain(true)}>{W.tryAgain}</Btn>}>{fill(W.notSentSince, { time: clock(st.lastSendFailure.at) })} {plainWords(st.lastSendFailure.code, { name: userName })}</Banner>}
       </div>
     );
     if (!model.started) {
-      body = <GetReadyCard title={title} result="ready" checks={st.ready.checks} enrolled expires={st.leaseExpires} code={st.code} userName={userName} onGetReady={(pin) => void ctl.getReady(pin)} onStart={() => void ctl.start()} busy={st.busy} />;
+      body = <GetReadyCard title={title} result="ready" checks={st.ready.checks} enrolled expires={st.leaseExpires} code={st.code} userName={userName} onGetReady={(pin) => void ctl.getReady(pin)} onStart={() => void ctl.start()} busy={st.busy} more={more} />;
     } else if (st.closing) {
       body = <>{banners}<ClosingScreen closing={st.closing} unsent={unsent} online={st.online} autoApply={!!boot?.auto_apply} findings={(st.fresh?.findings_job as { status: string; last_error: string | null } | null) ?? null} findingsCode={st.findingsCode}
         onSend={() => void ctl.drain(true)} onRetry={() => void ctl.close(buildEvidence(model, st.draft, !!initials))} onKeepWorking={() => ctl.dismissClosing()} onReopen={(r) => ctl.reopen(r)} onApply={() => void ctl.applyFindings()} home={home} /></>;
@@ -145,14 +158,11 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
           showToClient: (f) => { if(f) setClient({instance:f.addr.split(":")[0],field:f.key}); else if(closingSection) setClient({instance:closingSection.instance.id,field:"client_initials"}); },
         }} /></>;
     }
-  } else body = <div className="mx-auto max-w-[560px]"><ScreenHead title={title} /><p className="px-4 py-6 text-ink-2" role="status">Opening…</p></div>;
+  } else body = <div className="mx-auto max-w-[560px]"><ScreenHead title={title} right={more} /><p className="px-4 py-6 text-ink-2" role="status">Opening…</p></div>;
 
   return (
     <div className="consult-root flex min-h-dvh flex-col bg-paper text-ink" data-sun={sun ? "1" : undefined}>
-      {st.phase === "visit" && st.local && <StatusBar unsent={unsent} photos={unsentPhotos} answers={unsentOps} online={st.online} lastSend={st.local.last_send} onSend={() => void ctl.drain(true)} sending={st.sending} sun={sun} onSun={toggleSun} onExit={leave} wide={wide} />}
-      {st.phase !== "visit" && st.phase !== "loading" && (
-        <div className="flex justify-end px-2 pt-1"><Btn tone="quiet" size={48} role="switch" aria-checked={sun} onClick={toggleSun}>{W.sunMode} {sun ? "● On" : "○ Off"}</Btn></div>
-      )}
+      {st.phase === "visit" && st.local && model?.started && <StatusBar unsent={unsent} photos={unsentPhotos} answers={unsentOps} online={st.online} lastSend={st.local.last_send} failure={st.lastSendFailure} onSend={() => void ctl.drain(true)} sending={st.sending} onExit={leave} wide={wide} />}
       <main className="flex min-h-0 flex-1 flex-col">{body}</main>
       <Sheet open={exit} onClose={() => setExit(false)} title={W.back}
         footer={<><Btn onClick={() => setExit(false)}>{W.keepWorking}</Btn><Btn onClick={() => { ctl.lock(); location.href = home; }}>Lock notes on this device</Btn><Btn tone="primary" disabled={!st.online} onClick={() => void ctl.drain(true)}>{W.sendNow}</Btn></>}>

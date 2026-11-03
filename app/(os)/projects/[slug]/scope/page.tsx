@@ -8,6 +8,8 @@ import { runDirect } from "@/lib/commands/db";
 import { getScopeRegister } from "@/lib/estimating/scope";
 import { getDesignDecisions } from "@/lib/estimating/design";
 import { projectWorkflowView } from "@/lib/workflow/engine";
+import { ConsultVisitStrip } from "@/components/consult/office/ConsultVisitStrip";
+import { liveProjectConsult } from "@/lib/consult/ui/server";
 
 export const dynamic = "force-dynamic";
 
@@ -24,6 +26,7 @@ export default async function ScopeRegisterPage({ params }: { params: Promise<{ 
   const isHistorical = project.status === "warranty" || project.status === "closeout";
   const showPrices = can(viewer, "estimates");
   const [reg, design, workflow] = await Promise.all([getScopeRegister(runDirect, project.id), getDesignDecisions(runDirect, project.id), projectWorkflowView(runDirect, project.id).catch(() => null)]);
+  const liveConsult = await liveProjectConsult(slug);
   const [consult] = await runDirect<{ id: string }>(`SELECT id FROM consults WHERE project_id = $1 AND status <> 'cancelled' ORDER BY scheduled_at DESC LIMIT 1`, [project.id]).catch(() => []);
   const live = reg.items.filter((i) => i.status !== "superseded");
   const money = (c: number | null) => (c == null ? "—" : `$${(c / 100).toLocaleString("en-US", { minimumFractionDigits: 2 })}`);
@@ -35,6 +38,8 @@ export default async function ScopeRegisterPage({ params }: { params: Promise<{ 
           meta={`${reg.register ? `Revision ${reg.register.revision} · ${reg.register.status}` : "No scope register yet"} · ${live.length} work packages · ${reg.findings.length} site findings`}
           actions={<><Button variant="secondary" href={`/projects/${slug}`}>← Project</Button>{isHistorical && <Button href={`/projects/${slug}?tab=Closeout`}>Review closeout</Button>}</>}
         />
+        {/* Site-visit plan entry point (plan §4): the consultation shows here even before a plan exists. */}
+        <div className="-mt-2 mb-5"><ConsultVisitStrip visit={liveConsult} slug={slug} viewerId={viewer.id} /></div>
         <p className="mb-5 max-w-prose text-body text-ink-3">{isHistorical ? `Historical scope and site records for ${project.name}. Missing records can be added from the original job files.` : `Work packages, responsibilities and site findings for ${project.name}. Unverified assumptions stay open until a site finding or quote answers them.`}</p>
 
         {!reg.register && (

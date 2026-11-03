@@ -375,7 +375,11 @@ anything that needs action, `--info` / `#D9E1ED` for status only; never colour a
 | Failure | Visitor sees (exact copy, buttons in brackets) | What the app does / limit |
 |---|---|---|
 | Get ready: no signal | **Open once with signal before the visit.** Or use paper and enter the answers here after the visit. [Try again] | Nothing promised offline without a prepared device (§5.2 state 4) |
-| Get ready: a check fails | **Not ready** · ! Problem {check} — {reason}. [Try again] | Reasons: "this browser won't save here (private mode or storage off)", "not enough space — free up {n} MB", "couldn't download the forms", "couldn't download the offline pages", "sign-in for offline use failed — sign in again" |
+| Get ready: a check fails | **Not ready** · ! Problem {check} — {reason}. [Try again] | Reasons: "this browser won't save here (private mode or storage off)", "not enough space — free up {n} MB", "couldn't download the forms", "couldn't download the offline pages", "sign-in for offline use failed — sign in again" (only for a real sign-in failure), "this visit is set up on another device — use that one, or ask Joe to move it here". Any other code reads the plain default: "Something went wrong. Your answers are still saved on this device. Try again." |
+| Get ready: PIN too short or too long | ! **Use 6 to 12 digits.** under the PIN field; checks stay ○ Not yet | Checked before anything is sent or reserved; the PIN field stays so it can be corrected (the same rule as offline unlock) |
+| Get ready: visit set up on another device | **Not ready** · ! Problem Works without signal — this visit is set up on another device — use that one, or ask Joe to move it here. [Try again] | One capture device per visit (§5.4). Joe moves it on the visit page (same visitor, a written reason); the old device's unsent answers can be recovered from it |
+| Another device holds the visit mid-visit | **This visit is being filled in on another device. Use that device, or ask Joe to move it here.** | Nothing more is sent from this device; its answers stay locked on it for Joe's recovery. Never worded as "access removed" or "sign in" |
+| Sending keeps failing with signal | After a minute: ⚠ **Not sent since {time}.** {plain words for the code} [Try again]. Sending sheet: **Last try** {time} — {plain words} | Answers stay on the device; every code has plain words, unknown ones read the plain default |
 | Signal absent or drops | Status bar second line: **No signal · saved on this device** · ⇅ {n} | Every tap writes to the device first; AI chips wait for signal |
 | Weak signal while sending | Sync sheet: **Sending answers and photos first. Recordings wait for a better signal.** | Answers/photos sent before audio; nothing waits on a save |
 | Tab or phone dies, then reopened | **Back where you were. Recording stopped for {m:ss} — the app was closed. Gap marked.** | Durable answers resume; up to 30 s of audio may be lost and is shown as a gap |
@@ -755,7 +759,9 @@ Who goes [Joe ▾]   Date [Nov 6] Time [9:00]
 Templates [✓ Kitchen] [✓ Bath] [□ Deck] [□ Addition] [□ Basement] [□ Whole home] [□ General]
 Add-ons [□ Garage] [□ Openings] [□ Flooring]
 Visitor notes [________________]
-Estimated visit: 3–4 hours; offer separate visits
+Estimated visit: about 3½–4 hours (Kitchen 2 h + Bath 1½–2 h); offer separate visits
+(no line until a template is ticked; the office hint is never read aloud — opening line 3 says
+"about three and a half to four hours")
 [Cancel] [Schedule]
 ```
 **Before you wrap** (phone bottom sheet; tablet right sheet):

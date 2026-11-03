@@ -2,7 +2,7 @@ import type {When} from './form-types.ts';
 import {compileCondition} from './forms/conditions.ts';
 const eq = (field:string,value:unknown):When => ({field,op:'eq',value});
 const answered = (field:string):When => ({field,op:'answered'});
-export const rrpBefore: When = {any:[eq('era.before_1978',true),{all:[{not:answered('era.before_1978')},{field:'house.year_built',op:'lt',value:1978}]}]};
+export const rrpBefore: When = {any:[eq('era.before_1978',true),{all:[{not:answered('era.before_1978')},{not:{field:'house.year_built',op:'gt',value:1977}}]}]};
 export const rrpYearConflict: When = {all:[eq('era.before_1978',false),{field:'house.year_built',op:'lt',value:1978}]};
 export const rrpApplies: When = {all:[rrpBefore,{any:[{not:eq('era.disturbs_paint',false)},eq('era.window_door_replacement',true)]}]};
 /** Derive the legal close gate from captured facts, never from wrap-sheet checkboxes. */

@@ -359,7 +359,8 @@ export function plainWords(code: string | undefined | null, ctx: { name?: string
   const c = code ?? '';
   switch (c) {
     case 'send_stuck': return 'Nothing went out — your answers are safe on this device.';
-    case 'send_in_progress': return 'A send is already running. Wait for it to finish.';
+    case 'send_in_progress': return 'Sending…';
+    case 'close_timeout': return 'Still closing — try again. Your visit is saved on this device.';
     case 'controller_disposed': return 'This visit was closed. Open it again to send.';
     case 'retry_wait': return 'Saved on this device. Waiting briefly before trying again.';
     case 'op_too_large': return 'An answer is too large to send. Ask Joe to help recover it.';

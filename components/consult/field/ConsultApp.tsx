@@ -21,7 +21,7 @@ import { ClientView } from "./ClientView";
 const nowIso = () => new Date().toISOString();
 const clock = (t: number) => centralTime(t, { hour: "numeric", minute: "2-digit" });
 /** No signal is already said by the offline strip; every other failed send is shown in words. */
-const sendFailed = (f: { code: string; at: number } | null | undefined) => !!f && !/^(no_signal|network)$/.test(f.code);
+const sendFailed = (f: { code: string; at: number } | null | undefined) => !!f && !/^(no_signal|network|send_in_progress)$/.test(f.code);
 /** Weak or unknown connection (iOS reports none): only then is "answers and photos first" true to say. */
 function weakLink(): boolean {
   const c = (typeof navigator === "undefined" ? undefined : (navigator as Navigator & { connection?: { effectiveType?: string; saveData?: boolean } }).connection);
@@ -105,7 +105,7 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
   const unsent = unsentOps + unsentPhotos;
   const {stuckAt,banner} = useStuckSince(st.online && st.phase === "visit", unsent, st.local?.last_send ?? null, sendFailed(st.lastSendFailure));
   // A reported failure wins; otherwise a silent stall online is shown as "Nothing went out".
-  const failure = sendFailed(st.lastSendFailure) ? st.lastSendFailure : stuckAt !== null && !st.sending ? { code: "send_stuck", at: stuckAt } : st.lastSendFailure;
+  const failure = sendFailed(st.lastSendFailure) ? st.lastSendFailure : stuckAt !== null && !st.sending ? { code: "send_stuck", at: stuckAt } : st.lastSendFailure?.code === "send_in_progress" ? null : st.lastSendFailure;
   const failureDue = banner;
   const userName = boot?.user.name ?? display?.visitor_name ?? "yourself";
   const home = boot?.home ?? (display?.slug ? `/projects/${display.slug}` : "/");
@@ -176,7 +176,8 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
           discard: (id, reason) => ctl.discard(id, reason),
           setDraft: (d) => ctl.setDraft(d),
           close: () => void ctl.close(buildEvidence(model, st.draft, !!initials)),
-          showToClient: (f) => { if(f) setClient({instance:f.addr.split(":")[0],field:f.key}); else if(closingSection) setClient({instance:closingSection.instance.id,field:"client_initials"}); },
+          ensureClosing: () => ctl.ensureClosing(),
+          showToClient: (f) => { if(f) setClient({instance:f.addr.split(":")[0],field:f.key}); else void ctl.ensureClosing().then(instance=>setClient({instance,field:"client_initials"})); },
         }} /></>;
     }
   } else body = <div className="mx-auto max-w-[560px]"><ScreenHead title={title} right={more} /><p className="px-4 py-6 text-ink-2" role="status">Opening…</p></div>;

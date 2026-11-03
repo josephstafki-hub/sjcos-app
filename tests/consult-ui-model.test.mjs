@@ -36,7 +36,7 @@ test('real bath seed: slots, hidden context module, open required items, Next an
   const n = nextOpen(m, room);
   assert.ok(n && n.addr.startsWith(room));
   assert.ok(leaveList(m, room).open.length > 0);
-  assert.equal(m.rrpApplies, false, 'RRP requires paint disturbance or replacement; missing year alone is not enough');
+  assert.equal(m.rrpApplies, true, 'Unknown year and unanswered pre-1978/disturbance conservatively apply RRP');
 });
 
 test('local queue overlay: pending answer covers the field; return-visit skip stays Open with ⤳', async () => {

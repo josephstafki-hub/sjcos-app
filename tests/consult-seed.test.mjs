@@ -84,7 +84,7 @@ const EXPECTED_FLAGS = {
   'bath_scope.vanity_width': '> wall available', 'bath_scope.toilet_plan': 'carrier + 2×6 wall', 'bath_scope.window_in_shower': 'tempered + wet-wall window detail',
   'kitchen_scope.hood_joists': 'crosses joists: framing work', 'kitchen_scope.dw_opening_height': '<34½″ dishwasher clearance', 'kitchen_scope.island_below': 'drain/vent trench', 'kitchen_scope.soffits': 'can\'t remove soffit freely',
   'kitchen_wall.length_ceiling': 'out of plumb if different by > 1/4″',
-  'addition_scope.soils': 'soil check/engineer', 'addition_scope.openings_lost_count': 'Check: does this remove a bedroom’s egress window?', 'addition_scope.lot_shoreland': 'shoreland/floodplain/watershed; confirm city survey requirement',
+  'addition_scope.soils': 'soil check/engineer', 'addition_scope.openings_lost_count': 'Check: does this remove a bedroom’s egress window?', 'addition_scope.lot_watershed': 'Check watershed district rules and city survey requirement', 'addition_scope.lot_shoreland': 'shoreland/floodplain/watershed; confirm city survey requirement',
   'addition_scope.utilities_meter_in_footprint': 'meter in footprint: relocation', 'addition_scope.septic_well': 'setbacks', 'addition_scope.hvac_manual_j': 'missing load calculation', 'addition_scope.stories': 'engineer for existing structure',
   'basement_scope.rim_insulated': '1322 wall/rim insulation; sub verifies required R-values', 'basement_scope.fuel_enclosed': 'combustion air/clearances under 1346', 'basement_scope.stair_storage': 'enclosed side ½″ drywall R302.7',
   'basement_scope.water_ever': 'moisture plan', 'basement_scope.lowest_beam': 'below 6′4″ under beams/ducts (IRC R305.1.1)', 'basement_scope.stair_headroom': '< 80″',

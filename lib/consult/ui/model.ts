@@ -323,7 +323,7 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
       const view: FieldView = { key: f.key, addr, def: f, required, applicable, mark, answer: a, conflict, returnVisit: a?.status === 'skipped' && a.skip_reason === 'Get on return visit', skipNote: a?.skip_note, skipCounts: counts, shots, flags, initials };
       if (!applicable) { hidden.push(view); continue; }
       fieldViews.push(view);
-      if (required) {
+      if (required && !['name','level','decision'].includes(f.key)) {
         count(f.tier, answered || counts, counts);
         if (!(answered || counts)) allOpen.push({ section, item: view, kind: 'field', partly: false });
         else if (mark === 'partial') allOpen.push({ section, item: view, kind: 'field', partly: true });
@@ -446,26 +446,27 @@ export function spokenSelections(model: VisitModel, max = 5): string {
  *  formal estimate date. Never a stock sentence. */
 export function summaryInput(model: VisitModel, display: Display | undefined, visitDate: string, formalDate: string) {
   const rooms: { name: string; work: string[] }[] = [];
-  const comeBack: string[] = [];
+  const comeBack: {phrase:string; room:boolean}[] = [];
+  const measured = new Set<string>();
+  const placeKey = (p:string)=>p.replace(/^(the|a|an) /i,'').toLowerCase();
   for (const s of model.sections) {
     if (!CLIENT_ROOMS.includes(s.module.key)) continue;
     const place = clientPlace(s);
     const answered = s.fields.filter((f) => !['name','level','decision'].includes(f.key) && f.answer?.status === 'answered' && f.mark !== 'open');
-    if (!answered.length) { if (s.mark !== 'not_applicable') comeBack.push(place.phrase); continue; }
+    if (s.module.key === 'room' && !answered.some(f=>f.def.type==='length' || f.def.type==='length_pair')) comeBack.push({phrase:place.phrase,room:s.module.key==='room'});
+    if (!answered.length) { if (s.mark !== 'not_applicable') comeBack.push({phrase:place.phrase,room:s.module.key==='room'}); continue; }
     const work: string[] = [];
-    if (answered.some((f) => f.def.type === 'length' || f.def.type === 'length_pair')) work.push('Measured');
+    if (answered.some((f) => f.def.type === 'length' || f.def.type === 'length_pair')) {work.push('Measured');if(s.module.key==='room')measured.add(placeKey(place.phrase));}
     for (const f of answered) {
       if (f.def.type !== 'choice' || !f.def.maps_to || f.def.tier !== 'price_critical') continue;
       work.push(`${plainLabel(f.def.label)}: ${String(f.answer!.value).toLowerCase()}`);
     }
     if (work.length === 0) work.push('Looked over');
-    const same = rooms.find((r) => r.name === place.heading);
+    const same = s.module.key === 'room' ? undefined : rooms.find((r) => r.name === place.heading);
     if (same) same.work = [...new Set([...same.work, ...work])].slice(0, 6);
     else rooms.push({ name: place.heading, work: work.slice(0, 6) });
   }
-  // One mention per place, and never "not measured" for a place listed as gone over.
-  const covered = new Set(rooms.map((r) => r.name.toLowerCase()));
-  const notMeasured = [...new Set(comeBack)].filter((p) => !covered.has(p.replace(/^(the|a|an) /, '').toLowerCase()));
+  const notMeasured = [...new Set(comeBack.filter(p=>p.room || !measured.has(placeKey(p.phrase))).map(p=>p.phrase))];
   const questions = model.sections.filter((s) => s.module.key === 'closing').flatMap((s) => s.fields.filter((f) => f.key === 'client_questions' && f.answer?.status === 'answered').map((f) => String(f.answer!.value)));
   return { client_name: display?.client ?? '', visit_date: visitDate, rooms, come_back: notMeasured, still_to_decide: openSelectionGroups(model), open_questions: questions, formal_estimate_date: formalDate };
 }

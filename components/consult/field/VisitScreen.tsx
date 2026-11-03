@@ -27,6 +27,7 @@ export interface VisitApi {
   discard: (eventId: string, reason: string) => Promise<unknown>;
   setDraft: (d: EvidenceDraft) => Promise<boolean>;
   close: () => void;
+  ensureClosing: () => Promise<string>;
   showToClient: (field?: FieldView) => void;
 }
 
@@ -321,7 +322,7 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
       <WrapSheet open={sheet === "wrap"} onClose={() => setSheet(null)} model={model} draft={draft} hasInitials={hasInitials} refused={refused}
         onGo={(id, addr) => { setSheet(null); openSection(id, addr); }} onFlags={() => setSheet("flags")} onTrades={() => setSheet("trades")} onRrp={() => setSheet("rrp")} onClient={() => { setSheet(null); api.showToClient(); }} onAck={() => setSheet("ack")}
         onCloseVisit={() => { setSheet(null); api.close(); }}
-        onPromised={(() => { const c = model.sections.find((x) => x.module.key === "closing"); return c ? () => { setSheet(null); openSection(c.instance.id, `${c.instance.id}:estimate_promised`); } : undefined; })()} />
+        onPromised={() => { void api.ensureClosing().then(id=>{setSheet(null);openSection(id,`${id}:estimate_promised`);}); }} />
       {sheet === "flags" && <FlagSheet open onClose={() => setSheet("wrap")} model={model} draft={draft} saveError={saveError} onSave={api.setDraft} />}
       {sheet === "trades" && <TradeSheet open onClose={() => setSheet("wrap")} model={model} draft={draft} saveError={saveError} onSave={api.setDraft} />}
       {sheet === "rrp" && <RrpSheet model={model} onGo={() => {setSheet(null);const id=model.sections.find(s=>s.module.key==="era")?.instance.id;if(id)openSection(id);}} open onClose={() => setSheet("wrap")} draft={draft} saveError={saveError} onSave={api.setDraft} />}

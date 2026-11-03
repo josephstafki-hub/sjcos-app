@@ -50,6 +50,6 @@ test('PIN cold unlock then Send now posts queued answers with browser fetch rece
 
 test('Send now explains missing engine, concurrent send and disposed controller',async()=>{
  const c=new VisitController(null,'visit');await c.drain(true);assert.equal(c.getState().lastSendFailure.code,'not_prepared');
- c.engine={};c.draining=true;await c.drain(true);assert.equal(c.getState().lastSendFailure.code,'send_in_progress');
+ let release;const pending=new Promise(resolve=>release=resolve);c.drainPromise=pending;assert.equal(c.drain(true),pending);release();await pending;c.drainPromise=null;assert.notEqual(c.getState().lastSendFailure?.code,'send_in_progress');
  c.disposed=true;await c.drain(true);assert.equal(c.getState().lastSendFailure.code,'controller_disposed');
 });

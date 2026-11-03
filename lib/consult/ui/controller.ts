@@ -1,5 +1,5 @@
 import {frostZones} from '../frost.ts';
-import {isNetworkFailure,transportCode,transientClose} from '../transport.ts';
+import {deadlineFetch,isNetworkFailure,transportCode,transientClose} from '../transport.ts';
 /**
  * The one stateful object behind the field app. Wires the backend's offline modules
  * (get-ready.ts, offline-vault.ts, offline-engine.ts, queue.ts, service-worker.ts)
@@ -14,7 +14,7 @@ import { ConsultOfflineStore, type OfflineIdentity, type OfflineLease, type Sign
 import { OfflineVault } from '../offline-vault.ts';
 import { OfflineEngine, type LocalBlob, type LocalVisit } from '../offline-engine.ts';
 import { getReady } from '../get-ready.ts';
-import { closeManifest, type QueueState } from '../queue.ts';
+import { enqueue, closeManifest, type QueueState } from '../queue.ts';
 import { registerConsultWorker, type PrecacheManifest } from '../service-worker.ts';
 import type { ReadyCheck, CheckResult } from '../readiness.ts';
 import { baselineOf, buildModel, emptyDraft, manifestBlobs, predictRevisions, unsentCount, type Baseline, type Display, type EvidenceDraft, type Snapshot } from './model.ts';
@@ -40,7 +40,7 @@ export interface State {
 const DEVICE_KEY = 'sjcos-consult-device';
 const NEEDED_BYTES = 50 * 1024 * 1024;
 const post = async (consultId: string, command: string, input: unknown) => {
-  const r = await fetch(`/api/consult/${consultId}`, { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-Consult-CSRF': '1' }, body: JSON.stringify({ command, input }) });
+  const r = await deadlineFetch(fetch,`/api/consult/${consultId}`, { method: 'POST', credentials: 'same-origin', cache: 'no-store', headers: { 'Content-Type': 'application/json', 'X-Consult-CSRF': '1' }, body: JSON.stringify({ command, input }) });
   let body: Record<string, unknown> = {};
   try { body = await r.json(); } catch { /* empty body */ }
   if (r.status === 408 || r.status === 429 || r.status >= 500) throw new Error(`http_${r.status}`);
@@ -126,7 +126,10 @@ export class VisitController {
   private lease: OfflineLease | null = null;
   private manifest: PrecacheManifest | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
-  private draining = false;
+  private drainPromise: Promise<void> | null = null;
+  private initializing: Promise<void> | null = null;
+  private uploadAttempts = 0;
+  private closeTimer: ReturnType<typeof setTimeout> | null = null;
   private closing = false;
   private expiryTimer: ReturnType<typeof setTimeout> | null = null;
   private writes: Promise<unknown> = Promise.resolve();
@@ -159,7 +162,7 @@ export class VisitController {
     }
     try { this.store = await ConsultOfflineStore.open(); } catch { this.store = null; }
     if (boot) {
-      try { const r = await fetch('/consult/precache.json', { cache: 'no-store', credentials: 'omit' }); if (r.ok) this.manifest = await r.json(); } catch { /* offline pages check reports it */ }
+      try { const r = await deadlineFetch(fetch,'/consult/precache.json', { cache: 'no-store', credentials: 'omit' }); if (r.ok) this.manifest = await r.json(); } catch { /* offline pages check reports it */ }
     }
     const mine = (await listEnrollments()).filter((e) => e.identity.consult_id === consultId && e.device === device && (!boot || e.identity.user_id === boot.user.id));
     const current = boot ? { user_id: boot.user.id, session_epoch: boot.session_epoch, build: this.manifest?.build ?? 'unbuilt', consult_id: consultId } : null;
@@ -191,7 +194,7 @@ export class VisitController {
       const reg = await registerConsultWorker(true);
       worker = reg ? await activeWorker(reg) : null;
     } catch { worker = null; }
-    try { if (!this.manifest) { const r = await fetch('/consult/precache.json', { cache: 'no-store', credentials: 'omit' }); if (r.ok) this.manifest = await r.json(); } } catch (e) { if (offlineError(e)) { this.set({ ready: { result: 'no_signal', checks: {} } }); return; } }
+    try { if (!this.manifest) { const r = await deadlineFetch(fetch,'/consult/precache.json', { cache: 'no-store', credentials: 'omit' }); if (r.ok) this.manifest = await r.json(); } } catch (e) { if (offlineError(e)) { this.set({ ready: { result: 'no_signal', checks: {} } }); return; } }
     const request = fetch;
     if (!worker || !this.manifest) {
       // Run the checks that can still run so the screen names the exact failure.
@@ -248,6 +251,7 @@ export class VisitController {
     const local = this.engine!.read();
     const draft = (local?.queue.projection as { draft?: EvidenceDraft })?.draft ?? (local?.snapshot as Snapshot)?.decisions ?? emptyDraft();
     this.set({ local, draft, phase: local?.queue.blocked ? 'blocked' : 'visit', blocked: local?.queue.blocked ?? null, code: local?.queue.blocked ?? null });
+    await this.ensureRequiredInstances();
     void this.loadThumbs();
     void this.drain();
   }
@@ -317,40 +321,84 @@ export class VisitController {
 
   async start() {
     const snap = this.snapshot(); if (!snap) return;
-    const model = this.model()!;
     await this.commit((q, b) => startOp(q, this.state.device, b), 'Start visit');
     await this.ensureRequiredInstances();
     this.set({ phase: 'visit' });
   }
-  private async ensureRequiredInstances() {
-    const snap = this.snapshot(); const model = this.model(); if (!snap || !model) return;
-    // One instance for each required once-module, `min` for required repeats, presets for selections.
-    for (const slot of model.slots) {
-      if (!slot.required || slot.parent) continue;
-      const presets = slot.presets ?? [];
-      const need = Math.max(slot.minimum, presets.length) - slot.live;
-      for (let i = 0; i < need; i++) {
-        const preset = presets[slot.live + i] as Record<string, unknown> | undefined;
-        const area = model.templates.flatMap(t=>Array.from({length:t.modules.find(m=>m.module===slot.module.key)?.min??0},()=>t.title))[slot.live+i];
-        // "Room dimensions 1 — Bath"; never "Kitchen wall 1 — Kitchen" (r3 C11). Bath is the one area word.
-        const areaWord = (area ?? model.templates[0]?.title ?? "") === "Bathroom" ? "Bath" : (area ?? model.templates[0]?.title ?? "");
-        const base = `${slot.module.title} ${slot.live + i + 1}`;
-        const label = preset?.decision ? String(preset.decision) : slot.module.repeatable ? (areaWord && !base.toLowerCase().includes(areaWord.toLowerCase()) ? `${base} — ${areaWord}` : base) : slot.module.title;
-        const op = await this.commit((q, b) => createInstanceOp(q, this.state.device, b, slot.module.key, label), label);
-        const defaults: Record<string, unknown> = slot.module.key === 'footing' ? {frost_zone:frostZones[0].label,required_depth:frostZones[0].depth} : slot.module.key === 'era' ? Object.fromEntries(Object.entries({firm_cert_number:snap.prefill?.firm_cert_number,firm_cert_expiry:snap.prefill?.firm_cert_expiry}).filter(([,v])=>!!v)) : {};
-        for (const [field, value] of Object.entries({...defaults,...preset})) {
-          const def = slot.module.fields.find((f) => f.key === field); if (!def) continue;
-          const id = (op.target as { instance_id: string }).instance_id;
-          await this.commit((q, b) => answerOp(q, this.state.device, b, id, field, { status: 'answered', value, unit: def.unit }), def.label);
+  /** Serialize against all local writes; recompute from durable state inside the lock. */
+  ensureRequiredInstances(): Promise<void> {
+    if (this.initializing) return this.initializing;
+    const next = this.writes.then(async () => {
+      const snap = this.snapshot(), model = this.model();
+      if (!snap || !model || !model.started || ['complete','needs_finishing','cancelled'].includes(model.status) || !this.engine || this.state.local?.queue.blocked || this.state.local?.close_intent) return;
+      this.set({busy:true,code:null});
+      try {
+        let q = this.state.local!.queue;
+        let base = this.baseline();
+        const ops: import('../queue.ts').ConsultOp[] = [];
+        const append = async (build: (q: QueueState,b: Baseline) => Promise<import('../queue.ts').ConsultOp>, _label: string) => {
+          const op = await build(q,base); ops.push(op);
+          q = enqueue(q,op,this.projection());
+          base = predictRevisions(base,[q.entries[q.entries.length-1]]);
+          return op;
+        };
+        // One instance for each required once-module, `min` for required repeats, presets for selections.
+        for (const slot of [...model.slots].sort((a,b) => Number(a.module.key === 'selections') - Number(b.module.key === 'selections'))) {
+          if (!slot.required) continue;
+          const parentId = slot.parent ? model.sections.find(s=>s.module.key===slot.parent)?.instance.id ?? ops.filter(op=>op.type==='create_instance').map(op=>op.target as {module_key:string;instance_id:string}).find(t=>t.module_key===slot.parent)?.instance_id : undefined;
+          if (slot.parent && !parentId) continue;
+          const presets = slot.presets ?? [];
+          const existing = model.sections.filter(s=>s.module.key===slot.module.key);
+          for (const [index,preset] of presets.entries()) {
+            const section=existing.find(s=>s.instance.label===String(preset.decision)) ?? existing[index];
+            if (!section) continue;
+            for (const [field,value] of Object.entries(preset)) {
+              const def=slot.module.fields.find(f=>f.key===field);
+              if (def && !section.fields.some(f=>f.key===field && f.answer)) await append((q,b)=>answerOp(q,this.state.device,b,section.instance.id,field,{status:'answered',value,unit:def.unit}),def.label);
+            }
+          }
+          const need = Math.max(slot.minimum, presets.length) - slot.live;
+          for (let i = 0; i < need; i++) {
+            const preset = presets[slot.live + i] as Record<string, unknown> | undefined;
+            const area = model.templates.flatMap(t=>Array.from({length:t.modules.find(m=>m.module===slot.module.key)?.min??0},()=>t.title))[slot.live+i];
+            // "Room dimensions 1 — Bath"; never "Kitchen wall 1 — Kitchen" (r3 C11). Bath is the one area word.
+            const areaWord = (area ?? model.templates[0]?.title ?? "") === "Bathroom" ? "Bath" : (area ?? model.templates[0]?.title ?? "");
+            const base = `${slot.module.title} ${slot.live + i + 1}`;
+            const label = preset?.decision ? String(preset.decision) : slot.module.repeatable ? (areaWord && !base.toLowerCase().includes(areaWord.toLowerCase()) ? `${base} — ${areaWord}` : base) : slot.module.title;
+            const op = await append((q, b) => createInstanceOp(q, this.state.device, b, slot.module.key, label, parentId), label);
+            const defaults: Record<string, unknown> = slot.module.key === 'era' ? Object.fromEntries(Object.entries({firm_cert_number:snap.prefill?.firm_cert_number,firm_cert_expiry:snap.prefill?.firm_cert_expiry}).filter(([,v])=>!!v)) : {};
+            for (const [field, value] of Object.entries({...defaults,...preset})) {
+              const def = slot.module.fields.find((f) => f.key === field); if (!def) continue;
+              const id = (op.target as { instance_id: string }).instance_id;
+              await append((q, b) => answerOp(q, this.state.device, b, id, field, { status: 'answered', value, unit: def.unit }), def.label);
+            }
+          }
         }
-      }
-    }
-    this.set({ phase: 'visit' });
+
+        if (ops.length) {
+          await this.engine.captureBatch(ops,this.projection());
+          this.set({local:this.engine.read(),lastSaved:'Required sections'});
+          this.schedule(0);
+        }
+      } catch(e) { this.set({code:codeOf(e)}); throw e; }
+      finally { this.set({busy:false}); }
+    });
+    this.writes = next.catch(()=>undefined);
+    this.initializing = next.finally(()=>{this.initializing=null;});
+    return this.initializing;
+  }
+  /** Used by both client view and promised-date actions, including damaged old visits. */
+  async ensureClosing(): Promise<string> {
+    await this.ensureRequiredInstances();
+    let section = this.model()?.sections.find(s=>s.module.key==='closing');
+    if (!section) { await this.addInstance('closing','Closing'); section=this.model()?.sections.find(s=>s.module.key==='closing'); }
+    if (!section) throw new Error('closing_missing');
+    return section.instance.id;
   }
 
   async answer(instance_id: string, field_key: string, label: string, payload: AnswerPayload, draft?: EvidenceDraft) {
     const op = await this.commit((q, b) => answerOp(q, this.state.device, b, instance_id, field_key, payload), label, draft);
-    if (field_key === 'frost_zone' && payload.status === 'answered') await this.answer(instance_id,'required_depth','Footing depth the city requires',{status:'answered',value:frostZones.find(z=>z.label===payload.value)?.depth ?? frostZones[0].depth});
+    if (field_key === 'frost_zone' && payload.status === 'answered') { const zone=frostZones.find(z=>z.label===payload.value); if(zone) await this.answer(instance_id,'required_depth','Footing depth the city requires',{status:'answered',value:zone.depth}); }
     if (field_key === 'rooms_wanted') await this.ensureRequiredInstances();
     return op;
   }
@@ -382,15 +430,16 @@ export class VisitController {
   }
 
   /** Send now / online / timer. One drain at a time; batches until nothing sendable is left. */
-  async drain(force = false) {
-    if (!this.engine || this.draining || this.disposed) {
-      const stopped = this.disposed ? 'controller_disposed' : !this.engine ? 'not_prepared' : 'send_in_progress';
-      this.state = { ...this.state, lastSendFailure: { code: stopped, at: Date.now() } };
-      if (!this.disposed) this.set({ lastSendFailure: this.state.lastSendFailure });
-      return;
-    }
+  drain(force = false): Promise<void> {
+    if (this.drainPromise) return this.drainPromise;
+    const running = this.drainWork(force);
+    this.drainPromise = running.finally(()=>{this.drainPromise=null;});
+    return this.drainPromise;
+  }
+  private async drainWork(force: boolean) {
+    if (!this.engine || this.disposed) { const lastSendFailure={code:this.disposed?'controller_disposed':'not_prepared',at:Date.now()}; this.state={...this.state,lastSendFailure};this.set({lastSendFailure});return; }
     if (!navigator.onLine && !force) { this.set({ online: false, lastSendFailure: { code: 'no_signal', at: Date.now() } }); return; }
-    this.draining = true; this.set({ sending: true });
+    this.set({ sending: true });
     try {
       for (let i = 0; i < 20; i++) {
         const before = JSON.stringify(this.engine.read()?.queue.entries.map((e) => e.status));
@@ -422,10 +471,14 @@ export class VisitController {
       } else this.set({ online: code !== 'no_signal' ? this.state.online : false });
       this.set({ lastSendFailure: { code, at: Date.now() }, code });
     } finally {
-      this.draining = false; this.set({ sending: false });
+      this.set({ sending: false });
       const local = this.state.local;
       const next = local?.queue.entries.filter((e) => e.status === 'pending').map((e) => e.next_at).sort((a, b) => a - b)[0];
       if (next !== undefined) this.schedule(Math.max(2000, next - Date.now()));
+      const failure = this.state.lastSendFailure?.code;
+      if (!local?.blobs.some(b=>!b.receipt)) this.uploadAttempts=0;
+      else if (!local.queue.blocked && failure && (transientClose(failure) || /^upload_(408|429|5\d\d)$/.test(failure)))
+        this.schedule(Math.min(60_000,2000 * 2 ** Math.min(this.uploadAttempts++,5)));
     }
   }
   private closeAttempts = 0;
@@ -435,7 +488,7 @@ export class VisitController {
   async refresh() {
     const epoch = this.memoryEpoch;
     try {
-      const r = await fetch(`/api/consult/${this.state.consultId}`, { credentials: 'same-origin', cache: 'no-store' });
+      const r = await deadlineFetch(fetch,`/api/consult/${this.state.consultId}`, { credentials: 'same-origin', cache: 'no-store' });
       if (r.status === 401 || r.status === 403) { this.deny(r.status === 401 ? 'signed_out' : 'revoked'); return; }
       if (!r.ok) return;
       const fresh = (await r.json()) as Snapshot;
@@ -443,16 +496,22 @@ export class VisitController {
       const freshSeq = entries.filter((e) => e.status === 'accepted').reduce((m, e) => Math.max(m, e.op.seq), 0);
       if (epoch !== this.memoryEpoch) return;
       this.set({ fresh, freshSeq, online: true });
+      if (this.state.local) await this.ensureRequiredInstances();
     } catch (e) { if (offlineError(e)) this.set({ online: false }); else this.set({lastSendFailure:{code:codeOf(e),at:Date.now()}}); }
   }
 
   /** §5.5 close: drain → evidence → exact manifest → server Complete / Needs finishing. */
   async close(evidence: Record<string, unknown> | null) {
     if (!this.engine) return;
-    await this.engine.saveCloseIntent(evidence);
+    if (!this.engine.read()?.close_intent) await this.engine.saveCloseIntent(evidence);
     this.set({ local: this.engine.read(), closing: { step: 'sending' } });
     if (!navigator.onLine) { this.set({closing:{step:'waiting_signal'}}); return; }
+    if (this.closeTimer) clearTimeout(this.closeTimer);
+    this.closeTimer=setTimeout(()=>{
+      if (['sending','closing'].includes(this.state.closing?.step ?? '')) this.set({closing:{step:'error',code:'close_timeout'}});
+    },20_000);
     await this.drain(true);
+    if (this.engine?.read()?.close_intent) await this.resumeClose();
   }
   private async resumeClose() {
     if (!this.engine || this.closing) return;
@@ -478,6 +537,7 @@ export class VisitController {
       await this.refresh();
       await this.engine?.clearCloseIntent();
       this.closeAttempts = 0;
+      if(this.closeTimer)clearTimeout(this.closeTimer);
       this.set({ local: this.engine?.read() ?? null, closing: { step: 'done', result } });
     } catch (e) {
       const code = codeOf(e);
@@ -515,7 +575,7 @@ export class VisitController {
   }
   /** "Lock notes on this device": drop decrypted memory, keep ciphertext for the same user. */
   private deny(code: string) { this.lock(); this.set({ phase: 'blocked', blocked: code === 'revoked' || code === 'device_access_denied' ? 'revoked' : 'signed_out', code }); }
-  lock() { this.memoryEpoch++; if (this.expiryTimer) clearTimeout(this.expiryTimer); this.engine?.lock(); this.engine = null; this.key = null; this.lease = null; for (const url of Object.values(this.state.thumbs)) URL.revokeObjectURL(url); this.set({ local: null, fresh: null, freshSeq: 0, draft: emptyDraft(), boot: null, thumbs: {}, closing: null, lastSaved: null, phase: this.state.enrolled ? 'unlock' : 'get_ready' }); }
+  lock() { this.memoryEpoch++; if(this.closeTimer)clearTimeout(this.closeTimer); if (this.expiryTimer) clearTimeout(this.expiryTimer); this.engine?.lock(); this.engine = null; this.key = null; this.lease = null; for (const url of Object.values(this.state.thumbs)) URL.revokeObjectURL(url); this.set({ local: null, fresh: null, freshSeq: 0, draft: emptyDraft(), boot: null, thumbs: {}, closing: null, lastSaved: null, phase: this.state.enrolled ? 'unlock' : 'get_ready' }); }
   dispose() {
     this.lock();
     this.disposed = true;

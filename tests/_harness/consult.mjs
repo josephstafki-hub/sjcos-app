@@ -24,7 +24,18 @@ export async function fixture(c){
  await send([op('create_instance',{},1,{instance_id:instance,module_key:'room',label:'Room'})]);
  const revision=async()=>Number((await c.query('SELECT revision FROM consults WHERE id=$1',[consult])).rows[0].revision);
  const evidence={photos_ok:false,manual_confirmed:true,handed_back:true,ack_reason:'Client declined initials',promised_date:'2026-12-10',no_trades_confirmed:true,touched_trades:[],trade_walks:[],rrp:{receipt:true,firm_current:true,renovator_current:true,redelivery_required:false},flags:{},skips:{}};
- const save=async(e=evidence)=>run('evidence',{device,epoch:1,expected_revision:await revision(),evidence:e});
+ // Complete fixtures explicitly record a modern year. Unknown years now correctly block on RRP.
+ let house;
+ const save=async(e=evidence)=>{
+  if(!house)house=(await c.query("SELECT id FROM consult_instances WHERE consult_id=$1 AND module_key='house' AND removed_at IS NULL",[consult])).rows[0]?.id;
+  if(!house){
+   const definition={key:'house',version:1,title:'House',repeatable:false,say:[],fields:[{key:'year_built',label:'Year built',type:'year',required:true,tier:'price_critical'}],shots:[],coverage:[]};
+   const form=(await c.query("INSERT INTO consult_form_versions(kind,key,version,definition,checksum,author) VALUES('module','house',1,$1,'',$2) RETURNING id",[definition,owner])).rows[0].id;
+   await publish(c,context('publish_form',owner,null),{form_id:form,registry_id:registry});
+   await c.query('INSERT INTO consult_form_pins SELECT $1,id,kind,key,version,checksum FROM consult_form_versions WHERE id=$2',[consult,form]);
+   house=randomUUID();await send([op('create_instance',{},await revision(),{instance_id:house,module_key:'house',label:'House'})]);await send([op('answer',{status:'answered',value:2000},0,{instance_id:house,field_key:'year_built'})]);}
+  return run('evidence',{device,epoch:1,expected_revision:await revision(),evidence:e});
+ };
  const close=async(extra={})=>run('close',{expected_revision:await revision(),manifest:{device,epoch:1,last_seq:seq,required_blob_hashes:[],initials_hash:null,local_pending:0,...extra}});
  return {owner,staff,other,project,consult,device,instance,context,registry,forms,run,op,send,revision,evidence,save,close};
 }

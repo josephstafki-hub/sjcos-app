@@ -26,10 +26,10 @@ test('batch receipt replay, hash/nonce binding, stale clear/remove, manifest, Co
   await assert.rejects(f.close({required_blob_hashes:['0'.repeat(64)]}),/manifest_blob_missing/);
   const closed=await f.close();assert.equal(closed.complete,true);assert.match(closed.digest,/^[a-f0-9]{64}$/);
   assert.deepEqual(await f.close(),closed);
-  await assert.rejects(f.send([f.op('answer',{status:'answered',value:121,unit:'in'},3)]),/complete_locked/);
+  const locked=f.op('answer',{status:'answered',value:121,unit:'in'},3);await assert.rejects(f.send([locked]),/complete_locked/);
   await f.run('reopen',{expected_revision:await f.revision(),reason:'Correction'});
-  const old={...f.op(),seq:3};assert.equal((await f.send([old]))[0].error_code,'rebase_required');
-  assert.equal((await c.query('SELECT count(*) n FROM consult_answers')).rows[0].n,'1');
+  const old={...f.op(),seq:locked.seq};assert.equal((await f.send([old]))[0].error_code,'rebase_required');
+  assert.equal((await c.query("SELECT count(*) n FROM consult_answers WHERE field_key='length'")).rows[0].n,'1');
  },{fresh:true});
 });
 

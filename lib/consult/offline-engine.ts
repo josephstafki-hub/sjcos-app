@@ -1,4 +1,4 @@
-import {transportCode} from './transport.ts';
+import {deadlineFetch,transportCode} from './transport.ts';
 /** Framework-independent controller. No decrypted shared singleton or automatic rebase. */
 import {ConsultOfflineStore,assertOfflineLease,partitionKey,verifyLease,type SignedLease,type OfflineIdentity,type OfflineLease} from './offline.ts';
 import {applyReceipt,applyServerEpoch,enqueue,nextBatch,type QueueState,type ConsultOp,type OpReceipt} from './queue.ts';
@@ -14,7 +14,7 @@ export class OfflineEngine {
  constructor(identity:OfflineIdentity,store:OfflineRepository,request:typeof fetch=fetch){
   this.identity=identity;this.store=store;
   // Browser fetch requires a Window/undefined receiver, never this engine.
-  this.request=(...args)=>request(...args);
+  this.request=(input,init)=>deadlineFetch(request,input,init);
  }
  async unlockSigned(key:CryptoKey,signed:SignedLease,device:string,trusted:JsonWebKey){const lease=await verifyLease(signed,this.identity,device,trusted);const result=await this.unlock(key,lease);this.device=device;return result;}
  /** Low-level seam for verified leases; UI uses unlockSigned. */
@@ -28,6 +28,8 @@ export class OfflineEngine {
  async saveCloseIntent(evidence:Record<string,unknown>|null){return this.exclusive(async()=>{const v=this.read();if(v)await this.commit({...v,close_intent:{evidence}});});}
  async saveCloseRequest(request:{expected_revision:number;manifest:unknown}){return this.exclusive(async()=>{const v=this.read();if(v?.close_intent)await this.commit({...v,close_intent:{...v.close_intent,request}});});}
  async clearCloseIntent(){return this.exclusive(async()=>{const v=this.read();if(v)await this.commit({...v,close_intent:undefined});});}
+ /** One durable transaction: initialization is either entirely present or absent. */
+ async captureBatch(ops:ConsultOp[],projection:Record<string,unknown>){return this.exclusive(async()=>{const v=this.read();if(!v)throw new Error('not_prepared');let queue=v.queue;for(const op of ops)queue=enqueue(queue,op,projection);await this.commit({...v,queue});});}
  async capture(op:ConsultOp,projection:Record<string,unknown>){return this.exclusive(async()=>{const v=this.read();if(!v)throw new Error('not_prepared');await this.commit({...v,queue:enqueue(v.queue,op,projection)});});}
  async orphanHashes(){this.access();const v=this.read();const referenced=new Set(v?.blobs.map(b=>b.hash)??[]);return (await this.store.blobHashes(this.identity)).filter(h=>!referenced.has(h));}
  async evictSyncedBlobs(){const v=this.read();if(!v)return;for(const b of v.blobs)if(b.receipt&&!v.blobs.some(p=>p.hash===b.hash&&!p.receipt))await this.store.deleteBlob(this.identity,b.hash);}
@@ -43,7 +45,7 @@ export class OfflineEngine {
  async replay(){return this.exclusive(async()=>{try{await this.replayWrite();}catch(e){this.lastSendFailure={code:transportCode(e),at:Date.now(),detail:String(e)};let v:LocalVisit|null=null;try{v=this.key?this.read():null;}catch{/* locked lease: memory diagnostic remains visible */}if(v)await this.commit({...v,last_send_failure:this.lastSendFailure});throw e;}});}
  private async stoppedSend(code:string){this.lastSendFailure={code,at:Date.now()};if(this.key){const v=this.read();if(v)await this.commit({...v,last_send_failure:this.lastSendFailure});}}
  private async replayWrite(){
-  if(this.running){await this.stoppedSend('send_in_progress');return;}this.running=true;
+  if(this.running)return;this.running=true;
   try{const v=this.read();if(!v||v.queue.blocked){await this.stoppedSend(v?.queue.blocked??'not_prepared');return;}
    const ops=nextBatch(v.queue,Date.now());
    if(!ops.length){const first=v.queue.entries.find(e=>e.status!=='accepted');if(first){await this.stoppedSend(first.status==='pending'?(first.next_at>Date.now()?'retry_wait':'op_too_large'):(first.error_code??`queue_${first.status}`));return;}}

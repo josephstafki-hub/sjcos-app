@@ -52,10 +52,11 @@ export function WrapSheet({ open, onClose, model, draft, hasInitials, refused, o
       <div className="mb-5 grid gap-3">
         {/* r3 C7: what stops a Complete close comes first — flags, promised date, client initials. */}
         {model.flags.length > 0 && <Line text={undecidedFlags.length ? fill(undecidedFlags.length === 1 ? W.flagsLine : W.flagsLinePlural, { n: undecidedFlags.length }) : `Flags: all ${model.flags.length} decided ✓`} action={<Btn onClick={onFlags}>{W.reviewFlags}</Btn>} warn={undecidedFlags.length > 0} />}
-        <Line text={model.promised ? `${W.promisedBy} ${promisedLabel(model.promised)} ✓` : W.promisedMissing} action={model.promised ? undefined : onPromised && <Btn onClick={onPromised}>{W.pickDate}</Btn>} warn={!model.promised} />
-        <Line text={hasInitials ? "Client initials ✓" : draft.ack_reason ? `No initials · ${draft.ack_reason}` : "Client initials — not yet"} action={hasInitials ? undefined : <span className="flex flex-wrap gap-3"><Btn onClick={onClient}>{W.showToClient}</Btn><Btn tone="quiet" onClick={onAck}>{W.noInitialsWhy.replace("?", "")}</Btn></span>} warn={ackOpen} stack />
-        <Line text={trades.length ? (undecidedTrades.length ? fill(W.tradeWalksLine, { trade: undecidedTrades.join(", ") }) : "Trade walks: all decided ✓") : draft.no_trades_confirmed ? "Trade walks: none — no trade is touched ✓" : "Trade walks: confirm none is needed"} action={<Btn onClick={onTrades}>{W.decide}</Btn>} warn={tradesOpen} />
-        {model.rrpApplies && <Line text={rrpOpen ? fill(W.rrpNeeds, { list: [!model.rrp.receipt && W.rrpShortReceipt, !model.rrp.firm_current && W.rrpShortFirm, !model.rrp.renovator_current && W.rrpShortRenovator].filter(Boolean).join(" · ") }) : W.rrpRecorded} action={<Btn onClick={onRrp}>{W.rrpReview}</Btn>} warn={rrpOpen} />}
+        <Line text={model.promised ? `${W.promisedBy} ${promisedLabel(model.promised)} ✓` : W.promisedMissing} action={model.promised ? undefined : onPromised && <Btn onClick={onPromised}>{W.pickDate}</Btn>}  />
+        <Line text={hasInitials ? "Client initials ✓" : draft.ack_reason ? `No initials · ${draft.ack_reason}` : "Client initials — not yet"} action={hasInitials ? undefined : <span className="flex flex-wrap gap-3"><Btn onClick={onClient}>{W.showToClient}</Btn><Btn tone="quiet" onClick={onAck}>{W.noInitialsWhy.replace("?", "")}</Btn></span>}  stack />
+        <Line text={trades.length ? (undecidedTrades.length ? fill(W.tradeWalksLine, { trade: undecidedTrades.join(", ") }) : "Trade walks: all decided ✓") : draft.no_trades_confirmed ? "Trade walks: none — no trade is touched ✓" : "Trade walks: confirm none is needed"} action={<Btn onClick={onTrades}>{W.decide}</Btn>}  />
+        {model.sections.filter(s=>s.module.key==='footing').map(s=>{const zone=s.fields.find(f=>f.key==='frost_zone')?.answer;return zone?.status==='answered' ? <Line key={s.instance.id} text={`County frost zone: ${String(zone.value)}`} /> : null;})}
+        {model.rrpApplies && <Line text={rrpOpen ? fill(W.rrpNeeds, { list: [!model.rrp.receipt && W.rrpShortReceipt, !model.rrp.firm_current && W.rrpShortFirm, !model.rrp.renovator_current && W.rrpShortRenovator].filter(Boolean).join(" · ") }) : W.rrpRecorded} action={<Btn onClick={onRrp}>{W.rrpReview}</Btn>}  />}
         {model.conflicts.map((c) => { const s = model.sections.find((x) => x.instance.id === c.instance_id); const f = s?.fields.find((x) => x.addr === c.key); return <Line key={c.key} text={fill(W.conflictsLine, { field: `${s?.label ?? ""} ${f?.def.label ?? c.field_key}`.trim() })} action={<Btn onClick={() => onGo(c.instance_id, c.key)}>{W.goToField}</Btn>} warn />; })}
         {refused > 0 && <Line text={`${refused} ${refused === 1 ? "answer was" : "answers were"} refused by the office — enter again or remove`} warn />}
       </div>
@@ -97,7 +98,7 @@ export function WrapSheet({ open, onClose, model, draft, hasInitials, refused, o
 function Line({ text, action, warn, stack }: { text: string; action?: React.ReactNode; warn?: boolean; stack?: boolean }) {
   return (
     <div className={`grid items-center gap-2 rounded-md border-2 px-3 py-2 ${action && !stack ? "grid-cols-[minmax(0,1fr)_auto]" : ""} ${warn ? "border-flag bg-flag-soft" : "border-rule-soft bg-paper"}`}>
-      <p className="text-ink">{warn && <span aria-hidden className="mr-1 font-bold text-flag">!</span>}{text}</p>
+      <p className="text-ink">{<span aria-hidden className={`mr-1 font-bold ${warn ? "text-flag" : "text-ink-2"}`}>{warn ? "!" : "○"}</span>}{text}</p>
       {action}
     </div>
   );

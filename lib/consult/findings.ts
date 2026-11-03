@@ -71,7 +71,7 @@ async function visitScopeFacts(run:Run,projectId:string,scopeKey:string,consultI
    if(a.status==='skipped'){
     const assumption=ev.skips?.[`${instance.id}:${field.key}`]?.assumption;
     if(assumption)out.assumptions.push({field_path:`${instance.id}:${field.key}`,text:assumption.text,quantity:assumption.quantity,unit:units.has(assumption.unit)?assumption.unit:null,responsible_trade:assumption.responsible_trade,verification_point:assumption.verification_point});
-    if(a.skip_reason==='Sub/supplier will measure')out.exclusions.push({text:`Field measure by supplier: ${field.label}`,source_answer_id:a.id});
+    if(a.skip_reason==='Sub/supplier will measure')out.exclusions.push({text:`Field measure by ${field.key==='circuits_countertop_20a'?'the electrician':'supplier'}: ${field.label}`,source_answer_id:a.id});
     continue;
    }
    if(a.status!=='answered')continue;

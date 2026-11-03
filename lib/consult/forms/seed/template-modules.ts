@@ -1,6 +1,6 @@
 // Plan §7.4–§7.11 template-specific and add-on modules, as executable data.
 import type { ModuleDef } from '../../form-types.ts';
-import { all, answered, any, caseField, choice, count, date, derived, eq, gt, isIn, len, lt, multi, ne, num, pair, shot, text, year, yesno } from './helpers.ts';
+import { all, answered, any, caseField, choice, count, date, derived, eq, gt, isIn, len, lt, multi, ne, not, num, pair, shot, text, year, yesno } from './helpers.ts';
 
 // ───────────────────────── §7.4 Bathroom ─────────────────────────
 export const BATH_SAY = [
@@ -247,10 +247,10 @@ export const addition_scope: ModuleDef = {
     text('openings_lost_room', 'Windows/doors covered or lost — room affected', gt('openings_lost_count', 0)),
     num('lot_hardcover', 'Lot controls — hardcover estimate', 'sf', true),
     choice('lot_shoreland', 'Lot controls — shoreland', YNU, true, {
-      flag: { when: any(eq('lot_shoreland', 'Yes'), eq('lot_floodplain', 'Yes'), answered('lot_watershed')), issue: 'Check shoreland/floodplain/watershed; confirm city survey requirement' },
+      flag: { when: any(eq('lot_shoreland', 'Yes'), eq('lot_floodplain', 'Yes')), issue: 'Check shoreland/floodplain/watershed; confirm city survey requirement' },
     }),
     choice('lot_floodplain', 'Lot controls — floodplain', YNU, true),
-    text('lot_watershed', 'Lot controls — watershed district', true),
+    text('lot_watershed', 'Lot controls — watershed district', true, {flag:{when:answered('lot_watershed'),issue:'Check watershed district rules and city survey requirement'}}),
     text('lot_height_limit', 'Lot controls — height limit', true),
     choice('lot_survey_required', 'Lot controls — certificate of survey required', YNU, true),
     choice('utilities_sewer_water', 'Utilities relative to footprint — sewer/water', ['City sewer and water', 'Septic', 'Well', 'Septic and well'], true),
@@ -501,7 +501,7 @@ export const WHOLE_SAY = [
   'Any dates we have to plan around — school year, a baby, a move?',
   'What about the systems — wiring, plumbing, heat, windows, insulation, roof?',
 ];
-const pre1981 = lt('house.year_built', 1981);
+const pre1981 = not(gt('house.year_built', 1980));
 export const EXTERIOR_SYSTEMS = ['Windows', 'Siding', 'Roof'];
 export const whole_scope: ModuleDef = {
   key: 'whole_scope', version: 1, title: 'Whole-home', repeatable: false, say: WHOLE_SAY,

@@ -3,7 +3,7 @@ import {rrpBefore,rrpApplies,rrpYearConflict} from '../../rrp.ts';
 // Plan §7.3 shared modules, as executable data. Labels are the plan's words.
 import type { ModuleDef } from '../../form-types.ts';
 import {
-  addon, all, answered, any, caseField, choice, count, date, derived, eq, gt, isIn, len, lt, multi, ne, num, pair, shot, signature, text, tileFloor, tpl, wallRemoval, year, yesno,
+  addon, all, answered, any, caseField, choice, count, date, derived, eq, gt, isIn, len, lt, multi, ne, not, num, pair, shot, signature, text, tileFloor, tpl, wallRemoval, year, yesno,
 } from './helpers.ts';
 
 /** Context module (not a plan row, never shown; listed first in each of the 7 templates so it is pinned): the server fills it from
@@ -241,7 +241,7 @@ export const plumb_fixture: ModuleDef = {
     choice('fixture', 'Fixture', ['Toilet', 'Bath sink', 'Kitchen sink', 'Tub', 'Shower', 'Tub-shower', 'Laundry', 'Dishwasher', 'Fridge water', 'Bar sink', 'Floor drain'], true),
     choice('plan', 'Plan', ['Keep', 'Replace', 'Move', 'Remove', 'New'], true),
     len('rough_in', 'Toilet rough-in (finished wall to flange center)', eq('fixture', 'Toilet'), {
-      range: [9, 15], precision: 0.25, flag: { when: ne('rough_in', 12), issue: '10″/14″ rough — check toilet model' },
+      range: [9, 15], precision: 0.25, flag: { when: any(lt('rough_in', 11.5), gt('rough_in', 12.5)), issue: '10″/14″ rough — check toilet model' },
     }),
     len('side_clearance', 'Center of toilet to side wall/fixture', eq('fixture', 'Toilet'), {
       flag: { when: lt('side_clearance', 15), issue: 'code needs 15″ each side' },
@@ -419,10 +419,10 @@ export const era: ModuleDef = {
     }),
     signature('pamphlet_initials', 'Renovate Right pamphlet — client initials', rrpApplies, { note: 'client initials on SignaturePad' }),
     choice('lead_plan', 'Lead: plan', ['Assume lead present', 'Test kit', 'Lab test', 'Not needed'], before1978),
-    multi('asbestos', 'Possible asbestos seen', ['None', ...ASBESTOS], lt('house.year_built', 1981), {
+    multi('asbestos', 'Possible asbestos seen', ['None', ...ASBESTOS], not(gt('house.year_built', 1980)), {
       flag: { when: isIn('asbestos', ASBESTOS), issue: 'test before demo; abatement by an MDH-licensed contractor — confirm residential rules with MDH/counsel' },
     }),
-    yesno('knob_tube', 'Knob & tube seen', lt('house.year_built', 1950), { flag: { when: eq('knob_tube', true), issue: 'knob & tube seen' } }),
+    yesno('knob_tube', 'Knob & tube seen', not(gt('house.year_built', 1949)), { flag: { when: eq('knob_tube', true), issue: 'knob & tube seen' } }),
   ],
   shots: [shot('suspect_material', 'Each suspect material', isIn('asbestos', ASBESTOS))],
   coverage: [],

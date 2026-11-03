@@ -27,9 +27,9 @@ export async function secondFindingsVisit(c,f){
  await run('start',{device,expected_revision:0});
  const op=(type,payload,target,base_revision=0)=>({protocol_version:1,client_event_id:randomUUID(),device_id:device,device_epoch:1,seq:++seq,base_revision,generation:1,type,target,payload,payload_sha256:hash(payload)});
  const send=async(op)=>run('ops',{nonce:randomUUID(),ops:[op]});
- for(const module_key of ['room','measure']){
+ for(const module_key of ['room','measure','house']){
   const instance_id=randomUUID();await send(op('create_instance',{}, {instance_id,module_key,label:'Second visit room'},await revision()));
-  for(const field_key of module_key==='room'?['length']:['length','width'])await send(op('answer',{status:'answered',value:120,unit:'in'},{instance_id,field_key}));
+  for(const field_key of module_key==='house'?['year_built']:module_key==='room'?['length']:['length','width'])await send(op('answer',{status:'answered',value:module_key==='house'?2000:120,...(module_key==='house'?{}:{unit:'in'})},{instance_id,field_key}));
  }
  await run('evidence',{device,epoch:1,expected_revision:await revision(),evidence:f.evidence});
  const closed=await run('close',{expected_revision:await revision(),manifest:{device,epoch:1,last_seq:seq,required_blob_hashes:[],initials_hash:null,local_pending:0}});

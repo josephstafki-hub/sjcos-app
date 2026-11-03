@@ -14,5 +14,5 @@ export function mergeTemplateModules(templates: TemplateDef[], values: Record<st
  }
  const wanted=values['basement_scope.rooms_wanted'];
  if(templates.some(t=>t.key==='basement')&&Array.isArray(wanted)&&wanted.includes('Bath')){const slot=result.find(x=>x.module==='selections');if(slot){const extra=selectionDecisions.bath.map(decision=>({decision:`Basement bath — ${decision}`}));slot.presets=[...(slot.presets??[]),...extra];slot.min=(slot.min??0)+extra.length;}}
- return result;
+ return [...result.filter(x=>x.module!=='closing'),...result.filter(x=>x.module==='closing')];
 }

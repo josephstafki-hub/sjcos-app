@@ -33,6 +33,9 @@ export interface VisitApi {
   showToClient: (field?: FieldView) => void;
 }
 
+/** r6 D8: a field shown under an opening card, without the Say line the card already quotes. */
+const hideSay = (f: FieldView): FieldView => ({ ...f, def: { ...f.def, say: undefined } });
+
 /** A line that can't be read yet (no estimate date) is a direction to the visitor, never a quote (r2 item 9). */
 const needsDate = (line: string, model: VisitModel) => !model.promised && line.includes("{estimate_date}");
 const fillScript = (line: string, display: Display | undefined, model: VisitModel) =>
@@ -231,8 +234,9 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
       <div className="mt-3 rounded-lg border-2 border-rule bg-card p-5 shadow-card">
         <p className="font-serif text-[1.25em] leading-snug text-ink">“{opening[openingStep] ?? ""}”</p>
       </div>
-      {/photos/i.test(opening[openingStep] ?? "") && photosField && <FieldRow f={{...photosField,def:{...photosField.def,say:undefined}}} actions={actions} sectionId={houseInst!.instance.id} />}
-      {/anything you want to make sure/i.test(opening[openingStep] ?? "") && clientList && <FieldRow f={clientList} actions={actions} sectionId={houseInst!.instance.id} />}
+      {/* r6 D8: the card above already quotes the line, so the field under it drops its own Say. */}
+      {/photos/i.test(opening[openingStep] ?? "") && photosField && <FieldRow f={hideSay(photosField)} actions={actions} sectionId={houseInst!.instance.id} />}
+      {/anything you want to make sure/i.test(opening[openingStep] ?? "") && clientList && <FieldRow f={hideSay(clientList)} actions={actions} sectionId={houseInst!.instance.id} />}
       <BottomBar
         left={<span className="flex items-center gap-2">
           {/* ‹ Sections at every opening step (the client may walk off to the kitchen mid-script). */}
@@ -378,14 +382,14 @@ export function VisitScreen({ model, display, api, thumbs, online, draft, refuse
         onGo={(id, addr) => { setSheet(null); openSection(id, addr); }} onFlags={() => setSheet("flags")} onTrades={() => setSheet("trades")} onRrp={() => setSheet("rrp")} onClient={() => { setSheet(null); api.showToClient(); }} onAck={() => setSheet("ack")}
         onCloseVisit={() => { setSheet(null); api.close(); }}
         onPromised={pickDate} />
-      {sheet === "flags" && <FlagSheet open onClose={() => setSheet("wrap")} model={model} draft={draft} saveError={saveError} onSave={api.setDraft} />}
+      {sheet === "flags" && <FlagSheet open onClose={() => setSheet("wrap")} model={model} draft={draft} saveError={saveError} onSave={api.setDraft} onGo={(id, addr) => { setSheet(null); openSection(id, addr); }} />}
       {sheet === "trades" && <TradeSheet open onClose={() => setSheet("wrap")} model={model} draft={draft} saveError={saveError} onSave={api.setDraft} />}
       {sheet === "rrp" && <RrpSheet model={model} onGo={() => {setSheet(null);const id=model.sections.find(s=>s.module.key==="era")?.instance.id;if(id)openSection(id);}} open onClose={() => setSheet("wrap")} draft={draft} saveError={saveError} onSave={api.setDraft} />}
       {sheet === "ack" && <AckSheet summaryText={api.ackSummary} open onClose={() => setSheet("wrap")} draft={draft} saveError={saveError} onSave={api.setDraft} />}
       {/* r4 R4-2: the leave check is a bottom sheet beside the thumb that tapped ‹ Sections / Next, never a
           banner at the top of a long section. */}
       {leave && (() => { const from = model.sections.find((s) => s.instance.id === leave.from); if (!from) return null; const l = leaveList(model, from.instance.id); return (
-        <Sheet open dock noClose onClose={() => setLeave(null)} title={fill(W.leaveStill, { section: from.label })}
+        <Sheet open dock compact noClose onClose={() => setLeave(null)} title={fill(W.leaveStill, { section: from.label })}
           footer={<><Btn onClick={() => { setLeave(null); const h = nextOpen(model, from.instance.id); if (h) jump(h.addr); }}>{W.goBack}</Btn><Btn tone="primary" onClick={() => { const go = leave.go; setLeave(null); go(); }}>{W.leaveForNow}</Btn></>}>
           <ul className="grid gap-2 text-ink">
             {l.open.length > 0 && <li><span className="font-semibold">{W.leaveOpen}</span> {leaveLine(l.open)}</li>}

@@ -100,5 +100,5 @@ test('screens: Sections at every opening step, Next sticky on tablet landscape, 
   const app = src('components/consult/field/ConsultApp.tsx');
   assert.match(app, /useStuckSince/); assert.match(app, /send_stuck/); assert.match(app, /nothingWentOut/);
   assert.match(src('components/consult/field/WrapClose.tsx'), /groupBySection/);
-  assert.match(src('components/consult/field/Keypad.tsx'), /title=\{label\} dock/);
+  assert.match(src('components/consult/field/Keypad.tsx'), /\{label\}<\/span>\} dock/);
 });

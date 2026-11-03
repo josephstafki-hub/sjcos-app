@@ -75,14 +75,14 @@ test('section names tell the visitor which is which; add buttons use the row nou
 test('screens: leave check is a sheet, keypad fractions are one font, wrap lines are neutral Open, copy items', () => {
   const visit = src('components/consult/field/VisitScreen.tsx');
   assert.doesNotMatch(visit, /leave\.from === section\.instance\.id/, 'no banner at the top of the section');
-  assert.match(visit, /<Sheet open dock (noClose )?onClose=\{\(\) => setLeave\(null\)\}/);
+  assert.match(visit, /<Sheet open dock (compact )?(noClose )?onClose=\{\(\) => setLeave\(null\)\}/);
   assert.match(visit, /xl:grid xl:grid-cols-2/); assert.doesNotMatch(visit, /md:grid md:grid-cols-2/);
   assert.match(visit, /view === "section" && section \? section\.module\.say : \[\]/, 'field Say lines are not repeated in the left pane');
   const keypad = src('components/consult/field/Keypad.tsx');
   assert.match(keypad, /FracGlyph/); assert.doesNotMatch(keypad, /GLYPH\[f\]/);
   assert.match(keypad, /max-height:700px/);
   const wrap = src('components/consult/field/WrapClose.tsx');
-  assert.match(wrap, /state="open" size="sm" \/><p className="text-ink">\{text\}/);
+  assert.match(wrap, /state="open" \/><span className="min-w-0 break-words">\{text\}/);
   assert.match(wrap, /closing\.code === "close_timeout"/); assert.match(wrap, /W\.stillClosing/);
   assert.doesNotMatch(wrap, /warn=\{undecidedFlags/, 'undecided flags are not a Problem');
   const app = src('components/consult/field/ConsultApp.tsx');

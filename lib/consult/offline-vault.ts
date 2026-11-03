@@ -19,6 +19,15 @@ export class OfflineVault {
   const key=await unlockPin(pin,record.device,record.pin,name);
   const saved=await this.store.load(id,lease,key);return {saved,readBlob:(hash:string)=>this.store.loadBlob(id,lease,key,hash)};
  }
+ /** r6: the client view's Hand back with PIN. A wrong PIN sets a short back-off; a right PIN typed
+  *  inside it waits the back-off out (up to `waitUpTo` ms) instead of being refused as wrong. Unlocks
+  *  nothing: it only says whether the PIN is the visitor's. */
+ async checkPin(id:OfflineIdentity,device:string,pin:string,{waitUpTo=5000,sleep=(ms:number)=>new Promise<void>(r=>setTimeout(r,ms))}:{waitUpTo?:number;sleep?:(ms:number)=>Promise<void>}={}):Promise<true|'invalid_pin'|'pin_retry_later'|'not_prepared'|'offline_locked'>{
+  const record=await this.store.keyRecord<Enrollment>(this.name(id,device));if(!record)return 'not_prepared';
+  const wait=record.retry_at-Date.now();if(wait>waitUpTo)return 'pin_retry_later';if(wait>0)await sleep(wait+50);
+  try{await this.unlock(id,device,pin);return true;}
+  catch(e){const code=e instanceof Error?e.message:'';return code==='pin_retry_later'||code==='not_prepared'||code==='invalid_pin'?code:'offline_locked';}
+ }
  async renew(id:OfflineIdentity,device:string,signed:SignedLease){const name=this.name(id,device),record=await this.store.keyRecord<Enrollment>(name);if(!record)throw new Error('not_prepared');await verifyLease(signed,id,device,record.issuer);await this.store.keyRecord(name,{...record,lease:signed});}
  async unlock(id:OfflineIdentity,device:string,pin:string){
   const name=this.name(id,device),record=await this.store.keyRecord<Enrollment>(name);if(!record)throw new Error('not_prepared');if(Date.now()<record.retry_at)throw new Error('pin_retry_later');

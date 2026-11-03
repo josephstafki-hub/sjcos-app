@@ -83,7 +83,11 @@ export const W = {
   whatWeKnow: 'What we know so far',
   stillRight: 'Still right ✓',
   correct: 'Correct',
-  tapToEnter: 'tap to enter',
+  tapToEnter: 'Tap to measure',
+  // r6: the read-only walk-through summary (closing.summary).
+  clientInitialedTitle: 'What the client initialed',
+  clientInitialedLater: 'Filled when the client initials.',
+  showTheRest: 'Show the rest',
   required: 'required',
   skip: 'Skip this field…',
   skipTitle: 'Skip this field',
@@ -158,6 +162,9 @@ export const W = {
   tradeWalksLine: 'Trade walks: {trade} — needs a decision',
   conflictsLine: 'Conflicts: {field} — changed on another device',
   visitClosedSending: 'Visit closed — sending',
+  // r6 extra: with no signal the heading says when it sends, not that it is sending.
+  visitClosedOffline: 'Visit closed — will send when signal returns',
+  sendNowNeedsSignal: 'Send now · needs signal',
   // r5 R5-7: with nothing waiting the heading says what is happening; "— sending" only while ⇅ > 0.
   visitClosedChecking: 'Visit closed — checking with the office',
   closeChecking: 'All sent ✓ · Keep this screen open.',
@@ -189,6 +196,8 @@ export const W = {
   photosOk: 'Photos okay?',
   // Flags §10.3 check 9
   flagTitle: 'Flags to decide',
+  // r6 D4: a flag card leads with the number that tripped it.
+  measured: 'Measured',
   priceIt: 'Price it',
   allowance: 'Allowance',
   subMustLook: 'Sub must look before pricing',
@@ -204,7 +213,7 @@ export const W = {
   addTrade: '+ Add trade',
   // RRP §10.3 check 8
   rrpTitle: 'Renovate Right',
-  rrpReceipt: 'Renovate Right pamphlet given and receipt initialled',
+  rrpReceipt: 'Renovate Right pamphlet given and receipt initialed',
   rrpFirm: 'SJC firm certification is current',
   rrpRenovator: 'Certified renovator certification is current',
   rrpRedelivery: 'Work starts more than 60 days from today — re-deliver before start',
@@ -239,6 +248,7 @@ export const W = {
   usePin: 'Use PIN instead',
   handBackPin: 'Visitor PIN',
   handBackWithPin: 'Hand back with PIN',
+  checkingPin: 'Checking the PIN…',
   // r5 R5-8: curly ’, never &apos;.
   pinWrongHandBack: 'That PIN doesn’t match. Try again, or hold Hand back.',
   initialsSaved: 'Initials saved ✓',
@@ -269,7 +279,7 @@ export const W = {
   officeDevicesWaiting: '{n} devices haven’t sent yet',
   officeSendFromDevice: '— {name} can send them from the device.',
   officeFinishOnDevice: '— {name} finishes this on the visit device.',
-  officeNeedsFinishingLead: 'The visitor’s Finish consultation to-do already exists.',
+  officeNeedsFinishingLead: '{name} has a Finish consultation to-do.',
   recoverAnswers: 'Recover answers',
   openVisitShort: 'Open the visit',
   // Office schedule §6.9
@@ -371,7 +381,7 @@ export const CHECK_WORDS: Record<string, string> = {
   required_photos: 'Every required photo is uploaded, or skipped with a reason',
   module_requirements: 'Every room and item the template needs is on the visit',
   permissions: 'Recording and photo permission were asked',
-  client_acknowledgement: 'The client initialled the walk-through summary, or you wrote why not',
+  client_acknowledgement: 'The client initialed the walk-through summary, or you wrote why not',
   promised_date: 'The formal estimate promised-by date is set',
   close_manifests: 'Everything on this device reached the office, with no conflict left to pick',
   rrp: 'Renovate Right receipt and certifications are recorded',

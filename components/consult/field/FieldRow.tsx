@@ -159,6 +159,29 @@ function ConflictPicker({ f, actions }: { f: FieldView; actions: FieldActions })
   );
 }
 
+const SHOWN_LINES = 3;
+/** r6: "What the client initialed" — the saved text, its first lines shown, the rest one tap away. */
+function ReadOnlyText({ f, focused }: { f: FieldView; focused: boolean }) {
+  const text = f.answer?.status === "answered" && typeof f.answer.value === "string" ? f.answer.value.trim() : "";
+  const lines = text ? text.split("\n").filter((l) => l.trim()) : [];
+  return (
+    <div id={`f-${f.addr}`} className={`border-b-2 border-rule-soft py-4 ${focused ? "rounded-md bg-accent-soft/40 px-2" : ""}`}>
+      <p className="font-semibold text-ink">{W.clientInitialedTitle}</p>
+      {!lines.length ? <p className="mt-1 text-[0.95em] text-ink-2">{W.clientInitialedLater}</p> : (
+        <div className="mt-2 rounded-md border-2 border-rule-soft bg-paper px-3 py-2 text-[0.95em] text-ink">
+          {lines.slice(0, SHOWN_LINES).map((l, i) => <p key={i} className="break-words">{l}</p>)}
+          {lines.length > SHOWN_LINES && (
+            <details className="mt-1">
+              <summary className="min-h-12 cursor-pointer py-3 font-semibold text-ink-2">{W.showTheRest}</summary>
+              {lines.slice(SHOWN_LINES).map((l, i) => <p key={i} className="break-words">{l}</p>)}
+            </details>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function FieldRow({ f, actions, sectionId, last }: { f: FieldView; actions: FieldActions; sectionId: string; last?: unknown }) {
   const d = f.def;
   const ref = useRef<HTMLDivElement>(null);
@@ -180,7 +203,7 @@ export function FieldRow({ f, actions, sectionId, last }: { f: FieldView; action
       input = (
         <button type="button" onClick={() => actions.keypad(f)} aria-label={`${d.label}: ${answered ? valueText(f) : W.tapToEnter}`}
           className={`mt-2 flex min-h-14 w-full items-center rounded-md border-2 px-3 text-left font-mono text-[1.65em] font-semibold focus-visible:outline-3 focus-visible:outline-focus ${answered ? "border-rule bg-card text-ink" : "border-dashed border-rule bg-paper text-ink-3"}`}>
-          {answered ? valueText(f) : <span className="font-sans text-[0.6em] font-semibold">[ {W.tapToEnter} ]</span>}
+          {answered ? valueText(f) : <span className="font-sans text-[0.6em] font-semibold">{W.tapToEnter}</span>}
         </button>
       );
       break;
@@ -189,7 +212,10 @@ export function FieldRow({ f, actions, sectionId, last }: { f: FieldView; action
     case "year": input = <TextAnswer key={answerKey(f)} f={f} actions={actions} kind="year" />; break;
     case "text": input = <TextAnswer key={answerKey(f)} f={f} actions={actions} kind="text" />; break;
     case "yesno":
-      input = <div className="mt-2"><Choice options={[true, false] as const} value={answered ? (f.answer!.value as boolean) : null} onPick={(v) => void actions.answer(f, { status: "answered", value: v, unit: d.unit })} labels={(v) => (v ? W.yes : W.no)} columns={2} /></div>;
+      // r6 D9: an answer filled from another field shows where it came from on the picked choice, and
+      // stays a normal choice — tapping either one saves it as the visitor's own answer.
+      input = <div className="mt-2"><Choice options={[true, false] as const} value={answered ? (f.answer!.value as boolean) : null} onPick={(v) => void actions.answer(f, { status: "answered", value: v, unit: d.unit })}
+        labels={(v) => `${v ? W.yes : W.no}${f.prefilledFrom && answered && f.answer!.value === v ? ` · ${f.prefilledFrom.label}` : ""}`} columns={2} /></div>;
       break;
     case "choice":
       input = <div className="mt-2"><Choice options={d.options ?? []} value={answered ? (f.answer!.value as string) : null} onPick={(v) => void actions.answer(f, { status: "answered", value: v, unit: d.unit })} labels={curly} /></div>;
@@ -233,7 +259,8 @@ export function FieldRow({ f, actions, sectionId, last }: { f: FieldView; action
     default:
       input = <TextAnswer key={answerKey(f)} f={f} actions={actions} kind="text" />;
   }
-  if (f.readOnly) return <details><summary>{answered ? "Saved with the client's initials" : "Filled when the client initials."}</summary><p>{answered ? String(f.answer!.value) : ""}</p></details>;
+  // r6: the walk-through summary is what the client initialed — display text only, no Save, no Skip.
+  if (f.readOnly) return <ReadOnlyText f={f} focused={actions.focusAddr === f.addr} />;
   return (
     <div ref={ref} id={`f-${f.addr}`} className={`border-b-2 border-rule-soft py-4 ${actions.focusAddr === f.addr ? "rounded-md bg-accent-soft/40 px-2" : ""} ${ring ? "consult-ring" : ""}`}>
       {d.say && <p className="mb-1 font-serif text-[1em] italic text-ink-2"><span className="not-italic font-semibold text-ink">{W.say}</span> {d.say}</p>}
@@ -244,7 +271,6 @@ export function FieldRow({ f, actions, sectionId, last }: { f: FieldView; action
         </p>
         <MarkCell f={f} />
       </div>
-      {f.prefilledFrom && <p>{f.prefilledFrom.label} — change it if that’s wrong</p>}
       {d.hint && <p className="text-[0.9em] text-ink-2">{d.hint}</p>}
       {skipped && <p className="mt-1 text-[0.95em] text-ink-2">{f.mark === "not_applicable" ? "N/A · " : "Skipped · "}{f.answer!.skip_reason}{f.skipCounts ? (f.answer!.skip_reason === "Not on this job" ? "" : " — assumption written") : f.returnVisit ? "" : f.answer!.skip_reason === "Not on this job" ? " — the job needs it, so it stays Open" : " — needs a written assumption to count"}{f.answer!.skip_note ? ` · ${f.answer!.skip_note}` : ""}</p>}
       {input}

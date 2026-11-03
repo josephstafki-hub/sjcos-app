@@ -20,7 +20,7 @@ export const FLAG_HINTS: Record<string, string> = {
   'panel.brand': 'This panel likely needs replacing. The electrician confirms.',
   'panel.wiring': 'Old wiring seen — the electrician looks before we price.',
   'plumb_fixture.rough_in': 'Not the usual 12″ toilet rough-in — the new toilet has to match it.',
-  'plumb_fixture.side_clearance': 'The toilet needs 15″ from its centre to each side wall or fixture.',
+  'plumb_fixture.side_clearance': 'The toilet needs 15″ from its center to each side wall or fixture.',
   'plumb_fixture.supply': 'Old supply pipe seen — the plumber may need to replace it.',
   'plumb_fixture.below': 'Moving this fixture means cutting the slab for the drain.',
   'water.service_pipe': 'Possible lead water line — tell the client. The city may have a replacement program.',

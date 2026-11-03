@@ -81,7 +81,7 @@ const EXPECTED_FLAGS = {
   'era.window_door_replacement': 'window replacement never minor repair at any size (745.83)', 'era.asbestos': 'MDH-licensed contractor', 'era.knob_tube': 'knob & tube',
   'exterior_site.lot_line_front': 'check the city setback for these distances (Joe checks the city)',
   'bath_scope.existing_tub_material': 'cast iron: 2-person demo / break-up', 'bath_scope.wet_wall_exterior': 'MN freeze risk', 'bath_scope.fan_duct_length': '1346/1322 airflow',
-  'bath_scope.toilet_front_clearance': '<24″; 4714/UPC; also 15″ each side, 30″ centre-to-centre', 'bath_scope.only_bathroom': 'portable toilet', 'bath_scope.curb': 'recess the floor — check joists',
+  'bath_scope.toilet_front_clearance': '<24″; 4714/UPC; also 15″ each side, 30″ center-to-center', 'bath_scope.only_bathroom': 'portable toilet', 'bath_scope.curb': 'recess the floor — check joists',
   'bath_scope.vanity_width': '> wall available', 'bath_scope.toilet_plan': 'carrier + 2×6 wall', 'bath_scope.window_in_shower': 'tempered + wet-wall window detail',
   'kitchen_scope.hood_joists': 'crosses joists: framing work', 'kitchen_scope.dw_opening_height': '<34½″ dishwasher clearance', 'kitchen_scope.island_below': 'drain/vent trench', 'kitchen_scope.soffits': 'can\'t remove soffit freely',
   'kitchen_wall.length_ceiling': 'out of plumb if different by > 1/4″',

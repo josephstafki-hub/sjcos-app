@@ -7,10 +7,10 @@ import { requireAccess } from "@/lib/dal";
 import { consultDevices, lookOverExtra, readSnapshot, scheduleOptions, visitHead } from "@/lib/consult/ui/server";
 import { buildModel, emptyDraft, type EvidenceDraft, type FieldView, type SectionView } from "@/lib/consult/ui/model";
 import { pinnedDerivations } from "@/lib/consult/derive";
-import { openItemCount } from "@/lib/consult/completeness";
+import { openCheckPhrase, openItemCount } from "@/lib/consult/completeness";
 import { formatLength } from "@/lib/consult/length";
 import type { LocalBlob } from "@/lib/consult/offline-engine";
-import { OFFICE_CHECK_WORDS, W, checkCount, fill, plainWords, statusLabel } from "@/lib/consult/ui/words";
+import { W, fill, plainWords, statusLabel } from "@/lib/consult/ui/words";
 import { ApplyFindings, OfficeConflict, ReopenButton } from "@/components/consult/office/LookOverActions";
 import { AssignControl } from "@/components/consult/office/ScheduleDialog";
 import { RecoveryControl } from "@/components/consult/office/RecoveryControl";
@@ -64,7 +64,7 @@ export default async function ConsultLookOver({ params, searchParams }: { params
   const model = buildModel(snap, [], blobs, draft);
   const section: SectionView | undefined = model.sections.find((x) => x.instance.id === selected) ?? model.sections[0];
   const status = snap.consult.status;
-  const completeness = extra.completeness as { checks?: { check: number; code: string; open: string[] }[]; price_critical?: { total: number; done: number }; record?: { total: number; done: number } } | null;
+  const completeness = extra.completeness as { checks?: { check: number; code: string; open: string[]; open_phrase?: string }[]; price_critical?: { total: number; done: number }; record?: { total: number; done: number } } | null;
   const openChecks = completeness?.checks?.filter((c) => c.open.length) ?? [];
   // The same total the visitor saw on Before you wrap and the close result (r3 C2 / r2 N6).
   const openN = completeness?.price_critical && completeness.record ? openItemCount({ price_critical: completeness.price_critical, record: completeness.record }) : openChecks.reduce((n, c) => n + c.open.length, 0);
@@ -91,7 +91,7 @@ export default async function ConsultLookOver({ params, searchParams }: { params
   const fieldLink = (addr: string) => `/projects/${slug}/consult/${head.id}?s=${addr.split(":")[0]}#f-${addr}`;
   const canRecover = owner && devices.some((d) => d.revoked && !d.closed);
   /** r5 R5-4: each open check on the look-over — the office's own words and its way forward. */
-  const officeRow = (c: { code: string; open: string[] }) => {
+  const officeRow = (c: { code: string; open: string[]; open_phrase?: string }) => {
     const firstField = model.open.find((o) => o.kind === "field");
     const firstShot = model.open.find((o) => o.kind === "shot");
     const finishOnDevice = head.assigned
@@ -108,7 +108,8 @@ export default async function ConsultLookOver({ params, searchParams }: { params
           : n && canRecover ? <Button variant="secondary" size="lg" href="#recover">{W.recoverAnswers}</Button> : undefined,
       };
     }
-    const text = `${OFFICE_CHECK_WORDS[c.code] ?? c.code}${checkCount(c.code, c.open.length)}`;
+    // r6 D6: an open check says what is left, in the words Before you wrap uses on the visit.
+    const text = c.open_phrase ?? openCheckPhrase(c.code, c.open);
     if (c.code === "required_fields" && firstField) return { text, action: <Button variant="secondary" size="lg" href={fieldLink((firstField.item as FieldView).addr)}>{W.goToField}</Button> };
     if (c.code === "required_photos" && (firstShot ?? firstField)) return { text, action: <Button variant="secondary" size="lg" href={sectionLink((firstShot ?? firstField)!.section)}>{W.goToSection}</Button> };
     return { text, ...finishOnDevice };
@@ -120,7 +121,7 @@ export default async function ConsultLookOver({ params, searchParams }: { params
         {/* §6.8 head: "{client} › In-home consultation · Nov 3 · Abigail Stafki", a status chip (not a control), then actions. */}
         <PageHeader variant="record" title={`${head.client} › ${W.app} · ${fmt(snap.consult.scheduled_at, { month: "short", day: "numeric" })} · ${head.visitor_name}`} className="mb-4"
           badge={<span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-[20px] border border-rule-soft bg-paper-2 px-2.5 py-0.5 text-meta font-semibold text-ink-2">
-            {chip === "covered" && <span aria-hidden>✓</span>}{chip === "partial" && <span aria-hidden>◐</span>}{headline}
+            {chip === "covered" && <span aria-hidden>✓</span>}{chip === "partial" && <span aria-hidden className="font-mono">◐</span>}{headline}
           </span>}
           actions={<>
             {(status === "complete" || status === "incomplete") && (owner || head.assigned) && <ReopenButton id={head.id} revision={Number(snap.consult.revision)} />}
@@ -132,7 +133,7 @@ export default async function ConsultLookOver({ params, searchParams }: { params
         {status === "incomplete" && openChecks.length > 0 && (
           <section aria-labelledby="nf-h" className="mb-4 rounded-lg border border-rule bg-card px-4 py-3 text-body text-ink">
             <h2 id="nf-h" className="font-serif text-title font-semibold text-ink"><span aria-hidden className="font-mono">◐ </span>{W.needsFinishing} · <span className="whitespace-nowrap">{openN} open</span></h2>
-            <p className="text-ink-2">{W.officeNeedsFinishingLead}</p>
+            <p className="text-ink-2">{fill(W.officeNeedsFinishingLead, { name: head.visitor_name })}</p>
             <ul className="mt-2 grid">
               {openChecks.map((c) => { const r = officeRow(c); return (
                 <li key={c.code} className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 border-t border-rule-soft py-2 @[600px]/page:grid-cols-[auto_minmax(0,1fr)_auto]">

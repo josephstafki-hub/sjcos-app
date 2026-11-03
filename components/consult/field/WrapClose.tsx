@@ -5,12 +5,13 @@
  * close result: Visit closed — sending · Complete · Needs finishing (n open) with the
  * failing checks in plain words. No item count is a score; the server decides Complete.
  */
-import {closeAction, openItemCount} from '@/lib/consult/completeness';
+import {closeAction, openCheckPhrase, openItemCount} from '@/lib/consult/completeness';
 import { useState } from "react";
 import { CoverageMark } from "@/components/ui/CoverageMark";
 import type { EvidenceDraft, FieldView, ShotView, VisitModel } from "@/lib/consult/ui/model";
 import type { ClosingState } from "@/lib/consult/ui/controller";
-import { CHECK_ACTION_WORDS, CHECK_WORDS, FLAG_CHOICES, W, checkCount, fill, plainWords } from "@/lib/consult/ui/words";
+import { CHECK_ACTION_WORDS, FLAG_CHOICES, W, fill, plainWords } from "@/lib/consult/ui/words";
+import { flagLead } from "@/lib/consult/ui/flag-lead";
 import { Banner, Btn, Choice, Sheet, TextInput } from "./primitives";
 
 const itemLabel = (o: VisitModel["open"][number]) => (o.kind === "field" ? (o.item as FieldView).def.label : `Photo · ${(o.item as ShotView).def.label}`);
@@ -93,22 +94,24 @@ export function WrapSheet({ open, onClose, model, draft, hasInitials, refused, o
 }
 
 /** r4 R4-5: a not-done-yet line is the neutral ○ Open (mark + word, card fill); only `warn`
- *  (a conflict, a refused answer) is the ! Problem style. Done lines carry their own ✓ in the text. */
+ *  (a conflict, a refused answer) is the ! Problem style. Done lines carry their own ✓ in the text.
+ *  r6 D2: below 600 px every line stacks — mark and words, then the note, then the button(s) at full
+ *  width; side by side from 600 px. ○ Open is the 15 px row mark (r6 extra). */
 function Line({ text, action, warn, stack, done, info, note }: { text: string; action?: React.ReactNode; warn?: boolean; stack?: boolean; done?: boolean; info?: boolean; note?: string }) {
   return (
-    <div className={`grid items-center gap-2 rounded-md border-2 px-3 py-2 ${action && !stack ? "grid-cols-[minmax(0,1fr)_auto]" : ""} ${warn ? "border-flag bg-flag-soft" : done || info ? "border-rule-soft bg-paper" : "border-rule bg-card"}`}>
+    <div className={`grid gap-2 rounded-md border-2 px-3 py-2 ${action && !stack ? "min-[600px]:grid-cols-[minmax(0,1fr)_auto] min-[600px]:items-center" : ""} ${warn ? "border-flag bg-flag-soft" : done || info ? "border-rule-soft bg-paper" : "border-rule bg-card"}`}>
       <div className="min-w-0">
         {warn ? <p className="text-ink"><span aria-hidden className="mr-1 font-bold text-flag">!</span>{text}</p>
           : done || info ? <p className="text-ink">{text}</p>
-          : <><CoverageMark variant="coverage" state="open" size="sm" /><p className="text-ink">{text}</p></>}
+          : <p className="flex flex-wrap items-baseline gap-x-2 text-ink"><CoverageMark variant="coverage" state="open" /><span className="min-w-0 break-words">{text}</span></p>}
         {note && <p className="mt-1 text-[0.9em] font-semibold text-ink-2">{note}</p>}
       </div>
-      {action}
+      {action && <div className="grid gap-2 max-[599px]:[&_button]:w-full">{action}</div>}
     </div>
   );
 }
 
-export function FlagSheet({ open, onClose, model, draft, onSave, saveError }: { open: boolean; onClose: () => void; model: VisitModel; draft: EvidenceDraft; saveError?: string | null; onSave: (d: EvidenceDraft) => Promise<boolean> }) {
+export function FlagSheet({ open, onClose, model, draft, onSave, saveError, onGo }: { open: boolean; onClose: () => void; model: VisitModel; draft: EvidenceDraft; saveError?: string | null; onSave: (d: EvidenceDraft) => Promise<boolean>; onGo?: (sectionId: string, addr: string) => void }) {
   const [local, setLocal] = useState(draft.flags);
   const set = (key: string, patch: Partial<EvidenceDraft["flags"][string]>) => setLocal((l) => ({ ...l, [key]: { disposition: l[key]?.disposition ?? "price_it", note: l[key]?.note ?? "", ...patch } }));
   return (
@@ -118,7 +121,8 @@ export function FlagSheet({ open, onClose, model, draft, onSave, saveError }: { 
         {model.flags.map((f) => (
           <fieldset key={f.key} className="rounded-lg border-2 border-rule p-3">
             <legend className="px-1 font-semibold text-flag">⚑ {f.section.label} · {f.field.def.label}</legend>
-            <p className="mb-2 text-ink">{f.hint}</p>
+            <p className="mb-2 text-ink">{flagLead(f, model)}</p>
+            {onGo && <div className="mb-3"><Btn tone="quiet" onClick={() => onGo(f.address.split(":")[0], f.address)}>{W.goToField}</Btn></div>}
             <Choice options={FLAG_CHOICES.map((c) => c.key)} labels={(k) => FLAG_CHOICES.find((c) => c.key === k)!.label} value={local[f.key]?.disposition ?? null} onPick={(v) => set(f.key, { disposition: v })} />
             <div className="mt-3"><TextInput label={W.flagNote} value={local[f.key]?.note ?? ""} onChange={(v) => set(f.key, { note: v })} multiline /></div>
           </fieldset>
@@ -217,9 +221,9 @@ export function ClosingScreen({ closing, unsent, online, autoApply, findings, fi
         <p className="mt-2 text-ink-2" role="status">{unsent > 0 ? fill(W.closeWaitingN, { n: unsent }) : W.closeChecking}</p>
       </>}
       {closing.step === "waiting_signal" && <>
-        <h1 className="font-serif text-[1.6em] font-semibold text-ink">{W.visitClosedSending}</h1>
+        <h1 className="font-serif text-[1.6em] font-semibold text-ink">{online ? W.visitClosedSending : W.visitClosedOffline}</h1>
         <div className="mt-3"><Banner kind="status">{W.offlineStrip}</Banner></div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2"><Btn tone="primary" onClick={onRetry} disabled={!online}>{W.sendNow}</Btn><Btn onClick={onKeepWorking}>{W.keepWorking}</Btn></div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2"><Btn tone="primary" onClick={onRetry} disabled={!online}>{online ? W.sendNow : W.sendNowNeedsSignal}</Btn><Btn onClick={onKeepWorking}>{W.keepWorking}</Btn></div>
       </>}
       {closing.step === "error" && closing.code === "close_timeout" && <>
         {/* r4 R4-3: a close that hasn't answered in 20 s is a calm wait with a way forward, not an error. */}
@@ -258,7 +262,7 @@ export function ClosingScreen({ closing, unsent, online, autoApply, findings, fi
               const conflicts = c.code === "close_manifests" && c.open.includes("conflicts");
               const text = c.code === "close_manifests"
                 ? [devices ? fill(devices === 1 ? W.otherDeviceWaiting : W.otherDevicesWaiting, { n: devices }) : "", conflicts ? W.conflictsToPick : ""].filter(Boolean).join(" ")
-                : `${CHECK_WORDS[c.code] ?? c.code}${checkCount(c.code, c.open.length)}`;
+                : c.open_phrase ?? openCheckPhrase(c.code, c.open); // r6 D6: what is left, as Before you wrap says it
               // r5: every open row carries its way forward. Other devices' answers: this device can only
               // send its own (Send now); a conflict is picked on the visit (Before you wrap lists it).
               const action = c.action ?? closeAction(c.code);
@@ -267,7 +271,7 @@ export function ClosingScreen({ closing, unsent, online, autoApply, findings, fi
                 : onAction && <Btn onClick={() => onAction(action)}>{CHECK_ACTION_WORDS[action] ?? W.review}</Btn>;
               return (
                 <li key={c.code} className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-2 rounded-md border-2 border-rule-soft bg-card px-3 py-2 sm:grid-cols-[auto_minmax(0,1fr)_auto]">
-                  {conflicts ? <CoverageMark variant="ready" state="problem" size="sm" /> : <CoverageMark variant="coverage" state="open" size="sm" />}
+                  {conflicts ? <CoverageMark variant="ready" state="problem" /> : <CoverageMark variant="coverage" state="open" />}
                   <span className="text-ink">{text}</span>
                   {button && <span className="col-span-2 sm:col-span-1 [&>button]:max-sm:w-full">{button}</span>}
                 </li>

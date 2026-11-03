@@ -87,6 +87,17 @@ const BUMPS = new Set(['start', 'create_instance', 'remove_instance', 'answer', 
 export function modulesOf(s: Snapshot): ModuleDef[] { return s.pins.filter((p) => p.kind === 'module').map((p) => p.definition as ModuleDef); }
 export function templatesOf(s: Snapshot): TemplateDef[] { return s.pins.filter((p) => p.kind === 'template').map((p) => p.definition as TemplateDef); }
 export const isHiddenModule = (m: ModuleDef) => m.key === 'visit' || !!m.context_module;
+/** r6 D9: Era hazards' own year answers come first, in seed order. */
+const ERA_FIRST = ['before_1978', 'year_override_reason'];
+/** r6 D9: "Built before 1978?" hint says honestly where its answer stands — filled from the year,
+ *  waiting for the year, or the visitor's own answer (no hint). */
+export const YEAR_HINT_WAITING = 'Fills in once Year built is confirmed in House & household.';
+export const YEAR_HINT_FILLED = 'Change it if that’s wrong.';
+function yearHint(prefilled: boolean, a: AnswerView | undefined, year: unknown): string | undefined {
+  if (prefilled) return YEAR_HINT_FILLED;
+  if (a && a.status !== 'cleared') return undefined;
+  return typeof year === 'number' ? undefined : YEAR_HINT_WAITING;
+}
 export const isDerived = (f: FieldDef) => !!f.derive || !!f.derive_cases || (f.note ?? f.help ?? '').startsWith('Derived');
 
 /** Live instances = snapshot instances + local create/remove ops that weren't refused. */
@@ -357,7 +368,7 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
       if (f.type === 'length_pair' && answered && Array.isArray(a?.value) && a!.value.some((v) => typeof v !== 'number')) mark = 'partial';
       const flags: FieldView['flags'] = [];
       for (const flag of evaluatedFlags(f,addr,values)) flags.push({key:flag.key,issue:flag.issue,hint:flag.hint??visitorFlagText(flag.issue),address:addr,measured:[...new Set(flagInputs(flag.when))].map(key=>{const parts=key.split('.'),def=parts.length===1?m.fields.find(f=>f.key===key):byKey.get(parts[0])?.fields.find(f=>f.key===parts[1]);const source=parts.length===1?inst:live.find(i=>i.module_key===parts[0]);return {field:key,value:values[key],unit:def?.unit==='in'?'″':def?.unit,address:source?addrOf(source.id,def?.key??key):addr};})});
-      const view: FieldView = { key: f.key, addr, readOnly: m.key==='closing'&&f.key==='summary', ...(prefilled?{prefilledFrom:{field:'house.year_built',value:global['house.year_built'],label:`From Year built (${global['house.year_built']})`}}:{}), def: f.key==='pamphlet_given'&&m.key==='era'&&typeof global['house.year_built']!=='number'&&global['era.before_1978']!==true?{...f,say:PAMPHLET_UNKNOWN_YEAR_LINE}:f, required, applicable, mark, answer: a, conflict, returnVisit: a?.status === 'skipped' && a.skip_reason === 'Get on return visit', skipNote: a?.skip_note, skipCounts: counts, shots, flags, initials };
+      const view: FieldView = { key: f.key, addr, readOnly: m.key==='closing'&&f.key==='summary', ...(prefilled?{prefilledFrom:{field:'house.year_built',value:global['house.year_built'],label:`From Year built (${global['house.year_built']})`}}:{}), def: f.key==='pamphlet_given'&&m.key==='era'&&typeof global['house.year_built']!=='number'&&global['era.before_1978']!==true?{...f,say:PAMPHLET_UNKNOWN_YEAR_LINE}:m.key==='era'&&f.key==='before_1978'?{...f,hint:yearHint(prefilled,a,global['house.year_built'])}:f, required, applicable, mark, answer: a, conflict, returnVisit: a?.status === 'skipped' && a.skip_reason === 'Get on return visit', skipNote: a?.skip_note, skipCounts: counts, shots, flags, initials };
       for (const fl of flags) allFlags.push({ ...fl, section, field: view });
       if (isDerived(f) || !applicable) { hidden.push(view); continue; }
       fieldViews.push(view);
@@ -372,6 +383,9 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
     }
     section.shots = m.shots.filter(s=>!(m.key==='era'&&s.key==='suspect_material'&&typeof global['house.year_built']==='number'&&(global['house.year_built'] as number)>1980)).map(shotView);
     for (const s of section.shots) if (s.required) { const done = s.mark !== 'open'; count(s.def.tier, done, s.mark === 'not_applicable'); if (!done) allOpen.push({ section, item: s, kind: 'shot', partly: false }); }
+    // r6 D9: the year question leads Era hazards, so its answer stays in view (and changeable) after the
+    // RRP rows it opens appear under it.
+    if (m.key === 'era') fieldViews.sort((x, y) => Number(!ERA_FIRST.includes(x.key)) - Number(!ERA_FIRST.includes(y.key)));
     section.fields = fieldViews; section.hidden = hidden;
     section.label = instanceLabel(m, inst, n, answers);
     const pcDone = section.pc.done, pcTotal = section.pc.total;

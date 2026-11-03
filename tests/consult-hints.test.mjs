@@ -82,5 +82,8 @@ test('visit screens render the flag hint, never the office issue', () => {
   const row = readFileSync(new URL('../components/consult/field/FieldRow.tsx', import.meta.url), 'utf8');
   const wrap = readFileSync(new URL('../components/consult/field/WrapClose.tsx', import.meta.url), 'utf8');
   assert.match(row, /fl\.hint/); assert.doesNotMatch(row, /fl\.issue/);
-  assert.match(wrap, /f\.hint/); assert.doesNotMatch(wrap, /\{f\.issue\}/);
+  // r6 D4: the flag card's words come from flagLead, which leads with the measured value and then the hint.
+  const lead = readFileSync(new URL('../lib/consult/ui/flag-lead.ts', import.meta.url), 'utf8');
+  assert.match(wrap, /flagLead\(f, model\)/); assert.match(lead, /f\.hint/);
+  assert.doesNotMatch(wrap, /\{f\.issue\}/); assert.doesNotMatch(lead, /f\.issue/);
 });

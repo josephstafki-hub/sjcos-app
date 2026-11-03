@@ -26,7 +26,7 @@ export interface Boot {
 }
 export type Phase = 'loading' | 'get_ready' | 'unlock' | 'visit' | 'blocked' | 'disabled';
 export type ReadyResult = 'idle' | 'checking' | 'ready' | 'not_ready' | 'no_signal';
-export interface CloseResult { complete: boolean; checks: { check: number; code: string; action?: string; open: string[] }[]; price_critical: { total: number; done: number; skipped: number }; record: { total: number; done: number; skipped: number }; revision: number }
+export interface CloseResult { complete: boolean; checks: { check: number; code: string; action?: string; open: string[]; open_phrase?: string }[]; price_critical: { total: number; done: number; skipped: number }; record: { total: number; done: number; skipped: number }; revision: number }
 export interface ClosingState { step: 'sending' | 'closing' | 'done' | 'error' | 'waiting_signal'; result?: CloseResult; code?: string }
 export interface State {
   phase: Phase; online: boolean; boot: Boot | null; consultId: string; identity: OfflineIdentity | null; device: string;
@@ -591,10 +591,11 @@ export class VisitController {
   }
 
   /** Hand back by PIN (§6.4): same visitor PIN as the device unlock; wrong tries back off. */
-  async verifyPin(pin: string): Promise<boolean> {
+  /** Hand back with PIN: true, or why not (r6: a right PIN right after a wrong one is no longer refused). */
+  async verifyPin(pin: string): Promise<true | string> {
     const { identity, device } = this.state;
-    if (!identity || !this.store) return false;
-    try { await new OfflineVault(this.store).unlock(identity, device, pin); return true; } catch { return false; }
+    if (!identity || !this.store) return 'not_prepared';
+    try { return await new OfflineVault(this.store).checkPin(identity, device, pin); } catch { return 'invalid_pin'; }
   }
   /** "Lock notes on this device": drop decrypted memory, keep ciphertext for the same user. */
   private deny(code: string) { this.lock(); this.set({ phase: 'blocked', blocked: code === 'revoked' || code === 'device_access_denied' ? 'revoked' : 'signed_out', code }); }

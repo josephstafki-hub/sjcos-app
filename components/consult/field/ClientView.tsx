@@ -9,7 +9,7 @@
 import { useEffect, useRef, useState } from "react";
 import { SignaturePad, type SignaturePadHandle } from "@/components/esign/SignaturePad";
 import { STILL_TO_DECIDE_SHOWN, clientSummary, handBackAllowed, type ClientSummary } from "@/lib/consult/client-summary";
-import { W, fill } from "@/lib/consult/ui/words";
+import { W, fill, plainWords } from "@/lib/consult/ui/words";
 import { clientArea } from "@/lib/consult/ui/model";
 import { Btn, TextInput } from "./primitives";
 
@@ -22,7 +22,7 @@ function dataUrlToBlob(url: string): Blob {
 }
 
 export function ClientView({ summary, pamphlet = false, hasInitials, onInitials, onHandBack, verifyPin }: {
-  summary: ClientSummary; pamphlet?: boolean; hasInitials: boolean; onInitials: (png: Blob, summaryText: string) => Promise<void>; onHandBack: (summaryText: string) => void; verifyPin: (pin: string) => Promise<boolean>;
+  summary: ClientSummary; pamphlet?: boolean; hasInitials: boolean; onInitials: (png: Blob, summaryText: string) => Promise<void>; onHandBack: (summaryText: string) => void; verifyPin: (pin: string) => Promise<true | string>;
 }) {
   const s = clientSummary(summary); // allowlist: nothing else reaches this view
   const pad = useRef<SignaturePadHandle>(null);
@@ -31,7 +31,7 @@ export function ClientView({ summary, pamphlet = false, hasInitials, onInitials,
   const [saving, setSaving] = useState(false);
   const [held, setHeld] = useState(0);
   const [pinMode, setPinMode] = useState(false);
-  const [pin, setPin] = useState(""); const [pinErr, setPinErr] = useState(false); const [checking, setChecking] = useState(false);
+  const [pin, setPin] = useState(""); const [pinErr, setPinErr] = useState<string | null>(null); const [checking, setChecking] = useState(false);
   const start = useRef<number | null>(null); const raf = useRef<number | null>(null);
 
   // Back trap: the client can't navigate into visitor screens.
@@ -117,10 +117,17 @@ export function ClientView({ summary, pamphlet = false, hasInitials, onInitials,
             <span id="hold-help" className="sr-only">Press and hold for two seconds. Letting go cancels.</span>
             <div role="progressbar" aria-label="Hand back hold" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct} className="sr-only" />
             {!pinMode ? <Btn wide onClick={() => setPinMode(true)}>{W.usePin}</Btn> : (
-              <form className="grid gap-3" onSubmit={async (e) => { e.preventDefault(); setChecking(true); let ok = false; try { ok = await verifyPin(pin); } finally { setChecking(false); } setPinErr(!ok); if (!ok) setPin(""); if (ok && handBackAllowed(0, true)) onHandBack(recap.current?.innerText ?? ""); }}>
-                <TextInput label={W.handBackPin} value={pin} onChange={(v) => { setPin(v.replace(/\D/g, "").slice(0, 12)); if (pinErr) setPinErr(false); }} type="password" inputMode="numeric" autoFocus />
-                {pinErr && <p role="alert" className="font-semibold text-flag">! {W.pinWrongHandBack}</p>}
-                <Btn tone="accent" wide type="submit" disabled={!/^\d{6,12}$/.test(pin) || checking}>{W.handBackWithPin}</Btn>
+              <form className="grid gap-3" onSubmit={async (e) => {
+                e.preventDefault(); if (checking) return; setChecking(true); setPinErr(null);
+                let result: true | string = "invalid_pin";
+                try { result = await verifyPin(pin); } catch { result = "invalid_pin"; } finally { setChecking(false); }
+                // r6 item 11: only a wrong PIN clears the box; "wait a moment" keeps it for the next tap.
+                if (result === true) { if (handBackAllowed(0, true)) onHandBack(recap.current?.innerText ?? ""); return; }
+                setPinErr(result); if (result === "invalid_pin") setPin("");
+              }}>
+                <TextInput label={W.handBackPin} value={pin} onChange={(v) => { setPin(v.replace(/\D/g, "").slice(0, 12)); if (pinErr) setPinErr(null); }} type="password" inputMode="numeric" autoFocus />
+                {pinErr && <p role="alert" className="font-semibold text-flag">! {pinErr === "invalid_pin" ? W.pinWrongHandBack : plainWords(pinErr)}</p>}
+                <Btn tone="accent" wide type="submit" disabled={!/^\d{6,12}$/.test(pin) || checking}>{checking ? W.checkingPin : W.handBackWithPin}</Btn>
               </form>
             )}
           </div>

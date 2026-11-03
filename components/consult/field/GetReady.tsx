@@ -4,7 +4,7 @@
  * Uses the shared CoverageMark `ready` set (✓ Done · ○ Not yet · ! Problem). Each
  * problem names the check and its §5.7 reason. Ready offline only when the first five
  * pass. Microphone is Phase 2 (no audio in Phase 1) and is not listed.
- * Tablet: same card centred at 560 px.
+ * Tablet: same card centered at 560 px.
  */
 import { useState, type ReactNode } from "react";
 import { CoverageMark } from "@/components/ui/CoverageMark";

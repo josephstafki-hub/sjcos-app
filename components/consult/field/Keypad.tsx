@@ -136,8 +136,11 @@ export function Keypad({ open, def, label, initial, last, onSave, onClose }: { o
     : reading?.error === "out_of_range" ? W.outOfRange : W.invalidLength;
 
   return (
-    <Sheet open={open} onClose={onClose} title={label} dock tall
+    // r6 D3: on short screens the title keeps to one line (the full label stays in the heading's text and
+    // tooltip), and Show 16ths / Show 8ths sits in the footer's empty left side, so both fraction rows clear Save.
+    <Sheet open={open} onClose={onClose} title={<span title={label} className="[@media(max-height:700px)]:line-clamp-1">{label}</span>} dock tall
       footer={<>
+        {sixteenths && mode === "ftin" && <Btn className="mr-auto shrink-0 px-3 md:hidden" aria-pressed={fracRow === "16"} onClick={() => setFracRow(fracRow === "8" ? "16" : "8")}>{fracRow === "8" ? W.show16ths : W.show8ths}</Btn>}
         {last !== undefined && <Btn onClick={() => { void (async () => { setSaving(true); try { await onSave(last); } finally { setSaving(false); } })(); }}>{W.sameAsLast} · {showLength(last, def)}</Btn>}
         <Btn tone="primary" onClick={() => void save()} disabled={!canSave} className="min-w-[8em]">{W.save}</Btn>
       </>}>
@@ -147,8 +150,6 @@ export function Keypad({ open, def, label, initial, last, onSave, onClose }: { o
           <p className={`text-[0.95em] ${reading && !reading.ok && text.trim() && amb === null ? "font-semibold text-flag" : "text-ink-2"}`}>{reading && !reading.ok && text.trim() && amb === null ? "! " : ""}{status}</p>
           {warn && <p className="mt-1 text-[0.95em] font-semibold text-flag">! {warn}</p>}
         </div>
-        {/* Phones: one fraction row at a time; the switch sits in the readout so it costs no key row. */}
-        {sixteenths && mode === "ftin" && <Btn className="shrink-0 px-3 md:hidden" aria-pressed={fracRow === "16"} onClick={() => setFracRow(fracRow === "8" ? "16" : "8")}>{fracRow === "8" ? W.show16ths : W.show8ths}</Btn>}
       </div>
       {amb !== null && (
         <div className="mb-3 grid grid-cols-2 gap-3" role="radiogroup" aria-label={W.unitAmbiguous}>

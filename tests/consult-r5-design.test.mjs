@@ -70,7 +70,7 @@ test('R5-5 / domain 4: keypad keys and mode chips never under 56 px; words under
   const k = src('components/consult/field/Keypad.tsx');
   assert.doesNotMatch(k, /max-height:700px\)\]:min-h-1[12]\b/, 'no 44/48 px keys or chips on short screens');
   assert.doesNotMatch(k, /md:max-lg:min-h-12/, 'tablet-portrait mode chips are 56 px');
-  assert.match(k, /title=\{label\} dock tall/, 'full-height sheet at ≤ 700 px tall');
+  assert.match(k, /line-clamp-1">\{label\}<\/span>\} dock tall/, 'full-height sheet at ≤ 700 px tall (r6: title on one line)');
   assert.match(src('components/consult/field/primitives.tsx'), /\[@media\(max-height:700px\)\]:h-dvh!/);
   assert.match(k, /worded\("⌫", W\.keyDelete\)/); assert.match(k, /worded\("␣", W\.keySpace\)/);
   assert.equal(W.keyDelete, 'Delete'); assert.equal(W.keySpace, 'Space');
@@ -125,7 +125,8 @@ test('R5-4: the office look-over is calm and speaks for the office, not "this de
   const page = src('app/(os)/projects/[slug]/consult/[id]/page.tsx');
   assert.doesNotMatch(page, /border-flag bg-flag-soft px-4 py-3 text-body text-ink">\s*<p className="font-semibold"><span aria-hidden className="text-flag">⚠ <\/span>Needs finishing/);
   assert.match(page, /◐ <\/span>\{W\.needsFinishing\}/);
-  assert.match(page, /OFFICE_CHECK_WORDS\[c\.code\]/);
+  // r6 D6 supersedes the rule sentence on open rows: the look-over says what is left.
+  assert.match(page, /c\.open_phrase \?\? openCheckPhrase\(c\.code, c\.open\)/);
   assert.doesNotMatch(OFFICE_CHECK_WORDS.close_manifests, /this device/);
   assert.equal(W.officeDevicesWaiting.replace('{n}', '8'), '8 devices haven’t sent yet');
   assert.match(page, /id="recover"/);

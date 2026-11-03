@@ -42,7 +42,7 @@ export const bath_scope: ModuleDef = {
     text('elec_light_locations', 'Electrical in room — light locations', true),
     len('toilet_front_clearance', 'Toilet front clearance', answered('toilet_plan'), {
       note: 'R? toilet',
-      flag: { when: lt('toilet_front_clearance', 24), issue: '<24″; 4714/UPC; also 15″ each side, 30″ centre-to-centre' },
+      flag: { when: lt('toilet_front_clearance', 24), issue: '<24″; 4714/UPC; also 15″ each side, 30″ center-to-center' },
     }),
     len('threshold_thickness', 'Total floor thickness at threshold', true, { note: 'tile build-up / transition' }),
     num('heated_floor_area', 'Heated floor area', 'sf', eq('heated_floor', true), {

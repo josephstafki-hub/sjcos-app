@@ -80,7 +80,8 @@ function StatusBar({ unsent, photos, answers, online, lastSend, failure, onSend,
           <dt className="text-ink-2">{W.signal}</dt><dd>{online ? W.online : W.noSignal}</dd>
         </dl>
         <p role="status" aria-live="polite" className="mt-3 min-h-[1.5em] font-semibold text-ink">
-          {busy ? `${W.sendingWord}…` : unsent === 0 ? W.allSent : outcome === "sent" && lastSend ? `✓ ${W.lastSent} ${clock(lastSend)} · ⇅ ${unsent} ${W.stillWaiting}` : outcome === "not_sent" ? <><span aria-hidden className="text-flag">⚠ </span>{W.nothingWentOut}</> : ""}
+          {/* r6 extra: never "All sent ✓" when nothing has ever been sent. */}
+          {busy ? `${W.sendingWord}…` : unsent === 0 ? (lastSend ? W.allSent : W.nothingWaiting) : outcome === "sent" && lastSend ? `✓ ${W.lastSent} ${clock(lastSend)} · ⇅ ${unsent} ${W.stillWaiting}` : outcome === "not_sent" ? <><span aria-hidden className="text-flag">⚠ </span>{W.nothingWentOut}</> : ""}
         </p>
         {!online && <p className="mt-3 text-ink">{W.offlineStrip}</p>}
         {online && busy && weakLink() && <p className="mt-3 text-ink-2">{W.weakSignal}</p>}

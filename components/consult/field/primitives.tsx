@@ -47,12 +47,13 @@ export function Banner({ kind, children, actions, role }: { kind: "action" | "st
   );
 }
 
-/** Bottom sheet on phone, right sheet from 1024 px (`side`), centred card otherwise.
+/** Bottom sheet on phone, right sheet from 1024 px (`side`), centered card otherwise.
  *  `dock` keeps it a lower-half bottom sheet on tablet portrait too (the keypad: the field it
  *  fills stays visible above it, §6). `tall` (r5 R5-5): on screens ≤ 700 px tall it opens full
  *  height, over the status bar, so 56 px keys fit. `noClose` drops the header Close when the
- *  footer already has the same way out (r5: the leave sheet's Go back). */
-export function Sheet({ open, onClose, title, children, footer, side = false, dock = false, tall = false, noClose = false, labelledBy }: { open: boolean; onClose: () => void; title: ReactNode; children: ReactNode; footer?: ReactNode; side?: boolean; dock?: boolean; tall?: boolean; noClose?: boolean; labelledBy?: string }) {
+ *  footer already has the same way out (r5: the leave sheet's Go back). `compact` (r6): a short docked sheet stays a small card at the
+ *  bottom right from 1024 px instead of a full-height 560 px panel. */
+export function Sheet({ open, onClose, title, children, footer, side = false, dock = false, tall = false, noClose = false, compact = false, labelledBy }: { open: boolean; onClose: () => void; title: ReactNode; children: ReactNode; footer?: ReactNode; side?: boolean; dock?: boolean; tall?: boolean; noClose?: boolean; compact?: boolean; labelledBy?: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const id = useId();
   const opener = useRef<Element | null>(null);
@@ -80,7 +81,7 @@ export function Sheet({ open, onClose, title, children, footer, side = false, do
   return (
     <div className={`fixed inset-0 z-50 flex items-end justify-center lg:items-stretch lg:justify-end ${dock ? "bg-ink/20" : "bg-ink/40 md:items-center"}`} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
       <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={labelledBy ?? id}
-        className={`flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-xl border-2 border-rule bg-card shadow-modal ${dock ? "md:max-h-[62dvh] md:border-x-0 md:border-b-0 lg:max-h-none lg:max-w-[560px] lg:rounded-xl lg:border-2" : "md:max-w-[560px] md:rounded-xl"} ${side ? "lg:h-full lg:max-h-none lg:max-w-[480px] lg:rounded-none lg:border-y-0 lg:border-r-0" : ""} ${tall ? "[@media(max-height:700px)]:h-dvh! [@media(max-height:700px)]:max-h-none! [@media(max-height:700px)]:rounded-none! [@media(max-height:700px)]:border-0!" : ""}`}>
+        className={`flex max-h-[92dvh] w-full flex-col overflow-hidden rounded-t-xl border-2 border-rule bg-card shadow-modal ${dock ? "md:max-h-[62dvh] md:border-x-0 md:border-b-0 lg:max-h-none lg:max-w-[560px] lg:rounded-xl lg:border-2" : "md:max-w-[560px] md:rounded-xl"} ${side ? "lg:h-full lg:max-h-none lg:max-w-[480px] lg:rounded-none lg:border-y-0 lg:border-r-0" : ""} ${compact ? "lg:m-4 lg:max-w-[420px]! lg:self-end" : ""} ${tall ? "[@media(max-height:700px)]:h-dvh! [@media(max-height:700px)]:max-h-none! [@media(max-height:700px)]:rounded-none! [@media(max-height:700px)]:border-0!" : ""}`}>
         {/* r4 C1: on short screens (320×700) the docked keypad tightens its chrome so both fraction rows sit above Save. */}
         <div className={`flex items-center gap-3 border-b-2 border-rule-soft px-4 py-2 ${dock ? "[@media(max-height:700px)]:py-1" : ""}`}>
           <h2 id={labelledBy ?? id} className="min-w-0 flex-1 font-serif text-[1.15em] font-semibold text-ink">{title}</h2>

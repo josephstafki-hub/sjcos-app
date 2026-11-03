@@ -2,6 +2,7 @@ import { Shell } from "@/components/shell/Shell";
 import { SettingsSection } from "@/components/settings/SettingsSection";
 import { DiscoveryChecklistSettings, type ChecklistSettingsData } from "@/components/settings/DiscoveryChecklistSettings";
 import { PageHeader } from "@/components/ui";
+import { ApprovalBadgeSlot } from "@/components/shell/ApprovalBadgeSlot";
 import { requireRole } from "@/lib/dal";
 import { loadDiscoveryChecklistSettings } from "@/lib/actions/discovery-checklist";
 
@@ -16,7 +17,9 @@ export default async function CallsSettingsPage() {
   return (
     <Shell breadcrumb="SETTINGS / CALLS">
       <SettingsSection active="/settings/calls">
-        <PageHeader eyebrow="Calls" title="Discovery checklist" meta={`What the checklist in Calls asks about. Version ${data.version.version}.`} />
+        {/* The "Decisions N" badge sits by the title: approvals stay compact here
+            so they never cover the Save footer (lib/notification-placement.ts). */}
+        <PageHeader eyebrow="Calls" title="Discovery checklist" badge={<ApprovalBadgeSlot />} meta={`What the checklist in Calls asks about. Version ${data.version.version}.`} />
         <DiscoveryChecklistSettings initial={data} />
       </SettingsSection>
     </Shell>

@@ -146,12 +146,15 @@ test('suggestedState is conservative for structurally incomplete answers', () =>
 });
 
 // ── Sheet (dialog bounds) ──────────────────────────────────────────────────
-function sheet(root) {
+const placement = require('../lib/notification-placement.ts');
+function sheet(root, extra = {}) {
   const portals = [];
-  const h = host('components/calls/checklist/Sheet.tsx', { 'react-dom': { createPortal: (el, at) => { portals.push(at); return { type: 'Portal', props: {}, portal: el }; } } },
-    { document: { querySelector: (sel) => (sel === '[data-sheet-root]' ? root ?? null : null), activeElement: null, addEventListener() {}, removeEventListener() {} } });
+  const h = host('components/calls/checklist/Sheet.tsx', {
+    'react-dom': { createPortal: (el, at) => { portals.push(at); return { type: 'Portal', props: {}, portal: el }; } },
+    '@/lib/notification-placement': placement,
+  }, { document: { querySelector: (sel) => (sel === '[data-sheet-root]' ? root ?? null : null), activeElement: null, addEventListener() {}, removeEventListener() {} } });
   const results = Array.from({ length: 12 }, (_, i) => ({ type: 'li', props: { children: `Lead ${i}` } }));
-  const tree = h.render('Sheet', { title: 'Link to a lead', layout: 'dialog', onClose() {}, children: results });
+  const tree = h.render('Sheet', { title: 'Link to a lead', layout: 'dialog', onClose() {}, children: results, ...extra });
   const overlay = [...walk(tree)].find((n) => n.type === 'div' && /inset-0/.test(n.props.className ?? ''));
   const dialog = [...walk(tree)].find((n) => n.props.role === 'dialog');
   const body = [...walk(dialog)].find((n) => n.type === 'div' && /overflow-y-auto/.test(n.props.className ?? ''));
@@ -174,6 +177,19 @@ test('Dialog sheet is bounded and scrolls its body (12 lead results stay reachab
       assert.match(overlay.props.className, /^fixed inset-0/);
     }
   }
+});
+
+test('An open sheet claims modal compact approvals; initialFocus takes an element ref', () => {
+  let focused = 0;
+  const input = { focus() { focused++; } };
+  sheet(undefined, { initialFocus: { current: input } });
+  assert.equal(focused, 1, 'the ref (the picker search on a mouse/keyboard device) gets focus');
+  const now = placement.currentClaims();
+  assert.equal(now.modal, true, 'no approval card may open over a sheet');
+  const p = placement.approvalPlacement('/leads/alex-smith', now, true);
+  assert.equal(p.compact, true);
+  assert.equal(p.expanded, false, 'cards stay closed while the sheet is open, even if opened before');
+  assert.equal(p.badge, 'none', 'no slot on the lead page: the badge waits instead of covering the breadcrumb');
 });
 
 // ── Lead picker ordering, lead page live call ──────────────────────────────

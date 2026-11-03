@@ -26,7 +26,7 @@ test('phone inbox has one title, one bell, search and compose triggers with no d
  search.props.onClick();compose.props.onClick();assert.deepEqual(events,['inbox-search','inbox-compose']);
  assert.ok(list.some(n=>n.type==='span'&&n.props.children==='Inbox'&&n.props.className.includes('@max-[40rem]/shell:block')));
  assert.equal(list.filter(n=>n.type?.name==='NotificationBell').length,1);
- assert.ok(list.find(n=>n.props?.id==='inbox-approval-badge'));
+ assert.ok(list.find(n=>n.props?.id==='approval-badge-slot'));
  assert.ok(list.some(n=>n.props?.['aria-label']==='Inbox views'));
  list.find(n=>n.props?.['aria-label']==='Inbox views').props.onClick();assert.equal(events.at(-1),'inbox-views');
  assert.match(list.find(n=>n.props?.['aria-label']==='Search').props.className,/@max-\[40rem\]\/shell:hidden/);

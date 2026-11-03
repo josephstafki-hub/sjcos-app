@@ -18,7 +18,7 @@
 
 import Link from "next/link";
 import { createPortal } from "react-dom";
-import { approvalPlacement } from "@/lib/notification-placement";
+import { APPROVAL_SLOT_EVENT, APPROVAL_SLOT_ID, COMPACT_APPROVALS_EVENT, approvalPlacement, currentClaims, type CompactClaims } from "@/lib/notification-placement";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { BellRing, ChevronDown, ChevronUp, X } from "lucide-react";
@@ -44,20 +44,29 @@ function loadDismissed(): Set<string> {
 export function NotificationCenter() {
   const router = useRouter();
   const pathname = usePathname();
-  const [inboxSurface, setInboxSurface] = useState(false);
+  // Compact approvals (lib/notification-placement.ts): Inbox, Calls and
+  // Settings › Calls by path; any mounted surface or open sheet by claim.
+  const [claims, setClaims] = useState<CompactClaims>(() => ({ surface: false, modal: false }));
   const [opened, setOpened] = useState(false);
   const [badgeSlot, setBadgeSlot] = useState<HTMLElement | null>(null);
   const badgeRef = useRef<HTMLButtonElement>(null);
-  const placement = approvalPlacement(pathname, inboxSurface, opened);
+  const placement = approvalPlacement(pathname, claims, opened, !!badgeSlot);
   useEffect(() => {
     setOpened(false);
-    setBadgeSlot(document.getElementById("inbox-approval-badge"));
-    const change = (event: Event) => {
-      setInboxSurface(Boolean((event as CustomEvent).detail));
+    const findSlot = () => setBadgeSlot(document.getElementById(APPROVAL_SLOT_ID));
+    const change = () => {
+      const next = currentClaims();
+      setClaims((prev) => (prev.surface === next.surface && prev.modal === next.modal ? prev : next));
       setOpened(false);
     };
-    window.addEventListener("sjc:inbox-surface", change);
-    return () => window.removeEventListener("sjc:inbox-surface", change);
+    findSlot();
+    change();
+    window.addEventListener(COMPACT_APPROVALS_EVENT, change);
+    window.addEventListener(APPROVAL_SLOT_EVENT, findSlot);
+    return () => {
+      window.removeEventListener(COMPACT_APPROVALS_EVENT, change);
+      window.removeEventListener(APPROVAL_SLOT_EVENT, findSlot);
+    };
   }, [pathname]);
   const closeDecisions = () => { setOpened(false); badgeRef.current?.focus(); };
   useEffect(() => {
@@ -177,14 +186,15 @@ export function NotificationCenter() {
 
   if (placement.compact) {
     const badge = <button ref={badgeRef} type="button" onClick={() => setOpened(v => !v)}
-      aria-label={`${approvals.length} waiting on you — ${opened ? "hide" : "show"} decisions`}
-      aria-expanded={opened} aria-controls="inbox-decisions"
+      aria-label={`${approvals.length} waiting on you — ${placement.expanded ? "hide" : "show"} decisions`}
+      aria-expanded={placement.expanded} aria-controls="approval-decisions"
       className="inline-flex min-h-11 min-w-11 items-center justify-center gap-1 whitespace-nowrap rounded-full border border-rule bg-paper px-2 text-meta text-ink-2 hover:bg-paper-2">
       <span>Decisions {approvals.length}</span>
     </button>;
     return <>
-      {badgeSlot ? createPortal(badge, badgeSlot) : <div className="fixed right-28 top-[env(safe-area-inset-top)] z-[35]">{badge}</div>}
-      {placement.expanded && <div id="inbox-decisions" role="region" aria-label="Waiting on you"
+      {placement.badge === "slot" && badgeSlot ? createPortal(badge, badgeSlot)
+        : placement.badge === "corner" ? <div className="fixed right-28 top-[env(safe-area-inset-top)] z-[35]">{badge}</div> : null}
+      {placement.expanded && <div id="approval-decisions" role="region" aria-label="Waiting on you"
         className="fixed right-3 top-[calc(3rem+env(safe-area-inset-top))] z-[35] max-h-[calc(100dvh-8rem-env(safe-area-inset-bottom))] w-[min(380px,calc(100vw-24px))] space-y-2 overflow-y-auto rounded-xl border border-rule bg-paper p-3 shadow-pop">
         <div className="flex items-center justify-between text-body font-semibold">Waiting on you
           <button type="button" onClick={closeDecisions} aria-label="Close decisions" className="grid size-11 place-items-center rounded hover:bg-hover"><X className="size-4" /></button>

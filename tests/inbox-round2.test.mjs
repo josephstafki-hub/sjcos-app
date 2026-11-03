@@ -120,6 +120,7 @@ test("inbox approvals start compact at the upper corner and stay below inbox dia
   assert.deepEqual(approvalPlacement("/projects", false, false), {
     compact: false,
     expanded: true,
+    badge: "none",
     corner: "bottom",
     layer: 60,
   });
@@ -132,6 +133,7 @@ test("inbox approvals start compact at the upper corner and stay below inbox dia
     assert.deepEqual(p, {
       compact: true,
       expanded: false,
+      badge: "corner",
       corner: "top",
       layer: 35,
     });

@@ -98,7 +98,7 @@ test("inbox renders only a compact badge until deliberately opened; active inbox
 });
 test("explicitly opened inbox decisions use their own layer below dialogs; other pages retain the original stack", () => {
   const opened = render("/inbox", true);
-  assert.match(opened, /id="inbox-decisions"/);
+  assert.match(opened, /id="approval-decisions"/);
   assert.match(opened, /z-\[35\]/);
   assert.match(opened, /Close decisions/);
   assert.match(opened, /data-approval-card/);

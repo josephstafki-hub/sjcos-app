@@ -50,7 +50,7 @@ export function Topbar({ breadcrumb = "TODAY", unread = 0, leading }: TopbarProp
           })}
         </ol>
       </nav>
-      {/^\/inbox(?:\/|$)/.test(pathname) && <span id="inbox-approval-badge" className="order-last shrink-0 @min-[40rem]/shell:order-none" />}
+      {/^\/inbox(?:\/|$)/.test(pathname) && <span id="approval-badge-slot" className="order-last shrink-0 @min-[40rem]/shell:order-none" />}
       <CommandPalette />
       <Button className={inbox?"@max-[40rem]/shell:hidden":undefined} onClick={() => window.dispatchEvent(new Event(PALETTE_EVENT))} variant="ghost" size="sm" icon={Search} aria-label="Search" title="Search (⌘K)">
         <span className={inbox?"@max-[40rem]/shell:hidden":"@max-sm/shell:hidden"}>Search… <kbd className="ml-3 font-mono text-meta text-ink-3">⌘K</kbd></span>

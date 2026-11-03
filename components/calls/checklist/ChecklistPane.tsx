@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { AlertTriangle, ArrowLeft, ChevronDown, CloudOff, ExternalLink, RotateCw } from "lucide-react";
 import { CoverageMark, coverageWord } from "@/components/ui/CoverageMark";
 import { errorCopy } from "@/lib/checklist-coverage/action-result";
@@ -19,6 +19,8 @@ import { Btn } from "./Sheet";
 import { EditContactModal } from "@/components/leads/LeadContact";
 import { chicagoTime, elapsed } from "./time";
 import { setOpenChecklist } from "../open-call-store";
+import { claimCompactApprovals } from "@/lib/notification-placement";
+import { ApprovalBadgeSlot } from "@/components/shell/ApprovalBadgeSlot";
 
 export interface ChecklistCallInfo {
   id: string; direction: "inbound" | "outbound"; status: string; ended: boolean;
@@ -54,7 +56,7 @@ function describe(key: string, v: RowValue | { notes: string }): string {
 }
 
 export function ChecklistPane({
-  sessionId, userId, call, onBack, onOpenCall,
+  sessionId, userId, call, onBack, onOpenCall, badgeSlot = false,
 }: {
   sessionId: string;
   userId: string;
@@ -63,8 +65,17 @@ export function ChecklistPane({
   /** Phone Back for a checklist that isn't under a call. */
   onBack?: () => void;
   onOpenCall?: (callId: string) => void;
+  /** This pane's own header (no call) holds the "Decisions N" badge. */
+  badgeSlot?: boolean;
 }) {
   const sync = useChecklistSync(sessionId, userId);
+  // While a checklist is on screen, approvals fold into their badge: the
+  // checklist's own follow-up must never cover Finish (lib/notification-placement.ts).
+  const claimId = useId();
+  useEffect(() => {
+    claimCompactApprovals(claimId, true);
+    return () => claimCompactApprovals(claimId, false);
+  }, [claimId]);
   const snap = sync.snapshot;
   const [view, setView] = useState<"list" | "summary" | null>(null);
   const [summary, setSummary] = useState<SummaryData | null>(null);
@@ -237,7 +248,7 @@ export function ChecklistPane({
   if (!snap) {
     return (
       <div className="flex min-h-0 flex-1 flex-col bg-paper-2">
-        {!call && <ManualHeader onBack={onBack} started={null} />}
+        {!call && <ManualHeader onBack={onBack} started={null} badgeSlot={badgeSlot} />}
         <div className="flex-1 overflow-y-auto px-4 py-4 @2xl/page:px-5">
           {sync.loadError ? (
             <Banner tone="flag" role="alert" icon={<AlertTriangle aria-hidden className="mt-0.5 size-5 flex-none" />}
@@ -267,7 +278,7 @@ export function ChecklistPane({
     return (
       <div className="flex min-h-0 flex-1 flex-col bg-paper-2">
         {/* The summary title carries "started 7:34 PM"; don't say it twice. */}
-        {!call && <ManualHeader onBack={onBack} started={null} />}
+        {!call && <ManualHeader onBack={onBack} started={null} badgeSlot={badgeSlot} />}
         <ChecklistSummary sessionId={sessionId} snapshot={snap} call={call} lead={shownLead} data={summary} error={summaryError}
           onRetry={() => void openSummary()} onBackToList={() => setView("list")}
           onEditRow={(id) => { setView("list"); setOpenItem(id); }}
@@ -281,7 +292,7 @@ export function ChecklistPane({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-paper-2">
-      {!call && <ManualHeader onBack={onBack} started={s.started_at} />}
+      {!call && <ManualHeader onBack={onBack} started={s.started_at} badgeSlot={badgeSlot} />}
       <div className="min-h-0 flex-1 overflow-y-auto">
         <div className="px-4 @2xl/page:px-5">
           {/* Session line: Lead · Call · Saved, then the "By hand" chip on the
@@ -411,7 +422,7 @@ export function ChecklistPane({
   );
 }
 
-function ManualHeader({ onBack, started }: { onBack?: () => void; started: string | null }) {
+function ManualHeader({ onBack, started, badgeSlot }: { onBack?: () => void; started: string | null; badgeSlot?: boolean }) {
   return (
     <div className="flex min-h-12 items-center gap-1 border-b border-rule bg-paper px-4 @2xl/page:gap-2 @2xl/page:px-5">
       {onBack && (
@@ -420,6 +431,7 @@ function ManualHeader({ onBack, started }: { onBack?: () => void; started: strin
         </button>
       )}
       <h2 className="min-w-0 font-serif text-[20px] font-semibold leading-7 text-ink">Checklist{started ? <span className="font-sans text-[16px] font-normal text-ink-3"> · started {chicagoTime(started)}</span> : null}</h2>
+      {badgeSlot && <ApprovalBadgeSlot className="ml-auto" />}
     </div>
   );
 }

@@ -94,6 +94,7 @@ import {
   disconnectMyMailboxAction,
 } from "@/lib/actions/inbox";
 import {toast,dismissToast} from "@/components/ui/Toast";
+import { claimCompactApprovals, collapseApprovals } from "@/lib/notification-placement";
 import { runAction } from "@/lib/run-action";
 import type { ThreadChannel, ThreadStatus, SystemViewKey } from "@/lib/types";
 import { SYSTEM_VIEWS } from "@/lib/types";
@@ -320,16 +321,9 @@ export function InboxClient({
   const [splitSheet,setSplitSheet]=useState(false);
   const [composing, setComposing] = useState(false);
   useEffect(() => {
-    window.dispatchEvent(
-      new CustomEvent("sjc:inbox-surface", {
-        detail: Boolean(mobileReader || task || help || linking || context || composing),
-      }),
-    );
-    return () => {
-      window.dispatchEvent(
-        new CustomEvent("sjc:inbox-surface", { detail: false }),
-      );
-    };
+    claimCompactApprovals("inbox", Boolean(mobileReader || task || help || linking || context || composing));
+    collapseApprovals();
+    return () => claimCompactApprovals("inbox", false);
   }, [mobileReader, task, help, linking, context, composing]);
   // Threads/readers grow as "Load more" pages in from Gmail.
   const [draftIds, setDraftIds] = useState<Set<string>>(new Set());
@@ -2348,9 +2342,7 @@ function ChannelReaderBody({
         style={composerStyle}
         className={`flex min-h-0 flex-col border-t border-rule bg-paper-2 px-4 py-2 mb-[var(--inbox-keyboard-inset)] flex-none max-h-[var(--inbox-composer-max)]`}
         onFocusCapture={() =>
-          window.dispatchEvent(
-            new CustomEvent("sjc:inbox-surface", { detail: true }),
-          )
+          collapseApprovals()
         }
       >
         <div className="min-h-0 max-sm:overflow-y-auto">
@@ -2804,9 +2796,7 @@ function ReaderBody({
   }, [isAI, automated, screeningFirst, reader.replyTarget]);
   useEffect(() => {
     if (typeof window !== "undefined" && (replying || draftOpen || drafting))
-      window.dispatchEvent(
-        new CustomEvent("sjc:inbox-surface", { detail: true }),
-      );
+      collapseApprovals();
   }, [replying, draftOpen, drafting]);
   useEffect(()=>{
     if(typeof window!=='undefined'&&(replying||draftOpen)&&window.matchMedia('(max-width: 639px)').matches){
@@ -2892,7 +2882,7 @@ function ReaderBody({
       </div>
       {!reviewExpanded&&draftSourcesDisclosure}
       <DraftBody
-        onFocus={() => window.dispatchEvent(new CustomEvent("sjc:inbox-surface", { detail: true }))}
+        onFocus={() => collapseApprovals()}
         inputRef={approvalRef}
         expanded={reviewExpanded} fill={reviewActive}
         aria-label="AI draft body"
@@ -2977,9 +2967,7 @@ function ReaderBody({
         style={composerStyle}
         className={`flex min-h-0 flex-col border-t border-rule bg-paper-2 px-4 py-2 mb-[var(--inbox-keyboard-inset)] ${reviewActive?"flex-1":"flex-none max-h-[var(--inbox-composer-max)]"}`}
         onFocusCapture={() =>
-          window.dispatchEvent(
-            new CustomEvent("sjc:inbox-surface", { detail: true }),
-          )
+          collapseApprovals()
         }
         onBlur={(e) => {
           if (

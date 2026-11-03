@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type ReactNode, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { X } from "lucide-react";
+import { claimCompactApprovals } from "@/lib/notification-placement";
 
 // Modal surface for the checklist: a bottom sheet on phones and tablets, a
 // right-hand side panel on desktop (`side`), or a centred confirm (`dialog`).
@@ -10,6 +11,8 @@ import { X } from "lucide-react";
 // It opens inside the Shell's main column ([data-sheet-root]) so a dialog is
 // centred over the page Joe is working in — not over the sidebar or the
 // Operator dock — and never grows past that column: the body scrolls instead.
+// While it's open the corner approvals fold into their badge and stay closed
+// (lib/notification-placement.ts): no approval card ever sits over a sheet.
 
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
@@ -22,8 +25,9 @@ export function Sheet({
   /** Pinned to the bottom (Undo / Save) so it sits under the thumb. */
   footer?: ReactNode;
   layout?: "side" | "dialog";
-  /** CSS selector inside the sheet to focus first. */
-  initialFocus?: string;
+  /** What to focus first: an element ref, or a CSS selector inside the sheet.
+   *  Unset (or a ref that is still empty) → the first focusable, i.e. ✕. */
+  initialFocus?: string | RefObject<HTMLElement | null>;
   labelledBy?: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -33,11 +37,17 @@ export function Sheet({
   const [root] = useState<Element | null>(() => (typeof document === "undefined" ? null : document.querySelector("[data-sheet-root]")));
   const onCloseRef = useRef(onClose);
   useEffect(() => { onCloseRef.current = onClose; });
+  useEffect(() => {
+    claimCompactApprovals(titleId, true, true);
+    return () => claimCompactApprovals(titleId, false);
+  }, [titleId]);
+  const focusFirst = useRef(initialFocus);
 
   useEffect(() => {
     const opener = document.activeElement as HTMLElement | null;
     const root = ref.current;
-    const first = (initialFocus && root?.querySelector<HTMLElement>(initialFocus)) || root?.querySelector<HTMLElement>(FOCUSABLE);
+    const want = focusFirst.current;
+    const first = (typeof want === "string" ? root?.querySelector<HTMLElement>(want) : want?.current) || root?.querySelector<HTMLElement>(FOCUSABLE);
     first?.focus();
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") { e.stopPropagation(); onCloseRef.current(); return; }
@@ -50,7 +60,7 @@ export function Sheet({
     };
     document.addEventListener("keydown", onKey, true);
     return () => { document.removeEventListener("keydown", onKey, true); if (opener?.isConnected) opener.focus(); };
-  }, [initialFocus]);
+  }, []);
 
   // Bounded by the column (or the viewport when there's no Shell), so a long
   // list of results scrolls inside the body and the search stays in view.

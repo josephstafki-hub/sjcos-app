@@ -16,6 +16,7 @@ import { useClock } from "./checklist/useClock";
 import { CallChecklistTab } from "./checklist/CallChecklistTab";
 import { setOpenChecklist } from "./open-call-store";
 import { chicagoWhen } from "./checklist/time";
+import { ApprovalBadgeSlot } from "@/components/shell/ApprovalBadgeSlot";
 
 type DetailTab = "notes" | "checklist";
 
@@ -191,11 +192,16 @@ export function CallsClient({
   // checklist is already open, the detail's own button is the only one, so a
   // tap mid-call never starts a second checklist that isn't tied to the call.
   const headerStart = !manualId && !live;
+  // The one "Decisions N" slot on this page (lib/notification-placement.ts):
+  // in the open call's or checklist's header when that is what's on screen —
+  // on a phone the page title is hidden then — else beside the page title.
+  const detailOnScreen = mobileDetail && (!!manualId || !!c);
 
   return (
     <div className="flex h-full min-h-0 flex-col [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-focus [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-focus">{/* On a phone with a call or checklist open, the pane's own header
           (← Calls) is enough: the page title would push the rows off screen. */}
       <div className={`border-b border-rule-soft px-4 py-5 @2xl/page:px-5 ${mobileDetail ? "hidden @3xl/page:block" : ""}`}><PageHeader title="Calls" meta="Calls, recordings, notes and discovery checklists."
+        badge={detailOnScreen ? undefined : <ApprovalBadgeSlot />}
         actions={headerStart ? <>
           <button type="button" onClick={startManual} disabled={starting}
             className="inline-flex min-h-12 items-center gap-2 rounded-md bg-ink px-4 text-[16px] font-semibold text-paper hover:bg-ink-hover focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:opacity-50">
@@ -255,7 +261,7 @@ export function CallsClient({
 
       <section className={`min-w-0 flex-1 flex-col ${mobileDetail ? "flex" : "hidden @3xl/page:flex"}`}>
         {manualId ? (
-          <ChecklistPane key={manualId} sessionId={manualId} userId={userId} call={null}
+          <ChecklistPane key={manualId} sessionId={manualId} userId={userId} call={null} badgeSlot={detailOnScreen}
             onBack={() => setMobileDetail(false)}
             onOpenCall={(id) => { if (calls.some((x) => x.id === id)) { setManualId(null); setSelectedId(id); setTab("notes"); } }} />
         ) : c ? (
@@ -270,6 +276,7 @@ export function CallsClient({
               {name(c) !== formatUsPhone(c.counterparty_number) && <span className="whitespace-nowrap text-meta text-ink-3">{formatUsPhone(c.counterparty_number)}</span>}
               {live ? <CallState call={checklistCall(c)} now={now} /> : <OutcomeChip c={c} />}
               <div className="ml-auto flex items-center gap-2">
+                {detailOnScreen && <ApprovalBadgeSlot />}
                 {c.link_type && c.link_slug && LINK_ROUTE[c.link_type] && (
                   <a href={`/${LINK_ROUTE[c.link_type]}/${c.link_slug}`} className="inline-flex items-center gap-1 text-meta text-ink-3 hover:text-ink">
                     <ExternalLink className="size-3.5" strokeWidth={1.5} /> {c.link_type}

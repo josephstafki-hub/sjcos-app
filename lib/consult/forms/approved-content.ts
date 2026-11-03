@@ -704,5 +704,6 @@ export const approvedFormContent = [
 
 /*
 Changed after counsel’s approval — confirm with counsel: staff closing line 2: Next, Joe prices this with our trade partners and suppliers. You'll have the formal estimate by {estimate_date}. It shows each part of the work, the allowances for the things you're still choosing, and what isn't included.
+Changed after counsel’s approval — confirm with counsel: staff closing line 2b: Joe works from everything I measured today, and he may call you with a question or two.
 Changed after counsel’s approval — confirm with counsel: unknown-year pamphlet: We don't know for sure the house was built in 1978 or later, so we give you this pamphlet about lead-safe work — it's called Renovate Right. Could you initial here that you got it?
 */

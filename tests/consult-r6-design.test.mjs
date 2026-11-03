@@ -79,7 +79,7 @@ test('D4: a flag card leads with the measured value and has Go to field', () => 
   assert.ok(flag, 'the clearance flag fires on a measured 20″');
   // r7 domain 3: a kept toilet is advice for Joe; a new one gets the Minnesota code line.
   assert.equal(flag.kind, 'advisory');
-  assert.equal(flagLead(flag, m), 'Measured 20″ — less than 24″ in front of the toilet. It’s staying where it is, so Joe decides whether it needs to change.');
+  assert.equal(flagLead(flag, m), 'Measured 20″ — less than 24″ in front of the toilet. It’s staying where it is, so the code doesn’t force a change. Pick ‘Not an issue’ if it stays, or ‘Price it’ if the client wants it moved.');
   const fresh = buildModel(snapshot(tpl('bath'), [bath], [head(bath.id, 'toilet_plan', 'New standard'), head(bath.id, 'toilet_front_clearance', 20)]), [], [], emptyDraft()).flags.find((f) => f.key === `${bath.id}:toilet_front_clearance`);
   assert.equal(fresh.kind, 'code');
   assert.equal(flagLead(fresh, m), 'Measured 20″ — less than 24″ in front of the toilet — a new toilet needs at least 24″ (Minnesota plumbing code).');

@@ -395,7 +395,7 @@ export const moisture: ModuleDef = {
 };
 
 export const PAMPHLET_LINE = 'Because the house was built before 1978, the law requires us to give you this pamphlet about lead-safe work — it\'s called Renovate Right. Could you initial here that you got it?';
-export const PAMPHLET_UNKNOWN_YEAR_LINE = curly("We don't know for sure the house was built in 1978 or later, so we give you this pamphlet about lead-safe work — it's called Renovate Right. Could you initial here that you got it?");
+export const PAMPHLET_UNKNOWN_YEAR_LINE = curly("We’re not sure the house was built in 1978 or later, so we’re giving you this pamphlet about lead-safe work — it's called Renovate Right. Could you initial here that you got it?");
 const before1978 = rrpBefore;
 const ASBESTOS = ['9×9 floor tile', 'Popcorn ceiling', 'Pipe or boiler wrap', 'Old duct tape', 'Vermiculite', 'Transite siding'];
 export const era: ModuleDef = {

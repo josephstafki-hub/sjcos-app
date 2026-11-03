@@ -572,3 +572,18 @@ export function spokenDuration(keys: string[]): string {
   const said = a === b ? spokenFull(b) : `${spokenBare(a)} to ${spokenFull(b)}`;
   return said;
 }
+
+/** One label for field, office and offline conflict sides. Times are job-local. */
+export function conflictSideLabel(side: {person?: string; actor?: string|null; device_id?: string|null; device?: string|null; created_at?: string|Date}, other?: {person?: string; actor?: string|null; created_at?: string|Date}, thisDevice?: string): string {
+ const first = side.person?.trim().split(/\s+/)[0] || 'Visitor';
+ const time = (at?: string|Date) => at && Number.isFinite(new Date(at).getTime()) ? new Date(at).toLocaleTimeString('en-US',{timeZone:'America/Chicago',hour:'numeric',minute:'2-digit',hour12:true}).toLowerCase() : '';
+ const device=side.device_id ?? side.device;
+ const clock=time(side.created_at);
+ if(thisDevice && device===thisDevice)return `this device${clock?' · '+clock:''}`;
+ if(!device)return `office · ${first}`;
+ const same=other && (side.actor && other.actor ? side.actor===other.actor : !!side.person && side.person===other.person);
+ if(!same)return first;
+ const tie=clock && clock===time(other.created_at);
+ const order=tie ? (new Date(side.created_at!).getTime()<=new Date(other.created_at!).getTime()?' · earlier':' · later') : '';
+ return `${first}${clock?' · '+clock:''}${order}`;
+}

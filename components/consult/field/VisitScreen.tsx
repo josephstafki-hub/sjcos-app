@@ -1,4 +1,5 @@
 "use client";
+import {closingScriptLine} from "@/lib/consult/forms/seed/scripts";
 import {sectionCounts} from "@/lib/consult/completeness";
 /**
  * The visitor's screens (plan §6.3 phone portrait, §6.4 tablet landscape):
@@ -120,7 +121,7 @@ export function VisitScreen({ device, model, display, api, thumbs, online, draft
   const section = model.sections.find((s) => s.instance.id === active) ?? null;
   const tmpl = model.templates[0];
   const opening = useMemo(() => ((staff ? tmpl?.opening_staff : tmpl?.opening) ?? tmpl?.opening ?? []).map((l) => fillScript(l, display, model)), [tmpl, staff, display, model]);
-  const closingLines = useMemo(() => ((staff ? tmpl?.closing_staff : tmpl?.closing) ?? tmpl?.closing ?? []).filter(l => !l.includes("{open_selections}") || model.sections.some(s=>s.module.key==="selections" && !s.fields.some(f=>f.key==="status"&&f.answer?.value==="Exact product picked"))).map((l) => ({ direction: needsDate(l, model), text: needsDate(l, model) ? W.pickDateFirst : fillScript(l, display, model) })), [tmpl, staff, display, model]);
+  const closingLines = useMemo(() => ((staff ? tmpl?.closing_staff : tmpl?.closing) ?? tmpl?.closing ?? []).filter(l => !l.includes("{open_selections}") || model.sections.some(s=>s.module.key==="selections" && !s.fields.some(f=>f.key==="status"&&f.answer?.value==="Exact product picked"))).map(l=>closingScriptLine(l,staff,model.sections.find(s=>s.module.key==='closing')?.fields.find(f=>f.key==='estimate_promised')?.answer)).map((l) => ({ direction: needsDate(l, model), text: needsDate(l, model) ? W.pickDateFirst : fillScript(l, display, model) })), [tmpl, staff, display, model]);
   const head = `${display?.client ?? ""}${model.templates.length ? ` · ${model.templates.map((t) => t.title).join(" + ")}` : ""}`;
   // r5 domain 2: the client initials a sheet that carries the estimate date. Until it is picked (or
   // skipped with a reason — a staff visitor may not know Joe's date) Show to client waits for it.

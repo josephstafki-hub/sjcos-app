@@ -1,3 +1,4 @@
+import {conflictSideLabel} from './words.ts';
 import {PAMPHLET_UNKNOWN_YEAR_LINE} from '../forms/seed/shared.ts';
 import {evaluatedFlags,flagInputs} from '../flags.ts';
 import {pinnedDerivations} from '../derive.ts';
@@ -144,8 +145,8 @@ export function openConflicts(s: Snapshot, entries: QueueEntry[]): ConflictView[
   for (const x of s.conflicts) {
     if (resolvedEvents.has(x.proposed_answer_id)) continue;
     const cur = x.current ?? heads.get(x.current_answer_id);
-    const side=(a:SnapHead|undefined)=>a?{...a,revision:Number(a.server_revision),device:a.device_id,source_label:a.source_label??(a.device_id?`${a.actor??'Visitor'} · device ${a.device_id.slice(0,8)}`:'office'),available:a.status!=='answered'||a.value!==undefined}:undefined;
-    out.push({key:addrOf(x.instance_id,x.field_key),instance_id:x.instance_id,field_key:x.field_key,current:side(cur)??{id:x.current_answer_id,value:undefined,status:'unavailable',revision:0,available:false,source_label:'Unavailable'},proposed:side(x.proposed)??{id:x.proposed_answer_id,value:undefined,status:'unavailable',available:false,source_label:'Unavailable'}});
+    const side=(a:SnapHead|undefined,other?:SnapHead)=>a?{...a,revision:Number(a.server_revision),device:a.device_id,source_label:conflictSideLabel(a,other),available:a.status!=='answered'||a.value!==undefined}:undefined;
+    out.push({key:addrOf(x.instance_id,x.field_key),instance_id:x.instance_id,field_key:x.field_key,current:side(cur,x.proposed)??{id:x.current_answer_id,value:undefined,status:'unavailable',revision:0,available:false,source_label:'Unavailable'},proposed:side(x.proposed,cur)??{id:x.proposed_answer_id,value:undefined,status:'unavailable',available:false,source_label:'Unavailable'}});
   }
   for (const e of entries) {
     if (e.status !== 'conflict' || !ANSWER_TYPES.has(e.op.type) || resolvedEvents.has(e.op.client_event_id)) continue;
@@ -327,6 +328,7 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
     const values: Record<string, unknown> = { ...global };
     for (const f of m.fields) { const a = answers.get(addrOf(inst.id, f.key)); if (a?.status === 'answered') values[f.key] = a.value; }
     for (const f of m.fields) { const v=projection.scalar(inst,f.key); if(v!==undefined)values[f.key]=v; }
+    values['toilet_fixture_plans']=live.filter(fixture=>fixture.module_key==='plumb_fixture').flatMap(fixture=>{const get=(key:string)=>answers.get(addrOf(fixture.id,key))?.value;return get('fixture')==='Toilet'?[get('plan')]:[];});
     const localKnown = new Set([...known, ...m.fields.map((f) => f.key)]);
     const req = (r: boolean | When) => safeCondition(r, localKnown, values);
     const fieldViews: FieldView[] = []; const hidden: FieldView[] = [];

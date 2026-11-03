@@ -1,4 +1,5 @@
 "use client";
+import {conflictSideLabel} from "@/lib/consult/ui/words";
 /**
  * One field (plan §6.1, §6.3): label 17/18 px, separate * required marker, the one-legend
  * mark right-aligned (symbol + word, flags beside the state, never replacing it), the
@@ -149,7 +150,7 @@ function ConflictPicker({ f, actions }: { f: FieldView; actions: FieldActions })
   const c = f.conflict!;
   const show = (v: unknown, status?: string) => (status && status !== "answered" ? (status === "skipped" ? "skipped" : "cleared") : f.def.type.startsWith("length") ? showLength(v, f.def) : v === true ? W.yes : v === false ? W.no : String(v ?? "—"));
   // r7 R7-3: each side is named by where it came from; a side whose value can't be loaded isn't offered.
-  const from = (side: { device?: string | null; source_label?: string }, queuedHere: boolean) => (side.device && actions.device && side.device === actions.device ? W.thisDevice
+  const from = (side: { device?: string | null; source_label?: string; created_at?: string }, queuedHere: boolean) => (side.device && actions.device && side.device === actions.device ? conflictSideLabel(side,undefined,actions.device)
     : side.source_label ?? (queuedHere ? W.thisDevice : side.device ? W.anotherDevice : W.office));
   const offer = (side: { value: unknown; status: string; available?: boolean } | undefined) => !!side && side.available !== false && !(side.status === "answered" && side.value === undefined);
   return (

@@ -3001,7 +3001,8 @@
       ],
       "sjcos_readonly": [
         "SELECT"
-      ]
+      ],
+      "note": " Consultation RRP delivery due dates follow project start changes via SECURITY DEFINER consult_redate_rrp_delivery; existing work-item scheduling trigger applies."
     },
     "workers": {
       "sjcos_agent": [

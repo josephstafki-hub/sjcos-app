@@ -1557,6 +1557,16 @@ Maps: `windows.replace` "Window count", `doors.interior` "Door count".
 | **Shots** | each room's floor **R**; each transition **R**; stairs **R?** | | |
 
 ---
+
+Changed since approval — confirm with counsel
+Changed after counsel’s approval — confirm with counsel: staff closing line 2: Next, Joe prices this with our trade partners and suppliers. You'll have the formal estimate by {estimate_date}. It shows each part of the work, the allowances for the things you're still choosing, and what isn't included.
+Changed after counsel’s approval — confirm with counsel: staff closing line 2b: Joe works from everything I measured today, and he may call you with a question or two.
+
+
+Changed after counsel’s approval — confirm with counsel: Next, I price this with our trade partners and suppliers. I’ll call you with the date you’ll have the formal estimate. It shows each part of the work, the allowances for the things you’re still choosing, and what isn’t included.
+Changed after counsel’s approval — confirm with counsel: Next, Joe prices this with our trade partners and suppliers. He’ll call you with the date you’ll have the formal estimate. It shows each part of the work, the allowances for the things you’re still choosing, and what isn’t included.
+Changed after counsel’s approval — confirm with counsel: We’re not sure the house was built in 1978 or later, so we’re giving you this pamphlet about lead-safe work — it's called Renovate Right. Could you initial here that you got it?
+
 ## 8. Recording consent, privacy and legal
 
 ### 8.1 Exact words and evidence

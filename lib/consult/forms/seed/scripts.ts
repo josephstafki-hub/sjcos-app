@@ -43,7 +43,7 @@ export const TEMPLATE_DURATIONS: Record<string, string> = {
 };
 
 export const LEAD_SAFE_PAMPHLET = {
-  unknown_year_text: "We don't know for sure the house was built in 1978 or later, so we give you this pamphlet about lead-safe work — it's called Renovate Right. Could you initial here that you got it?",
+  unknown_year_text: "We’re not sure the house was built in 1978 or later, so we’re giving you this pamphlet about lead-safe work — it's called Renovate Right. Could you initial here that you got it?",
   when: 'house built before 1978, work disturbs paint — shown inside the Era hazards module',
   text: 'Because the house was built before 1978, the law requires us to give you this pamphlet about lead-safe work — it\'s called Renovate Right. Could you initial here that you got it?',
   direction: 'client initials on SignaturePad',
@@ -70,3 +70,11 @@ export const CONSENT = {
   new_person: '{Name}, I\'m recording our conversation and using an AI tool to take notes — is that okay with you too? You can tell me to stop at any time.',
   new_person_buttons: ['They said yes — resume notes', 'They said no — keep it manual'],
 } as const;
+
+// Changed after counsel’s approval — confirm with counsel.
+export const CLOSING_NO_DATE_JOE = "Next, I price this with our trade partners and suppliers. I’ll call you with the date you’ll have the formal estimate. It shows each part of the work, the allowances for the things you’re still choosing, and what isn’t included.";
+export const CLOSING_NO_DATE_STAFF = "Next, Joe prices this with our trade partners and suppliers. He’ll call you with the date you’ll have the formal estimate. It shows each part of the work, the allowances for the things you’re still choosing, and what isn’t included.";
+export function closingScriptLine(line:string, staff:boolean, skip?:{status:string;skip_reason?:string|null;skip_note?:string|null}):string {
+ const skipped=skip?.status==='skipped'&&(skip.skip_reason==='Joe sets the date'||(skip.skip_reason==='Other'&&!!skip.skip_note?.trim()));
+ return skipped&&line.includes('{estimate_date}')?(staff?CLOSING_NO_DATE_STAFF:CLOSING_NO_DATE_JOE):line;
+}

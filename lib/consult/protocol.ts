@@ -1,3 +1,4 @@
+import {conflictSideLabel} from './ui/words.ts';
 import {saveAcknowledgedSummary} from './summary.ts';
 import {evaluatedFlags,flagInputs} from './flags.ts';
 import { mergeTemplateModules } from './template-merge.ts';
@@ -41,8 +42,8 @@ type Snapshot={consult:{id:string;project_id:string;status:string;revision:strin
 async function one<T=Record<string,unknown>>(c:PoolClient,sql:string,args:unknown[]=[]):Promise<T>{return (await c.query(sql,args)).rows[0] as T;}
 export async function snapshot(c:PoolClient,context:Context,target:string):Promise<Snapshot>{
  const result=(await one<{v:Snapshot}>(c,'SELECT consult_read($1,$2) v',[await scoped(c,context,'read',target),target])).v;
- const records=(await c.query(`SELECT a.*,u.name AS person,CASE WHEN a.device_id IS NULL THEN 'office' ELSE u.name || ' · device ' || left(a.device_id::text,8) END AS source_label FROM consult_answers a JOIN users u ON u.id=a.actor WHERE a.consult_id=$1 AND a.id IN (SELECT current_answer_id FROM consult_conflicts WHERE consult_id=$1 AND resolved_at IS NULL UNION SELECT proposed_answer_id FROM consult_conflicts WHERE consult_id=$1 AND resolved_at IS NULL)`,[target])).rows;
- for(const x of result.conflicts){x.current=records.find(a=>a.id===x.current_answer_id);x.proposed=records.find(a=>a.id===x.proposed_answer_id);}
+ const records=(await c.query(`SELECT a.*,u.name AS person FROM consult_answers a JOIN users u ON u.id=a.actor WHERE a.consult_id=$1 AND a.id IN (SELECT current_answer_id FROM consult_conflicts WHERE consult_id=$1 AND resolved_at IS NULL UNION SELECT proposed_answer_id FROM consult_conflicts WHERE consult_id=$1 AND resolved_at IS NULL)`,[target])).rows;
+ for(const x of result.conflicts){x.current=records.find(a=>a.id===x.current_answer_id);x.proposed=records.find(a=>a.id===x.proposed_answer_id); const a=records.find(a=>a.id===x.current_answer_id), b=records.find(a=>a.id===x.proposed_answer_id); if(a)a.source_label=conflictSideLabel(a,b);if(b)b.source_label=conflictSideLabel(b,a);}
  const visitPin=result.pins.find(p=>p.kind==='module'&&p.definition.key==='visit');
  if(visitPin){
   const instance=result.consult.id;const keys=result.pins.filter(p=>p.kind==='template').map(p=>p.definition.key);
@@ -283,7 +284,8 @@ export async function completion(c:PoolClient,context:Context,target:string){
  const fields:CompletionItem[]=[], photos:CompletionItem[]=[],flags:CompletionInput['flags']=[];
  for(const i of live){const m=modules.find(m=>m.key===i.module_key);if(!m)throw new Error('unknown_module');
   const values={...global};for(const a of s.heads.filter(a=>a.instance_id===i.id&&a.status==='answered'))values[a.field_key]=a.value;for(const f of m.fields){const derived=projection.scalar(i,f.key);if(derived!==undefined)values[f.key]=derived;}
-  const localKnown=new Set([...known,...m.fields.map(f=>f.key)]);
+  values['toilet_fixture_plans']=live.filter(fixture=>fixture.module_key==='plumb_fixture').flatMap(fixture=>{const get=(key:string)=>s.heads.find(a=>a.instance_id===fixture.id&&a.field_key===key&&a.status==='answered')?.value;return get('fixture')==='Toilet'?[get('plan')]:[];});
+    const localKnown=new Set([...known,...m.fields.map(f=>f.key)]);
   const required=(r:ModuleDef['fields'][number]['required'])=>compileCondition(r,localKnown)(values);
   for(const f of m.fields){const key=`${i.id}:${f.key}`, a=s.heads.find(a=>a.instance_id===i.id&&a.field_key===f.key);
    const prefilled=m.key==='era'&&f.key==='before_1978'&&(!a||a.status==='cleared')&&typeof projection.scalar(i,f.key)==='boolean';
@@ -298,7 +300,7 @@ export async function completion(c:PoolClient,context:Context,target:string){
   }
  }
  const devices=(await c.query(`SELECT d.device_id,d.close_ack_at,d.close_manifest FROM consult_devices d WHERE d.consult_id=$1 AND NOT EXISTS(SELECT 1 FROM consult_events e,jsonb_array_elements(e.payload->'devices') x WHERE e.consult_id=d.consult_id AND e.type='missing_device_exception' AND x->>'device_id'=d.device_id::text AND (x->>'epoch')::bigint=d.epoch)`,[target])).rows;
- const rrp=rrpFacts(global,media.some(p=>p.kind==='initials'&&p.field_key==='pamphlet_initials'&&live.some(i=>i.id===p.instance_id&&i.module_key==='era')),s.consult.scheduled_at,(await one<{start_date:string|null}>(c,'SELECT (start_date - 7)::text AS start_date FROM projects WHERE id=$1',[s.consult.project_id])).start_date);
+ const rrp=rrpFacts(global,media.some(p=>p.kind==='initials'&&p.field_key==='pamphlet_initials'&&live.some(i=>i.id===p.instance_id&&i.module_key==='era')),s.consult.scheduled_at,(await one<{start_date:string|null}>(c,'SELECT start_date::text FROM projects WHERE id=$1',[s.consult.project_id])).start_date);
  const receiptException=live.some(i=>i.module_key==='era'&&s.heads.some(h=>h.instance_id===i.id&&['pamphlet_given','pamphlet_initials'].includes(h.field_key)&&h.status==='skipped'&&(['Client absent','Client declined'].includes(h.skip_reason??'')||!!h.skip_note?.trim())&&e?.skips[`${i.id}:${h.field_key}`]?.reason===h.skip_reason));
  const rrpApplies=rrp.applies;
  const input:CompletionInput={fields,photos,modules:mergeTemplateModules(templates,global).map(m=>({key:m.module,minimum:compileCondition(m.required,known)(global)?Math.max(1,m.min??1):0,live_count:live.filter(i=>i.module_key===m.module).length,parents_valid:live.every(i=>!i.parent_id||live.some(p=>p.id===i.parent_id))})),

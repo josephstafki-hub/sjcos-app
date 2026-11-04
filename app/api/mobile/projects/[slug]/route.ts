@@ -1,20 +1,8 @@
-import { NextResponse } from "next/server";
-import { getUserFromRequest, hasAccess } from "@/lib/api-auth";
-import { getProject, getProjectDailyLogs } from "@/lib/projects";
-
-// GET /api/mobile/projects/[slug] — project detail + daily logs (owner only).
-export async function GET(
-  req: Request,
-  { params }: { params: Promise<{ slug: string }> },
-) {
-  const user = await getUserFromRequest(req);
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!hasAccess(user, "projects")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
-  const { slug } = await params;
-  const project = await getProject(slug);
-  if (!project) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
-  const dailyLogs = await getProjectDailyLogs(slug);
-  return NextResponse.json({ project, dailyLogs });
+import { projectsRead, mobileProject } from "@/lib/mobile-rpc/projects-reads";
+export async function GET(req:Request,{params}:{params:Promise<{slug:string}>}) {
+  return projectsRead(req,async user=> {
+    const {slug}=await params;
+    const data=await mobileProject(slug,user);
+    return data?Response.json(data):Response.json({error:"Not found"},{status:404});
+  });
 }

@@ -150,9 +150,20 @@ export async function completeTodayItem(workItemId: string): Promise<QueueSnapsh
  *  it (promoted_at = NULL) so it drops back to Waiting on me; the freed slot
  *  backfills from the rest of the backlog. No-op write if the item is already
  *  done/cancelled. */
-export async function snoozeTodayItem(workItemId: string, days = 3): Promise<QueueSnapshot> {
+export async function snoozeTodayItem(workItemId: string, days: number | string = 3): Promise<QueueSnapshot> {
   const user = await requireAccess("today");
   if (!(await mayWorkItem(user, workItemId))) return getQueueSnapshot(user);
+  if (typeof days === "string") {
+    const until = new Date(days);
+    if (!Number.isFinite(until.getTime()) || until.getTime() <= Date.now()) throw new Error("Choose a future snooze date.");
+    await query(
+      `UPDATE work_items SET due_at = $2::timestamptz, snoozed_until = $2::timestamptz,
+          promoted_at = NULL, updated_at = now()
+        WHERE id = $1 AND status NOT IN ('done','cancelled')`,
+      [workItemId, until.toISOString()],
+    );
+    return getQueueSnapshot(user);
+  }
   const n = Math.min(30, Math.max(1, Math.round(days)));
   await query(
     `UPDATE work_items

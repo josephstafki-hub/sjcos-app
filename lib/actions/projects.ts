@@ -451,14 +451,29 @@ export async function addProjectDailyLog(slug: string, formData: FormData) {
   const proj = await queryOne<{ id: string }>(`SELECT id FROM projects WHERE slug = $1`, [slug]);
   if (!proj) return;
 
-  await query(
+  const row = await queryOne<{ id: string }>(
     `INSERT INTO daily_logs (project_id, log_date, body)
      VALUES ($1, COALESCE($2::date, CURRENT_DATE), $3)
      ON CONFLICT (project_id, log_date) WHERE project_id IS NOT NULL
-     DO UPDATE SET body = EXCLUDED.body, updated_at = now()`,
+     DO UPDATE SET body = concat_ws(E'\\n\\n', NULLIF(daily_logs.body, ''), EXCLUDED.body), updated_at = now()
+     RETURNING id`,
     [proj.id, date, body],
   );
   revalidatePath(`/projects/${slug}`);
+  return { ok: true as const, id: row!.id };
+
+}
+
+/** Explicit replacement of an existing day's text; adding always appends. */
+export async function editProjectDailyLog(slug: string, id: string, body: string) {
+  await requireAccess("projects");
+  if (!body.trim()) return { ok: false as const, error: "Log can't be empty." };
+  const row = await queryOne<{ id: string }>(
+    `UPDATE daily_logs dl SET body=$3, updated_at=now() FROM projects p
+      WHERE dl.id=$2 AND dl.project_id=p.id AND p.slug=$1 RETURNING dl.id`, [slug, id, body.trim()]);
+  if (!row) return { ok: false as const, error: "Log not found on this job." };
+  revalidatePath(`/projects/${slug}`);
+  return { ok: true as const, id: row.id };
 }
 
 /** Email this week's AI-drafted status to the project's client via Gmail, then

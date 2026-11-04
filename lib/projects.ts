@@ -356,7 +356,10 @@ export async function getProject(slug: string): Promise<ProjectDetail | null> {
         { kind: "ghost" as const, label: item.sub },
       ].filter((c) => c.label.trim()),
     subtitle: curated.subtitle ?? [item.sub, "PM Joe"].filter(Boolean).join(" · "),
-    pulse: curated.pulse ?? `${item.name} is in the ${item.stage.toLowerCase()} stage.${item.hasTotal ? ` ${item.billed}% paid to date.` : ""}`,
+    // item.stage is the job's status line when one is set (free text Joe or an
+    // agent wrote), else the stage label. Never lower-case free text into a
+    // sentence — it mangles names and PO numbers ("po-001", "fgt").
+    pulse: curated.pulse ?? pulseLine(item.stage, projectStageLabel(rows[0].status), item.hasTotal ? item.billed : null),
     milestones: curated.milestones ?? [],
     thisWeek: curated.thisWeek ?? [],
     latestLog: curated.latestLog ?? null,
@@ -639,4 +642,12 @@ export async function getProjectsData(): Promise<ProjectsData> {
     summary: `${items.length} projects · ${compactK(contracted)} in job totals · ${compactK(paid)} paid`,
     groups,
   };
+}
+
+/** Fallback "where it stands" sentence for a job with no curated pulse. */
+function pulseLine(statusLine: string, stageLabel: string, paidPct: number | null): string {
+  const paid = paidPct == null ? "" : ` ${paidPct}% paid to date.`;
+  const line = statusLine.trim();
+  if (!line || line === stageLabel) return `In ${stageLabel.toLowerCase()}.${paid}`;
+  return `${stageLabel}: ${/[.!?]$/.test(line) ? line : `${line}.`}${paid}`;
 }

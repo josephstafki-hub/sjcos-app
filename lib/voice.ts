@@ -7,7 +7,7 @@ import "server-only";
 //             cell. No IVR, no greeting: he answers his phone the way he
 //             always has. No answer → voicemail (greeting, beep, recorded,
 //             transcribed) → a callback work item + a push.
-//   Outbound: click-to-call. Joe's cell rings FIRST; once he is on the line
+//   Outbound: click-to-call. The caller's cell rings FIRST; once they answer
 //             the OS dials the client and bridges. Placing a call is a
 //             communication with a client, so it spends a single-use owner
 //             grant (action 'place_call') exactly like send_sms / send_email.
@@ -535,16 +535,18 @@ export interface PlaceCallInput {
   to: string;
   /** Single-use owner grant covering place_call for this number. Required. */
   grantId: string;
-  /** 'owner' or 'mcp:<agent>'. */
+  /** 'owner', 'staff:<user-id>', or 'mcp:<agent>'. */
   actor: string;
   contactName?: string | null;
+  /** Authenticated web/mobile caller; omitted for legacy granted agent calls. */
+  caller?: { id: string; role: "owner" | "staff" };
 }
 
 export type PlaceCallResult =
   | { ok: true; callId: string; summary: string }
   | { ok: false; error: string; blocked?: "not_configured" | "grant" | "invalid_number" | "unknown" };
 
-/** Dial Joe's cell first; once he answers, the OS dials the client and
+/** Dial the caller's cell first; once they answer, the OS dials the client and
  *  bridges (lib/comms/voice-flow.ts). Spends the grant before dialing. */
 export async function placeCall(input: PlaceCallInput): Promise<PlaceCallResult> {
   const cfg = voiceConfig();
@@ -554,7 +556,18 @@ export async function placeCall(input: PlaceCallInput): Promise<PlaceCallResult>
   const norm = normalizeE164(input.to);
   if (!norm.ok) return { ok: false, error: norm.error, blocked: "invalid_number" };
   const to = norm.e164;
-  if (to === cfg.forwardTo) return { ok: false, error: "That is Joe's own cell number." };
+  let callerPhone = cfg.forwardTo;
+  if (input.caller) {
+    const caller = await queryOne<{ phone: string | null; role: string }>(
+      "SELECT phone, role FROM users WHERE id = $1 AND active = true", [input.caller.id],
+    );
+    if (!caller || !["owner", "staff"].includes(caller.role)) return { ok: false, error: "Caller is unavailable." };
+    if (!caller.phone && caller.role !== "owner") return { ok: false, error: "Add your cell number in Settings to call from the business line." };
+    const cell = normalizeE164(caller.phone ?? cfg.forwardTo);
+    if (!cell.ok) return { ok: false, error: cell.error, blocked: "invalid_number" };
+    callerPhone = cell.e164;
+  }
+  if (to === callerPhone) return { ok: false, error: "That is your own cell number." };
 
   // Fast, relayable refusal; the authoritative spend happens at dispatch.
   const covers = await checkGrantCovers(input.grantId, "place_call", { kind: "phone", id: to, to });
@@ -570,7 +583,7 @@ export async function placeCall(input: PlaceCallInput): Promise<PlaceCallResult>
       id,
       to,
       cfg.fromNumber,
-      cfg.forwardTo,
+      callerPhone,
       input.contactName?.trim() || match?.contactName || null,
       match?.linkType ?? null,
       match?.linkSlug ?? null,
@@ -581,7 +594,7 @@ export async function placeCall(input: PlaceCallInput): Promise<PlaceCallResult>
     ],
   );
   // One permanent intent per call row: the dispatcher spends the grant,
-  // dials Joe's cell through Telnyx and records the call control id
+  // dials your cell through Telnyx and records the call control id
   // (lib/dispatch/effects.ts place_call). The webhook carries on from there.
   const principal: Principal = input.actor.startsWith("mcp:") ? { kind: "agent", agent: input.actor.slice(4), runId: null, onBehalfOf: null } : { kind: "service", name: `voice:${input.actor}` };
   const { intent } = await withTransaction((run) =>
@@ -593,7 +606,7 @@ export async function placeCall(input: PlaceCallInput): Promise<PlaceCallResult>
       recipient: to,
       leadId: match?.leadId ?? null,
       projectId: match?.projectId ?? null,
-      payload: { callId: id, to: cfg.forwardTo, from: cfg.fromNumber, timeoutSecs: flowConfig(cfg).ringSeconds, counterparty: to, _auth: { action: "place_call", target_kind: "phone", target_id: to, to } },
+      payload: { callId: id, to: callerPhone, from: cfg.fromNumber, timeoutSecs: flowConfig(cfg).ringSeconds, counterparty: to, _auth: { action: "place_call", target_kind: "phone", target_id: to, to } },
       grantId: input.grantId,
       principal,
       maxAttempts: 1,
@@ -602,15 +615,15 @@ export async function placeCall(input: PlaceCallInput): Promise<PlaceCallResult>
   const [outcome] = await dispatchIntentsNow([intent.id]);
   const name = input.contactName?.trim() || match?.contactName || to;
   if (outcome && (outcome.responseClass === "accepted" || outcome.responseClass === "confirmed")) {
-    const summary = `Calling ${name}: Joe's cell is ringing; once he answers the OS dials ${to} and bridges.`;
+    const summary = `Calling ${name}: your cell is ringing; once you answer the OS dials ${to} and bridges.`;
     return { ok: true, callId: id, summary };
   }
   if (outcome?.responseClass === "unknown") {
-    return { ok: false, blocked: "unknown", error: `Telnyx did not confirm whether the dial to Joe's cell started; the call record is held for reconciliation (the voice webhook or the daily sweep settles it). Not redialled.` };
+    return { ok: false, blocked: "unknown", error: `Telnyx did not confirm whether the dial to your cell started; the call record is held for reconciliation (the voice webhook or the daily sweep settles it). Not redialled.` };
   }
   const msg = outcome?.error ?? "dial refused";
   if (outcome?.responseClass !== "refused") {
-    await reportCommsFailure("voice-command", new Error(msg), { detail: `click-to-call to ${to} could not dial Joe's cell`, href: "/calls" });
+    await reportCommsFailure("voice-command", new Error(msg), { detail: `click-to-call to ${to} could not dial your cell`, href: "/calls" });
   } else {
     await query(`UPDATE calls SET status = 'failed', outcome = 'failed', ended = true, ended_at = now(), error = $2, updated_at = now() WHERE id = $1 AND status = 'ringing'`, [id, msg.slice(0, 500)]);
   }

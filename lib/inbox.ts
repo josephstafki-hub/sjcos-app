@@ -842,7 +842,7 @@ interface ContactMaps {
 }
 
 /** Load the contact index from Postgres once per inbox build. */
-async function loadContactMaps(): Promise<ContactMaps> {
+export async function loadContactMaps(): Promise<ContactMaps> {
   await ensureMailboxEmail();
   const [contacts, links, threadLinks, staff, preferences] = await Promise.all([
     query<ContactRow>(
@@ -952,7 +952,7 @@ const learnedMailboxAliases = new Map<string, Set<string>>();
 
 /** Map a page of raw Gmail threads → InboxThreads (audience/project resolved)
  *  + reader entries. Shared by the first load and "Load more". */
-function mapRawThreads(
+export function mapRawThreads(
   raw: RawGmailThread[],
   labelMap: Map<string, string>,
   contactMaps: ContactMaps,

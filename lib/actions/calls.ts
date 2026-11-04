@@ -1,7 +1,7 @@
 "use server";
 
-// Owner-side call actions (/calls and the Call button on /messages). Placing
-// a call is a client communication, so even the owner's click goes through
+// Internal call actions (/calls and the Call button on /messages). Placing
+// a call is a client communication, so the user's click goes through
 // the grant gate: the click mints a single-use place_call grant for exactly
 // this number and lib/voice.ts placeCall spends it. One provider path, always
 // audited, for Joe and agents alike.
@@ -14,7 +14,7 @@ import { normalizeE164 } from "@/lib/comms/phone";
 import { getCall, getCallEvents, placeCall, voiceConfigured, type CallRow } from "@/lib/voice";
 
 export async function placeCallAction(phone: string, contactName?: string | null): Promise<{ ok: boolean; callId?: string; error?: string }> {
-  await requireAccess("comms");
+  const user = await requireAccess("comms");
   if (!voiceConfigured()) {
     return { ok: false, error: connectionCopy("voice").error };
   }
@@ -25,12 +25,12 @@ export async function placeCallAction(phone: string, contactName?: string | null
     targetKind: "phone",
     targetId: norm.e164,
     scope: { to: norm.e164 },
-    reason: "Owner placed a call from the app",
-    requestedBy: "owner",
+    reason: "User placed a call from the app",
+    requestedBy: user.role === "owner" ? "owner" : `staff:${user.id}`,
     maxUses: 1,
     expiresInMinutes: 5,
   });
-  const r = await placeCall({ to: norm.e164, grantId: grant.id, actor: "owner", contactName });
+  const r = await placeCall({ to: norm.e164, grantId: grant.id, actor: user.role === "owner" ? "owner" : `staff:${user.id}`, caller: { id: user.id, role: user.role as "owner" | "staff" }, contactName });
   revalidatePath("/calls");
   if (!r.ok) return { ok: false, error: r.error };
   return { ok: true, callId: r.callId };

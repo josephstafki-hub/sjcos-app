@@ -61,6 +61,15 @@ export async function generateSafetyOrientation(slug: string, trade: string): Pr
 /** Owner: create an incident report. Qwen drafts a factual narrative from the
  *  owner's notes → PDF (with disclaimer) stored in Files + a logged record. */
 export async function createIncidentReport(slug: string, formData: FormData): Promise<Result> {
+  return createIncidentReportCore(slug, formData);
+}
+
+/** Mobile receipt identity, reserved and journaled by the server before dispatch. */
+export async function createMobileIncidentReport(slug: string, formData: FormData, incidentId: string): Promise<Result> {
+  return createIncidentReportCore(slug, formData, incidentId);
+}
+
+async function createIncidentReportCore(slug: string, formData: FormData, incidentId?: string): Promise<Result> {
   const user = await requireAccess("projects");
   const proj = await queryOne<{ id: string; name: string }>(
     `SELECT id, name FROM projects WHERE slug = $1`,
@@ -114,10 +123,11 @@ export async function createIncidentReport(slug: string, formData: FormData): Pr
     subtitle: `Incident report · ${occurredLabel || "date n/a"}`,
   });
 
+  if (incidentId && !stored.ok) return { ok: false, error: "The PDF could not be saved. No incident was filed. Try again with a new request." };
   await query(
-    `INSERT INTO incident_reports (project_id, occurred_at, reporter, severity, notes, narrative, file_id)
-     VALUES ($1, NULLIF($2,'')::date, $3, $4, $5, $6, $7)`,
-    [proj.id, occurredAt, reporter, severity, notes, narrative, stored.ok ? stored.id : null],
+    `INSERT INTO incident_reports (id, project_id, occurred_at, reporter, severity, notes, narrative, file_id)
+     VALUES (COALESCE($8::bigint, nextval('incident_reports_id_seq')), $1, NULLIF($2,'')::date, $3, $4, $5, $6, $7)`,
+    [proj.id, occurredAt, reporter, severity, notes, narrative, stored.ok ? stored.id : null, incidentId ?? null],
   );
 
   await emit({

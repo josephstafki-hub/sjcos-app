@@ -1,33 +1,15 @@
-import { NextResponse } from "next/server";
-import { getUserFromRequest, hasAccess } from "@/lib/api-auth";
-import { gmailConfigured } from "@/lib/gmail";
-import { draftReplyForThread } from "@/lib/inbox";
-import type { DraftModel } from "@/lib/dev-agents-meta";
-
-// POST /api/mobile/inbox/draft — generate an AI reply draft for one thread on
-// demand (mobile mirror of draftReplyAction). Lazy because local-LLM drafting
-// is too slow to run for every thread up front.
-export async function POST(req: Request) {
-  const user = await getUserFromRequest(req);
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!hasAccess(user, "inbox")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  if (!gmailConfigured()) return NextResponse.json({ error: "Gmail is not connected." }, { status: 400 });
-
-  let threadId: string;
-  let model: DraftModel = "qwen";
-  try {
-    const parsed = (await req.json()) as { threadId?: unknown; model?: unknown };
-    threadId = String(parsed?.threadId ?? "");
-    if (parsed?.model === "hermes") model = "hermes";
-  } catch {
-    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
-  }
-  if (!threadId) return NextResponse.json({ error: "threadId is required." }, { status: 400 });
-
-  try {
-    const draft = await draftReplyForThread(threadId, model);
-    return NextResponse.json(draft);
-  } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
-  }
+import { getCurrentUser } from "@/lib/dal";
+import { z } from "zod";
+import { commsRead, CommsReadError } from "@/lib/mobile-rpc/comms-reads";
+import { draftReplyAction } from "@/lib/actions/inbox";
+const schema=z.object({threadId:z.string().min(1),model:z.enum(["qwen","hermes"]).optional()});
+// Compatibility endpoint; writes use the same mailbox-scoped action as web/RPC.
+export async function POST(req:Request){
+ return commsRead(req,"inbox",async user=>{
+  if((await getCurrentUser())?.id!==user.id)throw new CommsReadError("Unauthorized",401);
+  let body:unknown;try{body=await req.json();}catch{throw new CommsReadError("Invalid request body.");}
+  const parsed=schema.safeParse(body);if(!parsed.success)throw new CommsReadError(parsed.error.issues[0]?.message??"Invalid input.");
+  const result=await draftReplyAction(parsed.data.threadId,parsed.data.model??"qwen");if(!result.ok)throw new CommsReadError(result.error??"Could not complete this request.");
+  const {ok,...draft}=result; return Response.json(draft);
+ });
 }

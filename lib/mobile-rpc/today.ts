@@ -4,6 +4,7 @@ import { completeTodayItem, snoozeTodayItem, promoteTodayItem, sendBackTodayItem
 import { approveWaiting, declineWaiting } from "@/lib/actions/approvals";
 import { approveGrant, denyGrant } from "@/lib/actions/owner-grants";
 import { markNotificationRead, markAllNotificationsRead } from "@/lib/actions/notifications";
+import { createWorkItem } from "@/lib/actions/engine";
 
 import { newConversationAction, sendMessageAction } from "@/lib/actions/ai-chat";
 import { pollAgentRun } from "@/lib/actions/dev-agents";
@@ -17,6 +18,26 @@ const approval = z.object({
   contentHash: z.string().min(1).nullable(),
 }).strict();
 export const todayActions = {
+  // New to-do from the phone's "+" menu: the same server action as the web's
+  // Engine "New to-do" form (engine area; due date and optional job link).
+  "today.create": defineAction({
+    input: z.object({
+      title: z.string().trim().min(1, "Title is required.").max(500),
+      notes: z.string().max(20000).optional(),
+      dueDate: z.iso.date().optional(),
+      projectSlug: z.string().min(1).max(200).optional(),
+    }).strict(),
+    run: async ({ title, notes, dueDate, projectSlug }, user) => {
+      const fd = new FormData();
+      fd.set("title", title);
+      if (notes) fd.set("body", notes);
+      if (dueDate) fd.set("due_at", dueDate);
+      if (projectSlug) fd.set("job", `project:${projectSlug}`);
+      const res = await createWorkItem(fd);
+      if (!res.ok) throw new MobileInputError(res.error);
+      return getQueueSnapshot(user);
+    },
+  }),
   "today.handoff": defineAction({
     input: z.object({ id: z.string().min(1).max(200), kind: z.enum(["do", "prep"]) }).strict(),
     ownerOnly: true,

@@ -200,3 +200,8 @@ actions, JSON/schema validation, missing authentication, area and owner gates,
 success, Next redirect conversion and web-action refusal. It is not an HTTP or
 real-token integration test; the coordinator should smoke-test bearer-backed
 routes and revalidation in the production QA preview.
+
+### today.create
+
+`POST /api/mobile/rpc/today.create` — body `{ title: string; notes?: string; dueDate?: "YYYY-MM-DD"; projectSlug?: string }`.
+Wraps the web Engine "New to-do" action (`createWorkItem`, engine area). Returns the Today queue snapshot.

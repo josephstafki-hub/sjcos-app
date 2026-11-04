@@ -6,7 +6,7 @@
  * failing checks in plain words. No item count is a score; the server decides Complete.
  */
 import {closeAction, closeResultOpenCount, completeCountsLine, openCheckPhrase, openItemCount} from '@/lib/consult/completeness';
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { CoverageMark } from "@/components/ui/CoverageMark";
 import type { EvidenceDraft, FieldView, ShotView, VisitModel } from "@/lib/consult/ui/model";
 import type { ClosingState } from "@/lib/consult/ui/controller";
@@ -41,13 +41,15 @@ export function CertWarnings({ list, className = "" }: { list: CertificationWarn
   return <CertWarningList list={list} className={className} />;
 }
 
-export function WrapSheet({ open, onClose, model, draft, hasInitials, refused, onGo, onFlags, onTrades, onRrp, onClient, onAck, onCloseVisit, onPromised, needDate, reopened }: {
+export function WrapSheet({ open, onClose, model, draft, hasInitials, refused, onGo, onFlags, onTrades, onRrp, onClient, onAck, onCloseVisit, onPromised, needDate, reopened, refusedNote }: {
   open: boolean; onClose: () => void; model: VisitModel; draft: EvidenceDraft; hasInitials: boolean; refused: number;
   onGo: (sectionId: string, addr: string) => void; onFlags: () => void; onTrades: () => void; onRrp: () => void; onClient: () => void; onAck: () => void; onCloseVisit: () => void; onPromised?: () => void;
   /** r5 domain 2: no estimate date yet (and not skipped) — the client would initial a sheet without it. */
   needDate?: boolean;
   /** r9 R9-3: set while a reopened visit is waiting for its next close. */
   reopened?: Snapshot["reopened"];
+  /** r12 extra: opened from a refused close the office named no field for — say why it opened. */
+  refusedNote?: boolean;
 }) {
   const required = model.open.filter((o) => !o.partly);
   const partly = model.open.filter((o) => o.partly);
@@ -82,6 +84,7 @@ export function WrapSheet({ open, onClose, model, draft, hasInitials, refused, o
         </div>}
         {!firstConflict && <Btn className="max-md:w-full" onClick={onClose}>{W.keepWorking}</Btn>}<Btn tone="primary" className="max-md:w-full" onClick={onCloseVisit} disabled={conflictN > 0 || refused > 0}>{closeLabel}</Btn></>}>
       <ReopenedNote reopened={reopened} className="mb-3" />
+      {refusedNote && <div className="mb-3"><Banner kind="status">{W.wrapRefusedNote}</Banner></div>}
       <div className="mb-5 grid gap-3">
         {/* r3 C7: what stops a Complete close comes first — flags, promised date, client initials. */}
         {model.flags.length > 0 && <Line text={undecidedFlags.length ? fill(undecidedFlags.length === 1 ? W.flagsLine : W.flagsLinePlural, { n: undecidedFlags.length }) : `Flags: all ${model.flags.length} decided ✓`} action={<Btn onClick={onFlags}>{W.reviewFlags}</Btn>} done={undecidedFlags.length === 0} />}
@@ -173,19 +176,32 @@ export function FlagSheet({ open, onClose, model, draft, onSave, saveError, onGo
   );
 }
 
-export function TradeSheet({ open, onClose, model, draft, onSave, saveError }: { open: boolean; onClose: () => void; model: VisitModel; draft: EvidenceDraft; saveError?: string | null; onSave: (d: EvidenceDraft) => Promise<boolean> }) {
+/** r12 extra: "Dec 10" — the trade-walk day as words, the same way the promised date is said. */
+const walkDayLabel = (d: string) => /^\d{4}-\d{2}-\d{2}$/.test(d) ? new Date(`${d}T12:00:00Z`).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", timeZone: "UTC" }) : d;
+
+export function TradeSheet({ open, onClose, model, draft, onSave, saveError, toDay }: { open: boolean; onClose: () => void; model: VisitModel; draft: EvidenceDraft; saveError?: string | null; onSave: (d: EvidenceDraft) => Promise<boolean>;
+  /** r12 extra: opened from the "Only Joe can set a trade-walk day" refusal — scroll to the trade that has the day. */
+  toDay?: boolean }) {
   const initial = [...new Set([...model.touchedTrades, ...draft.trade_walks.map((w) => w.trade)])].filter(Boolean).map((t) => draft.trade_walks.find((w) => w.trade === t) ?? { trade: t, needed: null, reason: "" });
   const [walks, setWalks] = useState(initial);
   const [none, setNone] = useState(draft.no_trades_confirmed);
   const [extra, setExtra] = useState("");
   const set = (i: number, patch: Partial<EvidenceDraft["trade_walks"][number]>) => setWalks((w) => w.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  const dayRef = useRef<HTMLFieldSetElement | null>(null);
+  const firstDay = walks.findIndex((w) => !!w.day);
+  useEffect(() => { if (open && toDay) dayRef.current?.scrollIntoView({ block: "center" }); }, [open, toDay]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <Sheet open={open} onClose={onClose} side title={W.tradeWalkTitle} footer={<><Btn onClick={onClose}>{W.cancel}</Btn><Btn tone="primary" onClick={async () => { if(await onSave({ ...draft, trade_walks: walks, no_trades_confirmed: walks.length === 0 && none })) onClose(); }}>{W.save}</Btn></>}>
       {saveError && <Banner kind="action">{plainWords(saveError)}</Banner>}
       <div className="grid gap-5">
         {walks.map((w, i) => (
-          <fieldset key={w.trade} className="rounded-lg border-2 border-rule p-3">
+          <fieldset key={w.trade} ref={i === firstDay ? dayRef : undefined} className="rounded-lg border-2 border-rule p-3">
             <legend className="px-1 font-semibold text-ink">{w.trade}</legend>
+            {/* r12 extra: the day only Joe sets is said on its trade, with the way to take it off beside it. */}
+            {w.day && <div className="mb-3 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 max-sm:grid-cols-1">
+              <p className="text-ink"><span aria-hidden className="mr-1 font-semibold text-ink-2">⚐</span>{fill(W.tradeWalkDay, { day: walkDayLabel(w.day) })}</p>
+              <Btn className="max-sm:w-full" onClick={() => set(i, { day: undefined })}>{W.tradeWalkDayOff}</Btn>
+            </div>}
             <Choice label={W.needsWalk} options={[true, false] as const} value={w.needed} onPick={(v) => set(i, { needed: v })} labels={(v) => (v ? W.yes : W.no)} columns={2} />
             <div className="mt-3"><TextInput label={W.reason} value={w.reason} onChange={(v) => set(i, { reason: v })} /></div>
           </fieldset>
@@ -250,7 +266,7 @@ export function AckSheet({ open, onClose, draft, onSave, saveError, summaryText 
 }
 
 /** Visit closed — sending → Complete / Needs finishing, the same words for Joe's and staff visits. */
-export function ClosingScreen({ closing, unsent, online, autoApply, findings, findingsCode, unmeasured = 0, onSend, onRetry, onKeepWorking, onReopen, onApply, onAction, onRefused, home, signInHref, staff = false, closedAt }: {
+export function ClosingScreen({ closing, unsent, online, autoApply, findings, findingsCode, unmeasured = 0, onSend, onRetry, onKeepWorking, onReopen, onApply, onAction, onRefused, signInHref, staff = false, closedAt }: {
   closing: ClosingState; unsent: number; online: boolean; autoApply: boolean; findings: { status: string; last_error: string | null } | null; findingsCode: string | null;
   /** r8 domain E4: estimate quantities with no measured answer, said under ✓ Complete. */
   unmeasured?: number;
@@ -318,10 +334,14 @@ export function ClosingScreen({ closing, unsent, online, autoApply, findings, fi
       {closing.step === "done" && r && <>
         {r.complete ? <>
           {/* r11 extra: the same heading as the opened Complete screen (CompleteCard) — with the close time. */}
-          <h1 className="font-serif text-[1.8em] font-semibold text-accent-2">✓ {W.complete}{closedWhen ? ` · ${closedWhen}` : ""}</h1>
+          {/* r12 extra: "Nov 3, 7:01 pm" stays on one line — never "7:01 / pm". */}
+          <h1 className="font-serif text-[1.8em] font-semibold text-accent-2">✓ {W.complete}{closedWhen ? <> · <span className="whitespace-nowrap">{closedWhen}</span></> : null}</h1>
           {unmeasured > 0 && <p className="mt-1 font-semibold text-ink">{quantitiesLine(unmeasured)}</p>}
           <p className="mt-2 font-mono text-ink">{completeCountsLine(r)}</p>
           <p className="mt-1 text-ink-2">Answers and photos sent ✓</p>
+          {/* r12 R12-3: the opened Complete screen's lock line, from the same role check — a staff visitor
+              is told Joe reopens it from the office look-over; Joe gets Reopen below. */}
+          <p className="mt-3 text-ink">{staff ? W.completeLocked : W.answersLocked}</p>
           {!autoApply && (
             <div className="mt-4 rounded-lg border-2 border-rule p-3">
               {findings?.status === "applied" || findings?.status === "done" ? <p className="font-semibold text-accent-2">Findings applied ✓</p>
@@ -362,12 +382,11 @@ export function ClosingScreen({ closing, unsent, online, autoApply, findings, fi
         </>}
         <div className="mt-6 grid gap-3 sm:grid-cols-2">
           {!r.complete && <Btn tone="primary" onClick={onKeepWorking}>{W.keepWorking}</Btn>}
-          {r.complete && !reopening && <Btn onClick={() => setReopening(true)}>{W.reopen}</Btn>}
-          {/* r11 extra: ✓ Complete goes back to the visit list, as the opened Complete screen does. */}
-          {r.complete ? <LinkBtn href="/consult/">{W.backToVisits}</LinkBtn>
-            : <a href={home} className="inline-flex min-h-14 items-center justify-center rounded-md border-2 border-rule bg-card px-4 font-semibold text-ink no-underline">{W.back}</a>}
+          {r.complete && !staff && !reopening && <Btn onClick={() => setReopening(true)}>{W.reopen}</Btn>}
+          {/* r11 / r12 extra: both close results go back to the visit list, as the opened Complete screen does. */}
+          <LinkBtn href="/consult/">{W.backToVisits}</LinkBtn>
         </div>
-        {reopening && (
+        {reopening && !staff && (
           <form className="mt-4 grid gap-3" onSubmit={async (e) => { e.preventDefault(); setErr(null); try { await onReopen(reason.trim()); } catch (x) { setErr(plainWords(x instanceof Error ? x.message : "")); } }}>
             <TextInput label={W.reopenReason} value={reason} onChange={setReason} multiline autoFocus />
             {err && <p role="alert" className="font-semibold text-flag">! {err}</p>}

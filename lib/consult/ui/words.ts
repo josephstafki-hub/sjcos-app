@@ -201,6 +201,13 @@ export const W = {
   complete: 'Complete',
   // r7 R7-1: a Complete visit opened on a device.
   completeLocked: 'Answers are locked. Joe can reopen it from the office look-over.',
+  // r12 R12-3: Joe's own device — the same lock line, and Reopen beside it.
+  answersLocked: 'Answers are locked.',
+  // r12 extra: Before you wrap opened from a refused close the office named no field for.
+  wrapRefusedNote: 'The office couldn’t read these answers — check them, then close again.',
+  // r12 extra: a trade-walk day only Joe sets, said on its trade in Trade walks.
+  tradeWalkDay: 'Walk day {day} — only Joe sets it.',
+  tradeWalkDayOff: 'Take the day off',
   lookOver: 'Look over',
   needsFinishing: 'Needs finishing',
   needsFinishingN: '{n} open. A Finish consultation to-do was made.',
@@ -249,8 +256,9 @@ export const W = {
   rrpRedeliveryDay: 'Re-deliver on',
   rrpWhy: 'Built before 1978 (or the year isn’t known), and this job disturbs paint or replaces windows or doors.',
   rrpReceiptOpen: 'Answer “Pamphlet given” Yes in Era hazards and get the client’s initials — or skip it with a reason.',
-  rrpFirmOpen: 'Firm certification expiry is missing or before the visit day. Settings › Company fills it in.',
-  rrpRenovatorOpen: 'Certified renovator expiry is missing or before the visit day.',
+  // r12 R12-2: say where the visitor can fix it on this device — Settings › Company is Joe's.
+  rrpFirmOpen: 'Firm certification expiry is missing or before the visit day. Enter it in Era hazards, or Joe adds it in Settings › Company.',
+  rrpRenovatorOpen: 'Certified renovator expiry is missing or before the visit day. Enter it in Era hazards.',
   rrpGoEra: 'Go to Era hazards',
   rrpReview: 'Review',
   // r9: certification expiring before the planned finish — advice for Joe, never a close block.

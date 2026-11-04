@@ -128,7 +128,7 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
 
   let body: React.ReactNode = null;
   if (st.phase === "loading") body = <div className="mx-auto max-w-[560px]"><ScreenHead title={title} right={more} /><p className="px-4 py-6 text-ink-2" role="status">Opening…</p></div>;
-  else if (st.phase === "complete") body = <CompleteCard title={title} closedAt={boot?.closed_at} completeness={boot?.completeness} unmeasured={boot?.unmeasured} lookOver={`${home}/consult/${consultId}`} more={more} />;
+  else if (st.phase === "complete") body = <CompleteCard staff={staffUser} consultId={consultId} title={title} closedAt={boot?.closed_at} completeness={boot?.completeness} unmeasured={boot?.unmeasured} lookOver={`${home}/consult/${consultId}`} more={more} />;
   else if (st.phase === "disabled") body = <div className="mx-auto max-w-[560px]"><ScreenHead title={title} right={more} /><div className="px-4 py-6"><Banner kind="action">{plainWords("capture_disabled")}</Banner><div className="mt-4"><LinkBtn wide href={home}>{W.back}</LinkBtn></div></div></div>;
   else if (st.phase === "get_ready") body = <GetReadyCard title={title} result={st.ready.result} checks={st.ready.checks} enrolled={st.enrolled} expires={st.leaseExpires} code={st.code} readyCode={st.ready.code} userName={userName} onGetReady={(pin) => void ctl.getReady(pin)} more={more} />;
   else if (st.phase === "unlock") body = <UnlockCard title={title} onUnlock={(pin) => void ctl.unlock(pin)} busy={st.busy} code={st.code} expires={st.leaseExpires} olderBuild={st.olderBuild} more={more} />;
@@ -190,7 +190,7 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
             else if (fix === "sign_in") location.href = signInHref;
             else if (fix === "go_to_field") setAfter(field ? `focus:${field}` : "go_conflict");
             else if (fix === "before_you_wrap") setAfter(field ? `focus:${field}` : "before_you_wrap");
-            else if (fix === "trade_walks") setAfter("review_trades");
+            else if (fix === "trade_walks") setAfter("trade_walks_day");
           });
         }} /></>;
     } else if (status === "complete") {

@@ -11,7 +11,7 @@ import { CoverageMark } from "@/components/ui/CoverageMark";
 import type { ReadyCheck, CheckResult } from "@/lib/consult/readiness";
 import type { ReadyResult } from "@/lib/consult/ui/controller";
 import { READY_LABEL, READY_ROWS, W, fill, plainWords, quantitiesLine, readyReason } from "@/lib/consult/ui/words";
-import { Btn, LinkBtn, TextInput } from "./primitives";
+import { Banner, Btn, LinkBtn, TextInput } from "./primitives";
 import { completeCountsLine } from "@/lib/consult/completeness";
 
 export function centralTime(iso: string | number | null | undefined, opts: Intl.DateTimeFormatOptions = { weekday: "short", hour: "numeric", minute: "2-digit" }) {
@@ -148,22 +148,46 @@ export function GetReadyCard({ title, result, checks, enrolled, expires, code, r
   );
 }
 
-/** r7 R7-1: a Complete visit opened on a device — finished, locked, calm. No Get ready, PIN or paper line. */
-export function CompleteCard({ title, closedAt, completeness, unmeasured = 0, lookOver, more }: { title: string; closedAt?: string | null; completeness?: unknown; unmeasured?: number; lookOver: string; more?: ReactNode }) {
+/** r12 R12-3: Reopen from the opened Complete screen — the office's current revision, then the same
+ *  `reopen` command the look-over sends. The page reloads into the reopened visit. */
+async function reopenVisit(id: string, reason: string) {
+  const g = await fetch(`/api/consult/${id}`, { credentials: "same-origin", cache: "no-store" });
+  if (g.status === 401) throw new Error("signed_out");
+  if (!g.ok) throw new Error("no_signal");
+  const snap = (await g.json()) as { consult?: { revision?: number | string } };
+  const r = await fetch(`/api/consult/${id}`, { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json", "X-Consult-CSRF": "1" }, body: JSON.stringify({ command: "reopen", input: { expected_revision: Number(snap.consult?.revision), reason } }) });
+  const body = (await r.json().catch(() => ({}))) as { ok?: boolean; error_code?: string; code?: string };
+  if (!r.ok || body.ok === false) throw new Error(body.error_code ?? body.code ?? "invalid_command");
+}
+
+/** r7 R7-1: a Complete visit opened on a device — finished, locked, calm. No Get ready, PIN or paper line.
+ *  r12 R12-3: the same role check as the visitor's own close result — a staff visitor is told Joe reopens it
+ *  from the office look-over; Joe is told "Answers are locked." and offered Reopen, as on his own close. */
+export function CompleteCard({ title, closedAt, completeness, unmeasured = 0, lookOver, more, staff = false, consultId }: { title: string; closedAt?: string | null; completeness?: unknown; unmeasured?: number; lookOver: string; more?: ReactNode; staff?: boolean; consultId?: string }) {
   const c = completeness as { price_critical?: { total: number; done: number; skipped?: number }; record?: { total: number; done: number; skipped?: number } } | null | undefined;
   const when = centralTime(closedAt, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  const [reopening, setReopening] = useState(false); const [reason, setReason] = useState(""); const [err, setErr] = useState<string | null>(null); const [busy, setBusy] = useState(false);
+  const canReopen = !staff && !!consultId;
   return (
     <div className="mx-auto w-full max-w-[560px]">
       <ScreenHead title={title} right={more} />
       <section className="px-4 pb-8 pt-4" aria-live="polite">
-        <h1 className="font-serif text-[1.8em] font-semibold text-accent-2">✓ {W.complete}{when ? ` · ${when}` : ""}</h1>
+        <h1 className="font-serif text-[1.8em] font-semibold text-accent-2">✓ {W.complete}{when ? <> · <span className="whitespace-nowrap">{when}</span></> : null}</h1>
         {unmeasured > 0 && <p className="mt-1 font-semibold text-ink">{quantitiesLine(unmeasured)}</p>}
         {c?.price_critical && c.record && <p className="mt-2 font-mono text-ink">{completeCountsLine({ price_critical: c.price_critical, record: c.record })}</p>}
-        <p className="mt-3 text-ink">{W.completeLocked}</p>
+        <p className="mt-3 text-ink">{staff ? W.completeLocked : W.answersLocked}</p>
         <div className="mt-5 grid gap-3">
           <LinkBtn tone="primary" wide href={lookOver}>{W.lookOver}</LinkBtn>
+          {canReopen && !reopening && <Btn wide onClick={() => setReopening(true)}>{W.reopen}</Btn>}
           <LinkBtn wide href="/consult/">{W.backToVisits}</LinkBtn>
         </div>
+        {canReopen && reopening && (
+          <form className="mt-4 grid gap-3" onSubmit={async (e) => { e.preventDefault(); setErr(null); setBusy(true); try { await reopenVisit(consultId!, reason.trim()); location.reload(); } catch (x) { setErr(plainWords(x instanceof Error ? x.message : "")); setBusy(false); } }}>
+            <TextInput label={W.reopenReason} value={reason} onChange={setReason} multiline autoFocus />
+            {err && <Banner kind="action">{err}</Banner>}
+            <div className="flex gap-3"><Btn onClick={() => setReopening(false)}>{W.cancel}</Btn><Btn tone="primary" type="submit" disabled={!reason.trim() || busy}>{W.reopen}</Btn></div>
+          </form>
+        )}
       </section>
     </div>
   );

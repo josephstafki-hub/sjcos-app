@@ -61,7 +61,8 @@ test('R11-1: the close screen wires each fix to its place, and Keep working stan
   assert.match(app, /fix === "sign_in"\) location\.href = signInHref/);
   assert.match(app, /fix === "before_you_wrap"\) setAfter\(field \? `focus:\$\{field\}` : "before_you_wrap"\)/);
   assert.match(app, /fix === "go_to_field"\) setAfter\(field \? `focus:\$\{field\}` : "go_conflict"\)/);
-  assert.match(app, /fix === "trade_walks"\) setAfter\("review_trades"\)/);
+  // r12 extra: Trade walks from this refusal scrolls to the trade that has the day.
+  assert.match(app, /fix === "trade_walks"\) setAfter\("trade_walks_day"\)/);
   const visit = src('components/consult/field/VisitScreen.tsx');
   assert.match(visit, /case "before_you_wrap": setSheet\("wrap"\)/);
   assert.match(visit, /refusalFocus\(action\.slice\(6\)\)/);
@@ -121,8 +122,9 @@ test('certification warning: the one shared copy names Joe, on every surface', (
 test('extra: the own ✓ Complete reads like the opened Complete screen', () => {
   const wrap = src('components/consult/field/WrapClose.tsx');
   const done = wrap.slice(wrap.indexOf('closing.step === "done" && r'));
-  assert.match(done, /✓ \{W\.complete\}\{closedWhen \? ` · \$\{closedWhen\}` : ""\}/, 'the close time in the heading');
-  assert.match(done, /r\.complete \? <LinkBtn href="\/consult\/">\{W\.backToVisits\}<\/LinkBtn>/);
+  assert.match(done, /✓ \{W\.complete\}.*closedWhen.*whitespace-nowrap.*closedWhen/, 'the close time stays together in the heading');
+  // r12 extra: both close results (◐ Needs finishing too) go back with ‹ Back to visits.
+  assert.match(done, /<LinkBtn href="\/consult\/">\{W\.backToVisits\}<\/LinkBtn>/);
   assert.equal(W.backToVisits, '‹ Back to visits');
   assert.match(done, /<p className="text-ink">\{W\.applyFindingsWhat\}<\/p><Btn tone="primary" onClick=\{onApply\}/, 'words beside Apply findings');
   assert.match(done, /: staff \? <p className="text-ink">\{W\.joeAppliesFindings\}<\/p>/, 'a staff visitor is told Joe applies them');
@@ -149,7 +151,9 @@ test('extra: office flag lines are plain sentences; office detail stays as Joe w
   assert.equal(officeFlagText('cast iron: 2-person demo / break-up', FLAG_HINTS['bath_scope.existing_tub_material']), 'A cast-iron tub takes two people to remove or break up.');
   assert.equal(officeFlagText('tempered (IRC R308.4.3) unless exceptions apply', 'x'), 'Tempered (IRC R308.4.3) unless exceptions apply.');
   assert.match(officeFlagText('test before demo; abatement by an MDH-licensed contractor — confirm residential rules with MDH/counsel', 'Possible asbestos.'), /^Test before demo; abatement by an MDH-licensed contractor/);
-  assert.match(src('app/(os)/projects/[slug]/consult/[id]/page.tsx'), /<MeasureText text=\{officeFlagText\(f\.issue, f\.hint\)\} \/>/);
+  // r12 extra: the office list moved to OfficeFlags (decided flags carry the muted ⚐).
+  assert.match(src('app/(os)/projects/[slug]/consult/[id]/page.tsx'), /<OfficeFlags flags=\{model\.flags\} decisions=\{draft\.flags\} \/>/);
+  assert.match(src('components/consult/office/OfficeFlags.tsx'), /officeFlagText\(f\.issue, f\.hint\)/);
 });
 
 test('domain E1: the toilet clearance line is two sentences', async () => {

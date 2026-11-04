@@ -116,6 +116,10 @@ export function VisitScreen({ device, model, display, api, thumbs, online, draft
   const [keypad, setKeypad] = useState<{ f: FieldView; resolveAfter?: boolean } | null>(null);
   const [skip, setSkip] = useState<{ field?: FieldView; shot?: ShotView; sectionId: string } | null>(null);
   const [sheet, setSheet] = useState<null | "wrap" | "flags" | "trades" | "rrp" | "ack">(null);
+  // r12 extra: a refused close opened this sheet — Before you wrap says why; Trade walks scrolls to the day.
+  const [wrapWhy, setWrapWhy] = useState(false);
+  const [tradeDay, setTradeDay] = useState(false);
+  useEffect(() => { if (sheet === null) setWrapWhy(false); if (sheet !== "trades") setTradeDay(false); }, [sheet]);
   const [leave, setLeave] = useState<{ from: string; go: () => void } | null>(null);
   const [remove, setRemove] = useState<SectionView | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -219,7 +223,9 @@ export function VisitScreen({ device, model, display, api, thumbs, online, draft
       // r10 R10-1: "Go to field" from a refused close — the first conflict, else Before you wrap.
       case "go_conflict": { const c = model.conflicts[0]; if (c) openSection(c.instance_id, c.key); else setSheet("wrap"); break; }
       // r11 R11-1: "Before you wrap" from a refused close opens the wrap sheet.
-      case "before_you_wrap": setSheet("wrap"); break;
+      case "before_you_wrap": setSheet("wrap"); setWrapWhy(true); break;
+      // r12 extra: "Trade walks" after the trade-walk-day refusal scrolls to the trade that has the day.
+      case "trade_walks_day": setTradeDay(true); setSheet("trades"); break;
       case "review_permissions": { const f = houseInst?.fields.find((x) => x.key === "photos_ok"); if (houseInst && f) openSection(houseInst.instance.id, f.addr); else setSheet("wrap"); break; }
       default: {
         // r11 R11-1: the office named a field (details[].field) — focus it, in its wrap sheet or on the visit.
@@ -402,12 +408,12 @@ export function VisitScreen({ device, model, display, api, thumbs, online, draft
           else if(!await api.setDraft(next)) return;
           setSkip(null);
         }} />}
-      <WrapSheet open={sheet === "wrap"} onClose={() => setSheet(null)} model={model} draft={draft} hasInitials={hasInitials} refused={refused} needDate={needDate} reopened={reopened}
+      <WrapSheet open={sheet === "wrap"} onClose={() => setSheet(null)} model={model} draft={draft} hasInitials={hasInitials} refused={refused} needDate={needDate} reopened={reopened} refusedNote={wrapWhy}
         onGo={(id, addr) => { setSheet(null); openSection(id, addr); }} onFlags={() => setSheet("flags")} onTrades={() => setSheet("trades")} onRrp={() => setSheet("rrp")} onClient={() => { setSheet(null); api.showToClient(); }} onAck={() => setSheet("ack")}
         onCloseVisit={() => { setSheet(null); api.close(); }}
         onPromised={pickDate} />
       {sheet === "flags" && <FlagSheet open onClose={() => setSheet("wrap")} model={model} draft={draft} saveError={saveError} onSave={api.setDraft} onGo={(id, addr) => { setSheet(null); openSection(id, addr); }} />}
-      {sheet === "trades" && <TradeSheet open onClose={() => setSheet("wrap")} model={model} draft={draft} saveError={saveError} onSave={api.setDraft} />}
+      {sheet === "trades" && <TradeSheet open onClose={() => setSheet("wrap")} model={model} draft={draft} saveError={saveError} onSave={api.setDraft} toDay={tradeDay} />}
       {sheet === "rrp" && <RrpSheet model={model} onGo={() => {setSheet(null);const id=model.sections.find(s=>s.module.key==="era")?.instance.id;if(id)openSection(id);}} open onClose={() => setSheet("wrap")} draft={draft} saveError={saveError} onSave={api.setDraft} />}
       {sheet === "ack" && <AckSheet summaryText={api.ackSummary} open onClose={() => setSheet("wrap")} draft={draft} saveError={saveError} onSave={api.setDraft} />}
       {/* r4 R4-2: the leave check is a bottom sheet beside the thumb that tapped ‹ Sections / Next, never a

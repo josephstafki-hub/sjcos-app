@@ -18,8 +18,13 @@ export function destination(href:string,ref?:string|null):MobileDestination {
 }
 /** Only display copy is changed; no technical details or secrets are echoed. */
 export function plainNotice(text:string):string {
- if(/\b[A-Z][A-Z0-9]*_[A-Z0-9_]+\b|\b(?:environment variable|env var|API key|stack trace|configuration error)\b/i.test(text))
-  return /sms|text|telnyx/i.test(text)?"Texting needs attention. Ask the owner to check the phone service settings.":/email|gmail|smtp/i.test(text)?"Email needs attention. Ask the owner to check the email connection.":"A service needs attention. Ask the owner to check its connection in Settings on the web.";
+ // Only a real config/secret leak is rewritten: an UPPER_SNAKE env name ending in
+ // a secret-ish part (case-sensitive), or an explicit error phrase. Ordinary
+ // summaries that happen to contain underscores or the word "text" pass through.
+ const envName=/\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*_(?:KEY|TOKEN|SECRET|ID|URL|NUMBER|PROFILE|PROVIDER|PASSWORD)\b/;
+ const errorPhrase=/\b(?:environment variable|env var|API key|stack trace|configuration (?:error|failed))\b/i;
+ if(envName.test(text)||errorPhrase.test(text))
+  return /(?:^|[^a-z])(?:sms|texting|telnyx)(?:[^a-z]|$)/i.test(text)?"Texting needs attention. Ask the owner to check the phone service settings.":/(?:^|[^a-z])(?:gmail|smtp|email connection)(?:[^a-z]|$)/i.test(text)?"Email needs attention. Ask the owner to check the email connection.":"A service needs attention. Ask the owner to check its connection in Settings on the web.";
  return text.replace(/\[UNVERIFIED\]\s*/g,"")
   .replace(/Check current status on the project's Subs tab\./gi,"Check the job's Subs section.")
   .replace(/(?:\d+-day\s+)?ack by (\d{4}-\d{2}-\d{2})/gi,(_,day:string)=>`Acknowledge by ${new Date(day+"T12:00:00Z").toLocaleDateString("en-US",{timeZone:"UTC",month:"short",day:"numeric"})}`);

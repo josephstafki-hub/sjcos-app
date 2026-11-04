@@ -153,7 +153,7 @@ test('extra: office flag lines are plain sentences; office detail stays as Joe w
   assert.match(officeFlagText('test before demo; abatement by an MDH-licensed contractor — confirm residential rules with MDH/counsel', 'Possible asbestos.'), /^Test before demo; abatement by an MDH-licensed contractor/);
   // r12 extra: the office list moved to OfficeFlags (decided flags carry the muted ⚐).
   assert.match(src('app/(os)/projects/[slug]/consult/[id]/page.tsx'), /<OfficeFlags flags=\{model\.flags\} decisions=\{draft\.flags\} \/>/);
-  assert.match(src('components/consult/office/OfficeFlags.tsx'), /officeFlagText\(f\.issue, f\.hint\)/);
+  assert.match(src('components/consult/office/OfficeFlags.tsx'), /officeFlagText\(f\.issue, f\.hint, f\.kind\)/);
 });
 
 test('domain E1: the toilet clearance line is two sentences', async () => {

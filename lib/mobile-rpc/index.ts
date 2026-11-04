@@ -5,5 +5,6 @@ import { leadsActions } from "./leads";
 import { commsActions } from "./comms";
 import { fieldActions } from "./field";
 import { directoryActions } from "./directory";
+import { operatorActions } from "./operator";
 
-export const mobileActions = { ...todayActions, ...projectsActions, ...leadsActions, ...commsActions, ...fieldActions, ...directoryActions };
+export const mobileActions = { ...todayActions, ...projectsActions, ...leadsActions, ...commsActions, ...fieldActions, ...directoryActions, ...operatorActions };

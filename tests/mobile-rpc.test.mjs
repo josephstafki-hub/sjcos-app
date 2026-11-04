@@ -276,3 +276,63 @@ test('call bridge selects caller cell, preserves owner fallback and refuses miss
   else {assert.equal(grantChecks,0);assert.equal(payload,undefined);if(!phone)assert.equal(result.error,'Add your cell number in Settings to call from the business line.');}
  }
 });
+
+async function operatorRegistry(overrides = {}) {
+  const { createOperatorActions } = await isolatedModule('../lib/mobile-rpc/operator.ts', ['createOperatorActions'], {
+    z, defineAction, MobileInputError: (await import('../lib/mobile-rpc/dispatch.ts')).MobileInputError,
+    chat: {}, runs: {}, grants: {}, operatorPageContext: async () => undefined,
+    CLAUDE_MODEL_VALUES: ['sonnet', 'opus'], CLAUDE_CONTEXT_VALUES: ['default', '1m'],
+    CLAUDE_MODE_VALUES: ['acceptEdits', 'plan'], CLAUDE_EFFORT_OPTIONS: [{value:'default'}, {value:'high'}],
+  });
+  return createOperatorActions(overrides.chat ?? {}, overrides.runs ?? {}, overrides.grants ?? {}, overrides.context ?? (async () => undefined));
+}
+const operatorId = '11111111-1111-4111-8111-111111111111';
+test('operator dispatcher enforces AI area, owner grants, and staff agent restrictions', async () => {
+  let called = 0;
+  const actions = await operatorRegistry({chat:{newConversationAction:async()=>{called++;return operatorId;}}});
+  const aiStaff = {...staff, permissions:['ai']};
+  assert.equal((await call('operator.new',{agent:'claude'},staff,actions)).status,403);
+  for (const agent of ['qwen','hermes']) assert.equal((await call('operator.new',{agent},aiStaff,actions)).status,400);
+  assert.equal((await call('operator.approveGrant',{id:operatorId},aiStaff,actions)).status,403);
+  assert.equal((await call('operator.send',{id:operatorId,prompt:'Send',allowSends:true},aiStaff,actions)).status,400);
+  assert.equal(called,0);
+  const response = await call('operator.new',{agent:'claude'},aiStaff,actions);
+  assert.equal(response.status,200);
+  assert.deepEqual(await response.json(),{ok:true,result:{conversationId:operatorId,context:null,options:null}});
+});
+test('operator poll preserves terminal errors and replacement runs through the dispatcher',async()=>{
+  const poll={ok:false,error:'Stopped',nextRunId:operatorId,steers:[]};
+  const actions=await operatorRegistry({runs:{pollAgentRun:async id=>{assert.equal(id,operatorId);return poll;}}});
+  const response=await call('operator.poll',{runId:operatorId},owner,actions);
+  assert.deepEqual(await response.json(),{ok:true,result:{poll}});
+});
+test('operator send forwards context, options, attachments and express permission to the web action',async()=>{
+  let received;
+  const context={type:'project',slug:'kitchen'};
+  const options={model:'opus',mode:'plan'};
+  const attachments=[{name:'plan.pdf',path:'/uploads/plan.pdf'}];
+  const actions=await operatorRegistry({chat:{sendMessageAction:async(...args)=>{received=args;return {ok:true,kind:'pending',runId:operatorId,userMessageId:operatorId};}},context:async(c,u)=>{assert.deepEqual(c,context);assert.equal(u,owner);return 'Web page context';}});
+  const response=await call('operator.send',{id:operatorId,prompt:'Review',context,options,attachments,allowSends:true},owner,actions);
+  assert.equal(response.status,200);
+  assert.deepEqual(received,[operatorId,'Review','Web page context',options,attachments,undefined,true]);
+});
+test('operator conversation read returns 404 for an unknown thread',async()=>{
+  const {operatorConversation}=await isolatedModule('../lib/mobile-rpc/operator-reads.ts',['operatorConversation'],{z,chat:{loadConversationAction:async()=>null}});
+  const response=await operatorConversation(operatorId);
+  assert.equal(response.status,404);
+  assert.deepEqual(await response.json(),{error:'That conversation no longer exists.'});
+});
+test('operator read authentication rejects conflicting cookie identity and non-AI viewers',async()=>{
+  const {MobileInputError}=await import('../lib/mobile-rpc/dispatch.ts');
+  const check=async(bearer,cookie)=>{
+    let loaded=false;
+    const {mobileOperatorRead}=await isolatedModule('../lib/mobile-rpc/operator-reads.ts',['mobileOperatorRead'],{z,MobileInputError,getUserFromRequest:async()=>bearer,getCurrentUser:async()=>cookie,hasAccess:u=>u.role==='owner'||u.permissions.includes('ai')});
+    const response=await mobileOperatorRead(new Request('http://local'),false,async()=>{loaded=true;return {value:'read'};});
+    return {status:response.status,loaded};
+  };
+  assert.deepEqual(await check(owner,{...owner,id:'different'}),{status:401,loaded:false});
+  assert.deepEqual(await check(null,null),{status:401,loaded:false});
+  assert.deepEqual(await check(staff,staff),{status:403,loaded:false});
+  const aiStaff={...staff,permissions:['ai']};
+  assert.deepEqual(await check(aiStaff,aiStaff),{status:200,loaded:true});
+});

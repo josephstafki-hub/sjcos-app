@@ -687,7 +687,7 @@ function firstName(name: string): string {
 
 /** Who a to-do can be handed to: the owner plus every active staff login.
  *  Portal roles (sub / client) are not team members and never appear. */
-async function listAssignees(): Promise<AssignedTo[]> {
+export async function listAssignees(): Promise<AssignedTo[]> {
   const { rows } = await query<{ id: string; name: string; initials: string }>(
     `SELECT id, name, initials FROM users
       WHERE active AND role IN ('owner','staff')

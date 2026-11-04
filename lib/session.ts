@@ -1,6 +1,6 @@
 import "server-only";
 import { SignJWT, jwtVerify, type JWTPayload } from "jose";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { SESSION_COOKIE as COOKIE, sessionMaxAgeS, type Role } from "./session-window";
 
 // Stateless JWT session in an httpOnly cookie (Next 16 recommended pattern).
@@ -64,10 +64,12 @@ export async function createSession(userId: string, role: Role, perms?: string[]
   });
 }
 
-/** Read + verify the current session cookie (or null). */
+/** Cookie takes precedence; native requests use the same JWT via Bearer. */
 export async function readSession(): Promise<SessionPayload | null> {
   const token = (await cookies()).get(COOKIE)?.value;
-  return decrypt(token);
+  if (token !== undefined) return decrypt(token);
+  const authorization = (await headers()).get("authorization") ?? "";
+  return decrypt(authorization.toLowerCase().startsWith("bearer ") ? authorization.slice(7).trim() : undefined);
 }
 
 /** Clear the session cookie (logout). */

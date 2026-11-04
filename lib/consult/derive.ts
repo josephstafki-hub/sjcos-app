@@ -20,6 +20,7 @@ export function pinnedDerivations(modules:ModuleDef[],templates:TemplateDef[],al
   if(ref==='visit.templates')return templates.map(t=>t.key).filter(k=>!['garage','openings','flooring'].includes(k));
   if(ref==='visit.add_ons')return templates.map(t=>t.key).filter(k=>['garage','openings','flooring'].includes(k));
   const parts=ref.split('.');const candidates=parts.length===1?[instance]:instances.filter(i=>i.module_key===parts[0]);const key=parts.at(-1)!;
+  if(key==='range_on_wall'&&!answers.some(a=>a.instance_id===instance.id&&a.field_key===key)&&answers.some(a=>a.instance_id===instance.id&&a.field_key==='range_wall_tile'&&a.status==='answered'))return true;
   const values=candidates.flatMap(i=>answers.filter(a=>a.instance_id===i.id&&a.field_key===key&&a.status==='answered').map(a=>a.value));
   return values.length===1?values[0]:values.length?values:undefined;
  }

@@ -40,7 +40,7 @@ test('every rendered hint is plain visitor words', () => {
   for (const [where, hint] of hints) {
     for (const re of MARKERS) assert.doesNotMatch(hint, re, `${where}: "${hint}" contains ${re}`);
     for (const k of scopeKeys) assert.ok(!hint.includes(k), `${where}: "${hint}" names scope key ${k}`);
-    assert.ok(hint.length <= 220, `${where}: hint too long for a field`);
+    assert.ok(hint.length <= (where==='era.lead_test_negative'?340:220), `${where}: hint too long for a field`);
     assert.match(hint, /^[A-Z0-9“]/, `${where}: hint starts as a sentence`);
   }
 });
@@ -63,7 +63,7 @@ test('every ⚑ flag carries a plain visitor sentence; the code stays in the off
     for (const re of [...MARKERS, ...CODES]) assert.doesNotMatch(rule.hint, re, `${where}: "${rule.hint}" contains ${re}`);
     assert.match(rule.hint, /^[A-Z0-9“]/, `${where}: flag hint starts as a sentence`);
     assert.match(rule.hint, /[.!?]$/, `${where}: flag hint ends as a sentence`);
-    assert.ok(rule.hint.length <= (where==='house.radon_level'?300:140), `${where}: flag hint too long for one line`);
+    assert.ok(rule.hint.length <= (where==='house.radon_level'?300:where==='era.lead_plan'?180:140), `${where}: flag hint too long for one line`);
     assert.ok(rule.issue.trim(), `${where}: the office issue text stays`);
   }
   // The office text keeps its citations for Joe (look-over, scope facts).

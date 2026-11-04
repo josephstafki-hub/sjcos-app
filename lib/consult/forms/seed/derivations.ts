@@ -62,8 +62,13 @@ export const derivationCases: Derivation[] = [
     { when: eq('island', 'New'), formula: 'island_length' },
     { when: all(eq('island', 'Keep'), isIn('cabinets', ['Replace all','Reface','Paint'])), formula: 'island_length' }, { when: answered('island'), formula: '0' },
   ]),
+  d('kitchen_wall.cabinet_base_run', 'derived', 'new base run for Some new; whole base run otherwise', [
+    { when: eq('kitchen_scope.cabinets', 'Some new'), formula: 'new_base_run' },
+    { when: answered('kitchen_scope.cabinets'), formula: 'base_run' },
+  ]),
   d('kitchen_scope.island_top_area', 'derived', '+ island W × D ÷ 144', [
-    { when: isIn('island', ['Keep','New']), formula: 'island_length * island_depth / 144' }, { when: answered('island'), formula: '0' },
+    { when: eq('island', 'New'), formula: 'island_length * island_depth / 144' },
+    { when: all(eq('island', 'Keep'), eq('island_new_top', true)), formula: 'island_length * island_depth / 144' }, { when: answered('island'), formula: '0' },
   ]),
   d('addition_scope.eave_overhang_area', 'derived', '+ 12″ overhang on the eaves', [
     { when: eq('roof_style', 'Shed'), formula: 'footprint_along_house * 12 / 144' },

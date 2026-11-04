@@ -236,5 +236,5 @@ test('R6 year prefill is selected, sourced and covered in every device tally',()
 });
 test('R6 exactly the explicitly specified cabinet/cutout/floor fields use sixteenths',()=>{
  const fields=seedModules.flatMap(m=>m.fields.filter(f=>f.precision===1/16).map(f=>m.key+'.'+f.key)).sort();
- assert.deepEqual(fields,['flooring.worst_dip','kitchen_appliance.cutout_depth','kitchen_appliance.cutout_height','kitchen_appliance.cutout_width','kitchen_scope.island_depth','kitchen_scope.island_length','kitchen_scope.sink_base_width','kitchen_wall.base_run','kitchen_wall.length_counter','kitchen_wall.length_ceiling','kitchen_wall.upper_run'].sort());
+ assert.deepEqual(fields,['flooring.worst_dip','kitchen_appliance.cutout_depth','kitchen_appliance.cutout_height','kitchen_appliance.cutout_width','kitchen_scope.island_depth','kitchen_scope.island_length','kitchen_scope.sink_base_width','kitchen_wall.base_run','kitchen_wall.length_counter','kitchen_wall.length_ceiling','kitchen_wall.new_base_run','kitchen_wall.upper_run'].sort());
 });

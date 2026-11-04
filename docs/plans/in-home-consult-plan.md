@@ -1124,8 +1124,8 @@ and the breakers."
 | Built before 1978? | yesno (filled from Year built, editable) | R | |
 | Will the work disturb more than 6 sq ft of painted surface in a room, or 20 sq ft outside? | yesno | R? before 1978 | EPA RRP rule (40 CFR 745 Subpart E) |
 | *Renovate Right* pamphlet given + client initials | yesno + initials | R? RRP applies (including window replacement) | Pamphlet must reach the client within 60 days before work starts; if the start is later, the app files a to-do to re-deliver it before start |
-| Recorded lead test shows no lead on the affected surfaces? | yesno | R? before 1978 | Only Yes with a recorded certified renovator test or lab result. |
 | Lead: plan | choice: Assume lead present / Test kit / Lab test / Not needed | R? before 1978 | Advisory if RRP applies and no recorded negative test. |
+| Has a lead test already shown no lead where we’ll work? | yesno | R? before 1978 and Lead: plan = Not needed | Yes only if SJC has a copy covering every painted surface we’ll disturb: an inspector’s or risk assessor’s report; an EPA-recognized kit used by a certified renovator; or an EPA-recognized lab test of paint chips a certified renovator took. A store kit the homeowner used doesn’t count. |
 | Possible asbestos seen | multi: None / 9×9 floor tile / Popcorn ceiling / Pipe or boiler wrap / Old duct tape / Vermiculite / Transite siding | R? built before 1981 | ⚑ anything but None "test before demo; abatement by an MDH-licensed contractor — confirm residential rules with MDH/counsel" |
 | Knob & tube seen | yesno | R? built before 1950 | ⚑ yes |
 | **Shots** | each suspect material **R?** suspects ≠ None | | |
@@ -1272,6 +1272,7 @@ small appliances live now?" · "Does the floor in here run into other rooms?"
 | Walls to open | text | R? Some changes / New layout | → `structure` required |
 | Island | choice: Keep / New / None | R | |
 | Island size | length_pair 24–144 × 24–72 in | R? Keep or New | |
+| Kept island gets the new countertop? | yesno | R? Keep | |
 | Island seats | count | O | |
 | Cabinets | choice: Replace all / Reface / Paint / Some new | R | |
 | Upper cabinet height | choice: 30″ / 36″ / 42″ / To ceiling / Stacked | R | |
@@ -1297,8 +1298,9 @@ small appliances live now?" · "Does the floor in here run into other rooms?"
 | Length corner to corner at counter height (36″) | length, 1/16″ | R | |
 | Length at the ceiling | length, 1/16″ | O | out of plumb if different by > 1/4″ ⚑ |
 | Ceiling height at this wall | length | R | |
-| Base cabinet run (new) | length | R | |
-| Upper cabinet run (new) | length | O | |
+| Base cabinet run — whole wall, kept or new | length | R | |
+| Base cabinet run — new cabinets only | length | R? cabinets = Some new | Only the new boxes; none = 0. |
+| Upper cabinet run on this wall | length | O | |
 | Outlets, switches, vents, radiator on this wall (offset from left corner) | text | R | |
 | Corner square? (3-4-5 or diagonals) | choice: Square / Out ¼″+ / Didn't check | O | |
 
@@ -1306,8 +1308,8 @@ small appliances live now?" · "Does the floor in here run into other rooms?"
 | Quantity | Formula | Maps to |
 |---|---|---|
 | Room floor area | Σ length × width ÷ 144 of the rooms marked part of this job (every room on a one-template visit) | `kitchen.demo` "Room floor area"; `kitchen.flooring` "Floor area" (sf) |
-| Cabinet run | Σ kitchen_wall.base run ÷ 12 (+ island length ÷ 12; New, or Keep with Replace all / Reface / Paint) | `kitchen.cabinetry` "Cabinet run" (lf) |
-| Countertop area | Σ base run × 25.5″ ÷ 144 + island (Keep or New) W × D ÷ 144 | `kitchen.countertops` "Countertop area" (sf) — the fabricator templates after install; this is for pricing |
+| Cabinet run | Σ base run ÷ 12, or Σ new base cabinets ÷ 12 when Some new (+ island length ÷ 12; New, or Keep with Replace all / Reface / Paint) | `kitchen.cabinetry` "Cabinet run" (lf) |
+| Countertop area | Σ base run × 25.5″ ÷ 144 + island (New, or Keep with a new top) W × D ÷ 144 | `kitchen.countertops` "Countertop area" (sf) — the fabricator templates after install; this is for pricing |
 | Backsplash area | Σ base run × counter height ÷ 144 + range wall W × H ÷ 144 when range on wall is Yes | `kitchen.backsplash` "Backsplash area" (sf) |
 
 **Shots**: each wall straight on **R** · sink base open **R** · range/hood and the

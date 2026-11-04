@@ -16,7 +16,7 @@ for(const [choice,on,pair,expected] of [['To the uppers',false,null,33],['Full w
  assert.equal(p.derived.find(d=>d.definition.key==='backsplash_area').result.value,expected);
 });
 for(const [cabinets,run] of [['Replace all',72],['Reface',72],['Paint',72],['Some new',0]])test('kept island '+cabinets,()=>{
- const p=projection({island:'Keep',island_length:72,island_depth:36,cabinets});
+ const p=projection({island:'Keep',island_new_top:true,island_length:72,island_depth:36,cabinets});
  assert.equal(p.field(instances[0],'island_top_area').value,18);
  assert.equal(p.field(instances[0],'island_run').value,run);
  assert.equal(264*25.5/144+p.field(instances[0],'island_top_area').value,64.75);

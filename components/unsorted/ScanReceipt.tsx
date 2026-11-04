@@ -11,6 +11,9 @@ export interface ScanJob {
   client_name: string;
 }
 
+/** Under the 25 MB upload limit (next.config proxyClientMaxBodySize). */
+const BATCH_BYTES = 20 * 1024 * 1024;
+
 interface Pic {
   key: string;
   file: File;
@@ -59,7 +62,7 @@ export function ScanReceipt({ jobs, canSort }: { jobs: ScanJob[]; canSort: boole
   function add(list: FileList | null) {
     if (!list?.length) return;
     const next = Array.from(list).map((file) => ({ key: `${file.name}-${file.size}-${Math.random()}`, file, url: URL.createObjectURL(file) }));
-    setPics((p) => [...p, ...next].slice(0, 12));
+    setPics((p) => [...p, ...next]);
     setError("");
     setSent(null);
   }
@@ -77,33 +80,65 @@ export function ScanReceipt({ jobs, canSort }: { jobs: ScanJob[]; canSort: boole
     setSending(true);
     setError("");
     try {
-      const form = new FormData();
+      const shrunk: { blob: Blob; name: string }[] = [];
       for (const p of pics) {
         const blob = await shrink(p.file);
-        const name = blob === p.file ? p.file.name : `${p.file.name.replace(/\.[^.]+$/, "") || "receipt"}.jpg`;
-        form.append("photo", blob, name);
+        shrunk.push({ blob, name: blob === p.file ? p.file.name : `${p.file.name.replace(/\.[^.]+$/, "") || "receipt"}.jpg` });
       }
-      if (job) form.append("project_slug", job);
-      if (note.trim()) form.append("note", note.trim());
-      if (oneReceipt && pics.length > 1) form.append("one_receipt", "1");
-      const res = await fetch("/api/receipts/scan", { method: "POST", body: form });
-      const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; receipts?: { existed: boolean }[]; skipped?: string[] };
-      if (!res.ok || !body.ok) {
-        setError(body.error || "Couldn't send that. Try again.");
-        return;
+      // One upload can't pass the server's 25 MB body limit, so separate
+      // receipts go up in batches. A long receipt's pages stay in one upload.
+      const one = oneReceipt && pics.length > 1;
+      const batches: (typeof shrunk)[] = [];
+      let size = 0;
+      for (const s of shrunk) {
+        if (!batches.length || (!one && size + s.blob.size > BATCH_BYTES)) {
+          batches.push([]);
+          size = 0;
+        }
+        batches[batches.length - 1].push(s);
+        size += s.blob.size;
       }
-      const receipts = body.receipts ?? [];
+      const receipts: { existed: boolean }[] = [];
+      const skipped: string[] = [];
+      let sentPics = 0;
+      for (const batch of batches) {
+        const form = new FormData();
+        for (const s of batch) form.append("photo", s.blob, s.name);
+        if (job) form.append("project_slug", job);
+        if (note.trim()) form.append("note", note.trim());
+        if (one) form.append("one_receipt", "1");
+        const res = await fetch("/api/receipts/scan", { method: "POST", body: form });
+        const body = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string; receipts?: { existed: boolean }[]; skipped?: string[] };
+        if (!res.ok || !body.ok) {
+          // Keep only what didn't go, so "Send" again doesn't double up.
+          if (sentPics) dropSent(sentPics, receipts);
+          setError((body.error || (res.status === 413 ? "That's too big to send in one go." : "Couldn't send that. Try again.")) + (sentPics ? ` ${sentPics} photo${sentPics === 1 ? " was" : "s were"} already sent.` : ""));
+          return;
+        }
+        receipts.push(...(body.receipts ?? []));
+        skipped.push(...(body.skipped ?? []));
+        sentPics += batch.length;
+      }
       pics.forEach((p) => URL.revokeObjectURL(p.url));
       setPics([]);
       setNote("");
       setOneReceipt(false);
       setSent({ count: receipts.filter((r) => !r.existed).length, again: receipts.filter((r) => r.existed).length });
-      if (body.skipped?.length) setError(`Couldn't open ${body.skipped.join(", ")}.`);
+      if (skipped.length) setError(`Couldn't open ${skipped.join(", ")}.`);
     } catch {
       setError("Couldn't reach the server. Check your signal and try again.");
     } finally {
       setSending(false);
     }
+  }
+
+  /** A later batch failed: take the photos that did go off the page. */
+  function dropSent(n: number, receipts: { existed: boolean }[]) {
+    setPics((p) => {
+      p.slice(0, n).forEach((x) => URL.revokeObjectURL(x.url));
+      return p.slice(n);
+    });
+    setSent({ count: receipts.filter((r) => !r.existed).length, again: receipts.filter((r) => r.existed).length });
   }
 
   return (

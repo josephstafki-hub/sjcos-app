@@ -68,7 +68,10 @@ test("W01 collector asks only for missing facts, in plain words, no price/call; 
     assert.equal((await client.query(`SELECT count(*)::int AS n FROM action_intents`)).rows[0].n, 0);
     assert.equal((await client.query(`SELECT state FROM lead_followups WHERE id = $1`, [out.followupId])).rows[0].state, "staged");
     const draft = draftMissingFactsEmail("Pat", ["photos"], {});
-    assert.match(draft.body, /^Pat, Thanks for reaching out/);
+    assert.match(draft.body, /^Hi Pat,\n\nThanks for reaching out/);
+    const many = draftMissingFactsEmail("Pat", ["photos", "budget_fit", "goals"], {});
+    assert.match(many.body, /\n- a couple of photos[^\n]*\n- a rough budget range you have in mind, if you don't mind sharing it\n- what's driving/, "one question per line");
+    assert.doesNotMatch(many.subject + many.body, /—/, "no em dashes in subject either");
 
     // active policy, in window → sent as an intent citing the policy
     await activateRoutinePolicy(client, "lead.missing_facts");

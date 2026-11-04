@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { Button } from "@/components/ui";
 import { Check, Mail } from "lucide-react";
 import { sendWeeklyStatusEmail } from "@/lib/actions/projects";
 import { runAction } from "@/lib/run-action";
@@ -24,7 +25,7 @@ export function WeeklyStatusSend({ slug }: { slug: string }) {
 
   if (done) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-md border border-money/40 bg-money/10 px-2.5 py-1 text-[12px] font-semibold text-money">
+      <span className="inline-flex items-center gap-1 rounded-md border border-money/40 bg-money/10 px-2.5 py-1 text-label font-semibold text-money">
         <Check className="size-3" strokeWidth={2} />
         Sent
       </span>
@@ -33,16 +34,17 @@ export function WeeklyStatusSend({ slug }: { slug: string }) {
 
   return (
     <div className="flex flex-col items-end gap-1">
-      <button
+      <Button
+        variant="secondary"
+        icon={Mail}
         type="button"
         onClick={send}
         disabled={pending}
-        className="inline-flex items-center gap-1 rounded-md border border-ai bg-ai px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-ai-2 disabled:opacity-60"
+
       >
-        <Mail className="size-3" strokeWidth={1.75} />
         {pending ? "Sending…" : "Send to client"}
-      </button>
-      {error && <span className="max-w-[160px] text-right text-[10px] text-flag">{error}</span>}
+      </Button>
+      {error && <span className="max-w-prose text-right text-meta text-flag">{error}</span>}
     </div>
   );
 }

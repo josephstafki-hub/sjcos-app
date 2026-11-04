@@ -8,6 +8,9 @@
 // (Kleven, 2026-09-22) read as plain "Approved", and the next day an agent
 // re-sent an email Approve had already sent because nothing said so.
 //
+// A draft whose To: line is "client portal" is a portal reply instead: Approve
+// posts it into the client's portal thread as Joe (postApprovedPortalReply).
+//
 // The pure parts (header parser, send/skip decision, owner copy) live in
 // lib/approved-draft-rules.ts so they can be unit-tested without a DB.
 
@@ -24,6 +27,8 @@ import { dispatchIntentsNow } from "@/lib/dispatch/db";
 
 export type ApprovedDraftSend =
   | { outcome: "sent"; to: string; subject: string }
+  /** A portal reply: posted into the client's portal thread as Joe. */
+  | { outcome: "posted"; to: string; channelKey: string }
   | { outcome: "not_email"; reason: string; notice: string }
   | { outcome: "held"; to: string; subject: string; notice: string }
   | { outcome: "failed"; error: string };
@@ -38,6 +43,11 @@ interface ItemRow {
   content: string | null;
   knowledge_uri: string | null;
   draft_at: string | null;
+  /** The client's portal thread slug: the project, the lead's project once it
+   *  converted, else 'lead:<slug>' (users.link_slug / portal:<slug>). */
+  portal_slug: string | null;
+  portal_login: boolean;
+  portal_client: string | null;
 }
 
 interface Target {
@@ -120,7 +130,10 @@ export async function sendApprovedClientDraft(workItemId: string): Promise<Appro
     `SELECT w.lead_id, l.slug AS lead_slug, l.email AS lead_email,
             w.project_id, p.slug AS project_slug,
             NULLIF(COALESCE(NULLIF(p.client_email, ''), pl.email), '') AS project_email,
-            k.content, r.uri AS knowledge_uri, k.created_at AS draft_at
+            k.content, r.uri AS knowledge_uri, k.created_at AS draft_at,
+            ps.portal_slug,
+            EXISTS (SELECT 1 FROM users u WHERE u.role = 'client' AND u.active AND u.link_slug = ps.portal_slug) AS portal_login,
+            COALESCE(NULLIF(p.client_name, ''), l.name, pl.name) AS portal_client
        FROM work_items w
        LEFT JOIN leads l ON l.id = w.lead_id
        LEFT JOIN projects p ON p.id = w.project_id
@@ -131,6 +144,11 @@ export async function sendApprovedClientDraft(workItemId: string): Promise<Appro
           ORDER BY created_at DESC LIMIT 1
        ) r ON true
        LEFT JOIN knowledge_items k ON 'knowledge_items/' || k.id::text = r.uri
+       LEFT JOIN LATERAL (
+         SELECT COALESCE(p.slug,
+                         (SELECT lp.slug FROM projects lp WHERE lp.lead_id = l.id ORDER BY lp.created_at DESC LIMIT 1),
+                         'lead:' || l.slug) AS portal_slug
+       ) ps ON true
       WHERE w.id = $1`,
     [workItemId],
   );
@@ -145,11 +163,12 @@ export async function sendApprovedClientDraft(workItemId: string): Promise<Appro
         : null;
 
   const plan = planApprovedSend({
-    record: target ? { kind: target.kind, email: target.email } : null,
+    record: target ? { kind: target.kind, email: target.email, portal: row.portal_login } : null,
     draft: row.content,
   });
   if (plan.outcome === "not_email") return skipped(workItemId, plan.reason, row.content != null);
   if (plan.outcome === "failed") return plan;
+  if (plan.outcome === "portal") return postApprovedPortalReply(workItemId, row, plan.body);
 
   // Don't double-send: if any email already went to this client after the
   // draft was staged (Joe replied by hand, an agent sent), leave it alone.
@@ -205,6 +224,57 @@ export async function sendApprovedClientDraft(workItemId: string): Promise<Appro
     [workItemId],
   );
   return { outcome: "sent", to: plan.to, subject: plan.subject };
+}
+
+/** Approve on a portal reply: post it into the client's portal thread as Joe,
+ *  the same row the Client portal tab's composer writes. Guarded like the
+ *  email path: if Joe already wrote in that thread after the draft was staged
+ *  (by hand, or from Telegram), it is left alone. */
+async function postApprovedPortalReply(workItemId: string, row: ItemRow, body: string): Promise<ApprovedDraftSend> {
+  const slug = row.portal_slug;
+  if (!slug) return { outcome: "failed", error: "no portal thread for this work item" };
+  const channelKey = `portal:${slug}`;
+  const draftAt = row.draft_at ?? new Date(0).toISOString();
+  const prior = await query<{ at: string }>(
+    `SELECT ${sqlAbsoluteLabel("created_at")} AS at FROM chat_messages
+      WHERE channel_key = $1 AND author_kind = 'owner' AND created_at > $2::timestamptz
+      ORDER BY created_at DESC LIMIT 1`,
+    [channelKey, draftAt],
+  );
+  if (prior.rows[0]) {
+    return skipped(workItemId, `Joe already replied in the portal after this draft was staged (${prior.rows[0].at})`, true);
+  }
+  const owner = await query<{ id: string; name: string; initials: string }>(
+    `SELECT id, name, initials FROM users WHERE role = 'owner' AND active ORDER BY created_at LIMIT 1`,
+  );
+  const me = owner.rows[0];
+  const inserted = await query<{ id: string }>(
+    `INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body, author_user_id)
+     VALUES ($1, 'owner', $2, $3, $4, $5) RETURNING id::text AS id`,
+    [channelKey, me?.name || "Joe", me?.initials || "JS", body, me?.id ?? null],
+  );
+  const messageId = inserted.rows[0]?.id ?? null;
+  const to = row.portal_client || "the client";
+  const isLead = slug.startsWith("lead:");
+  const scopeSlug = isLead ? slug.slice("lead:".length) : slug;
+  const href = `${isLead ? "/leads" : "/projects"}/${scopeSlug}?tab=${encodeURIComponent("Client portal")}${messageId ? `&focus=message-${messageId}` : ""}`;
+  await query(
+    `INSERT INTO client_activity (lead_id, project_id, kind, summary, detail, entity_kind, entity_id, actor_name, href)
+     SELECT ${isLead ? "id" : "NULL"}, ${isLead ? "NULL" : "id"}, 'message', 'Approved reply posted in the portal', $2, 'message', $3, $4, $5
+       FROM ${isLead ? "leads" : "projects"} WHERE slug = $1`,
+    [scopeSlug, body.slice(0, 500), messageId, me?.name || "Joe", href],
+  ).catch((err) => console.error("[approved-draft] client activity log failed", err));
+  await query(
+    `INSERT INTO agent_receipts (work_item_id, receipt_kind, uri, label) VALUES ($1, 'portal_message', $2, $3)`,
+    [workItemId, messageId ? `chat_messages/${messageId}` : row.knowledge_uri, `Approved reply posted in the client portal for ${to}`.slice(0, 300)],
+  );
+  await query(
+    `UPDATE work_items
+        SET status = 'done', completed_at = now(), blocked_reason = NULL, updated_at = now()
+      WHERE id = $1`,
+    [workItemId],
+  );
+  return { outcome: "posted", to, channelKey };
 }
 
 /** A send failure after approval: reopen the gate (Approve stays clickable for

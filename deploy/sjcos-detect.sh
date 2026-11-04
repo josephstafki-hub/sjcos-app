@@ -3,5 +3,7 @@
 # .env.local and calls the cron endpoint. Run by the sjcos-detect systemd
 # user timer (reboot-persistent via loginctl linger).
 set -euo pipefail
+# Long timeout: after a restart the first Gmail scan is paced to half the
+# per-minute quota (lib/gmail-quota.ts) and can take several minutes.
 SECRET="$(grep -E '^CRON_SECRET=' /home/joe/sjcos-app/.env.local | cut -d= -f2-)"
-exec curl -fsS -m 120 -H "Authorization: Bearer ${SECRET}" http://127.0.0.1:3017/api/cron/detect
+exec curl -fsS -m 900 -H "Authorization: Bearer ${SECRET}" http://127.0.0.1:3017/api/cron/detect

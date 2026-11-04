@@ -54,7 +54,7 @@ export function PlanCommentForm({
     <div className="rounded-md border border-accent bg-accent-soft/40 p-3">
       <div className="flex items-center gap-2">
         <MessageSquare className="size-3.5 text-accent-2" strokeWidth={1.75} />
-        <span className="text-[12px] font-semibold text-accent-2">Comment on {anchorLabel}</span>
+        <span className="text-label font-semibold text-accent-2">Comment on {anchorLabel}</span>
         <div className="flex-1" />
         {onClose && (
           <button
@@ -69,12 +69,12 @@ export function PlanCommentForm({
       </div>
 
       <label className="mt-2 block">
-        <span className="mb-1 block text-[11px] font-semibold text-ink-2">Your name</span>
+        <span className="mb-1 block text-meta font-semibold text-ink-2">Your name</span>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Your name"
-          className="w-full max-w-xs rounded-md border border-rule bg-card px-2.5 py-2 text-[13px] text-ink focus:border-accent focus:outline-none"
+          className="w-full max-w-xs rounded-md border border-rule bg-card px-2.5 py-2 text-body text-ink focus:border-accent focus:outline-none"
         />
       </label>
 
@@ -83,18 +83,18 @@ export function PlanCommentForm({
         onChange={(e) => setBody(e.target.value)}
         rows={3}
         placeholder="What should change here? Anything you notice is useful…"
-        className="mt-2 w-full rounded-md border border-rule bg-card px-2.5 py-2 text-[13px] text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none"
+        className="mt-2 w-full rounded-md border border-rule bg-card px-2.5 py-2 text-body text-ink placeholder:text-ink-3 focus:border-accent focus:outline-none"
       />
 
-      {error && <div className="mt-1 text-[11px] text-flag">{error}</div>}
-      {sent && !error && <div className="mt-1 text-[11px] font-semibold text-money">Sent to Joe.</div>}
+      {error && <div className="mt-1 text-meta text-flag">{error}</div>}
+      {sent && !error && <div className="mt-1 text-meta font-semibold text-money">Sent to Joe.</div>}
 
       <div className="mt-2 flex flex-wrap items-center gap-2">
         <button
           type="button"
           onClick={send}
           disabled={pending}
-          className="inline-flex min-h-9 items-center gap-1 rounded-md border border-accent bg-accent-soft px-3 text-[12px] font-semibold text-accent-2 hover:bg-accent-soft/70 disabled:opacity-60"
+          className="inline-flex min-h-9 items-center gap-1 rounded-md border border-accent bg-accent-soft px-3 text-label font-semibold text-accent-2 hover:bg-accent-soft/70 disabled:opacity-60"
         >
           <MessageSquare className="size-3" strokeWidth={1.75} />
           {pending ? "Sending…" : "Send to Joe"}
@@ -103,7 +103,7 @@ export function PlanCommentForm({
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex min-h-9 items-center rounded-md border border-rule bg-card px-3 text-[12px] font-semibold text-ink-2 hover:bg-paper-2"
+            className="inline-flex min-h-9 items-center rounded-md border border-rule bg-card px-3 text-label font-semibold text-ink-2 hover:bg-paper-2"
           >
             {sent ? "Done" : "Cancel"}
           </button>

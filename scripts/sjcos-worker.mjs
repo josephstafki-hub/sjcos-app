@@ -4,7 +4,8 @@
 //
 //   node scripts/sjcos-worker.mjs            # supervise until SIGTERM
 //   node scripts/sjcos-worker.mjs --once     # one iteration, print result, exit
-//   --url <pg url>       override DATABASE_URL (harness runs)
+//   --url <pg url>       override the database (harness runs); otherwise
+//                        DATABASE_URL_WORKER, else DATABASE_URL (lib/db-login.mjs)
 //   --stop-file <path>   halt processing while the file exists (default
 //                        ~/sjcos-backups/worker.stop)
 //
@@ -21,6 +22,7 @@ import { hostname } from "node:os";
 import path from "node:path";
 import pg from "pg";
 import { importApp, loadEnvFile, REPO_ROOT } from "../lib/worker/load-app.mjs";
+import { resolveDatabaseUrl } from "../lib/db-login.mjs";
 import { runOnce, supervise, WORKER_NAME } from "../lib/worker/loop.ts";
 
 const args = new Map();
@@ -35,14 +37,25 @@ for (let i = 2; i < process.argv.length; i++) {
 }
 
 loadEnvFile(process.env.SJCOS_ENV ?? path.join(REPO_ROOT, ".env.local"));
-if (args.get("url")) process.env.DATABASE_URL = args.get("url");
-if (!process.env.DATABASE_URL) {
+if (args.get("url")) {
+  process.env.DATABASE_URL = args.get("url");
+  process.env.DATABASE_URL_WORKER = args.get("url");
+}
+// The worker's own login (deploy/db-roles.md): DATABASE_URL_WORKER, falling
+// back to DATABASE_URL until Joe adds that line. The app modules it imports
+// below (lib/db.ts) read DATABASE_URL, so point that at the same login.
+let login;
+try {
+  login = resolveDatabaseUrl("worker");
+} catch {
   console.error("[worker] DATABASE_URL is not set (pass --url or SJCOS_ENV)");
   process.exit(2);
 }
+process.env.DATABASE_URL = login.url;
 
 const log = (line) => console.log(`${new Date().toISOString()} ${line}`);
-const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
+log(`[worker] database login: ${login.fallback ? "DATABASE_URL (DATABASE_URL_WORKER not set yet)" : login.key}`);
+const pool = new pg.Pool({ connectionString: login.url, max: 4 });
 // Live-update signal for the user-visible writes the loop makes (expiring a
 // stale decision card also clears its notification by trigger): log them to
 // app_change_log like lib/db.ts query() does, so open tabs refresh. Its own

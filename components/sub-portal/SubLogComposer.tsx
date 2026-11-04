@@ -41,10 +41,10 @@ export function SubLogComposer({ slug, voiceEnabled = false }: { slug: string; v
         name="body"
         rows={3}
         placeholder="What did you get done? Anything to flag?"
-        className="w-full rounded-md border border-rule bg-paper px-2.5 py-2 text-[13px] text-ink outline-none focus:border-accent"
+        className="w-full rounded-md border border-rule bg-paper px-2.5 py-2 text-body text-ink outline-none focus:border-accent"
       />
       <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink hover:bg-paper-2">
+        <label className="inline-flex cursor-pointer items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-label font-semibold text-ink hover:bg-paper-2">
           <ImagePlus className="size-3" strokeWidth={1.75} />
           {fileName || "Add photo"}
           <input
@@ -60,13 +60,13 @@ export function SubLogComposer({ slug, voiceEnabled = false }: { slug: string; v
         <button
           type="submit"
           disabled={pending}
-          className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-3 py-1 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50"
+          className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-3 py-1 text-label font-semibold text-paper hover:bg-ink-hover disabled:opacity-50"
         >
           <Send className="size-3" strokeWidth={1.75} />
           {pending ? "Logging…" : "Log day"}
         </button>
       </div>
-      {error && <div className="mt-1 text-[11px] text-flag">{error}</div>}
+      {error && <div className="mt-1 text-meta text-flag">{error}</div>}
     </form>
   );
 }

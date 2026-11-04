@@ -126,6 +126,7 @@ async function notifyDmRecipient(channelKey: string, sender: CurrentUser, text: 
 export async function sendChatMessage(
   channelKey: string,
   body: string,
+  retryOfId?: string,
 ): Promise<{ ok: boolean; queued?: PortalOutboxItem[]; error?: string }> {
   const user = await requireAccess("chat");
   const text = body.trim();
@@ -135,11 +136,11 @@ export async function sendChatMessage(
   }
 
   const { rows } = await query<{ id: number }>(
-    `INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body, author_user_id)
-     VALUES ($1, $5, $2, $3, $4, $6)
+    `INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body, author_user_id, retry_of_id)
+     VALUES ($1, $5, $2, $3, $4, $6, $7)
      RETURNING id`,
     // A staff post is a teammate's ('user'), so it counts toward Joe's unread.
-    [channelKey, user.name || "Joe", user.initials || "JS", text, user.role === "owner" ? "owner" : "user", user.id],
+    [channelKey, user.name || "Joe", user.initials || "JS", text, user.role === "owner" ? "owner" : "user", user.id, retryOfId??null],
   );
   await markRead(channelKey, user.id);
   // Persist the conversation the first time someone speaks in it. A staff

@@ -16,6 +16,7 @@ import { logClientActivity, ownerHref } from "@/lib/client-activity";
 import { storeUpload } from "@/lib/upload-store";
 import { withTransaction } from "@/lib/commands/db";
 import { onInboundMessage } from "@/lib/agent-runtime/hooks";
+import { notifyPortalMessage } from "@/lib/notify-owner";
 
 const PREVIEW_SLUG = { client: "henderson", sub: "marco" } as const;
 
@@ -78,16 +79,16 @@ export async function uploadClientFile(formData: FormData) {
 /** Owner-side composer for the project Client portal tab (Messages). Posts into the project's
  *  client portal thread (portal:<slug>) so owner ⇄ client talk in one place —
  *  the client sees it on their dashboard. Owner-gated. */
-export async function sendProjectMessage(slug: string, formData: FormData) {
+export async function sendProjectMessage(slug: string, formData: FormData, retryOfId?:string) {
   const body = String(formData.get("body") ?? "").trim();
   if (!body) return;
   const user = await requireAccess("projects");
   const channelKey = portalChannel("client", slug);
 
   await query(
-    `INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body, author_user_id)
-     VALUES ($1, 'owner', $2, $3, $4, $5)`,
-    [channelKey, user.name || "Joe", user.initials || "JS", body, user.id],
+    `INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body, author_user_id, retry_of_id)
+     VALUES ($1, 'owner', $2, $3, $4, $5, $6)`,
+    [channelKey, user.name || "Joe", user.initials || "JS", body, user.id, retryOfId??null],
   );
 
   revalidatePath(`/projects/${slug}`);
@@ -96,16 +97,16 @@ export async function sendProjectMessage(slug: string, formData: FormData) {
 
 /** Owner-side composer for a LEAD's client-portal thread (portal:lead:<slug>)
  *  — the lead-stage mirror of sendProjectMessage. Owner-gated. */
-export async function sendLeadPortalMessage(slug: string, formData: FormData) {
+export async function sendLeadPortalMessage(slug: string, formData: FormData, retryOfId?:string) {
   const body = String(formData.get("body") ?? "").trim();
   if (!body) return;
   const user = await requireAccess("projects");
   const channelKey = portalChannel("client", `lead:${slug}`);
 
   await query(
-    `INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body, author_user_id)
-     VALUES ($1, 'owner', $2, $3, $4, $5)`,
-    [channelKey, user.name || "Joe", user.initials || "JS", body, user.id],
+    `INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body, author_user_id, retry_of_id)
+     VALUES ($1, 'owner', $2, $3, $4, $5, $6)`,
+    [channelKey, user.name || "Joe", user.initials || "JS", body, user.id, retryOfId??null],
   );
 
   revalidatePath(`/leads/${slug}`);
@@ -150,14 +151,23 @@ export async function sendPortalMessage(formData: FormData) {
         : clientScope
           ? ownerHref(clientScope, { tab: "Client portal", focus })
           : "/notifications";
-    await emit({
-      kind: "mention",
-      tag: "Portal",
-      icon: "chat",
-      accent: "ai",
-      title: `${name} sent a message`,
-      subline: body.length > 120 ? `${body.slice(0, 117)}…` : body,
+    // The bell card + a Telegram push carrying the message. Joe's swipe-reply
+    // to that push is posted back into this thread (lib/notify-owner.ts
+    // notifyPortalMessage → app/api/telegram/webhook).
+    const context = clientScope
+      ? await queryOne<{ name: string }>(
+          clientScope.kind === "project" ? `SELECT name FROM projects WHERE slug = $1` : `SELECT name FROM leads WHERE slug = $1`,
+          [clientScope.slug],
+        ).catch(() => null)
+      : null;
+    await notifyPortalMessage({
+      surface,
+      channelKey,
+      messageId: inserted?.id ?? null,
+      name,
+      body,
       href,
+      context: context?.name ?? null,
     });
     if (clientScope) {
       await logClientActivity({

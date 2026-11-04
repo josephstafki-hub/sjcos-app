@@ -8,7 +8,7 @@ import { getIntent } from "../lib/commands/intents.ts";
 import { prepareInternalInspection, recordCorrection, confirmCorrectionsBeforeWalkthrough, scheduleClientWalkthrough, recordClientPunch, resolveClientPunch, recordWrittenSignoff, releaseSignoffHooks } from "../lib/closeout/checklist.ts";
 import { runDuePostProjectActions, checkInReplyReceived, recordCloseoutActuals, listPostProjectActions } from "../lib/closeout/postproject.ts";
 import { pinSignedSignatureRequest, pinRevision, decisionBindsCurrentRevision, revisionRef, listRevisions } from "../lib/closeout/revisions.ts";
-import { grantPublicationRights, draftFromAuthorizedPhotos, stagePublication, queueApprovedPublication, withdrawPublicationRights } from "../lib/closeout/marketing.ts";
+import { grantPublicationRights, authorizedPhotos, withdrawPublicationRights } from "../lib/closeout/marketing.ts";
 import { MN_WARRANTY_TIERS } from "../lib/warranty-mn.ts";
 
 const skip = !harnessAvailable() && "postgresql-16 binaries not installed";
@@ -120,7 +120,7 @@ test("V45 post-project: warranty only from configured terms, review only with UR
   });
 });
 
-test("V29 signatures/marketing: edited signed artifact → new revision voids the decision; changed audience → fresh decision; withdrawn rights cancel queued publication", { skip }, async () => {
+test("V29 signatures/marketing: edited signed artifact → new revision voids the decision; only photos with a live right are shareable, and only the owner withdraws one", { skip }, async () => {
   await withTestDb(async (url, client) => {
     const f = await fresh(client);
     const run = runOf(client);
@@ -139,34 +139,14 @@ test("V29 signatures/marketing: edited signed artifact → new revision voids th
     assert.match(v.reason, /fresh decision/);
     assert.equal((await listRevisions(run, "signature_request", sr.id)).length, 2);
 
-    // Marketing: rights on f1/f2 only. f3 requested → rejected. Portal visibility is not a right.
+    // Marketing: rights on f1/f2 only. Portal visibility is not a right.
     await run(`UPDATE files SET client_visible = true WHERE id = 'zz-f3'`);
-    await grantPublicationRights(run, { fileIds: ["zz-f1", "zz-f2"], projectId: f.p1, grantedBy: "Pat Client" });
-    const { draft, rejectedPhotoIds } = await draftFromAuthorizedPhotos(run, { projectId: f.p1, kind: "social", title: "zz-post", body: "Kitchen done", audience: "instagram", requestedPhotoIds: ["zz-f1", "zz-f2", "zz-f3"] });
-    assert.deepEqual(rejectedPhotoIds, ["zz-f3"]);
-    assert.deepEqual(draft.media, ["zz-f1", "zz-f2"]);
-    const s1 = await stagePublication(run, f.owner, draft.id);
-    assert.equal(s1.decision.kind, "publication");
-    // Change the audience → the old decision is superseded, a new one staged.
-    await run(`UPDATE marketing_drafts SET audience = 'facebook' WHERE id = $1`, [draft.id]);
-    const s2 = await stagePublication(run, f.owner, draft.id);
-    assert.notEqual(s2.decision.id, s1.decision.id);
-    assert.equal((await getDecision(run, s1.decision.id)).status, "superseded");
-    // Approve, but edit the body before queueing → refused; restore → queued.
-    await resolveDecision(run, { id: s2.decision.id, outcome: "approved", principal: f.owner, via: "app" });
-    await run(`UPDATE marketing_drafts SET body = 'Kitchen done!!!' WHERE id = $1`, [draft.id]);
-    let q = await queueApprovedPublication(run, f.owner, draft.id);
-    assert.equal(q.ok, false);
-    await run(`UPDATE marketing_drafts SET body = 'Kitchen done' WHERE id = $1`, [draft.id]);
-    q = await queueApprovedPublication(run, f.owner, draft.id);
-    assert.equal(q.ok, true);
-    assert.equal((await getIntent(run, q.intentId)).state, "pending");
-    // Withdraw rights on f1 → queued publication cancelled, draft back to draft.
-    const w = await withdrawPublicationRights(run, f.owner, "zz-f1", "client asked");
-    assert.equal(w.cancelledIntents, 1);
-    assert.equal((await getIntent(run, q.intentId)).state, "cancelled");
-    assert.equal((await run(`SELECT status FROM marketing_drafts WHERE id = $1`, [draft.id]))[0].status, "draft");
-    await assert.rejects(stagePublication(run, f.owner, draft.id), /without publication rights/);
+    assert.equal(await grantPublicationRights(run, { fileIds: ["zz-f1", "zz-f2"], projectId: f.p1, grantedBy: "Pat Client" }), 2);
+    assert.equal(await grantPublicationRights(run, { fileIds: ["zz-f1"], projectId: f.p1, grantedBy: "Pat Client" }), 0, "one live right per photo");
+    assert.deepEqual((await authorizedPhotos(run, f.p1)).sort(), ["zz-f1", "zz-f2"]);
+    // Withdraw rights on f1 → no longer shareable. Owner only.
+    assert.equal((await withdrawPublicationRights(run, f.owner, "zz-f1", "client asked")).withdrawn, 1);
+    assert.deepEqual(await authorizedPhotos(run, f.p1), ["zz-f2"]);
     await assert.rejects(withdrawPublicationRights(run, f.subA, "zz-f2", "x"), /owner/);
     // pinRevision works for any doc kind and dedupes by hash.
     const a = await pinRevision(run, "weekly_summary", "abc", { x: 1 }, "release");

@@ -44,6 +44,9 @@ export interface PendingGrant {
   targetId: string | null;
   reason: string;
   createdAt: string;
+  status: string;
+  expiresAt: string;
+  uses: number;
   /** What approving does, in plain words, plus the draft (lib/grant-detail). */
   detail: GrantDetail | null;
 }
@@ -92,13 +95,11 @@ async function pendingGrants(runId: string, conversationId: string | null): Prom
     scope: Record<string, unknown>;
     reason: string;
     created_at: string;
+    status: string; expires_at: string; uses: number;
   }>(
-    `SELECT id, requested_by, actions, target_kind, target_id, scope, reason, created_at::text AS created_at
+    `SELECT id, requested_by, actions, target_kind, target_id, scope, reason, status, expires_at::text, uses, created_at::text AS created_at
        FROM owner_grants
-      WHERE status = 'requested' AND expires_at > now()
-        AND (run_id = $1
-             OR ($2::uuid IS NOT NULL AND conversation_id = $2)
-             OR created_at > now() - interval '20 minutes')
+      WHERE (run_id = $1 OR (run_id IS NULL AND $2::uuid IS NOT NULL AND conversation_id = $2))
       ORDER BY created_at ASC
       LIMIT 3`,
     [runId, conversationId],
@@ -114,6 +115,7 @@ async function pendingGrants(runId: string, conversationId: string | null): Prom
     targetId: g.target_id,
     reason: g.reason,
     createdAt: g.created_at,
+    status: g.status, expiresAt: g.expires_at, uses: g.uses,
   }));
 }
 
@@ -140,7 +142,7 @@ async function requireInteractionAccess(id: string) {
 }
 
 export async function pollAgentRun(runId: string): Promise<PollResult> {
-  await requireRunAccess(runId);
+  const user = await requireRunAccess(runId);
   await failStaleRuns();
   await failStaleTasks();
   // Thread auto-settle rides the same heartbeat (throttled to once a minute
@@ -167,7 +169,7 @@ export async function pollAgentRun(runId: string): Promise<PollResult> {
     };
   const [interactions, grants, focus, steers] = await Promise.all([
     listPendingInteractions(runId, run.conversationId),
-    pendingGrants(runId, run.conversationId),
+    user.role === "owner" ? pendingGrants(runId, run.conversationId) : Promise.resolve([]),
     getRunFocus(runId),
     steersForRun(runId),
   ]);
@@ -224,4 +226,12 @@ export async function dismissInteractionAction(id: string): Promise<{ ok: boolea
   await requireInteractionAccess(id);
   await dismissInteraction(id);
   return { ok: true };
+}
+
+/** Durable approval cards for a completed run; staff cannot decide owner grants. */
+export async function listRunApprovals(runId: string): Promise<PendingGrant[]> {
+  const user = await requireRunAccess(runId);
+  if (user.role !== "owner") return [];
+  const run = await getDevAgentRun(runId);
+  return run ? pendingGrants(runId, null) : [];
 }

@@ -1,6 +1,6 @@
 import { Search } from "lucide-react";
 import { Shell } from "@/components/shell/Shell";
-import { Card, Eyebrow } from "@/components/ui";
+import { PageHeader } from "@/components/ui";
 import { CatalogClient } from "@/components/catalog/CatalogClient";
 import { AddMaterialButton } from "@/components/catalog/AddMaterialButton";
 import { getCatalogData } from "@/lib/catalog";
@@ -10,23 +10,12 @@ export default async function CatalogPage() {
 
   return (
     <Shell breadcrumb="CATALOG · MATERIAL LIBRARY">
-      <div className="mx-auto max-w-[1200px] px-7 pb-16 pt-6">
-        {/* Header */}
-        <div className="mb-3.5 flex flex-wrap items-end gap-4">
-          <div className="flex-1">
-            <Eyebrow>{data.eyebrow}</Eyebrow>
-            <h1 className="mt-1 font-serif text-[34px] font-medium leading-none tracking-tight text-accent-2">
-              Catalog
-            </h1>
-          </div>
-          <div className="flex flex-wrap items-center gap-1.5">
-            <Card kind="soft" className="flex w-[240px] items-center gap-1.5 px-2.5 py-1.5">
-              <Search className="size-3 text-ink-4" strokeWidth={1.5} />
-              <span className="text-[11px] text-ink-4">Search by SKU, supplier, color…</span>
-            </Card>
-            <AddMaterialButton />
-          </div>
-        </div>
+      <div className="mx-auto max-w-[1200px] px-4 pb-16 pt-6 @2xl/page:px-7">
+        <PageHeader
+          title="Catalog"
+          meta={data.eyebrow}
+          actions={<AddMaterialButton />}
+        />
 
         <CatalogClient data={data} />
       </div>

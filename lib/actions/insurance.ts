@@ -58,3 +58,10 @@ export async function archivePolicy(id: number): Promise<Result> {
   revalidatePath("/compliance");
   return { ok: true };
 }
+
+export async function restorePolicy(id: number): Promise<Result> {
+  await requireAccess("compliance");
+  await query(`UPDATE insurance_policies SET archived = false WHERE id = $1`, [id]);
+  revalidatePath("/compliance");
+  return { ok: true };
+}

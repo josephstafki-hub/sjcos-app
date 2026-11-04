@@ -10,6 +10,7 @@
 // SJC OS work_items first, with lead/compliance/job signals filling in after.
 // The AI brief still routes through lib/ai.ts.
 
+import { formatScheduleTime } from "./schedule-time";
 import { ai } from "./ai";
 import { query } from "./db";
 import { laneFor, type Lane } from "./today-triage";
@@ -187,14 +188,6 @@ interface TodayProjectRow {
   status: string;
   progress: number;
   outstanding: number;
-  /** True when the project has a schedule block on a later day — its next
-   *  action is already on the calendar, so the "Keep X moving" job card
-   *  waits for that day instead of nagging today (Joe, 2026-09-02). */
-  scheduled_ahead: boolean;
-  /** True when the project has any open work item (any status, any assignee).
-   *  A tracked job doesn't need a second "Keep X moving" card — the to-do
-   *  (or its waiting_on_client state) already says where it stands. */
-  tracked: boolean;
 }
 
 export interface TodayWorkItemRow {
@@ -317,8 +310,8 @@ export interface QueueSnapshot {
 async function fetchQueueSources(viewer: QueueViewer): Promise<QueueSources> {
   const backlog = openWorkItemsSql(viewer);
   // Only the owner gets the business signals. The project / flagged-lead /
-  // schedule queries exist to produce "Reply to <lead>", "Keep <job> moving"
-  // and "On site" cards, plus the header metrics — all of them Joe's work to
+  // schedule queries exist to produce "Reply to <lead>" and "On site"
+  // cards, plus the header metrics — all of them Joe's work to
   // triage, and two of them (A/R, bid-worthy leads) things a team member may
   // have no business area for. A staff queue is their assigned to-dos, period.
   if (!isOwner(viewer)) {
@@ -332,13 +325,7 @@ async function fetchQueueSources(viewer: QueueViewer): Promise<QueueSources> {
     await Promise.all([
       query<TodayProjectRow>(`
         SELECT slug, name, status, progress,
-               (contract_value - collected_to_date) AS outstanding,
-               EXISTS (SELECT 1 FROM schedule_blocks b
-                        WHERE b.project_id = projects.id
-                          AND b.block_date > CURRENT_DATE) AS scheduled_ahead,
-               EXISTS (SELECT 1 FROM work_items w
-                        WHERE w.project_id = projects.id
-                          AND w.status NOT IN ('done','cancelled')) AS tracked
+               (contract_value - collected_to_date) AS outstanding
         FROM projects
         WHERE status IN ('construction', 'closeout')
         ORDER BY (status = 'construction') DESC, progress DESC, name`),
@@ -423,35 +410,15 @@ function rankCandidates(s: QueueSources, viewer: QueueViewer): Candidate[] {
       tag: "SCHEDULE",
       dot: "accent",
       title: `On site — ${firstJobBlock.label}`,
-      sub: `${firstJobBlock.time_label} today`,
+      sub: `${formatScheduleTime(firstJobBlock.time_label)} today`,
       href: "/schedule",
       group: { key: "schedule", name: "Schedule", href: "/schedule" },
-      waitingLabel: `On site — ${firstJobBlock.label} (${firstJobBlock.time_label})`,
+      waitingLabel: `On site — ${firstJobBlock.label} (${formatScheduleTime(firstJobBlock.time_label)})`,
     });
   }
-  // Job signal: the top construction job that is neither on the calendar nor
-  // tracked by an open to-do — i.e. a job that would otherwise fall through
-  // the cracks. A job whose next block is on a later day is "snoozed until
-  // its scheduled date" (same rule as scheduled to-dos), and a job with any
-  // open work item is already represented (or deliberately parked as
-  // waiting_on_client), so neither gets a "Keep X moving" nudge (Joe,
-  // 2026-09-02). If every active job is scheduled or tracked, no card.
-  const topActive = s.projects.find(
-    (p) => p.status === "construction" && !p.scheduled_ahead && !p.tracked,
-  );
-  if (topActive) {
-    candidates.push({
-      ...signal,
-      id: `job:${topActive.slug}`,
-      tag: `JOB · ${topActive.name}`,
-      dot: "accent",
-      title: `Keep ${topActive.name} moving`,
-      sub: `${topActive.progress}% paid`,
-      href: `/projects/${topActive.slug}`,
-      group: { key: `project:${topActive.slug}`, name: topActive.name, href: `/projects/${topActive.slug}` },
-      waitingLabel: `Keep ${topActive.name} moving (${topActive.progress}% paid)`,
-    });
-  }
+  // No "Keep <job> moving" card (Joe, 2026-11-03): a project to-do must be a
+  // concrete next step, and a generic nudge isn't one. Projects reach Today
+  // only through their real work items.
   return candidates.toSorted(byLeadFirst);
 }
 
@@ -652,14 +619,14 @@ export async function getTodayData(viewer: QueueViewer): Promise<TodayData> {
   const blocksByDay = new Map<string, { time: string; label: string; dot: DotKind }[]>();
   for (const b of weekRes.rows) {
     const list = blocksByDay.get(b.iso) ?? [];
-    list.push({ time: b.time_label, label: b.label, dot: toneToDot(b.tone) });
+    list.push({ time: formatScheduleTime(b.time_label), label: b.label, dot: toneToDot(b.tone) });
     blocksByDay.set(b.iso, list);
   }
 
   // ── Today's schedule (real blocks; calm placeholder when empty) ──
   const schedule: TodayScheduleBlock[] = scheduleRows.length
     ? scheduleRows.map((b) => ({
-        time: b.time_label,
+        time: formatScheduleTime(b.time_label),
         label: b.label,
         dot: toneToDot(b.tone),
         href: "/schedule",
@@ -698,7 +665,7 @@ export async function getTodayData(viewer: QueueViewer): Promise<TodayData> {
     // Today header chip.
     headerChips: isOwner(viewer)
       ? [
-          { kind: "money" as ChipKind, label: `${dollars(outstanding)} outstanding A/R` },
+          { kind: "money" as ChipKind, label: `${dollars(outstanding)} left to collect · on-site + closeout jobs, including unbilled work` },
           { kind: "flag" as ChipKind, label: `${flaggedLeads} lead${flaggedLeads === 1 ? "" : "s"} need attention` },
         ]
       : [],

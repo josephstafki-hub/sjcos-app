@@ -1,16 +1,17 @@
-// Approved marketing (A17): drafts are built from AUTHORIZED photos only
-// (publication_rights present and not withdrawn — portal visibility is not a
-// right), released by a one-tap 'publication' decision bound to the content +
-// audience hash, and a withdrawal of rights cancels anything queued.
+// Marketing photo rights (A17): a job photo may go in a post only once Joe has
+// recorded that the client OK'd sharing it (publication_rights present and not
+// withdrawn; portal visibility is not a right). /marketing offers only those
+// photos for download next to the post text. Joe posts by hand: there is no
+// posting agent (removed 2026-11-03) and nothing here sends anything.
 // Newsletter drip arming stays owner-only: no code path here touches it.
+//
+// What the drafting model is allowed to say about a job comes from
+// loadJobFacts (the signed estimate and approved change orders), never from
+// the job's name or address.
 
 import type { Run } from "../commands/core.ts";
-import { hashInput } from "../commands/core.ts";
-import { consumeDecision, getDecision, revokeDecision, type Decision } from "../commands/decisions.ts";
-import { stageDecision } from "../commands/decisions.ts";
-import { cancelIntent, enqueueIntent } from "../commands/intents.ts";
 import { isOwner, type Principal } from "../commands/principal.ts";
-import { pinRevision, revisionRef } from "./revisions.ts";
+import { cityFromAddress, type JobFacts } from "../marketing-copy.ts";
 
 export async function grantPublicationRights(run: Run, input: { fileIds: string[]; projectId: string | null; grantedBy: string; grantedByUserId?: string | null; scope?: string[]; note?: string }): Promise<number> {
   let n = 0;
@@ -47,121 +48,59 @@ export interface MarketingDraftRow {
   title: string;
   body: string;
   status: string;
-  audience: string;
-  publication_decision_id: string | null;
-  publication_intent_id: string | null;
-  media: string[];
 }
 
-const DRAFT_COLS = `d.id, d.project_id, d.kind, d.title, d.body, d.status, d.audience, d.publication_decision_id, d.publication_intent_id,
-  COALESCE((SELECT array_agg(m.file_id ORDER BY m.sort) FROM marketing_draft_media m WHERE m.draft_id = d.id), '{}'::text[]) AS media`;
-
 export async function getDraft(run: Run, id: number): Promise<MarketingDraftRow | null> {
-  const [row] = await run<MarketingDraftRow>(`SELECT ${DRAFT_COLS} FROM marketing_drafts d WHERE d.id = $1`, [id]);
+  const [row] = await run<MarketingDraftRow>(`SELECT d.id, d.project_id, d.kind, d.title, d.body, d.status FROM marketing_drafts d WHERE d.id = $1`, [id]);
   return row ? { ...row, id: Number(row.id) } : null;
 }
 
-/** Create a draft using only authorized photos. Unauthorized ids are dropped
- *  and reported; a draft with no authorized media is still a draft (text only). */
-export async function draftFromAuthorizedPhotos(
-  run: Run,
-  input: { projectId: string; kind: "social" | "blog"; title: string; body: string; audience: string; requestedPhotoIds?: string[] },
-): Promise<{ draft: MarketingDraftRow; rejectedPhotoIds: string[] }> {
-  const allowed = await authorizedPhotos(run, input.projectId, input.kind === "blog" ? "website" : "social");
-  const wanted = input.requestedPhotoIds ?? allowed;
-  const media = wanted.filter((id) => allowed.includes(id));
-  const rejected = wanted.filter((id) => !allowed.includes(id));
-  const [row] = await run<{ id: string }>(`INSERT INTO marketing_drafts (project_id, kind, title, body, status, audience) VALUES ($1, $2, $3, $4, 'draft', $5) RETURNING id`, [
-    input.projectId,
-    input.kind,
-    input.title,
-    input.body,
-    input.audience,
-  ]);
-  for (const [i, f] of media.entries()) await run(`INSERT INTO marketing_draft_media (draft_id, file_id, sort) VALUES ($1, $2, $3)`, [row.id, f, i]);
-  return { draft: (await getDraft(run, Number(row.id)))!, rejectedPhotoIds: rejected };
-}
-
-function publicationContent(d: MarketingDraftRow) {
-  return { title: d.title, body: d.body, media: d.media, audience: d.audience, kind: d.kind };
-}
-
-/** Stage the one-tap release. Content + audience hashed; a change supersedes. */
-export async function stagePublication(run: Run, principal: Principal, draftId: number): Promise<{ decision: Decision; created: boolean; draft: MarketingDraftRow }> {
-  const d = await getDraft(run, draftId);
-  if (!d) throw new Error("No such draft.");
-  if (d.status === "posted") throw new Error("Already posted.");
-  if (!d.audience) throw new Error("Pick an audience/platform before staging the release.");
-  // Every photo must still be authorized at staging time.
-  const allowed = d.project_id ? await authorizedPhotos(run, d.project_id, d.kind === "blog" ? "website" : "social") : [];
-  const bad = d.media.filter((m) => !allowed.includes(m));
-  if (bad.length) throw new Error(`Photo(s) without publication rights: ${bad.join(", ")}`);
-  const { revision } = await pinRevision(run, "marketing_draft", d.id, publicationContent(d), "release");
-  const staged = await stageDecision(run, {
-    kind: "publication",
-    action: "publish_marketing",
-    title: `Publish ${d.kind} post → ${d.audience}: ${d.title}`,
-    summary: { recipients: [{ name: d.audience, role: "audience" }], inclusions: [d.body.slice(0, 300)], attachments: d.media.map((m) => ({ label: m, fileId: m })), effect: `Publishes to ${d.audience}.` },
-    targetKind: "marketing_draft",
-    targetId: d.id,
-    recipient: d.audience,
-    content: publicationContent(d),
-    artifactRevision: revisionRef(revision),
-    projectId: d.project_id,
-    href: "/marketing",
-    dedupeKey: `publication:${d.id}`,
-    requestedBy: principal,
-  });
-  await run(`UPDATE marketing_drafts SET status = 'pending_decision', publication_decision_id = $2 WHERE id = $1`, [d.id, staged.decision.id]);
-  return { decision: staged.decision, created: staged.created, draft: (await getDraft(run, d.id))! };
-}
-
-/** After approval: consume for exactly this content/audience and queue the
- *  publication intent (dispatcher owns the platform call). */
-export async function queueApprovedPublication(run: Run, principal: Principal, draftId: number): Promise<{ ok: true; intentId: string } | { ok: false; reason: string }> {
-  const d = await getDraft(run, draftId);
-  if (!d?.publication_decision_id) return { ok: false, reason: "No release decision on this draft." };
-  if (d.publication_intent_id) return { ok: true, intentId: d.publication_intent_id };
-  const dec = await getDecision(run, d.publication_decision_id);
-  if (!dec) return { ok: false, reason: "Decision vanished." };
-  const content = publicationContent(d);
-  const hash = hashInput(content);
-  if (dec.content_hash !== hash) return { ok: false, reason: "The post or its audience changed after approval; stage a fresh release." };
-  const allowed = d.project_id ? await authorizedPhotos(run, d.project_id, d.kind === "blog" ? "website" : "social") : [];
-  if (d.media.some((m) => !allowed.includes(m))) return { ok: false, reason: "A photo's publication rights were withdrawn; the release is void." };
-  const c = await consumeDecision(run, { id: dec.id, action: "publish_marketing", contentHash: hash, recipient: d.audience, targetKind: "marketing_draft", targetId: d.id, consumer: "closeout.queueApprovedPublication" });
-  if (!c.ok) return { ok: false, reason: c.reason };
-  const { intent } = await enqueueIntent(run, {
-    operationKey: `publication:${d.id}:${dec.artifact_revision ?? hash.slice(0, 12)}`,
-    kind: "publication",
-    targetKind: "marketing_draft",
-    targetId: d.id,
-    recipient: d.audience,
-    projectId: d.project_id,
-    payload: content,
-    artifactRevision: dec.artifact_revision,
-    decisionId: dec.id,
-    principal,
-  });
-  await run(`UPDATE marketing_drafts SET status = 'queued', publication_intent_id = $2 WHERE id = $1`, [d.id, intent.id]);
-  return { ok: true, intentId: intent.id };
-}
-
-/** Withdraw rights on a file: pending release decisions are revoked and
- *  queued publications that include it are cancelled. Owner only. */
-export async function withdrawPublicationRights(run: Run, principal: Principal, fileId: string, reason: string): Promise<{ withdrawn: number; cancelledIntents: number; revokedDecisions: number }> {
+/** Joe takes back the client's OK on a photo. Owner only: it records the
+ *  client's permission. */
+export async function withdrawPublicationRights(run: Run, principal: Principal, fileId: string, reason: string): Promise<{ withdrawn: number }> {
   if (!isOwner(principal)) throw new Error("Only the owner withdraws publication rights.");
   const rows = await run(`UPDATE publication_rights SET withdrawn_at = now(), withdrawn_reason = $2 WHERE file_id = $1 AND withdrawn_at IS NULL RETURNING id`, [fileId, reason]);
-  const drafts = await run<{ id: string; publication_decision_id: string | null; publication_intent_id: string | null; status: string }>(
-    `SELECT d.id, d.publication_decision_id, d.publication_intent_id, d.status FROM marketing_drafts d JOIN marketing_draft_media m ON m.draft_id = d.id WHERE m.file_id = $1 AND d.status IN ('pending_decision','queued')`,
-    [fileId],
+  return { withdrawn: rows.length };
+}
+
+/** The job's own record of the work: the work's name, the city (never the
+ *  street), and the lines of the estimate the client agreed to plus approved
+ *  pre-con changes and change orders. Prices, client names and addresses are
+ *  left out on purpose: the model only ever sees what a post may say.
+ *  Estimate choice: approved formal (newest) → newest sent formal → none
+ *  (a draft estimate is a plan, not work done). */
+export async function loadJobFacts(run: Run, projectId: string): Promise<JobFacts | null> {
+  const [proj] = await run<{ name: string; client_name: string; address: string | null; sub_label: string | null; lead_scope: string | null; lead_city: string | null }>(
+    `SELECT p.name, p.client_name, p.address, p.sub_label, l.scope AS lead_scope, l.scope_city AS lead_city
+       FROM projects p LEFT JOIN leads l ON l.id = p.lead_id WHERE p.id = $1`,
+    [projectId],
   );
-  let cancelledIntents = 0;
-  let revokedDecisions = 0;
-  for (const d of drafts) {
-    if (d.publication_intent_id && (await cancelIntent(run, d.publication_intent_id, `publication rights withdrawn for ${fileId}: ${reason}`))) cancelledIntents++;
-    if (d.publication_decision_id && (await revokeDecision(run, d.publication_decision_id, principal, `publication rights withdrawn for ${fileId}`))) revokedDecisions++;
-    await run(`UPDATE marketing_drafts SET status = 'draft', publication_intent_id = NULL WHERE id = $1`, [d.id]);
-  }
-  return { withdrawn: rows.length, cancelledIntents, revokedDecisions };
+  if (!proj) return null;
+  const [est] = await run<{ id: string; title: string }>(
+    `SELECT id, title FROM estimates
+      WHERE project_id = $1 AND kind = 'formal' AND status IN ('approved','sent')
+      ORDER BY (status = 'approved') DESC, created_at DESC LIMIT 1`,
+    [projectId],
+  );
+  const lines = await run<{ section: string; description: string }>(
+    `SELECT el.section, el.description FROM estimate_lines el JOIN estimates e ON e.id = el.estimate_id
+      WHERE el.superseded_by IS NULL AND btrim(el.description) <> ''
+        AND (e.id = $2 OR (e.project_id = $1 AND e.kind = 'precon_change' AND e.status = 'approved'))
+      ORDER BY (e.id = $2) DESC, e.created_at, el.sort_order, el.id
+      LIMIT 60`,
+    [projectId, est?.id ?? null],
+  );
+  const changes = await run<{ title: string; description: string }>(
+    `SELECT title, description FROM change_orders WHERE project_id = $1 AND status = 'approved' ORDER BY created_at LIMIT 20`,
+    [projectId],
+  );
+  const scope = [proj.sub_label, proj.lead_scope].map((s) => (s ?? "").trim()).filter(Boolean);
+  return {
+    work: (est?.title ?? "").trim() || scope[0] || "",
+    city: (proj.lead_city ?? "").trim() || cityFromAddress(proj.address),
+    scope,
+    lines: lines.map((l) => ({ section: l.section.trim(), text: l.description.trim() })),
+    changes: changes.map((c) => [c.title, c.description].map((s) => s.trim()).filter(Boolean).join(": ")).filter(Boolean),
+    privateWords: [proj.client_name, proj.name, proj.address ?? ""].filter(Boolean),
+  };
 }

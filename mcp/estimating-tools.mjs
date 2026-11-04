@@ -20,6 +20,13 @@ import { proposePricingSetup, listPricingSetups } from "../lib/estimating/setup.
 import { costLearningPreview } from "../lib/estimating/learning.ts";
 import { txOver, principalFor, fail, agentNameOf } from "./tool-shared.mjs";
 
+// Legacy tool vocabulary is normalized before canonical enum validation.
+const findingAliases = { condition: "observation", preference: "client_answer", question: "client_answer" };
+export const siteFindingKind = z.preprocess(
+  (value) => typeof value === "string" && Object.hasOwn(findingAliases, value) ? findingAliases[value] : value,
+  z.enum(["observation", "measurement", "photo", "client_answer", "decision", "issue", "new_work", "price_instruction"]),
+);
+
 const product = z.object({ name: z.string().optional(), brand: z.string().optional(), model: z.string().optional(), variant: z.string().optional(), finish: z.string().optional(), sku: z.string().optional(), url: z.string().optional() });
 
 export function registerEstimatingTools(server, { rows, json, pool, slugToId, currentPrincipal, estimatingCall }) {
@@ -131,7 +138,7 @@ export function registerEstimatingTools(server, { rows, json, pool, slugToId, cu
 
   server.registerTool(
     "record_site_findings",
-    { title: "Record site-visit findings (W03)", description: "Source-linked facts from Joe's uploaded notes/photos: measurements (with the scope quantity they answer), conditions, decisions, issues, new unpriced work. Updates affected scopes, quantities and estimate inputs; preserves Joe's allocations and prices unless a finding explicitly targets them (targets_price). Ambiguous findings become targeted questions. Never a package release.", inputSchema: { project_slug: z.string(), findings: z.array(z.object({ fact_key: z.string(), scope_key: z.string().optional(), kind: z.enum(["measurement", "condition", "decision", "issue", "preference", "new_work", "question"]), statement: z.string(), measurement: z.number().optional(), unit: z.string().optional(), source_note: z.string(), media_ref: z.string().optional(), targets_price: z.boolean().optional(), quantity_label: z.string().optional(), new_scope: z.object({ key: z.string(), title: z.string(), trade: z.string().optional(), room: z.string().optional() }).optional() })) } },
+    { title: "Record site-visit findings (W03)", description: "Source-linked facts from Joe's uploaded notes/photos: measurements (with the scope quantity they answer), conditions, decisions, issues, new unpriced work. Updates affected scopes, quantities and estimate inputs; preserves Joe's allocations and prices unless a finding explicitly targets them (targets_price). Ambiguous findings become targeted questions. Never a package release.", inputSchema: { project_slug: z.string(), findings: z.array(z.object({ fact_key: z.string(), scope_key: z.string().optional(), kind: siteFindingKind, statement: z.string(), measurement: z.number().optional(), unit: z.string().optional(), source_note: z.string(), media_ref: z.string().optional(), targets_price: z.boolean().optional(), quantity_label: z.string().optional(), new_scope: z.object({ key: z.string(), title: z.string(), trade: z.string().optional(), room: z.string().optional() }).optional() })) } },
     async ({ project_slug, findings }) => {
       try {
         const id = await project(project_slug);

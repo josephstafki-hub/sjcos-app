@@ -268,6 +268,7 @@ async function resolveChangeOrder(f: Fill, scope: FillScope) {
 }
 
 interface EstimateData {
+  kind: string;
   projectName: string;
   clientName: string;
   address: string;
@@ -283,9 +284,10 @@ async function estimateData(scope: FillScope): Promise<EstimateData | null> {
     project_id: string | null;
     lead_slug: string | null;
     title: string;
+    kind: string;
     subtotal: number;
     total: number;
-  }>(`SELECT project_id, lead_slug, title, subtotal, total FROM estimates WHERE id = $1`, [scope.estimateId]);
+  }>(`SELECT project_id, lead_slug, title, kind, subtotal, total FROM estimates WHERE id = $1`, [scope.estimateId]);
   if (!est) return null;
 
   let projectName = est.title || "Estimate";
@@ -323,7 +325,9 @@ async function estimateData(scope: FillScope): Promise<EstimateData | null> {
   // holds only the line items.
   const lineRows = lines.map((l) => [l.description, l.section, `${Number(l.qty)} ${unitLabel(l.unit)}`, fmtUsd(l.extended)]);
 
-  return { projectName, clientName, address, phoneEmail, subtotal: est.subtotal, total: est.total, lineRows };
+  // Client line amounts already include markup; the internal cost subtotal
+  // must not print beneath these prices. Keep costs on the estimate for budgets.
+  return { kind: est.kind, projectName, clientName, address, phoneEmail, subtotal: lines.reduce((sum, l) => sum + Number(l.extended), 0), total: est.total, lineRows };
 }
 
 /** The Formal Estimate's ESTIMATE_LINE_FIELDS, built one way for both the
@@ -339,6 +343,7 @@ function estimateLineValues(d: EstimateData): { line_items_table: TableValue; su
 async function resolveEstimateDoc(f: Fill, scope: FillScope) {
   const d = await estimateData(scope);
   if (!d) return;
+  f.set("estimate_kind", d.kind);
   f.set("estimate_number", `SJC-EST-${scope.estimateId}`);
   f.set("date_prepared", today());
   f.set("valid_until", daysFromNow(30));

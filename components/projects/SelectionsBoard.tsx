@@ -3,10 +3,10 @@
 import { useEffect, useRef, useState, useSyncExternalStore, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
-  Plus, X, Check, Send, Pencil, Trash2, FolderPlus, Link2, Loader2,
+  Plus, X, Check, Send, Pencil, FolderPlus, Link2, Loader2,
   Undo2, ExternalLink, CircleDot, Wallet, ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown,
 } from "lucide-react";
-import { Card, Chip } from "@/components/ui";
+import { Button, Card, Chip, EmptyState } from "@/components/ui";
 import type { ChipKind } from "@/components/ui/Chip";
 import type {
   Selection, SelectionOption, SelectionStatus, SelectionsView, SelectionGroup,
@@ -18,6 +18,7 @@ import {
   setSelectionsBudget,
 } from "@/lib/actions/selections";
 import { useRemoved } from "@/lib/use-removed";
+import { ActionMenu } from "./ActionMenu";
 import { runAction } from "@/lib/run-action";
 
 /** Lightweight catalog option for the add-picker (avoids importing the
@@ -236,11 +237,11 @@ export function SelectionsBoard({
   const overAllocated = view.overallBudget > 0 && view.allocatedBudget > view.overallBudget;
 
   return (
-    <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap items-start gap-2">
+    <div className="flex flex-col gap-4 max-sm:[&_button]:min-h-11 max-sm:[&_button]:min-w-11">
+      <div className="flex flex-col gap-3 @3xl/page:flex-row @3xl/page:items-start">
         <div className="min-w-0 flex-1">
           {empty ? (
-            <h3 className="font-serif text-[16px] font-semibold text-ink">Selections</h3>
+            <h3 className="font-serif text-heading font-semibold text-ink">Selections</h3>
           ) : (
             <button
               type="button"
@@ -254,10 +255,10 @@ export function SelectionsBoard({
               ) : (
                 <ChevronRight className="size-4 shrink-0 text-ink-3" strokeWidth={1.75} />
               )}
-              <h3 className="font-serif text-[16px] font-semibold text-ink">Selections</h3>
+              <h3 className="font-serif text-heading font-semibold text-ink">Selections</h3>
             </button>
           )}
-          <p className="mt-0.5 text-[12px] text-ink-3">
+          <p className="mt-0.5 text-label text-ink-3">
             {view.totalDecisions > 0
               ? `${view.totalOpen} of ${view.totalDecisions} decision${view.totalDecisions === 1 ? "" : "s"} still open`
               : "Lay out a room, then add every finish that needs a decision."}
@@ -270,7 +271,7 @@ export function SelectionsBoard({
                   style={{ width: `${overBudget ? 100 : budgetPct}%` }}
                 />
               </div>
-              <p className="mt-1 text-[11px] text-ink-3">
+              <p className="mt-1 text-meta text-ink-3">
                 {fmt(view.totalSpent)} committed of {fmt(view.totalBudget)}{" "}
                 <span className={overBudget ? "text-flag" : "text-money"}>
                   ({overBudget
@@ -294,7 +295,7 @@ export function SelectionsBoard({
             // No budget anywhere yet: still show the running total so the number
             // is never hidden, and point at where the budget gets set.
             view.totalDecisions > 0 && (
-              <p className="mt-1 text-[11px] text-ink-3">
+              <p className="mt-1 text-meta text-ink-3">
                 {fmt(view.totalSpent)} committed so far
                 {view.totalProposed > 0 && <span> · {fmt(view.totalProposed)} still to decide</span>}
                 <span> · no budget set — use Set budget, or give each room one</span>
@@ -305,37 +306,37 @@ export function SelectionsBoard({
         {/* Three buttons + the copy don't fit side by side on a phone; the
             group drops under the heading instead of running off the edge. */}
         <div className="flex flex-wrap items-center gap-1.5">
-          {showBudget && <button
+          {showBudget && <Button variant="secondary"
             onClick={() => setBudgetModal(true)}
             title="Set the overall selections budget the client's running total is measured against"
-            className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2"
+            className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-label font-semibold text-ink-2 hover:bg-paper-2"
           >
             <Wallet className="size-3" strokeWidth={1.5} />
             {view.overallBudget > 0 ? `Budget ${fmt(view.overallBudget)}` : "Set budget"}
-          </button>}
+          </Button>}
           {totalPushable > 0 && (
-            <button
+            <Button variant="secondary"
               disabled={pending}
               onClick={() => run(() => pushBoardToClient(slug))}
               title="Send every unsent decision that has options to the client portal"
-              className="inline-flex items-center gap-1 rounded-md border border-accent bg-accent-soft px-2.5 py-1 text-[12px] font-semibold text-accent-2 hover:bg-accent-soft/70 disabled:opacity-50"
+              className="inline-flex items-center gap-1 rounded-md border border-accent bg-accent-soft px-2.5 py-1 text-label font-semibold text-accent-2 hover:bg-accent-soft/70 disabled:opacity-50"
             >
               <Send className="size-3" strokeWidth={1.75} />
               Send to client
-            </button>
+            </Button>
           )}
-          <button
+          <Button variant="secondary"
             onClick={() => setSectionModal({ id: null, name: "", budget: 0, parentId: null })}
-            className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2"
+            className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-label font-semibold text-ink-2 hover:bg-paper-2"
           >
             <FolderPlus className="size-3" strokeWidth={1.5} />
             Add room
-          </button>
+          </Button>
           {!empty && boardOpen && (
-            <button
+            <Button variant="secondary"
               onClick={anyExpanded ? collapseAll : expandAll}
               title={anyExpanded ? "Fold every room up to its header" : "Open every room and decision"}
-              className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2"
+              className="inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1 text-label font-semibold text-ink-2 hover:bg-paper-2"
             >
               {anyExpanded ? (
                 <ChevronsDownUp className="size-3" strokeWidth={1.5} />
@@ -343,17 +344,13 @@ export function SelectionsBoard({
                 <ChevronsUpDown className="size-3" strokeWidth={1.5} />
               )}
               {anyExpanded ? "Collapse all" : "Expand all"}
-            </button>
+            </Button>
           )}
         </div>
       </div>
 
       {empty ? (
-        <Card kind="dashed" className="p-8 text-center">
-          <div className="text-[13px] text-ink-3">
-            No rooms yet. Add a room (with a budget) to start grouping decisions.
-          </div>
-        </Card>
+        <EmptyState compact icon={FolderPlus} title="No rooms yet" description="Add a room and its budget to start grouping finish decisions here." />
       ) : (
         boardOpen &&
         groups.map((g) => (
@@ -580,8 +577,8 @@ function SectionBlock({
   const Chevron = open ? ChevronDown : ChevronRight;
 
   const header = (
-    <div className="flex items-start gap-2">
-      <div className="flex-1">
+    <div className="flex flex-col items-start gap-3 @3xl/page:flex-row">
+      <div className="min-w-0 w-full flex-1">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
           <button
             type="button"
@@ -594,20 +591,20 @@ function SectionBlock({
             <h4
               className={
                 isSub
-                  ? "font-mono text-[11px] uppercase tracking-[0.08em] text-ink-2"
-                  : "font-serif text-[14px] font-semibold text-ink"
+                  ? "text-label font-medium text-ink-2"
+                  : "font-serif text-subheading font-semibold text-ink"
               }
             >
               {g.name}
             </h4>
           </button>
           {h.showBudget && g.budget > 0 && (
-            <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">
+            <span className="text-label font-medium text-ink-3">
               budget {fmt(g.budget)}
             </span>
           )}
           {g.totalCount > 0 && (
-            <span className="text-[11px] text-ink-3">
+            <span className="text-meta text-ink-3">
               {g.openCount > 0 ? `${g.openCount} open` : "all decided"} · {g.totalCount} total
             </span>
           )}
@@ -620,7 +617,7 @@ function SectionBlock({
                 style={{ width: `${over ? 100 : pct}%` }}
               />
             </div>
-            <p className="mt-1 text-[11px] text-ink-3">
+            <p className="mt-1 text-meta text-ink-3">
               {fmt(g.spent)} committed ·{" "}
               <span className={over ? "text-flag" : "text-money"}>
                 {over ? `${fmt(-g.remaining)} over` : `${fmt(g.remaining)} left`}
@@ -630,13 +627,13 @@ function SectionBlock({
           </>
         )}
       </div>
-      <div className="flex shrink-0 items-center gap-1">
+      <div className="flex flex-wrap items-center gap-1">
         {!isUngrouped && !isSub && pushable > 0 && (
           <button
             disabled={pending}
             onClick={() => h.onPushSection(g.id as number)}
             title={`Send the ${pushable} unsent decision${pushable === 1 ? "" : "s"} in ${g.name} to the client portal`}
-            className="inline-flex items-center gap-1 rounded-md border border-accent bg-accent-soft px-2 py-1 text-[11px] font-semibold text-accent-2 hover:bg-accent-soft/70 disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-md border border-accent bg-accent-soft px-2 py-1 text-meta font-semibold text-accent-2 hover:bg-accent-soft/70 disabled:opacity-50"
           >
             <Send className="size-3" strokeWidth={1.75} />
             Send {pushable}
@@ -662,19 +659,15 @@ function SectionBlock({
             >
               <Pencil className="size-3" strokeWidth={1.5} />
             </button>
-            <button
-              disabled={pending}
-              onClick={() => h.onRemoveSection(g.id as number)}
-              title="Remove section (its decisions move to Ungrouped)"
-              className="rounded-md border border-rule p-1 text-ink-3 hover:bg-paper-2 hover:text-flag disabled:opacity-50"
-            >
-              <Trash2 className="size-3" strokeWidth={1.5} />
-            </button>
+            <ActionMenu label={`More actions for ${g.name}`}>
+              <Button variant="ghost" className="text-flag" disabled={pending}
+                onClick={() => h.onRemoveSection(g.id as number)}>Remove section</Button>
+            </ActionMenu>
           </>
         )}
         <button
           onClick={() => h.onAddSelection(g.id)}
-          className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2 py-1 text-[11px] font-semibold text-paper hover:bg-[#232a1e]"
+          className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2 py-1 text-meta font-semibold text-paper hover:bg-ink-hover"
         >
           <Plus className="size-3" strokeWidth={1.5} />
           Decision
@@ -700,7 +693,7 @@ function SectionBlock({
         </div>
       )}
       {g.selections.length === 0 && g.children.length === 0 && (
-        <p className="text-[12px] text-ink-3">
+        <p className="text-label text-ink-3">
           Nothing here yet — add the finishes in this room that need a decision.
         </p>
       )}
@@ -760,10 +753,10 @@ function SelectionRow({
           className="-ml-1 inline-flex items-center gap-1 rounded-md px-1 py-0.5 text-left hover:bg-paper-2"
         >
           <Chevron className="size-3.5 shrink-0 text-ink-3" strokeWidth={1.75} />
-          <span className="text-[13px] font-semibold text-ink">{s.area}</span>
+          <span className="text-body font-semibold text-ink">{s.area}</span>
         </button>
         {s.allowance > 0 && (
-          <span className="font-mono text-[10px] uppercase tracking-[0.08em] text-ink-3">
+          <span className="text-label font-medium text-ink-3">
             allowance {fmt(s.allowance)}
           </span>
         )}
@@ -771,7 +764,7 @@ function SelectionRow({
           {STATUS_LABEL[s.status]}
         </Chip>
         {!open && (
-          <span className="text-[11px] text-ink-3">
+          <span className="text-meta text-ink-3">
             {chosen
               ? `chose ${chosen.name}`
               : `${s.options.length} option${s.options.length === 1 ? "" : "s"}`}
@@ -795,21 +788,14 @@ function SelectionRow({
           >
             <Pencil className="size-3" strokeWidth={1.75} />
           </button>
-          <button
-            disabled={pending}
-            onClick={() => onRemove(s.id)}
-            title="Remove decision"
-            className="rounded-md border border-rule p-1 text-ink-3 hover:bg-paper-2 hover:text-flag disabled:opacity-50"
-          >
-            <X className="size-3" strokeWidth={1.75} />
-          </button>
+          <ActionMenu label={`More actions for ${s.area}`}><Button variant="ghost" className="text-flag" disabled={pending} onClick={() => onRemove(s.id)}>Remove decision</Button></ActionMenu>
         </div>
       </div>
 
       {open && (
         <>
           {(s.choice || s.notes) && (
-            <p className="mt-1 text-[12px] leading-snug text-ink-2">
+            <p className="mt-1 text-label leading-snug text-ink-2">
               {s.choice}
               {s.choice && s.notes ? " · " : ""}
               <span className="text-ink-3">{s.notes}</span>
@@ -817,7 +803,7 @@ function SelectionRow({
           )}
 
           {chosen && (
-            <p className="mt-1 text-[12px] text-money">
+            <p className="mt-1 text-label text-money">
               Client chose {chosen.name}
               {chosen.price > 0 && ` · ${fmt(chosen.price)}`}
               {delta !== 0 && (
@@ -829,7 +815,7 @@ function SelectionRow({
             </p>
           )}
 
-          <div className="mt-2 grid grid-cols-2 gap-2 md:grid-cols-4">
+          <div className="mt-2 grid grid-cols-1 gap-2 @md/page:grid-cols-2 @4xl/page:grid-cols-4">
             {s.options.map((o) => (
               <OptionCard
                 key={o.id}
@@ -848,7 +834,7 @@ function SelectionRow({
               className="flex min-h-[120px] flex-col items-center justify-center gap-1 rounded-md border border-dashed border-rule text-ink-3 hover:border-accent hover:bg-accent-soft/30 hover:text-accent-2"
             >
               <Plus className="size-4" strokeWidth={1.5} />
-              <span className="text-[11px] font-semibold">Add option</span>
+              <span className="text-meta font-semibold">Add option</span>
             </button>
           </div>
         </>
@@ -891,11 +877,11 @@ function OptionCard({
       )}
       <div className="flex flex-1 flex-col gap-0.5 p-2">
         {o.brand && (
-          <span className="font-mono text-[9px] uppercase tracking-[0.1em] text-ink-3">{o.brand}</span>
+          <span className="text-label font-medium text-ink-3">{o.brand}</span>
         )}
-        <span className="text-[12px] leading-snug text-ink">{o.name}</span>
+        <span className="text-label leading-snug text-ink">{o.name}</span>
         {o.price > 0 && (
-          <span className="text-[12px] font-semibold text-ink-2">
+          <span className="text-label font-semibold text-ink-2">
             {fmt(o.price)}
             {delta !== 0 && (
               <span className={`ml-1 font-normal ${delta > 0 ? "text-flag" : "text-money"}`}>
@@ -904,7 +890,7 @@ function OptionCard({
             )}
           </span>
         )}
-        {o.note && <span className="text-[11px] leading-snug text-ink-3">{o.note}</span>}
+        {o.note && <span className="text-meta leading-snug text-ink-3">{o.note}</span>}
 
         <div className="mt-auto flex items-center gap-1 pt-1.5">
           {isChosen ? (
@@ -915,7 +901,7 @@ function OptionCard({
                 disabled={pending}
                 onClick={onChoose}
                 title="Record this as the client's pick"
-                className="inline-flex items-center gap-1 rounded border border-rule px-1.5 py-0.5 text-[10px] font-semibold text-ink-3 hover:border-money hover:text-money disabled:opacity-50"
+                className="inline-flex items-center gap-1 rounded border border-rule px-1.5 py-0.5 text-meta font-semibold text-ink-3 hover:border-money hover:text-money disabled:opacity-50"
               >
                 <CircleDot className="size-2.5" strokeWidth={2} />
                 Record client&apos;s pick
@@ -937,14 +923,7 @@ function OptionCard({
             <button onClick={onEdit} title="Edit option" className="rounded p-0.5 text-ink-3 hover:text-ink">
               <Pencil className="size-3" strokeWidth={1.75} />
             </button>
-            <button
-              disabled={pending}
-              onClick={onRemove}
-              title="Remove option"
-              className="rounded p-0.5 text-ink-3 hover:text-flag disabled:opacity-50"
-            >
-              <X className="size-3" strokeWidth={1.75} />
-            </button>
+            <ActionMenu label={`More actions for ${o.name}`}><Button variant="ghost" className="text-flag" disabled={pending} onClick={onRemove}>Remove option</Button></ActionMenu>
           </div>
         </div>
       </div>
@@ -954,8 +933,8 @@ function OptionCard({
 
 // ─── Modals ──────────────────────────────────────────────────────────────────
 
-const FIELD = "rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent";
-const LABEL = "font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3";
+const FIELD = "rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent";
+const LABEL = "text-label font-medium text-ink-3";
 
 function SelectionModal({
   title,
@@ -1057,7 +1036,7 @@ function BudgetModal({
             className={FIELD}
           />
         </label>
-        <p className="text-[11px] leading-snug text-ink-3">
+        <p className="text-meta leading-snug text-ink-3">
           Shown to the client as the figure their running total is measured against, on top of
           the per-room budgets.
           {allocatedBudget > 0 && <> Rooms currently add up to {fmt(allocatedBudget)}.</>}{" "}
@@ -1216,7 +1195,7 @@ function OptionModal({
               type="button"
               disabled={fetching || !url.trim()}
               onClick={() => fetchFromUrl()}
-              className="inline-flex shrink-0 items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1.5 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-50"
+              className="inline-flex shrink-0 items-center gap-1 rounded-md border border-rule bg-card px-2.5 py-1.5 text-label font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-50"
             >
               {fetching ? (
                 <Loader2 className="size-3 animate-spin" strokeWidth={1.75} />
@@ -1227,7 +1206,7 @@ function OptionModal({
             </button>
           </div>
           {notice && (
-            <span className={`text-[11px] ${noticeKind === "warn" ? "text-flag" : "text-money"}`}>
+            <span className={`text-meta ${noticeKind === "warn" ? "text-flag" : "text-money"}`}>
               {notice}
             </span>
           )}
@@ -1279,7 +1258,7 @@ function OptionModal({
               name="image"
               type="file"
               accept="image/*"
-              className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[12px] text-ink-2 outline-none file:mr-2 file:rounded file:border-0 file:bg-paper-3 file:px-2 file:py-1 file:text-[11px] file:text-ink-2"
+              className="rounded-md border border-rule bg-paper px-2.5 py-1.5 text-label text-ink-2 outline-none file:mr-2 file:rounded file:border-0 file:bg-paper-3 file:px-2 file:py-1 file:text-meta file:text-ink-2"
             />
           </label>
           {preview && (
@@ -1298,9 +1277,9 @@ function OptionModal({
 function ModalShell({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink/30 p-4 pt-[10vh]" onClick={onClose}>
-      <div className="w-full max-w-[520px] rounded-lg border border-rule bg-card shadow-xl" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-[520px] rounded-lg border border-rule bg-card shadow-modal" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-rule px-4 py-3">
-          <h2 className="font-serif text-[17px] font-semibold text-ink">{title}</h2>
+          <h2 className="font-serif text-heading font-semibold text-ink">{title}</h2>
           <button onClick={onClose} className="text-ink-3 hover:text-ink" aria-label="Close">
             <X className="size-4" strokeWidth={1.5} />
           </button>
@@ -1317,14 +1296,14 @@ function ModalActions({ pending, onClose, submitLabel }: { pending: boolean; onC
       <button
         type="button"
         onClick={onClose}
-        className="rounded-md border border-rule px-3 py-1.5 text-[12px] font-semibold text-ink-3 hover:bg-paper-2"
+        className="rounded-md border border-rule px-3 py-1.5 text-label font-semibold text-ink-3 hover:bg-paper-2"
       >
         Cancel
       </button>
       <button
         type="submit"
         disabled={pending}
-        className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-3 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50"
+        className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-3 py-1.5 text-label font-semibold text-paper hover:bg-ink-hover disabled:opacity-50"
       >
         <Check className="size-3" strokeWidth={1.75} />
         {submitLabel}

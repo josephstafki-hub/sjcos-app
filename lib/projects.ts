@@ -1,3 +1,4 @@
+import { structuredRowSummary, nextRowTodoSql, type RowTodo } from "./list-row-summary";
 // Projects data builder. DB-backed (Phase 7.2): list + detail read the
 // projects table via lib/db. Detail merges curated rich content (milestones,
 // daily log, subs) per slug; the AI weekly-status note still routes through
@@ -15,6 +16,7 @@ import { listFileTrash, type TrashedFile } from "./file-trash";
 type GroupKey = "active" | "closeout" | "warranty" | "pre_construction";
 
 export interface ProjectListItem {
+  nextSummary: string;
   slug: string;
   name: string;
   /** Location + day/phase subtitle, e.g. "Edina · day 74 of ~92". */
@@ -109,6 +111,7 @@ export function projectStageLabel(status: ProjectStatus): string {
 // ─── DB row → display mapping ────────────────────────────────────────────────
 
 interface ProjectRow {
+  next_todo?: RowTodo | null;
   slug: string;
   name: string;
   status: ProjectStatus;
@@ -126,7 +129,8 @@ const PROJECT_SELECT = `
          progress AS billed,
          COALESCE(sub_label, '') AS sub,
          COALESCE(stage_label, '') AS stage,
-         total_cents, collected_cents
+         total_cents, collected_cents,
+         ${nextRowTodoSql("projects")} AS next_todo
   FROM projects`;
 
 /** "$46,287" — whole dollars from cents. */
@@ -136,10 +140,11 @@ function dollars(cents: number): string {
 
 function rowToItem(r: ProjectRow): ProjectListItem {
   return {
+    nextSummary: structuredRowSummary(r.next_todo),
     slug: r.slug,
     name: r.name,
     sub: r.sub,
-    stage: r.stage,
+    stage: r.stage || projectStageLabel(r.status),
     value: Number(r.total_cents) > 0 ? dollars(Number(r.total_cents)) : r.value,
     paid: dollars(Number(r.collected_cents)),
     hasTotal: Number(r.total_cents) > 0,
@@ -343,24 +348,22 @@ export async function getProject(slug: string): Promise<ProjectDetail | null> {
     slug: item.slug,
     name: item.name,
     status: rows[0].status,
-    contractValue: curated.contractValue ?? `${item.value} contract`,
+    contractValue: item.hasTotal ? `${item.value} job total` : item.value ? `${item.value} estimated` : "No job total yet",
     statusChips:
       curated.statusChips ??
       [
         { kind: meta.chip, label: item.stage, dot: true },
-        { kind: "ghost", label: item.sub },
-      ],
-    subtitle: curated.subtitle ?? `${item.sub} · PM: Joe`,
+        { kind: "ghost" as const, label: item.sub },
+      ].filter((c) => c.label.trim()),
+    subtitle: curated.subtitle ?? [item.sub, "PM Joe"].filter(Boolean).join(" · "),
     pulse: curated.pulse ?? `${item.name} is in the ${item.stage.toLowerCase()} stage.${item.hasTotal ? ` ${item.billed}% paid to date.` : ""}`,
     milestones: curated.milestones ?? [],
     thisWeek: curated.thisWeek ?? [],
     latestLog: curated.latestLog ?? null,
     weeklyStatus,
     weeklyStatusName,
-    money:
-      curated.money ??
-      {
-        contract: item.value,
+    money: {
+        contract: item.hasTotal ? item.value : "—",
         paid: item.paid,
         nextDraw: "—",
         openCOs: "$0",
@@ -550,7 +553,7 @@ export async function getProjectSubsData(
   const rosterQ = query<RosterSub>(
     `SELECT s.slug, s.name, s.trade
        FROM subs s
-      WHERE s.slug NOT IN (
+      WHERE s.archived_at IS NULL AND s.slug NOT IN (
         SELECT ps.sub_slug FROM project_subs ps
         JOIN projects p ON p.id = ps.project_id WHERE p.slug = $1
       )

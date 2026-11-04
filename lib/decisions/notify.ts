@@ -14,7 +14,7 @@ import { notifyOwner } from "@/lib/notify-owner";
 import type { EmitInput } from "@/lib/notify";
 import { cardText } from "./cards";
 import { normalizeSummary } from "./summary";
-import { decisionKeyboard } from "./telegram";
+import { decisionKeyboard } from "./keyboards";
 
 function appUrl(): string {
   return (process.env.NEXT_PUBLIC_APP_URL ?? "https://os.sjcarpentryllc.com").replace(/\/$/, "");

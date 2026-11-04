@@ -1,7 +1,7 @@
 // Subs directory data builder. DB-backed (Phase 7.2): list + detail read the
 // subs table via lib/db. The card shape is display-oriented (initials, fav,
 // star int, trade filter key, COI label) — derived from the row in the mapper.
-// Detail merges curated reliability content per slug; AI summary via lib/ai.ts.
+// Detail uses recorded contacts, paperwork and assignments; AI summary is on demand.
 
 import type { CoiStatus } from "./types";
 import { ai } from "./ai";
@@ -23,6 +23,7 @@ export const TRADES = [
 export type TradeFilter = (typeof TRADES)[number];
 
 export interface SubCard {
+  archived: boolean;
   slug: string;
   initials: string;
   name: string;
@@ -54,6 +55,7 @@ export interface SubsData {
 // ─── DB row → display mapping ────────────────────────────────────────────────
 
 interface SubRow {
+  archived: boolean;
   slug: string;
   name: string;
   trade: string;
@@ -70,15 +72,15 @@ interface SubRow {
   notes: string;
   /** Real assignments still on the board — see live_total. */
   live_open_jobs: number;
-  /** Real rows in project_subs for this sub. The static subs.jobs_count column
-   *  predates project_subs and holds pre-system history, so the card takes the
-   *  GREATER of the two: a sub with 2 live assignments reads 2 instead of 0,
-   *  while an old hand's logged history isn't erased by the switch. */
+  /** Assignment count is separate from completed history: an upcoming job is
+   *  not a completion. Completed count retains pre-system jobs_count history. */
   live_total: number;
+  live_completed: number;
+  created_label: string;
 }
 
 const SUB_SELECT = `
-  SELECT slug, name, trade, rate, fav, open_jobs, jobs_count, rating,
+  SELECT slug, archived_at IS NOT NULL AS archived, to_char(created_at, 'FMMon FMDD, YYYY') AS created_label, name, trade, rate, fav, open_jobs, jobs_count, rating,
          ${coiStatusSql("subs")} AS coi_status,
          to_char(coi_expires_at, 'FMMon FMDD') AS coi_label,
          ${w9OnFileSql("subs")} AS w9_on_file, email, phone,
@@ -87,7 +89,9 @@ const SUB_SELECT = `
             JOIN projects p ON p.id = ps.project_id
            WHERE ps.sub_slug = subs.slug AND p.status <> 'warranty') AS live_open_jobs,
          (SELECT count(*)::int FROM project_subs ps
-           WHERE ps.sub_slug = subs.slug) AS live_total
+           WHERE ps.sub_slug = subs.slug) AS live_total,
+         (SELECT count(*)::int FROM project_subs ps JOIN projects p ON p.id = ps.project_id
+           WHERE ps.sub_slug = subs.slug AND p.status = 'warranty') AS live_completed
   FROM subs`;
 
 /** Initials from a sub's display name: first two alphabetic words. */
@@ -100,6 +104,7 @@ function subInitials(name: string): string {
 
 function rowToCard(r: SubRow): SubCard {
   return {
+    archived: r.archived,
     slug: r.slug,
     initials: subInitials(r.name),
     name: r.name,
@@ -109,7 +114,7 @@ function rowToCard(r: SubRow): SubCard {
     // Live assignments win over the stale static columns — an assignment made on
     // the project Subs tab is what "working" actually means.
     openJobs: r.live_open_jobs,
-    jobsCount: Math.max(r.jobs_count, r.live_total),
+    jobsCount: Math.max(r.jobs_count, r.live_completed),
     rating: Math.round(Number(r.rating ?? 0)),
     fav: r.fav,
     coiStatus: r.coi_status,
@@ -128,7 +133,7 @@ export async function getSubsData(): Promise<SubsData> {
   const expiring = subs.filter((s) => s.coiStatus === "expiring").length;
 
   return {
-    summary: `${subs.length} subs · ${workingThisWeek} working this week · ${expiring} COI expiring`,
+    summary: `${subs.length} subs · ${workingThisWeek} with open jobs · ${expiring} COI expiring`,
     trades: [...TRADES],
     subs,
   };
@@ -140,6 +145,11 @@ export async function getSubsData(): Promise<SubsData> {
 export type JobDot = "accent" | "money" | "ghost";
 
 export interface SubDetail {
+  rawTrade: string;
+  rawRate: string;
+  assignmentCount: number;
+  removedJobs: { projectSlug: string; name: string }[];
+  archived: boolean;
   slug: string;
   initials: string;
   name: string;
@@ -157,47 +167,20 @@ export interface SubDetail {
   jobsCount: number;
   rating: number;
   reliability: { label: string; value: string }[];
-  /** Raw text the AI summary is composed from. NOT awaited in getSub — the
-   *  summary streams via getSubSummary() in a Suspense slot so the page never
-   *  blocks on CPU Qwen (~10–20s). */
+  /** Recorded facts for the owner's on-demand reliability summary. */
   aiSummaryInput: string;
-  recentJobs: { name: string; detail: string; dot: JobDot }[];
+  recentJobs: {
+    projectSlug: string;
+    name: string;
+    detail: string;
+    dot: JobDot;
+  }[];
   paperwork: { label: string; value: string; ok: boolean }[];
   rate: { amount: string; unit: string; note: string };
   taxNote: string;
   /** Owner's free-form private notes on the sub (editable, persisted). */
   notes: string;
 }
-
-/** Rich curated content keyed by slug. Subs not listed here get a sensible
- *  generic detail built from their card, so every card opens a real page.
- *  NOTE: recentJobs is deliberately NOT curated — a sub's job history comes from
- *  project_subs only (see getSubJobs). Curated jobs here would mask the real
- *  assignments this page exists to show. */
-const DETAILS: Record<string, Partial<SubDetail>> = {
-  marco: {
-    tradeLine: "tile + stone",
-    contact: "marco@rivastile.example · (612) 555-0102 · Mpls · onboarded Apr 2023",
-    reliability: [
-      { label: "On-time", value: "13 / 14 (93%)" },
-      { label: "Quality QC pass", value: "14 / 14" },
-      { label: "Bid accuracy", value: "±4% avg" },
-      { label: "Response time", value: "~ 2 hrs" },
-    ],
-    aiSummaryInput:
-      "Marco is one of two preferred tile subs. Strong with marble — first call " +
-      "for Calacatta or zellige work. Slightly slower on backsplash tear-out; " +
-      "build that into the schedule.",
-    paperwork: [
-      { label: "COI · GL + WC", value: "Aug 14", ok: true },
-      { label: "W-9", value: "on file", ok: true },
-      { label: "Sub agreement", value: "v3 · Apr", ok: true },
-      { label: "Add'l insured · SJC", value: "yes", ok: true },
-    ],
-    rate: { amount: "$60", unit: "/hr", note: "Lump-sum on jobs > 60 hrs" },
-    taxNote: "1099 reminder · file by Jan 31 · 2025 total $52,800",
-  },
-};
 
 /** Split a free-form rate string ("$60/hr", "lump sum", "sq ft") into an
  *  amount + unit for the rate card. */
@@ -231,6 +214,7 @@ const JOB_STAGE_TEXT: Record<string, string> = {
 };
 
 interface SubJobRow {
+  project_slug: string;
   name: string;
   status: string;
   role_label: string;
@@ -241,9 +225,12 @@ interface SubJobRow {
 /** A sub's real assignments, newest first. Empty when they're on no jobs — the
  *  page's honest "No jobs yet" state. No money is shown: project_subs carries no
  *  per-sub payment, and inventing one would be worse than omitting it. */
-async function getSubJobs(slug: string, trade: string): Promise<SubDetail["recentJobs"]> {
+async function getSubJobs(
+  slug: string,
+  trade: string,
+): Promise<SubDetail["recentJobs"]> {
   const { rows } = await query<SubJobRow>(
-    `SELECT p.name, p.status, ps.role_label,
+    `SELECT p.slug AS project_slug, p.name, p.status, ps.role_label,
             to_char(ps.assigned_at, 'FMMon FMDD') AS assigned_label,
             CASE
               WHEN ps.start_date IS NOT NULL AND ps.end_date IS NOT NULL
@@ -255,10 +242,11 @@ async function getSubJobs(slug: string, trade: string): Promise<SubDetail["recen
        FROM project_subs ps JOIN projects p ON p.id = ps.project_id
       WHERE ps.sub_slug = $1
       ORDER BY ps.assigned_at DESC
-      LIMIT 12`,
+      `,
     [slug],
   );
   return rows.map((r) => ({
+    projectSlug: r.project_slug,
     name: r.name,
     detail: [
       r.role_label || trade,
@@ -276,59 +264,71 @@ export async function getSub(slug: string): Promise<SubDetail | null> {
   if (!rows[0]) return null;
   const card = rowToCard(rows[0]);
 
-  const curated = DETAILS[slug] ?? {};
   const recentJobs = await getSubJobs(slug, card.trade);
 
   const fallbackSummary =
     `${card.name} has completed ${card.jobsCount} jobs with SJC at a ` +
-    `${card.rating}-star rating. A fuller reliability profile fills in as ` +
+    `${card.rating ? `${card.rating}-star rating` : "rating not yet recorded"}. A fuller reliability profile fills in as ` +
     `jobs are logged.`;
 
-  // The reliability blurb is the AI touch-point. It is NOT awaited here — that
-  // would block the page on ~10–20s of CPU inference. The raw input is returned;
-  // getSubSummary() resolves it inside a Suspense slot on the page.
-  const aiSummaryInput = curated.aiSummaryInput ?? fallbackSummary;
+  // Inference runs only after the owner requests a summary; page loads are reads.
+  const aiSummaryInput = fallbackSummary;
 
   const { amount, unit } = splitRate(card.rate);
 
   return {
+    archived: card.archived,
+    rawTrade: rows[0].trade,
+    rawRate: rows[0].rate ?? "",
+    assignmentCount: rows[0].live_total,
+    removedJobs: (
+      await query<{ projectSlug: string; name: string }>(
+        `SELECT p.slug AS "projectSlug",p.name FROM sub_assignment_trash t JOIN projects p ON p.id=t.project_id WHERE t.sub_slug=$1 AND NOT EXISTS(SELECT 1 FROM project_subs ps WHERE ps.project_id=t.project_id AND ps.sub_slug=t.sub_slug) ORDER BY t.removed_at DESC`,
+        [slug],
+      )
+    ).rows,
     slug: card.slug,
     initials: card.initials,
     name: card.name,
-    tradeLine: curated.tradeLine ?? card.trade.toLowerCase(),
+    tradeLine: card.trade.toLowerCase(),
     working: card.openJobs > 0,
     coiStatus: card.coiStatus,
     coiLabel: card.coiLabel,
-    w9: curated.w9 ?? (card.w9OnFile ? "on file" : "missing"),
-    contact: curated.contact ?? `${card.trade} · onboarded 2024`,
+    w9: card.w9OnFile ? "on file" : "missing",
+    contact: [rows[0].email, rows[0].phone, `Added ${rows[0].created_label}`]
+      .filter(Boolean)
+      .join(" · "),
     phone: rows[0].phone,
     email: rows[0].email,
     jobsCount: card.jobsCount,
     rating: card.rating,
-    reliability:
-      curated.reliability ??
-      [
-        { label: "Jobs completed", value: String(card.jobsCount) },
-        { label: "Rating", value: `${card.rating} / 5` },
-        { label: "Open jobs", value: String(card.openJobs) },
-        { label: "Response time", value: "—" },
-      ],
+    reliability: [
+      { label: "Jobs completed", value: String(card.jobsCount) },
+      {
+        label: "Rating",
+        value: card.rating ? `${card.rating} / 5` : "Not rated",
+      },
+      { label: "Open jobs", value: String(card.openJobs) },
+      { label: "Response time", value: "—" },
+    ],
     aiSummaryInput,
     recentJobs,
-    paperwork:
-      curated.paperwork ??
-      [
-        {
-          label: "COI · GL + WC",
-          value: card.coiLabel || "missing",
-          ok: card.coiStatus === "current" && !!card.coiLabel,
-        },
-        { label: "W-9", value: card.w9OnFile ? "on file" : "missing", ok: card.w9OnFile },
-        { label: "Sub agreement", value: "—", ok: false },
-      ],
-    rate: curated.rate ?? { amount, unit, note: "" },
+    paperwork: [
+      {
+        label: "COI · GL + WC",
+        value: card.coiLabel || "missing",
+        ok: card.coiStatus === "current" && !!card.coiLabel,
+      },
+      {
+        label: "W-9",
+        value: card.w9OnFile ? "on file" : "missing",
+        ok: card.w9OnFile,
+      },
+      { label: "Sub agreement", value: "—", ok: false },
+    ],
+    rate: { amount, unit, note: "" },
     // No fabricated 1099 reminder — the note only shows when curated/real.
-    taxNote: curated.taxNote ?? "",
+    taxNote: "",
     notes: rows[0].notes,
   };
 }
@@ -336,6 +336,9 @@ export async function getSub(slug: string): Promise<SubDetail | null> {
 /** The AI reliability summary, resolved separately from getSub() so it can
  *  stream inside a Suspense boundary instead of blocking the page on Qwen. */
 export async function getSubSummary(input: string): Promise<string> {
-  const { summary } = await ai.summarize({ text: input, focus: "sub-reliability" });
+  const { summary } = await ai.summarize({
+    text: input,
+    focus: "sub-reliability",
+  });
   return summary;
 }

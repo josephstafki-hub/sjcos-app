@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 // Client portal data builder. Standalone surface a client sees (no SJC OS
 // sidebar). The journal + status + money are built from the client's REAL
 // project (daily logs, stage, invoices) — no demo content.
@@ -23,15 +24,22 @@ export function parseLinkSlug(linkSlug: string | null): PortalScope | null {
 }
 
 /** Gate + scope for every portal page: the signed-in client's project or lead,
- *  or null for an owner previewing with no linked scope (pages render their
- *  empty states). requireRole redirects anyone else. getCurrentUser is
+ *  or the owner’s selected preview project (null until selected). requireRole redirects anyone else. getCurrentUser is
  *  request-cached, so the layout and page sharing this costs one session read. */
 export async function portalScope(): Promise<PortalScope | null> {
   const user = await requireRole("owner", "client");
-  return user.role === "client" ? parseLinkSlug(user.linkSlug) : null;
+  if (user.role === "client") return parseLinkSlug(user.linkSlug);
+  const slug = (await cookies()).get("portal_preview_project")?.value;
+  // No pick yet (or a deleted one): preview the job that moved most recently, so
+  // the owner lands on a real portal instead of an empty one. The picker switches it.
+  const project = (slug ? await queryOne<{ slug: string }>("SELECT slug FROM projects WHERE slug = $1", [slug]) : null)
+    ?? await queryOne<{ slug: string }>(
+      `SELECT slug FROM projects WHERE status NOT IN ('warranty') ORDER BY updated_at DESC NULLS LAST LIMIT 1`,
+    );
+  return project ? { kind: "project", slug: project.slug } : null;
 }
 
-/** The client's PROJECT slug, or null (owner preview, or a lead-stage session).
+/** The portal’s PROJECT slug, or null (no preview selected, or a lead-stage session).
  *  Project-only portal pages (plans, mood, selections, money, schedule) key off
  *  this and show their empty states during the lead stage. */
 export async function portalSlug(): Promise<string | null> {
@@ -247,4 +255,12 @@ export function buildClientPortalData(
     statusChips: project?.statusChips ?? [],
     entries,
   };
+}
+
+/** Free-text status is historical context, never a current money/status fact.
+ * updated_at is the record timestamp; there is no separate note-authored date. */
+export async function getPortalProjectUpdate(slug: string) {
+  return queryOne<{ body: string; date: string }>(
+    `SELECT sub_label AS body, to_char(updated_at AT TIME ZONE 'America/Chicago', 'Mon FMDD, YYYY') AS date
+       FROM projects WHERE slug = $1 AND NULLIF(trim(sub_label), '') IS NOT NULL`, [slug]);
 }

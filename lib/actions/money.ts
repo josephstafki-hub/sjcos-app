@@ -11,6 +11,7 @@
 // never marks sent), and "paid" is a ledger row (recordInvoicePayment), never
 // a status flip.
 
+import { cleanInvoiceLines } from "@/lib/invoice-lines";
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
 import { requireAccess } from "@/lib/dal";
@@ -23,9 +24,9 @@ import { clientSendVerdict } from "@/lib/authority/client-sends";
 import {
   allocateInvoiceNumber,
   issueMilestoneInvoice,
-  recordInvoicePayment,
+  recordManualInvoicePayment,
+  reverseManualInvoicePayment,
   recordDeliveryOutcome,
-  invoiceBalance,
   voidInvoice as voidInvoiceCore,
   creditInvoice as creditInvoiceCore,
   setInvoiceTerms as setInvoiceTermsCore,
@@ -47,17 +48,6 @@ async function projectBySlug(slug: string) {
     `SELECT id, name FROM projects WHERE slug = $1`,
     [slug],
   );
-}
-
-/** Clean a list of line items: trim labels, round amounts to whole non-negative
- *  CENTS (the client already converted typed dollars → cents), drop blank rows. */
-function sanitizeLines(raw: { label: string; amount: number | string }[]): InvoiceLine[] {
-  return raw
-    .map((l) => ({
-      label: String(l.label ?? "").trim(),
-      amount: Math.max(0, Math.round(Number(String(l.amount).replace(/[$,\s]/g, "")) || 0)),
-    }))
-    .filter((l) => l.label !== "" || l.amount > 0);
 }
 
 function failure(err: unknown, fallback: string): Result {
@@ -183,9 +173,12 @@ export async function updateInvoice(
   }
 
   const milestone = input.milestone.trim() || inv.milestone || "Progress draw";
-  const lines = sanitizeLines(input.lines);
+  let lines: InvoiceLine[];
+  try { lines = cleanInvoiceLines(input.lines); }
+  catch (e) { return { ok: false, error: e instanceof Error ? e.message : "Enter valid invoice amounts." }; }
   if (lines.length === 0) return { ok: false, error: "Add at least one line item." };
   const amount = lines.reduce((s, l) => s + l.amount, 0);
+  if (!Number.isSafeInteger(amount) || amount < 0) return { ok: false, error: "Invoice total cannot be negative or exceed the supported amount." };
 
   await query(
     `UPDATE invoices SET milestone = $2, line_items = $3::jsonb, amount = $4 WHERE id = $1 AND status = 'draft'`,
@@ -273,27 +266,10 @@ export async function markInvoicePaid(id: number, input?: { method?: string; not
   const inv = await invoiceById(id);
   if (!inv) return { ok: false, error: "Invoice not found." };
   try {
-    const applied = await withTransaction(async (run) => {
-      let b = await invoiceBalance(run, id);
-      if (!b) throw new BillingError("not_found", "Invoice not found.");
-      if (b.status === "draft") {
-        await run(`UPDATE invoices SET status = 'issued', issued_at = COALESCE(issued_at, now()) WHERE id = $1 AND status = 'draft'`, [id]);
-        await logInvoiceEvent(run, id, "issued", userPrincipal(user), { reason: "marked paid by hand while still a draft (billed outside SJC OS)" });
-        b = await invoiceBalance(run, id);
-        if (!b) throw new BillingError("not_found", "Invoice not found.");
-      }
-      if (b.balanceCents <= 0) throw new BillingError("nothing_due", `Invoice ${inv.number} has no open balance.`);
-      if (b.hasPending) throw new BillingError("pending", `Invoice ${inv.number} has an online payment in flight; wait for it to settle before recording a manual one.`);
-      await recordInvoicePayment(run, {
-        invoiceId: id,
-        kind: "payment",
-        amountCents: b.balanceCents,
-        method: input?.method?.trim() || "manual",
-        note: input?.note ?? "Marked paid by hand",
-        principal: userPrincipal(user),
-      });
-      return b.balanceCents;
-    });
+    const recorded = await withTransaction(run => recordManualInvoicePayment(run, {
+      invoiceId: id, method: input?.method, note: input?.note ?? "Marked paid by hand", principal: userPrincipal(user),
+    }));
+    const applied = recorded.payment.amount_cents;
     await emit({
       kind: "money",
       tag: "Money",
@@ -316,25 +292,27 @@ export async function recordManualPayment(id: number, input: { amountCents: numb
   const user = await requireAccess("invoices");
   const inv = await invoiceById(id);
   if (!inv) return { ok: false, error: "Invoice not found." };
-  const amount = Math.round(Number(input.amountCents));
-  if (!Number.isFinite(amount) || amount <= 0) return { ok: false, error: "Enter a positive amount." };
   try {
-    await withTransaction(async (run) => {
-      const b = await invoiceBalance(run, id);
-      if (!b || b.status === "draft") throw new BillingError("draft", "Send the invoice before recording a payment.");
-      if (amount > b.balanceCents) throw new BillingError("over", `That is more than the ${usd(b.balanceCents)} open on ${inv.number}.`);
-      await recordInvoicePayment(run, {
-        invoiceId: id,
-        kind: "payment",
-        amountCents: amount,
-        method: input.method?.trim() || "manual",
-        note: input.note ?? "",
-        receivedAt: input.receivedAt || null,
-        principal: userPrincipal(user),
-      });
-    });
+    await withTransaction(run => recordManualInvoicePayment(run, {
+      invoiceId: id, amountCents: input.amountCents, method: input.method, note: input.note,
+      receivedAt: input.receivedAt, principal: userPrincipal(user),
+    }));
   } catch (err) {
     return failure(err, "Could not record the payment.");
+  }
+  revalidatePath(`/projects/${inv.slug}`);
+  return { ok: true };
+}
+
+/** Undo a mistaken manual payment with a compensating, audited ledger row. */
+export async function reverseManualPayment(id: number, paymentId: number, reason: string): Promise<Result> {
+  const user = await requireAccess("invoices");
+  const inv = await invoiceById(id);
+  if (!inv) return { ok: false, error: "Invoice not found." };
+  try {
+    await withTransaction(run => reverseManualInvoicePayment(run, { invoiceId: id, paymentId, reason, principal: userPrincipal(user) }));
+  } catch (err) {
+    return failure(err, "Could not undo the payment.");
   }
   revalidatePath(`/projects/${inv.slug}`);
   return { ok: true };

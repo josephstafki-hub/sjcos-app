@@ -82,6 +82,7 @@ export interface StartTimerInput {
 
 /** Start a manual/job timer. Refuses if one is already running. */
 export async function startTimer(run: Run, input: StartTimerInput): Promise<{ interval: TimeInterval; applied: boolean }> {
+  if (!input.projectId && input.category === "site") throw new Error("Choose a job for Site time, or use an overhead category such as Admin.");
   const ev = await recordTimeEvent(run, input.userId, input.clientEventId, "start_timer", { projectId: input.projectId, category: input.category });
   if (!ev.applied) return { interval: (await getInterval(run, ev.intervalId!, input.userId))!, applied: false };
   const running = await runningTimer(run, input.userId);
@@ -143,6 +144,7 @@ export async function correctInterval(run: Run, input: CorrectionInput): Promise
     category: input.category ?? before.category,
     state: input.state ?? (before.state === "confirmed" ? "confirmed" : "confirmed"),
   };
+  if (after.state === "confirmed" && !after.project_id && after.category === "site") throw new Error("Choose a job for Site time, or use an overhead category such as Admin.");
   if (after.end_at && Date.parse(after.end_at) <= Date.parse(after.start_at)) throw new Error("End must be after the start.");
   if (after.state === "confirmed" && !after.end_at) {
     const running = await runningTimer(run, input.userId);
@@ -159,6 +161,7 @@ export async function correctInterval(run: Run, input: CorrectionInput): Promise
 }
 
 export interface ReviewFlag {
+  relatedIntervalId?: string;
   intervalId: string;
   flag: "overlap" | "long" | "missing_exit" | "inferred" | "review" | "no_project";
   detail: string;
@@ -176,13 +179,15 @@ export interface ReviewList {
 export async function reviewRange(run: Run, userId: string, from: string, to: string): Promise<ReviewList> {
   const intervals = await run<TimeInterval>(
     `SELECT ${INTERVAL_COLS} FROM time_intervals
-      WHERE user_id = $1 AND state <> 'discarded' AND start_at < $3::timestamptz AND COALESCE(end_at, now()) > $2::timestamptz
+      WHERE user_id = $1 AND start_at < $3::timestamptz AND COALESCE(end_at, now()) > $2::timestamptz
       ORDER BY start_at`,
     [userId, from, to],
   );
   const flags: ReviewFlag[] = [];
   const now = Date.now();
   for (const [i, a] of intervals.entries()) {
+    // Retain discarded records for recovery, but they no longer need review.
+    if (a.state === "discarded") continue;
     const aS = Date.parse(a.start_at);
     const aE = a.end_at ? Date.parse(a.end_at) : now;
     if (!a.end_at && a.state === "confirmed" && now - aS > 14 * 3600_000) flags.push({ intervalId: a.id, flag: "missing_exit", detail: "running for more than 14 hours" });
@@ -193,8 +198,8 @@ export async function reviewRange(run: Run, userId: string, from: string, to: st
     for (const b of intervals.slice(i + 1)) {
       const bS = Date.parse(b.start_at);
       const bE = b.end_at ? Date.parse(b.end_at) : now;
-      if (bS < aE && aS < bE && a.state !== "discarded" && b.state !== "discarded") {
-        flags.push({ intervalId: a.id, flag: "overlap", detail: `overlaps ${b.id} (${a.source} vs ${b.source}); counted once` });
+      if (bS < aE && aS < bE && b.state !== "discarded") {
+        flags.push({ intervalId: a.id, flag: "overlap", relatedIntervalId: b.id, detail: `overlaps ${b.id} (${a.source} vs ${b.source}); counted once` });
       }
     }
   }

@@ -1,79 +1,80 @@
 "use server";
 
-// Marketing write paths (Phase-6 P6-2). Owner-gated. Qwen drafts social + blog
-// posts grounded on a real project; the owner edits/copies/marks-posted. Posting
-// itself is manual (no social API). Reads stay in lib/marketing.ts.
+// Marketing write paths (Phase-6 P6-2). Qwen drafts social + blog posts from
+// the job's own record of the work (lib/closeout/marketing.ts loadJobFacts);
+// Joe edits, copies, downloads the photos the client OK'd and posts by hand.
+// Nothing here posts anywhere (the posting agent was removed 2026-11-03).
+// Reads stay in lib/marketing.ts.
 
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
 import { requireAccess } from "@/lib/dal";
 import { ai } from "@/lib/ai";
 import { emit } from "@/lib/notify";
+import { buildDraftPrompt, draftHeadline, draftProblems, fallbackDraft, normalizeMarketingCopy, type JobFacts } from "@/lib/marketing-copy";
 import { type DraftKind } from "@/lib/marketing-types";
+import { runDirect, userPrincipal } from "@/lib/commands/db";
+import { getDraft, grantPublicationRights, loadJobFacts, withdrawPublicationRights } from "@/lib/closeout/marketing";
+import { storeUpload } from "@/lib/upload-store";
 
 type Result = { ok: boolean; error?: string };
 
 const KINDS: DraftKind[] = ["social", "blog"];
 
-/** Compose the AI prompt + a deterministic fallback for a project + kind. */
-function draftPrompt(kind: DraftKind, name: string, scope: string, city: string) {
-  const where = city ? ` in ${city}` : "";
-  if (kind === "blog") {
-    return {
-      prompt:
-        `Write a short blog post (3–4 short paragraphs) for a residential carpentry/remodeling company, ` +
-        `SJ Carpentry LLC, about a completed project: "${name}"${scope ? ` (${scope})` : ""}${where}. ` +
-        `Warm, professional, homeowner-friendly; highlight craftsmanship and the client experience. Do NOT ` +
-        `invent specific prices, dates, or names beyond what's given. End with a soft call to action.`,
-      fallback:
-        `${name}\n\nWe recently wrapped up ${scope || "a remodeling project"}${where}, and we couldn't be ` +
-        `happier with how it turned out. From the first walkthrough to the final punch list, our team focused ` +
-        `on clean lines, solid craftsmanship, and clear communication.\n\nEvery project is a chance to build ` +
-        `something that lasts. If you're thinking about a remodel of your own, we'd love to talk it through.\n\n` +
-        `— SJ Carpentry LLC`,
-    };
+/** The mock provider (and Ollama falling back to it) answers with an echo of
+ *  the prompt: never a post. */
+const isEcho = (answer: string) => answer.startsWith('You asked: "');
+
+/** Ask the model for a post about this job and check it against the job's
+ *  record: a draft that adds rooms the job didn't have, names the client or
+ *  gives a price is sent back once with what was wrong, then replaced by a
+ *  plain template from the same facts. */
+async function writeDraft(kind: DraftKind, facts: JobFacts): Promise<{ title: string; body: string }> {
+  const prompt = buildDraftPrompt(kind, facts);
+  let problems: string[] = [];
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const ask = attempt === 0 ? prompt : `${prompt}\n\nYour last draft broke the rules:\n${problems.map((p) => `- ${p}`).join("\n")}\nWrite it again, using only the JOB FACTS.`;
+    let answer = "";
+    try {
+      answer = ((await ai.ask({ prompt: ask })).answer ?? "").trim();
+    } catch {
+      break;
+    }
+    if (!answer || isEcho(answer)) break;
+    const copy = normalizeMarketingCopy(answer);
+    if (!copy.body) continue;
+    problems = draftProblems(`${copy.title ?? ""}\n${copy.body}`, facts);
+    if (!problems.length) return { title: copy.title || draftHeadline(facts), body: copy.body };
   }
-  return {
-    prompt:
-      `Write a short, upbeat social media post (2–3 sentences) for SJ Carpentry LLC celebrating a completed ` +
-      `project: "${name}"${scope ? ` (${scope})` : ""}${where}. Friendly and proud, homeowner-friendly. End ` +
-      `with 3–5 relevant hashtags. Do NOT invent specific prices, dates, or client names.`,
-    fallback:
-      `Another one in the books! We just finished ${scope || "a great project"}${where} and we're proud of ` +
-      `how it came together. Thanks to our client for trusting us with their home. 🛠️\n\n` +
-      `#carpentry #remodel #craftsmanship #homeimprovement`,
-  };
+  return fallbackDraft(kind, facts);
 }
 
-/** Generate (and store) a draft for a project. Returns ok; the draft appears on
- *  /marketing. AI failure falls back to a deterministic template. */
-export async function generateDraft(slug: string, kindRaw: string): Promise<Result> {
-  await requireAccess("marketing");
-  const kind: DraftKind = KINDS.includes(kindRaw as DraftKind) ? (kindRaw as DraftKind) : "social";
-  const proj = await queryOne<{ id: string; name: string; scope: string | null; city: string | null }>(
-    `SELECT id, name, sub_label AS scope, address AS city FROM projects WHERE slug = $1`,
-    [slug],
-  );
-  if (!proj) return { ok: false, error: "Project not found." };
+type ProjectRow = { id: string; name: string };
 
-  const { prompt, fallback } = draftPrompt(kind, proj.name, proj.scope ?? "", proj.city ?? "");
-  let body = "";
-  try {
-    const res = await ai.ask({ prompt });
-    body = (res.answer ?? "").trim();
-  } catch {
-    body = "";
-  }
-  if (!body) body = fallback;
+const projectBySlug = (slug: string) => queryOne<ProjectRow>(`SELECT id, name FROM projects WHERE slug = $1`, [slug]);
 
-  await query(
+/** Draft and store one post about a project. */
+async function createDraft(proj: ProjectRow, kind: DraftKind): Promise<number | undefined> {
+  const facts = (await loadJobFacts(runDirect, proj.id)) ?? { work: "", city: "", scope: [], lines: [], changes: [], privateWords: [proj.name] };
+  const { title, body } = await writeDraft(kind, facts);
+  const created = await query<{ id: number }>(
     `INSERT INTO marketing_drafts (project_id, kind, title, body, status)
-     VALUES ($1, $2, $3, $4, 'draft')`,
-    [proj.id, kind, proj.name, body],
+     VALUES ($1, $2, $3, $4, 'draft') RETURNING id`,
+    [proj.id, kind, title, body],
   );
   revalidatePath("/marketing");
   revalidatePath("/site"); // blog drafts also surface in the Website composer
-  return { ok: true };
+  return created.rows[0]?.id;
+}
+
+/** Generate (and store) a draft for a project. Returns ok; the draft appears on
+ *  /marketing. AI failure falls back to a plain template from the job's record. */
+export async function generateDraft(slug: string, kindRaw: string): Promise<Result & {id?: number}> {
+  await requireAccess("marketing");
+  const kind: DraftKind = KINDS.includes(kindRaw as DraftKind) ? (kindRaw as DraftKind) : "social";
+  const proj = await projectBySlug(slug);
+  if (!proj) return { ok: false, error: "Project not found." };
+  return { ok: true, id: await createDraft(proj, kind) };
 }
 
 /** Auto-draft a social post when a project reaches completion (P6-2). Gated by
@@ -86,33 +87,14 @@ export async function autoDraftSocialOnCompletion(slug: string): Promise<void> {
     `SELECT value FROM app_settings WHERE key = 'marketing.auto_draft_on_completion'`,
   );
   if (t && t.value !== "true") return; // toggle off
-  const proj = await queryOne<{ id: string; name: string; scope: string | null; city: string | null }>(
-    `SELECT id, name, sub_label AS scope, address AS city FROM projects WHERE slug = $1`,
-    [slug],
-  );
+  const proj = await projectBySlug(slug);
   if (!proj) return;
   const dupe = await queryOne(
     `SELECT 1 FROM marketing_drafts WHERE project_id = $1 AND kind = 'social' LIMIT 1`,
     [proj.id],
   );
   if (dupe) return;
-
-  const { prompt, fallback } = draftPrompt("social", proj.name, proj.scope ?? "", proj.city ?? "");
-  let body = "";
-  try {
-    const res = await ai.ask({ prompt });
-    body = (res.answer ?? "").trim();
-  } catch {
-    body = "";
-  }
-  if (!body) body = fallback;
-  await query(
-    `INSERT INTO marketing_drafts (project_id, kind, title, body, status)
-     VALUES ($1, 'social', $2, $3, 'draft')`,
-    [proj.id, proj.name, body],
-  );
-  revalidatePath("/marketing");
-  revalidatePath("/site"); // blog drafts also surface in the Website composer
+  await createDraft(proj, "social");
 }
 
 /** Auto-draft the website BLOG post when a project completes (P2-4). Same
@@ -128,31 +110,14 @@ export async function autoDraftBlogOnCompletion(slug: string): Promise<void> {
     `SELECT value FROM app_settings WHERE key = 'marketing.auto_draft_on_completion'`,
   );
   if (t && t.value !== "true") return; // one toggle governs both social + blog
-  const proj = await queryOne<{ id: string; name: string; scope: string | null; city: string | null }>(
-    `SELECT id, name, sub_label AS scope, address AS city FROM projects WHERE slug = $1`,
-    [slug],
-  );
+  const proj = await projectBySlug(slug);
   if (!proj) return;
   const dupe = await queryOne(
     `SELECT 1 FROM marketing_drafts WHERE project_id = $1 AND kind = 'blog' LIMIT 1`,
     [proj.id],
   );
   if (dupe) return;
-
-  const { prompt, fallback } = draftPrompt("blog", proj.name, proj.scope ?? "", proj.city ?? "");
-  let body = "";
-  try {
-    const res = await ai.ask({ prompt });
-    body = (res.answer ?? "").trim();
-  } catch {
-    body = "";
-  }
-  if (!body) body = fallback;
-  await query(
-    `INSERT INTO marketing_drafts (project_id, kind, title, body, status)
-     VALUES ($1, 'blog', $2, $3, 'draft')`,
-    [proj.id, proj.name, body],
-  );
+  await createDraft(proj, "blog");
 
   // Ask for photos/video if none are on file — the post can't go live without
   // media. Surface it to Joe (never reaches the client).
@@ -174,27 +139,83 @@ export async function autoDraftBlogOnCompletion(slug: string): Promise<void> {
     });
     revalidatePath("/notifications");
   }
-
-  revalidatePath("/marketing");
-  revalidatePath("/site"); // blog drafts also surface in the Website composer
 }
 
-/** Edit a draft's body. */
-export async function updateDraft(id: number, body: string): Promise<Result> {
+/** Save readable copy and its headline together. */
+export async function updateDraft(id: number, body: string, title?: string): Promise<Result> {
   await requireAccess("marketing");
-  await query(`UPDATE marketing_drafts SET body = $2 WHERE id = $1`, [id, body.trim()]);
+  const clean = normalizeMarketingCopy(body);
+  if (!clean.body) return {ok:false,error:"Enter the post as readable text before saving."};
+  const headline = title?.trim() ?? clean.title;
+  if (title !== undefined && !headline) return {ok:false,error:"Enter a headline before saving."};
+  await query(`UPDATE marketing_drafts SET body = $2, title = COALESCE($3, title) WHERE id = $1`, [id, clean.body, headline ?? null]);
   revalidatePath("/marketing");
   revalidatePath("/site"); // blog drafts also surface in the Website composer
   return { ok: true };
 }
 
-/** Mark a draft as posted (owner posts it manually elsewhere). */
-export async function markPosted(id: number): Promise<Result> {
+/** A link to the post, or null; false = not a link. */
+function postLink(raw: string | null | undefined): string | null | false {
+  const url = (raw ?? "").trim();
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    return u.protocol === "https:" ? u.toString() : false;
+  } catch {
+    return false;
+  }
+}
+
+/** Joe posted it by hand: mark it posted, optionally with the link to it. */
+export async function markPosted(id: number, url?: string | null): Promise<Result> {
   await requireAccess("marketing");
-  await query(`UPDATE marketing_drafts SET status = 'posted' WHERE id = $1`, [id]);
+  const link = postLink(url);
+  if (link === false) return { ok: false, error: "That isn't a link (it should start with https://)." };
+  const r = await query(`UPDATE marketing_drafts SET status = 'posted', posted_url = COALESCE($2, posted_url), posted_at = COALESCE(posted_at, now()), post_error = NULL WHERE id = $1`, [id, link]);
+  if (!r.rowCount) return { ok: false, error: "No such draft." };
   revalidatePath("/marketing");
   revalidatePath("/site"); // blog drafts also surface in the Website composer
   return { ok: true };
+}
+
+/** Undo a "posted" marker. No external post is changed. */
+export async function markDraft(id: number): Promise<Result> {
+  await requireAccess("marketing");
+  const r = await query(`UPDATE marketing_drafts SET status = 'draft' WHERE id = $1 AND status = 'posted'`, [id]);
+  if (!r.rowCount) return { ok: false, error: "This post isn't marked posted." };
+  revalidatePath("/marketing"); revalidatePath("/site");
+  return {ok:true};
+}
+
+const OWN_PHOTO_TYPES = ["image/jpeg", "image/png", "image/webp"];
+
+/** Add photos to a post's job: they're saved on the job's files. Joe's own
+ *  count as OK to share (he took them or chose them himself), so they're
+ *  ready to download with the post; staff photos wait for Joe to tick OK to
+ *  share. */
+export async function addPostPhotos(formData: FormData): Promise<Result & { message?: string }> {
+  const user = await requireAccess("marketing");
+  const id = Number(formData.get("draftId"));
+  const files = formData.getAll("photos").filter((f): f is File => f instanceof File && f.size > 0).slice(0, 10);
+  if (!files.length) return { ok: false, error: "Choose a photo to add." };
+  const bad = files.find((f) => !OWN_PHOTO_TYPES.includes(f.type));
+  if (bad) return { ok: false, error: `${bad.name}: use a JPG, PNG or WebP photo (on an iPhone, choose it from Photos and it's converted for you).` };
+  const d = await getDraft(runDirect, id);
+  if (!d) return { ok: false, error: "No such draft." };
+  const [proj] = d.project_id ? await runDirect<{ id: string; slug: string }>(`SELECT id, slug FROM projects WHERE id = $1`, [d.project_id]) : [];
+  if (!proj) return { ok: false, error: "This post isn't tied to a job, so there's nowhere to keep the photos." };
+
+  const added: string[] = [];
+  for (const f of files) {
+    const stored = await storeUpload(f, { idPrefix: "mkt", projectKey: proj.slug, imagesOnly: true, tag: "MARKETING", subtitle: "Marketing photo" });
+    if (!stored.ok) return { ok: false, error: `${f.name}: ${stored.error}${added.length ? ` (${added.length} added before it)` : ""}` };
+    added.push(stored.id);
+  }
+  revalidatePath("/marketing");
+  const n = `${added.length} photo${added.length === 1 ? "" : "s"}`;
+  if (user.role !== "owner") return { ok: true, message: `Added ${n} to the job. Joe ticks OK to share before they can be downloaded for a post.` };
+  await grantPublicationRights(runDirect, { fileIds: added, projectId: proj.id, grantedBy: user.name || "Joe", grantedByUserId: user.id, note: "Joe's own photo (added on /marketing)" });
+  return { ok: true, message: `Added ${n}, OK to share and ready to download.` };
 }
 
 /** Delete a draft. */
@@ -203,5 +224,24 @@ export async function deleteDraft(id: number): Promise<Result> {
   await query(`DELETE FROM marketing_drafts WHERE id = $1`, [id]);
   revalidatePath("/marketing");
   revalidatePath("/site"); // blog drafts also surface in the Website composer
+  return { ok: true };
+}
+
+/** Joe marks a job photo as OK to share publicly (the client agreed) or takes
+ *  that back. Only shareable photos are offered for download on /marketing.
+ *  Owner only: it records the client's permission. */
+export async function setPhotoShareable(projectSlug: string, fileId: string, shareable: boolean): Promise<Result> {
+  const user = await requireAccess("marketing");
+  if (user.role !== "owner") return { ok: false, error: "Only Joe records a client's OK to share photos." };
+  const proj = await queryOne<{ id: string }>(`SELECT id FROM projects WHERE slug = $1`, [projectSlug]);
+  if (!proj) return { ok: false, error: "Project not found." };
+  const file = await queryOne<{ id: string }>(`SELECT id FROM files WHERE id = $1 AND project_key = $2 AND type = 'img'`, [fileId, projectSlug]);
+  if (!file) return { ok: false, error: "That photo isn't on this job." };
+  if (shareable) {
+    await grantPublicationRights(runDirect, { fileIds: [fileId], projectId: proj.id, grantedBy: user.name || "Joe", grantedByUserId: user.id, note: "client OK'd sharing (marked on /marketing)" });
+  } else {
+    await withdrawPublicationRights(runDirect, userPrincipal(user), fileId, "taken back on /marketing");
+  }
+  revalidatePath("/marketing");
   return { ok: true };
 }

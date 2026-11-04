@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Tabs, Card } from "@/components/ui";
 
 const BASE = ["Overview", "Jobs", "Paperwork", "Pricing", "Notes"];
@@ -18,6 +18,7 @@ export function SubTabs({
   jobsCount: number;
 }) {
   const [active, setActive] = useState(0);
+  useEffect(() => {setActive(Math.max(0, BASE.indexOf(new URLSearchParams(window.location.search).get("tab") ?? "Overview")));}, []);
   const labels = BASE.map((b, i) => (i === 1 ? `Jobs (${jobsCount})` : b));
   const content = panels[BASE[active]];
 
@@ -27,8 +28,12 @@ export function SubTabs({
       <div className="mt-4">
         {content ?? (
           <Card kind="dashed" className="p-8 text-center">
-            <div className="font-serif text-[16px] font-semibold text-ink-2">{labels[active]}</div>
-            <div className="mt-1 text-[12px] text-ink-3">This tab arrives in a later phase.</div>
+            <div className="font-serif text-heading font-semibold text-ink-2">
+              {labels[active]}
+            </div>
+            <div className="mt-1 text-label text-ink-3">
+              This tab arrives in a later phase.
+            </div>
           </Card>
         )}
       </div>

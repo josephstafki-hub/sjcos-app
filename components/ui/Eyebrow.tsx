@@ -2,23 +2,22 @@ import type { ReactNode } from "react";
 
 type EyebrowProps = {
   children: ReactNode;
-  /** Muted variant — the ink-3 section label used in rails (was `<L>` in the prototype). */
+  /** Sentence-case sans section label for rails, cards and fields. */
   muted?: boolean;
   className?: string;
 };
 
 /**
- * Small-caps mono section label. Default is the accent-green eyebrow;
- * `muted` renders the quieter ink-3 form list/rail label.
+ * Mono is reserved for the single page eyebrow; muted labels use sans.
  */
 export function Eyebrow({ children, muted, className = "" }: EyebrowProps) {
   return (
     <div
       className={[
-        "font-mono uppercase font-semibold",
+        "font-semibold",
         muted
-          ? "text-[9.5px] tracking-[0.16em] text-ink-3"
-          : "text-[10px] tracking-[0.14em] text-accent",
+          ? "font-sans text-label text-ink-2"
+          : "font-mono text-micro uppercase text-accent",
         className,
       ].join(" ")}
     >

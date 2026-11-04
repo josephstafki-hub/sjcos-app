@@ -10,11 +10,41 @@ export interface ParsedEmailDraft {
   body: string;
 }
 
+/** "To:" values that mean "post it in the client's portal thread", not an
+ *  email address. submit_draft_for_approval with channel "portal" writes
+ *  "To: client portal". */
+const PORTAL_TO = /^(?:the\s+)?(?:client\s+)?portal(?:\s+(?:thread|message|messages|chat))?$/i;
+
+/** A reply drafted for the client portal: the header block's To: line is
+ *  "client portal" (or "portal"). Returns the body to post, or null when the
+ *  draft isn't a portal reply. A Subject: line is ignored (portal messages
+ *  have none). */
+export function parsePortalDraft(content: string): { body: string } | null {
+  const lines = content.trimStart().split(/\r?\n/);
+  let portal = false;
+  let i = 0;
+  for (; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.trim()) {
+      i++;
+      break;
+    }
+    const m = line.match(/^(To|Subject|From|Cc|Channel|Via):\s*(.*)$/i);
+    if (!m) break;
+    const key = m[1].toLowerCase();
+    if ((key === "to" || key === "channel" || key === "via") && PORTAL_TO.test(m[2].trim().replace(/<[^>]*>/g, "").trim())) portal = true;
+  }
+  if (!portal) return null;
+  const body = lines.slice(i).join("\n").trim();
+  return body ? { body } : null;
+}
+
 /** Parse the "To:/Subject:" header block agents put at the top of email
  *  drafts. Returns null when the draft isn't shaped like an email (no To:
  *  line up front, or nothing after the headers). Leading blank lines are
  *  ignored; the header block ends at the first blank or non-header line. */
 export function parseEmailDraft(content: string): ParsedEmailDraft | null {
+  if (parsePortalDraft(content)) return null; // "To: client portal" is not an address
   const lines = content.trimStart().split(/\r?\n/);
   let to: string | null = null;
   let subject = "";
@@ -44,14 +74,17 @@ export function parseEmailDraft(content: string): ParsedEmailDraft | null {
 export type RecordKind = "lead" | "project";
 
 export interface ApprovedSendInput {
-  /** The record the work item hangs off (lead wins over project), or null. */
-  record: { kind: RecordKind; email: string | null } | null;
+  /** The record the work item hangs off (lead wins over project), or null.
+   *  `portal` = the client has a portal login, so a portal reply can reach
+   *  them (undefined = not checked; treated as no). */
+  record: { kind: RecordKind; email: string | null; portal?: boolean } | null;
   /** Text of the freshest staged draft, or null when nothing is staged. */
   draft: string | null;
 }
 
 export type ApprovedSendPlan =
   | { outcome: "send"; to: string; subject: string; body: string }
+  | { outcome: "portal"; body: string }
   | { outcome: "not_email"; reason: string }
   | { outcome: "failed"; error: string };
 
@@ -64,6 +97,12 @@ function defaultSubject(kind: RecordKind): string {
  *  but can't go to this record (the gate reopens so the mismatch gets fixed). */
 export function planApprovedSend(input: ApprovedSendInput): ApprovedSendPlan {
   if (!input.draft) return { outcome: "not_email", reason: "no staged draft on the work item" };
+  const portal = parsePortalDraft(input.draft);
+  if (portal) {
+    if (!input.record) return { outcome: "not_email", reason: "no lead or project on the work item, so there is no portal thread to post in" };
+    if (!input.record.portal) return { outcome: "failed", error: `the draft is a portal reply, but this ${input.record.kind}'s client has no portal login` };
+    return { outcome: "portal", body: portal.body };
+  }
   const parsed = parseEmailDraft(input.draft);
   if (!parsed) return { outcome: "not_email", reason: "staged draft has no To: header" };
   if (!input.record) return { outcome: "not_email", reason: "no lead or project on the work item" };
@@ -86,7 +125,7 @@ export function approveNotice(reason: string): string {
  *  says which of the two things happened — an email went out, or it didn't
  *  and why — so the owner never has to guess. */
 export type ApproveResult =
-  | { ok: true; sent?: { to: string; subject: string }; held?: { to: string; subject: string }; notice?: string }
+  | { ok: true; sent?: { to: string; subject: string }; held?: { to: string; subject: string }; posted?: { to: string }; notice?: string }
   | { ok: false; error: string };
 
 /** The line the owner reads when the provider could not confirm the send:
@@ -106,6 +145,9 @@ export function describeApproval(r: ApproveResult): {
   if (!r.ok) return { kind: "error", title: "Approve failed", message: r.error };
   if (r.sent) {
     return { kind: "success", title: "Emailed", message: `Emailed ${r.sent.to} — ${r.sent.subject}` };
+  }
+  if (r.posted) {
+    return { kind: "success", title: "Posted in the portal", message: `Posted in the client portal for ${r.posted.to}` };
   }
   if (r.held) {
     return { kind: "info", title: "Held — outcome unknown", message: r.notice || heldNotice(r.held.to) };

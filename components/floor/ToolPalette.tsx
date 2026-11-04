@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import {
   MousePointer2, Hand, Minus, Square, DoorOpen, RectangleHorizontal, Scan, Footprints, Columns3, Ruler,
   Type, MessageSquare, Camera, Scissors, Grid2x2, PanelTop, Box as BoxIcon, Table2, Droplet, Plug, Wind,
@@ -106,50 +105,20 @@ export function ToolPalette({
   onSelect: (t: ToolId) => void;
   compact?: boolean;
 }) {
-  const [open, setOpen] = useState<string | null>(null);
   if (compact) {
-    // Horizontal strip (tablet portrait / narrow): one button per group opens a popover.
     return (
-      <div className="flex items-center gap-1 overflow-x-auto border-b border-rule bg-paper-2 px-2 py-1.5">
-        {TOOL_GROUPS.map((g) => {
-          const active = g.tools.find((t) => t.id === tool);
-          const Icon = (active ?? g.tools[0]).icon;
-          return (
-            <div key={g.label} className="relative">
-              <button
-                onClick={() => setOpen(open === g.label ? null : g.label)}
-                className={[
-                  "flex items-center gap-1 rounded-md border px-2 py-1 text-[11px]",
-                  active ? "border-ink bg-ink text-paper" : "border-rule bg-paper text-ink-2",
-                ].join(" ")}
-              >
-                <Icon className="size-3.5" strokeWidth={1.5} />
-                {active ? active.label : g.label}
+      <div className="grid grid-cols-2 gap-3 p-3">
+        {TOOL_GROUPS.map(g => (
+          <section key={g.label}>
+            <h3 className="mb-1 text-label font-semibold text-ink-3">{g.label}</h3>
+            {g.tools.map(t => (
+              <button key={t.id} onClick={() => onSelect(t.id)} aria-pressed={t.id === tool} title={t.hint}
+                className={`flex min-h-11 w-full items-center gap-2 rounded-md px-2 text-left text-label focus-visible:outline-2 focus-visible:outline-focus ${t.id === tool ? "bg-selected text-ink" : "text-ink-2 hover:bg-hover"}`}>
+                <t.icon className="size-4 shrink-0" /><span>{t.label}</span>
               </button>
-              {open === g.label && (
-                <div className="absolute left-0 top-full z-30 mt-1 flex min-w-[180px] flex-col gap-0.5 rounded-md border border-rule bg-card p-1 shadow-xl">
-                  {g.tools.map((t) => (
-                    <button
-                      key={t.id}
-                      onClick={() => {
-                        onSelect(t.id);
-                        setOpen(null);
-                      }}
-                      className={[
-                        "flex items-center gap-2 rounded px-2 py-1 text-left text-[12px]",
-                        t.id === tool ? "bg-ink text-paper" : "text-ink hover:bg-paper-2",
-                      ].join(" ")}
-                    >
-                      <t.icon className="size-3.5" strokeWidth={1.5} />
-                      <span className="flex-1">{t.label}</span>
-                      <span className="font-mono text-[9px] opacity-60">{t.key}</span>
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          );
-        })}
+            ))}
+          </section>
+        ))}
       </div>
     );
   }

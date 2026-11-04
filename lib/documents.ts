@@ -774,3 +774,86 @@ export async function renderIncidentReportPdf(d: IncidentDocData): Promise<Buffe
   });
 }
 
+
+export interface PaymentAuthorizationDoc {
+  id: string;
+  signer_name: string;
+  statement: string;
+  statement_version: string;
+  method: "card" | "ach";
+  amount_cents: number;
+  surcharge_cents: number;
+  agreed_label: string;
+  ip: string;
+  user_agent: string;
+  login_email: string | null;
+  invoice_number: string;
+  milestone: string | null;
+  client_name: string;
+  project_name: string;
+  project_address: string | null;
+  attempt_state: string;
+  card_brand: string | null;
+  card_type: string | null;
+  card_last4: string | null;
+  provider_payment_id: string | null;
+  completed_label: string | null;
+}
+
+const CARD_BRAND_LABEL: Record<string, string> = { VISA: "Visa", MASTERCARD: "Mastercard", AMERICAN_EXPRESS: "American Express", DISCOVER: "Discover", DISCOVER_DINERS: "Diners Club", JCB: "JCB", CHINA_UNIONPAY: "UnionPay" };
+
+/** The client's stored payment authorization (lib/payments/authorization.ts)
+ *  as the signed form a processor's risk team asks for. Never shows more of
+ *  the card than Square's last 4; the app never had the rest. */
+export async function renderPaymentAuthorizationPdf(a: PaymentAuthorizationDoc): Promise<Buffer> {
+  const { company } = await getCompanyDocInfo();
+  const usd = fmtUsd; // takes cents
+  const card =
+    a.method === "ach"
+      ? "Bank account (ACH), connected by the account holder"
+      : [CARD_BRAND_LABEL[String(a.card_brand ?? "").toUpperCase()] ?? a.card_brand ?? "Card", a.card_type ? a.card_type.toLowerCase() : null, a.card_last4 ? `ending in ${a.card_last4}` : null].filter(Boolean).join(" ");
+  const rows: [string, string][] = [
+    [a.method === "ach" ? "Account holder (typed signature)" : "Cardholder (typed signature)", a.signer_name],
+    ["Client", a.client_name],
+    ["Project", [a.project_name, a.project_address].filter(Boolean).join(" — ")],
+    ["Invoice", [a.invoice_number, a.milestone].filter(Boolean).join(" · ")],
+    ["Amount authorized", a.surcharge_cents > 0 ? `${usd(a.amount_cents)} (includes ${usd(a.surcharge_cents)} credit card surcharge)` : usd(a.amount_cents)],
+    [a.method === "ach" ? "Payment method" : "Card", card],
+    ["Authorized", a.agreed_label],
+    ["Charged", a.completed_label ? `${a.completed_label}${a.provider_payment_id ? ` · Square payment ${a.provider_payment_id}` : ""}` : `Not completed (${a.attempt_state})`],
+    ["Client portal login", a.login_email ?? "—"],
+    ["IP address", a.ip || "—"],
+    ["Browser", a.user_agent || "—"],
+  ];
+  return pdfToBuffer((doc) => {
+    companyHeader(doc, company);
+    docTitle(doc, a.method === "ach" ? "Bank Payment Authorization" : "Credit Card Authorization", `One-time payment authorized by the ${a.method === "ach" ? "account holder" : "cardholder"} in the ${company.name} client portal.`);
+    const w = doc.page.width - 2 * PAGE.margin;
+    const labelW = 170;
+    for (const [label, value] of rows) {
+      const y = doc.y;
+      doc.font("Helvetica").fontSize(9).fillColor(GRAY).text(label, PAGE.margin, y, { width: labelW - 10 });
+      const afterLabel = doc.y;
+      doc.font("Helvetica").fontSize(10).fillColor(INK).text(value, PAGE.margin + labelW, y, { width: w - labelW });
+      doc.y = Math.max(afterLabel, doc.y) + 4;
+    }
+    doc.x = PAGE.margin;
+    doc.moveDown(0.8);
+    doc.font("Helvetica-Bold").fontSize(10).fillColor(INK).text("Authorization the client agreed to", PAGE.margin, doc.y, { width: w });
+    doc.moveDown(0.3);
+    const top = doc.y;
+    doc.font("Helvetica").fontSize(10.5).fillColor(INK).text(`“${a.statement}”`, PAGE.margin + 10, top + 8, { width: w - 20, lineGap: 2 });
+    const bottom = doc.y + 8;
+    doc.strokeColor("#d9d4c7").lineWidth(1).rect(PAGE.margin, top, w, bottom - top).stroke();
+    doc.y = bottom;
+    doc.x = PAGE.margin;
+    doc.moveDown(0.8);
+    para(
+      doc,
+      `Signed electronically: while signed in to their own client portal account, the ${a.method === "ach" ? "account holder" : "cardholder"} typed their name and ticked the box agreeing to the statement above before anything was charged. ` +
+        `The ${a.method === "ach" ? "bank details" : "card number and security code"} were entered directly into Square's secure payment form; ${company.name} never received or stored them.`,
+    );
+    doc.font("Helvetica").fontSize(8).fillColor(GRAY).text(`Record ${a.id} · statement version ${a.statement_version}`, PAGE.margin, doc.y, { width: w });
+    doc.fillColor(INK);
+  });
+}

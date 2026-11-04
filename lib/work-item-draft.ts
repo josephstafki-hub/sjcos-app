@@ -5,17 +5,22 @@
 // so "Approve & send" is only offered when Approve really sends.
 
 import { query } from "./db";
-import { parseEmailDraft, planApprovedSend } from "./approved-draft-rules";
+import { parseEmailDraft, parsePortalDraft, planApprovedSend } from "./approved-draft-rules";
 
 export interface WorkItemDraftPreview {
   id: string;
   title: string;
   createdAt: string;
-  /** Present when the draft is an email ("To:/Subject:" header block). */
+  /** Present when the draft is an email ("To:/Subject:" header block), or
+   *  "<client> (client portal)" for a portal reply. */
   to: string | null;
+  /** How Approve delivers it: an email, a post in the client portal, or
+   *  nothing (null). */
+  channel: "email" | "portal" | null;
   subject: string | null;
   body: string | null;
-  /** Approve sends it (To: is this item's lead / project client). */
+  /** Approve sends it (To: is this item's lead / project client, or it is a
+   *  portal reply and the client has a portal login). */
   sends: boolean;
   /** Why Approve won't email it, when it's an email that won't go. */
   note: string | null;
@@ -32,6 +37,8 @@ interface Row {
   project_slug: string | null;
   project_email: string | null;
   content: string | null;
+  portal_login: boolean;
+  portal_client: string | null;
 }
 
 export async function workItemDraftPreviews(opts: { ids?: string[]; limit?: number } = {}): Promise<WorkItemDraftPreview[]> {
@@ -40,7 +47,9 @@ export async function workItemDraftPreviews(opts: { ids?: string[]; limit?: numb
             to_char(w.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
             l.slug AS lead_slug, l.email AS lead_email, p.slug AS project_slug,
             NULLIF(COALESCE(NULLIF(p.client_email, ''), pl.email), '') AS project_email,
-            k.content
+            k.content,
+            EXISTS (SELECT 1 FROM users u WHERE u.role = 'client' AND u.active AND u.link_slug = ps.portal_slug) AS portal_login,
+            COALESCE(NULLIF(p.client_name, ''), l.name, pl.name) AS portal_client
        FROM work_items w
        LEFT JOIN leads l ON l.id = w.lead_id
        LEFT JOIN projects p ON p.id = w.project_id
@@ -51,6 +60,11 @@ export async function workItemDraftPreviews(opts: { ids?: string[]; limit?: numb
           ORDER BY created_at DESC LIMIT 1
        ) r ON true
        LEFT JOIN knowledge_items k ON 'knowledge_items/' || k.id::text = r.uri
+       LEFT JOIN LATERAL (
+         SELECT COALESCE(p.slug,
+                         (SELECT lp.slug FROM projects lp WHERE lp.lead_id = l.id ORDER BY lp.created_at DESC LIMIT 1),
+                         'lead:' || l.slug) AS portal_slug
+       ) ps ON true
       WHERE ($1::uuid[] IS NULL OR w.id = ANY($1::uuid[]))
         AND w.approval_status = 'requested'
         AND w.status NOT IN ('done', 'cancelled')
@@ -62,17 +76,24 @@ export async function workItemDraftPreviews(opts: { ids?: string[]; limit?: numb
   );
   return rows.map((r) => {
     const draft = r.content ? parseEmailDraft(r.content) : null;
-    const record = r.lead_slug ? { kind: "lead" as const, email: r.lead_email } : r.project_slug ? { kind: "project" as const, email: r.project_email } : null;
+    const portal = r.content ? parsePortalDraft(r.content) : null;
+    const record = r.lead_slug
+      ? { kind: "lead" as const, email: r.lead_email, portal: r.portal_login }
+      : r.project_slug
+        ? { kind: "project" as const, email: r.project_email, portal: r.portal_login }
+        : null;
     const plan = planApprovedSend({ record, draft: r.content });
+    const sends = plan.outcome === "send" || plan.outcome === "portal";
     return {
       id: r.id,
       title: r.title,
       createdAt: r.created_at,
-      to: draft?.to ?? null,
-      subject: draft?.subject || null,
-      body: draft?.body ?? (r.content ? r.content.slice(0, 2000) : r.body?.slice(0, 600) ?? null),
-      sends: plan.outcome === "send",
-      note: plan.outcome === "send" ? null : plan.outcome === "failed" ? plan.error : draft ? plan.reason : null,
+      to: portal ? `${r.portal_client || "Client"} (client portal)` : draft?.to ?? null,
+      channel: portal ? "portal" : draft ? "email" : null,
+      subject: portal ? null : draft?.subject || null,
+      body: portal?.body ?? draft?.body ?? (r.content ? r.content.slice(0, 2000) : r.body?.slice(0, 600) ?? null),
+      sends,
+      note: sends ? null : plan.outcome === "failed" ? plan.error : draft || portal ? (plan as { reason: string }).reason : null,
       href: r.lead_slug ? `/leads/${r.lead_slug}` : r.project_slug ? `/projects/${r.project_slug}` : "/today",
     };
   });

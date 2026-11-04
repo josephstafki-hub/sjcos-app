@@ -32,9 +32,10 @@ export function ChecksPanel({ ctx }: { ctx: DesignerContext }) {
   const all = useChecks(ctx);
   const ignored = new Set(ctx.d.doc.ignoredChecks);
   const live = all.filter((c) => !ignored.has(c.id));
+  const first = live.find(c => c.severity === "warn") ?? live[0];
   const ro = ctx.readOnly;
 
-  const groups = GROUP_ORDER.map((g) => ({ g, checks: live.filter((c) => c.group === g) })).filter((x) => x.checks.length);
+  const groups = GROUP_ORDER.map((g) => ({ g, checks: live.filter((c) => c.group === g && c.id !== first?.id) })).filter((x) => x.checks.length);
 
   const locate = (c: Check) => {
     ctx.d.select(c.elementIds);
@@ -45,17 +46,23 @@ export function ChecksPanel({ ctx }: { ctx: DesignerContext }) {
 
   return (
     <div>
+      {first && <div className="mb-3 space-y-2 rounded-md border border-rule p-3">
+        <p className="text-label font-semibold text-ink">{live.length} issues · First issue · {first.severity === "warn" ? "Warning" : "Advisory"}</p>
+        <p className="text-body text-ink-2">{first.message}</p>
+        <button type="button" onClick={() => locate(first)} className="min-h-11 text-label font-semibold text-accent-2 hover:underline">Locate issue</button>
+        <button type="button" disabled={ro} onClick={() => ctx.d.apply({ op: "ignoreCheck", id: first.id, on: true })} className="ml-3 min-h-11 text-label text-ink-2 hover:underline disabled:opacity-40">Ignore on this design</button>
+      </div>}
       {live.length === 0 ? (
         <Empty>No open warnings. Nice.</Empty>
       ) : (
         groups.map(({ g, checks }) => (
           <div key={g}>
-            <SectionHeader right={<span className="font-mono text-[10px] text-ink-3">{checks.length}</span>}>{GROUP_LABEL[g]}</SectionHeader>
+            <SectionHeader right={<span className="font-mono text-meta text-ink-3">{checks.length}</span>}>{GROUP_LABEL[g]}</SectionHeader>
             <div className="flex flex-col gap-1">
               {checks.map((c) => (
-                <div key={c.id} className="group flex items-start gap-2 rounded-md border border-rule px-2 py-1.5 text-[12px]">
+                <div key={c.id} className="group flex items-start gap-2 rounded-md border border-rule px-2 py-1.5 text-body">
                   <span className={`mt-1.5 size-1.5 flex-none rounded-full ${c.severity === "warn" ? "bg-flag" : "bg-info"}`} />
-                  <span className="min-w-0 flex-1 leading-snug text-ink-2">{c.message}</span>
+                  <span className="min-w-0 flex-1 leading-snug text-ink-2"><span className="block text-label font-semibold">{c.severity === "warn" ? "Warning" : "Advisory"}</span>{c.message}</span>
                   <div className="flex flex-none gap-0.5">
                     <button type="button" title="Locate" onClick={() => locate(c)} className="rounded p-0.5 text-ink-3 hover:text-ink">
                       <Crosshair className="size-3.5" strokeWidth={1.75} />
@@ -84,10 +91,10 @@ export function ChecksPanel({ ctx }: { ctx: DesignerContext }) {
             {ctx.d.doc.ignoredChecks.map((id) => {
               const c = all.find((x) => x.id === id);
               return (
-                <div key={id} className="flex items-start gap-2 rounded-md border border-dashed border-rule px-2 py-1.5 text-[12px] text-ink-3">
+                <div key={id} className="flex items-start gap-2 rounded-md border border-dashed border-rule px-2 py-1.5 text-body text-ink-3">
                   <div className="min-w-0 flex-1">
                     <div className="leading-snug">{c?.message ?? "No longer firing"}</div>
-                    <div className="truncate font-mono text-[10px] text-ink-4">{id}</div>
+                    <div className="truncate font-mono text-meta text-ink-4">{id}</div>
                   </div>
                   <button
                     type="button"

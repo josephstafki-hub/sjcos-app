@@ -41,7 +41,10 @@ export type OwnerPushKind =
   // stages the row in the payment's transaction; sendOwnerPushesNow sends it).
   | "payment"
   // A client signed the construction contract (lib/actions/esign.ts).
-  | "contract_signed";
+  | "contract_signed"
+  // A client or sub wrote in the portal (lib/actions/portal.ts). Carries the
+  // message; Joe's Telegram reply to it is posted back into the portal.
+  | "portal_message";
 
 export interface NotifyOwnerInput {
   kind: OwnerPushKind;
@@ -72,11 +75,19 @@ export interface TelegramExtras {
   /** Thread this message under one of Joe's (an answer to his Telegram
    *  reply). Goes out at once — he is in the conversation. */
   replyToMessageId?: string | null;
+  /** A portal message push: the thread (chat_messages.channel_key) and the
+   *  message it carries. Joe's reply to the push is posted into that thread
+   *  (lib/decisions/owner-replies.ts recordPortalReply). */
+  portalChannelKey?: string | null;
+  portalMessageId?: string | null;
 }
 
 const TZ = "America/Chicago";
-const MAX_PER_HOUR = 4; // transmitted pushes per rolling hour; 'grant', 'decision', 'payment' and 'contract_signed' are exempt
-const CAP_EXEMPT: ReadonlySet<OwnerPushKind> = new Set(["grant", "decision", "payment", "contract_signed"]);
+const MAX_PER_HOUR = 4; // transmitted pushes per rolling hour; 'grant', 'decision', 'payment', 'contract_signed' and 'portal_message' are exempt
+// A portal message is a client talking to Joe: it is never held back for the
+// cap (quiet hours still apply) and never folded into "…and N more", because
+// the push itself is what he replies to.
+const CAP_EXEMPT: ReadonlySet<OwnerPushKind> = new Set(["grant", "decision", "payment", "contract_signed", "portal_message"]);
 
 // ── Channel registry ─────────────────────────────────────────────────────────
 // Keyed by name so a future 'mobile-push' channel (native app push) registers
@@ -157,6 +168,7 @@ const EMIT_DEFAULTS: Record<OwnerPushKind, Omit<EmitInput, "title">> = {
   comms: { kind: "job", tag: "Comms", accent: "flag", icon: "shield", flagged: true },
   payment: { kind: "money", tag: "Payment", accent: "money", icon: "money" },
   contract_signed: { kind: "job", tag: "Contract", accent: "money", icon: "star", flagged: true },
+  portal_message: { kind: "mention", tag: "Portal", accent: "ai", icon: "chat" },
 };
 
 // ── Quiet hours + throttle gate (one round trip; all wall-clock math in
@@ -202,6 +214,9 @@ async function noteDelivery(extras: TelegramExtras | null | undefined, messageId
   const chat = process.env.TELEGRAM_OWNER_CHAT_ID ?? "";
   if (extras?.workItemId && messageId && !extras.editMessageId) {
     await rememberReplyTarget(runDirect, { chatId: chat, messageId, workItemId: extras.workItemId, kind: "card" }).catch(() => undefined);
+  }
+  if (extras?.portalChannelKey && messageId && !extras.editMessageId) {
+    await rememberReplyTarget(runDirect, { chatId: chat, messageId, portalChannelKey: extras.portalChannelKey, portalMessageId: extras.portalMessageId ?? null, kind: "portal" }).catch(() => undefined);
   }
   if (!extras?.decisionId) return;
   await recordDelivery(runDirect, extras.decisionId, "telegram", messageId ? `${chat}:${messageId}` : null, extras.editMessageId ? "updated" : "sent").catch(() => undefined);
@@ -376,7 +391,15 @@ export async function notifyApprovalNeeded(
     if (draft?.to) lines.push(`To: ${draft.to}`);
     if (draft?.subject) lines.push(`Subject: ${draft.subject}`);
     if (draft?.body) lines.push("", draft.body.slice(0, 1200));
-    if (draft) lines.push("", draft.sends ? "Approve sends this email now." : draft.note ? `Approve does not email it: ${draft.note}` : "Approve hands it back to the agent to finish.");
+    if (draft) {
+      const portal = draft.channel === "portal";
+      lines.push(
+        "",
+        draft.sends
+          ? portal ? "Approve posts this in the client portal now." : "Approve sends this email now."
+          : draft.note ? `Approve does not ${portal ? "post" : "email"} it: ${draft.note}` : "Approve hands it back to the agent to finish.",
+      );
+    }
     if (revised.length) lines.unshift("Revised after your note.", "");
     await notifyOwner(
       {
@@ -387,7 +410,7 @@ export async function notifyApprovalNeeded(
         emit: {
           ...EMIT_DEFAULTS.approval_needed,
           title: `Approve: ${title}`,
-          subline: draft?.to ? `${draft.sends ? "Sends to" : "Draft to"} ${draft.to}${draft.subject ? ` — ${draft.subject}` : ""}` : undefined,
+          subline: draft?.to ? `${draft.sends ? (draft.channel === "portal" ? "Posts for" : "Sends to") : "Draft to"} ${draft.to}${draft.subject ? ` — ${draft.subject}` : ""}` : undefined,
           href: draft?.href ?? "/today",
           ref: `work_item:${workItemId}`,
         },
@@ -398,6 +421,44 @@ export async function notifyApprovalNeeded(
   } catch (err) {
     console.error("[notify-owner] approval-needed notify failed", err);
   }
+}
+
+/** A client (or sub) wrote in the portal: push the message itself to Joe's
+ *  phone. Swiping-to-reply on it posts his answer into that portal thread
+ *  (app/api/telegram/webhook → recordPortalReply). Also writes the in-app
+ *  card. Never throws. */
+export async function notifyPortalMessage(
+  input: {
+    surface: "client" | "sub";
+    channelKey: string;
+    messageId: string | null;
+    name: string;
+    body: string;
+    /** Owner page for the thread (Client portal tab, or /chat for a sub). */
+    href: string;
+    /** "Tierney · Kitchen" — the job or lead the thread belongs to. */
+    context?: string | null;
+  },
+  nowOverride?: Date,
+): Promise<void> {
+  const where = input.surface === "sub" ? "sub portal" : "client portal";
+  const text = input.body.trim();
+  const shown = text.length > 1500 ? `${text.slice(0, 1497)}…` : text;
+  await notifyOwner(
+    {
+      kind: "portal_message",
+      title: `${input.name} wrote in the ${where}${input.context ? ` (${input.context})` : ""}`,
+      body: `${shown}\n\nReply to this message to answer ${input.name.split(/\s+/)[0] || "them"} in the portal.`,
+      href: input.href,
+      emit: {
+        title: `${input.name} sent a message`,
+        subline: text.length > 120 ? `${text.slice(0, 117)}…` : text,
+        href: input.href,
+      },
+      telegram: { portalChannelKey: input.channelKey, portalMessageId: input.messageId },
+    },
+    nowOverride,
+  );
 }
 
 // ── Drain (5-minute cron) ────────────────────────────────────────────────────
@@ -445,6 +506,7 @@ export async function runPushDrain(
                          WHEN 'urgent_item' THEN 1
                          WHEN 'approval_needed' THEN 1
                          WHEN 'payment' THEN 1
+                         WHEN 'portal_message' THEN 1
                          ELSE 2 END,
                created_at`,
     [now],
@@ -471,10 +533,11 @@ export async function runPushDrain(
     );
     const mine = new Set(claimed.map((r) => r.id));
     const send = due.filter((r) => mine.has(r.id));
-    // Decision cards carry buttons, so they are never folded into the
-    // "…and N more" summary line.
-    const cards = send.filter((r) => r.kind === "decision");
-    const rest = send.filter((r) => r.kind !== "decision");
+    // Decision cards carry buttons and portal messages take a reply, so
+    // neither is ever folded into the "…and N more" summary line.
+    const keep = (r: OutboxRow) => r.kind === "decision" || r.kind === "portal_message";
+    const cards = send.filter(keep);
+    const rest = send.filter((r) => !keep(r));
     const direct = [...cards, ...(rest.length > 3 ? rest.slice(0, 3) : rest)];
     const folded = rest.length > 3 ? rest.slice(3) : [];
 

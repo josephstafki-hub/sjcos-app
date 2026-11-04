@@ -1,163 +1,233 @@
 "use client";
-
-import { useMemo, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Pencil, Archive, ArchiveRestore, Trash2 } from "lucide-react";
-import { Card, Chip } from "@/components/ui";
+import { MoreHorizontal } from "lucide-react";
+import {
+  Button,
+  Chip,
+  Segmented,
+  EmptyState,
+  TableWrapper,
+  Table,
+  TableHead,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TablePrimaryCell,
+  TableCell,
+} from "@/components/ui";
 import { unitLabel, fmtUsd } from "@/lib/cost-book-units";
 import type { CostBookData, CostItem } from "@/lib/cost-book";
-import { setCostItemArchived, deleteCostItem, setDefaultMarkup } from "@/lib/actions/cost-book";
+import {
+  setCostItemArchived,
+  deleteCostItem,
+  setDefaultMarkup,
+} from "@/lib/actions/cost-book";
+import { runAction, type ActionLike } from "@/lib/run-action";
 import { toast } from "@/components/ui/Toast";
 import { CostItemModal } from "./CostItemModal";
-
 export function CostBookClient({ data }: { data: CostBookData }) {
   const router = useRouter();
-  const [, startTransition] = useTransition();
-  const [cat, setCat] = useState<string>("All");
-  const [showArchived, setShowArchived] = useState(false);
-  const [editing, setEditing] = useState<CostItem | null>(null);
-  const [markup, setMarkup] = useState(String(data.defaultMarkup));
-
-  // Category chips: only categories that actually have items, plus "All".
-  const cats = useMemo(() => {
-    const present = Array.from(new Set(data.items.map((i) => i.category))).sort();
-    return ["All", ...present];
-  }, [data.items]);
-
-  const visible = data.items.filter(
-    (i) => (showArchived ? i.archived : !i.archived) && (cat === "All" || i.category === cat),
+  const [pending, start] = useTransition(),
+    [cat, setCat] = useState("All"),
+    [view, setView] = useState("active"),
+    [editing, setEditing] = useState<CostItem | null>(null),
+    [markup, setMarkup] = useState(String(data.defaultMarkup));
+  const [feedback,setFeedback] = useState("");
+  const cats = ["All", ...new Set(data.items.map((i) => i.category))].sort(
+    (a, b) => (a === "All" ? -1 : b === "All" ? 1 : a.localeCompare(b)),
   );
-
-  function archive(id: number, next: boolean) {
-    startTransition(async () => {
-      await setCostItemArchived(id, next);
-      router.refresh();
+  const visible = data.items.filter(
+    (i) =>
+      i.archived === (view === "archived") &&
+      (cat === "All" || i.category === cat),
+  );
+  const change = (fn: () => Promise<ActionLike>) =>
+    start(async () => {
+      await runAction(async () => {
+        const result = await fn();
+        return result ?? { ok: true };
+      }, {onSuccess:(result)=>{
+        const notice = "notice" in result ? String(result.notice ?? "") : "";
+        setFeedback(notice || "Saved");
+        if (notice) toast({ kind: "info", message: notice });
+        router.refresh();
+      },onError:setFeedback});
     });
-  }
-  function remove(id: number) {
-    if (!confirm("Delete this cost item? This can't be undone.")) return;
-    startTransition(async () => {
-      await deleteCostItem(id);
-      router.refresh();
-    });
-  }
-  function saveMarkup() {
-    const v = Number(markup);
-    if (!Number.isFinite(v)) return;
-    startTransition(async () => {
-      const r = await setDefaultMarkup(v);
-      if (!r.ok) toast({ kind: "error", message: r.error });
-      else if (r.notice) toast({ kind: "info", message: r.notice });
-      router.refresh();
-    });
-  }
-
   return (
-    <>
-      {/* Controls */}
-      <div className="mb-3 flex flex-wrap items-center gap-3">
-        <Card kind="soft" className="flex items-center gap-2 px-3 py-1.5">
-          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Default markup</span>
-          <input
-            value={markup}
-            onChange={(e) => setMarkup(e.target.value)}
-            onBlur={saveMarkup}
-            onKeyDown={(e) => e.key === "Enter" && saveMarkup()}
-            inputMode="decimal"
-            className="w-14 rounded border border-rule bg-paper px-1.5 py-0.5 text-right text-[13px] text-ink outline-none focus:border-accent"
-          />
-          <span className="text-[12px] text-ink-2">%</span>
-        </Card>
-        <div className="flex-1" />
-        <label className="flex items-center gap-1.5 text-[12px] text-ink-2">
-          <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
-          Show archived
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <Segmented
+          aria-label="Cost item status"
+          value={view}
+          onChange={setView}
+          options={[
+            { value: "active", label: "Active" },
+            {
+              value: "archived",
+              label: "Archived",
+              count: data.items.filter((i) => i.archived).length,
+            },
+          ]}
+        />
+        <label className="flex items-center gap-2 text-label text-ink-3">
+          Category
+          <select
+            aria-label="Cost category"
+            value={cat}
+            onChange={(e) => setCat(e.target.value)}
+            className="h-9 max-w-48 rounded-md border border-rule bg-card px-2 text-body text-ink"
+          >
+            {cats.map((c) => (
+              <option key={c}>{c}</option>
+            ))}
+          </select>
         </label>
       </div>
-
-      {/* Category filter */}
-      <div className="mb-3 flex flex-wrap gap-1.5">
-        {cats.map((c) => (
-          <button
-            key={c}
-            onClick={() => setCat(c)}
-            className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${
-              cat === c ? "border-accent bg-accent-soft text-accent-2" : "border-rule bg-card text-ink-3 hover:bg-paper-2"
-            }`}
+      <div className="flex flex-wrap items-center gap-2 border-y border-rule-soft py-3">
+        <label className="text-label text-ink-3" htmlFor="default-markup">
+          Default markup
+        </label>
+        <input
+          id="default-markup"
+          value={markup}
+          onChange={(e) => setMarkup(e.target.value)}
+          type="number"
+          min="0"
+          max="1000"
+          inputMode="decimal"
+          className="h-8 w-20 rounded-md border border-rule bg-card px-2 text-right text-body"
+        />
+        <span className="text-body text-ink-3">%</span>
+        {markup !== String(data.defaultMarkup) && (
+          <Button
+            size="sm"
+            variant="secondary"
+            disabled={pending || !Number.isFinite(Number(markup))}
+            onClick={() => change(() => setDefaultMarkup(Number(markup)))}
           >
-            {c}
-          </button>
-        ))}
+            Save markup
+          </Button>
+        )}
+        <span role="status" className="text-meta text-ink-2">{pending ? "Saving…" : feedback}</span>
+        <span className="ml-auto text-meta text-ink-3">
+          {visible.length} items
+        </span>
       </div>
-
-      {visible.length === 0 ? (
-        <Card kind="dashed" className="p-10 text-center">
-          <div className="font-serif text-[16px] font-semibold text-ink-2">
-            {data.items.length === 0 ? "Your cost book is empty" : "Nothing in this view"}
-          </div>
-          <div className="mt-1 text-[12px] text-ink-3">
-            {data.items.length === 0
-              ? "Add your reusable unit costs (labor + material assemblies). Estimates pull from these."
-              : "Try another category or toggle archived."}
-          </div>
-        </Card>
-      ) : (
-        <Card className="overflow-hidden p-0">
-          <div className="overflow-x-auto">
-          <table className="w-full min-w-[560px] text-left">
-            <thead>
-              <tr className="border-b border-rule bg-paper-2 font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">
-                <th className="px-4 py-2 font-medium">Item</th>
-                <th className="px-3 py-2 font-medium">Category</th>
-                <th className="px-3 py-2 font-medium">Unit</th>
-                <th className="px-3 py-2 text-right font-medium">Unit cost</th>
-                <th className="px-3 py-2 text-right font-medium">Markup</th>
-                <th className="px-3 py-2" />
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((i, k) => (
-                <tr key={i.id} className={`group text-[13px] ${k ? "border-t border-rule-soft" : ""}`}>
-                  <td className="px-4 py-2.5">
-                    <div className="font-medium text-ink">{i.name}</div>
-                    {i.notes && <div className="text-[11px] text-ink-3">{i.notes}</div>}
-                  </td>
-                  <td className="px-3 py-2.5 text-ink-2">{i.category}</td>
-                  <td className="px-3 py-2.5 text-ink-3">{unitLabel(i.unit)}</td>
-                  <td className="px-3 py-2.5 text-right font-mono text-ink">{fmtUsd(i.unitCost)}</td>
-                  <td className="px-3 py-2.5 text-right text-ink-2">
-                    {i.markup != null ? (
-                      <Chip kind="accent">{i.markup}%</Chip>
-                    ) : (
-                      <span className="text-[11px] text-ink-3">default ({data.defaultMarkup}%)</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <div className="flex items-center justify-end gap-1 opacity-0 transition-opacity group-hover:opacity-100">
-                      <button onClick={() => setEditing(i)} title="Edit" className="rounded p-1 text-ink-3 hover:bg-paper-2 hover:text-ink">
-                        <Pencil className="size-3.5" strokeWidth={1.75} />
+      <TableWrapper className="overflow-visible!">
+        <Table density="compact">
+          <TableHead>
+            <TableRow>
+              <TableHeader>Item</TableHeader>
+              <TableHeader className="@max-3xl/page:hidden">
+                Category
+              </TableHeader>
+              <TableHeader numeric>Unit cost</TableHeader>
+              <TableHeader numeric className="@max-2xl/page:hidden">
+                Markup
+              </TableHeader>
+              <TableHeader>
+                <span className="sr-only">Actions</span>
+              </TableHeader>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {visible.map((i) => (
+              <TableRow key={i.id}>
+                <TablePrimaryCell
+                  meta={
+                    <>
+                      {i.notes || i.category}
+                      <span className="ml-2 @2xl/page:hidden">
+                        · {i.markup ?? data.defaultMarkup}% markup
+                      </span>
+                    </>
+                  }
+                >
+                  {i.name}
+                </TablePrimaryCell>
+                <TableCell className="@max-3xl/page:hidden">
+                  {i.category}
+                </TableCell>
+                <TableCell numeric className="whitespace-nowrap">
+                  <div>{fmtUsd(i.unitCost)}</div>
+                  <div className="text-meta text-ink-3">
+                    / {unitLabel(i.unit)}
+                  </div>
+                </TableCell>
+                <TableCell numeric className="@max-2xl/page:hidden">
+                  {i.markup != null ? (
+                    <Chip kind="accent">{i.markup}%</Chip>
+                  ) : (
+                    <span className="text-meta text-ink-3">
+                      Default · {data.defaultMarkup}%
+                    </span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  <details className="relative">
+                    <summary
+                      aria-label={`Actions for ${i.name}`}
+                      className="flex size-8 cursor-pointer list-none items-center justify-center rounded-md hover:bg-hover max-sm:size-11"
+                    >
+                      <MoreHorizontal className="size-4" />
+                    </summary>
+                    <div className="absolute right-0 z-20 w-40 rounded-lg border border-rule-soft bg-card p-1 shadow-pop">
+                      <button
+                        className="h-9 w-full rounded px-2 text-left text-body hover:bg-hover"
+                        onClick={(e) => {
+                          e.currentTarget
+                            .closest("details")
+                            ?.removeAttribute("open");
+                          setEditing(i);
+                        }}
+                      >
+                        Edit
                       </button>
                       <button
-                        onClick={() => archive(i.id, !i.archived)}
-                        title={i.archived ? "Restore" : "Archive"}
-                        className="rounded p-1 text-ink-3 hover:bg-paper-2 hover:text-ink"
+                        disabled={pending}
+                        className="h-9 w-full rounded px-2 text-left text-body hover:bg-hover"
+                        onClick={() =>
+                          change(() => setCostItemArchived(i.id, !i.archived))
+                        }
                       >
-                        {i.archived ? <ArchiveRestore className="size-3.5" strokeWidth={1.75} /> : <Archive className="size-3.5" strokeWidth={1.75} />}
+                        {i.archived ? "Restore" : "Archive"}
                       </button>
-                      <button onClick={() => remove(i.id)} title="Delete" className="rounded p-1 text-ink-3 hover:bg-paper-2 hover:text-flag">
-                        <Trash2 className="size-3.5" strokeWidth={1.75} />
+                      <button
+                        disabled={pending}
+                        className="h-9 w-full rounded px-2 text-left text-body text-flag hover:bg-hover"
+                        onClick={() => {
+                          if (
+                            confirm(
+                              "Permanently delete this cost item? Archive it to keep a restorable copy.",
+                            )
+                          )
+                            change(() => deleteCostItem(i.id));
+                        }}
+                      >
+                        Delete permanently
                       </button>
                     </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          </div>
-        </Card>
+                  </details>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        {!visible.length && (
+          <EmptyState
+            title="No cost items in this view"
+            description="Add reusable labor and material costs, choose another category, or restore an archived item."
+          />
+        )}
+      </TableWrapper>
+      {editing && (
+        <CostItemModal
+          mode="edit"
+          item={editing}
+          onClose={() => setEditing(null)}
+        />
       )}
-
-      {editing && <CostItemModal mode="edit" item={editing} onClose={() => setEditing(null)} />}
-    </>
+    </div>
   );
 }

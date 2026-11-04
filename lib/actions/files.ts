@@ -15,7 +15,7 @@ import { UPLOAD_DIR } from "@/lib/uploads";
 import { storeUpload } from "@/lib/upload-store";
 import { notifyDashboardPublish, type DeliveryNote } from "@/lib/portal-publish";
 import { withTransaction } from "@/lib/commands/db";
-import { restoreProjectFile } from "@/lib/file-trash";
+import { trashProjectFile, restoreProjectFile } from "@/lib/file-trash";
 
 const MAX_BYTES = 25 * 1024 * 1024; // keep in step with next.config bodySizeLimit
 
@@ -208,9 +208,22 @@ export async function setFileClientVisibility(
 export async function restoreDeletedFile(fileId: string): Promise<UploadResult> {
   const user = await requireAccess("projects");
   const res = await withTransaction((run) => restoreProjectFile(run, { fileId, restoredBy: `user:${user.name}` }));
-  if (!res.ok) return res;
+  if (!res.ok) return {ok:false,error:res.error.startsWith("A newer")?"A newer file with this name is already here. Move it to Trash first to restore this copy.":"This file can no longer be restored. Refresh Trash and try again."};
+  revalidatePath("/files");
   revalidatePath(`/projects/${res.project_slug}`);
   return { ok: true };
+}
+
+/** Global Files browser uses the same 30-day, reference-safe trash as project files. */
+export async function trashBrowserFile(fileId: string): Promise<UploadResult> {
+  const user = await requireAccess("projects");
+  const f = await queryOne<{project_key:string}>(`SELECT project_key FROM files WHERE id=$1`, [fileId]);
+  if (!f) return {ok:false,error:"This file is no longer available. Refresh the list."};
+  const res = await withTransaction(run => trashProjectFile(run, {fileId, projectSlug:f.project_key, reason:"Removed from Files", deletedBy:`user:${user.name}`}));
+  if (!res.ok) return {ok:false,error:"This file is linked to another record. Remove that attachment there before moving it to Trash."};
+  revalidatePath("/files");
+  if (f.project_key) revalidatePath(`/projects/${f.project_key}`);
+  return {ok:true};
 }
 
 interface FileSummaryRow {

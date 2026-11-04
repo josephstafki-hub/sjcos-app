@@ -68,8 +68,12 @@ export async function reportCommsFailure(area: CommsArea, error: unknown, extra?
     await setCommsSetting(`comms.last_error`, JSON.stringify({ area, at: new Date().toISOString(), message: msg.slice(0, 500) }));
     await fileCommsWorkItem({
       title: `${AREA_LABEL[area]} failed`,
+      // Plain words first (Joe reads this on Today); the technical detail after is
+      // for whoever fixes it — an agent in the panel or a developer.
       body:
-        `${msg.slice(0, 1500)}\n\n${extra?.detail ?? ""}\n\n` +
+        `${AREA_LABEL[area]} isn't working, so what depends on it is paused until it's fixed. ` +
+        `Hand this to Claude in the panel to look into it.\n\n` +
+        `Technical details:\n${msg.slice(0, 1500)}\n\n${extra?.detail ?? ""}\n\n` +
         `Filed automatically by the comms failure path (lib/comms-health.ts). ` +
         `Check: journalctl --user -u sjcos.service, and GET /api/comms/health with the CRON_SECRET bearer. [comms:${area}]`,
       priority: "urgent",

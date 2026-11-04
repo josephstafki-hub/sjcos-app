@@ -25,13 +25,14 @@ export async function qboRealmId(): Promise<string> {
   return qboConnectionSource().realmId ?? "";
 }
 
-/** Connection check + status row (fake mode records a 'fake' connection so
- *  the settings page can say so honestly). An owner Disconnect records
+/** Connection check + status row. Sample data cannot verify a connection.
+ *  An owner Disconnect records
  *  'disconnected', not 'error': nothing is wrong, it was turned off. */
 export async function refreshQboConnection(): Promise<{ ok: boolean; environment: string; realmId: string; companyName?: string; error?: string }> {
   const env = qboEnvironment();
   const realmId = await qboRealmId();
-  const src = env === "fake" ? null : qboConnectionSource();
+  if (env === "fake") return {ok: false, environment: env, realmId, error: "Not connected. Ask your account administrator to finish the QuickBooks setup checklist in Settings › Accounting, then connect your company."};
+  const src = qboConnectionSource();
   try {
     const info = await getQboAdapter().companyInfo();
     await withTransaction((run) => ensureConnection(run, { realmId: info.realmId || realmId, environment: env, companyName: info.companyName, state: "connected" }));

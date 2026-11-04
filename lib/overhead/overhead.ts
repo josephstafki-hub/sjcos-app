@@ -47,7 +47,7 @@ export interface MeteredCharge {
 
 export class DuplicateOverheadError extends Error {
   constructor(what: string) {
-    super(`Refused: ${what} is already recorded. Duplicate imports are rejected on external_ref and on (name, vendor, started_on); nothing was written.`);
+    super(`Refused: ${what} is already recorded. Use the existing record if its bill reference, or its name, vendor and start date, match. Nothing was changed.`);
     this.name = "DuplicateOverheadError";
   }
 }
@@ -105,7 +105,7 @@ export async function updateSubscription(run: Run, id: string, patch: Partial<Su
     );
     return row ?? null;
   } catch (e) {
-    if (isUnique(e)) throw new DuplicateOverheadError(`that external_ref or (name, vendor, started_on)`);
+    if (isUnique(e)) throw new DuplicateOverheadError(`that bill reference or subscription`);
     throw e;
   }
 }
@@ -293,11 +293,11 @@ export async function reconcileWithExpenses(run: Run, opts: { sinceDate?: string
       candidates,
       note:
         status === "matched"
-          ? `Linked by external_ref ${s.external_ref}; ${matches.length} expense(s) share that ref — not double-counted.`
+          ? `Linked by bill reference ${s.external_ref}; ${matches.length} matching expense(s), counted once.`
           : status === "no_external_ref"
-            ? `Owner-reported only. Set external_ref from the bill or QBO to reconcile; ${candidates.length} same-vendor expense(s) shown for hand review (amount is not identity).`
-            : `external_ref ${s.external_ref} has no matching expense yet; nothing auto-linked.`,
+            ? `Owner reported. Add the bill or QuickBooks reference to reconcile. Review ${candidates.length} expense(s) from the same vendor; the amount alone cannot confirm a match.`
+            : `Bill reference ${s.external_ref} has no matching expense yet. Nothing has been linked.`,
     });
   }
-  return { lines, caveat: "Automatic matching uses external_ref only. Same-vendor candidates are informational; the owner links them. Nothing is deduped on amount." };
+  return { lines, caveat: "Automatic matching uses the bill or QuickBooks reference. Review expenses from the same vendor before linking them; equal amounts do not establish a match." };
 }

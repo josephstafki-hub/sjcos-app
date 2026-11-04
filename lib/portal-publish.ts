@@ -11,7 +11,11 @@ import "server-only";
 // This is still an owner-initiated send (the click IS the approval), so it
 // does not violate the "client-facing sends stay owner-approved" rule.
 
-import { queryOne } from "./db";
+import { query, queryOne } from "./db";
+import { directSendBlocked } from "./direct-send-gate";
+import type { Run } from "./commands/core";
+
+const runQ: Run = async (sql, params) => (await query(sql, params as never[])).rows as never;
 import { sendNewEmail, gmailConfigured } from "./gmail";
 import {
   ensureClientInvite,
@@ -80,6 +84,8 @@ export async function notifyDashboardPublish(
         note: "Published, but Gmail isn't connected — no notification went out.",
       };
     }
+    const blocked = await directSendBlocked(runQ, { lane: "sends", to: email });
+    if (blocked) return { sent: false, note: `Published, but no notification went out: ${blocked}` };
 
     // A claimed portal refuses bearer links (app/client-portal/enter), so
     // emailing one would send the client to a dead end. Link the section

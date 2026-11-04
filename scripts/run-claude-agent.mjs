@@ -254,6 +254,10 @@ async function loadBusinessInstructions(principal, pageContext) {
       pageContext ?? null,
     );
     BUSINESS_INSTRUCTIONS = typeof out === "string" ? out : typeof out?.prompt === "string" ? out.prompt : "";
+    // Tier 4: which versions this run was given (migration 0055).
+    if (out && typeof out === "object" && out.versions) {
+      await client.query(`UPDATE dev_agent_runs SET instruction_versions = $2::jsonb WHERE id = $1`, [RUN_ID, JSON.stringify(out.versions)]).catch(() => {});
+    }
   } catch {
     BUSINESS_INSTRUCTIONS = "";
   }
@@ -393,6 +397,7 @@ async function flushActivity() {
 // bounded, deduped, never fails the run.
 const MAX_EFFECTS = 80;
 let effectCount = 0;
+let toolCount = 0;
 let lastEffectKey = "";
 /** tool_use_id → { tool, input } so a tool_result can be read back. */
 const pendingToolUses = new Map();
@@ -422,8 +427,8 @@ function recordEffect(kind, id, action) {
   effectCount += 1;
   client
     .query(
-      `INSERT INTO run_effects (run_id, entity_kind, entity_id, action, source)
-       VALUES ($1, $2, $3, $4, 'claude')`,
+      `INSERT INTO run_effects (run_id, entity_kind, entity_id, action, source, detail)
+       VALUES ($1, $2, $3, $4, 'claude', '{"confirmed":true}'::jsonb)`,
       [RUN_ID, kind, ref, action],
     )
     .catch(() => {});
@@ -431,7 +436,7 @@ function recordEffect(kind, id, action) {
 /** Effects visible from a tool call's arguments (what it's working on). */
 function effectsFromInput(tool, input) {
   const p = input && typeof input === "object" ? input : {};
-  const action = /^(create_|import_|add_|start_)/.test(tool) ? "created" : /^get_/.test(tool) ? "touched" : "updated";
+  const action = /^get_/.test(tool) ? "touched" : "updated";
   if (typeof p.project_slug === "string") recordEffect(projectKind(tool), p.project_slug, action);
   else if (typeof p.project_id === "string") recordEffect(projectKind(tool), p.project_id, action);
   if (typeof p.lead_slug === "string") recordEffect("lead", p.lead_slug, action);
@@ -474,11 +479,6 @@ function onToolUse(block) {
     pendingToolUses.set(block.id, { tool, input: block.input });
     if (pendingToolUses.size > 50) pendingToolUses.delete(pendingToolUses.keys().next().value);
   }
-  try {
-    effectsFromInput(tool, block.input);
-  } catch {
-    /* telemetry */
-  }
 }
 function onToolResult(block) {
   const use = block.tool_use_id ? pendingToolUses.get(block.tool_use_id) : null;
@@ -492,6 +492,9 @@ function onToolResult(block) {
       : "";
   if (!text) return;
   try {
+    const parsed = JSON.parse(text);
+    if (!parsed || parsed.ok === false || (parsed.error && parsed.ok !== true)) return;
+    effectsFromInput(use.tool, use.input);
     effectsFromResult(use.tool, text);
   } catch {
     /* telemetry */
@@ -551,6 +554,7 @@ function handleEvent(evt) {
           pushActivity(`Claude: ${t.slice(0, 200)}${t.length > 200 ? "…" : ""}`);
         }
       } else if (block.type === "tool_use") {
+        toolCount += 1;
         pushActivity(describeTool(block.name, block.input));
         onToolUse(block);
       }
@@ -963,7 +967,13 @@ async function main() {
   // killed by the CLI's default, even if he answers hours later.
   // A08a MCP identity: the sjcos server reads SJC_PRINCIPAL_USER_ID (stdio)
   // and derives the role from the users row itself — never from env.
+  // Database login for the MCP servers (deploy/db-roles.md): the owner login
+  // only for Joe's own operator run (PROFILE is "operator" only when the run's
+  // principal is the active owner — see main()), so the Ask window can still
+  // read anything and change anything he asks. Staff turns and business /
+  // autonomous runs get the narrow sjcos_agent login.
   const tags = {
+    SJC_DB_LOGIN: PROFILE === "operator" ? "owner" : "agent",
     SJC_RUN_ID: RUN_ID,
     ...(conversation_id ? { SJC_CONVERSATION_ID: conversation_id } : {}),
     SJC_AGENT: "claude",
@@ -1044,6 +1054,7 @@ async function main() {
   // num_turns is per result; with a steer follow-up the run is their sum.
   const turnsTotal = results.reduce((n, r) => n + (typeof r.num_turns === "number" ? r.num_turns : 0), 0);
   finalUsage = {
+    tool_count: toolCount,
     usage: resultEvent.usage ?? null,
     modelUsage: resultEvent.modelUsage ?? null,
     num_turns: turnsTotal || (resultEvent.num_turns ?? null),
@@ -1112,9 +1123,9 @@ async function persistToConversation(conversationId, body, costUsd, sessionId) {
     // Tagged 'claude' so the router keeps follow-ups here and the other
     // agents know which turns are Claude's (lib/orchestrator/thread.ts).
     await client.query(
-      `INSERT INTO ai_messages (conversation_id, role, body, cost_usd, agent, token_usage)
-       VALUES ($1, 'assistant', $2, $3, 'claude', $4::jsonb)`,
-      [conversationId, body, costUsd ?? null, finalUsage ? JSON.stringify(finalUsage) : null],
+      `INSERT INTO ai_messages (conversation_id, role, body, cost_usd, agent, token_usage, run_id)
+       VALUES ($1, 'assistant', $2, $3, 'claude', $4::jsonb, $5)`,
+      [conversationId, body, costUsd ?? null, finalUsage ? JSON.stringify(finalUsage) : null, RUN_ID],
     );
     await client.query(
       `UPDATE ai_conversations

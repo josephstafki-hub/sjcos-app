@@ -38,18 +38,18 @@ export function ApproveControl({
         value={name}
         onChange={(e) => setName(e.target.value)}
         placeholder="Your full name"
-        className="w-full max-w-[220px] rounded-md border border-rule bg-card px-2.5 py-1.5 font-serif text-[14px] italic text-ink focus:border-accent focus:outline-none"
+        className="w-full max-w-[220px] rounded-md border border-rule bg-card px-2.5 py-1.5 font-serif text-subheading italic text-ink focus:border-accent focus:outline-none"
       />
       <button
         type="button"
         onClick={approve}
         disabled={pending}
-        className="inline-flex items-center gap-1 rounded-md border border-money bg-money px-3 py-1.5 text-[12px] font-semibold text-white hover:opacity-90 disabled:opacity-60"
+        className="inline-flex items-center gap-1 rounded-md border border-money bg-money px-3 py-1.5 text-label font-semibold text-white hover:opacity-90 disabled:opacity-60"
       >
         <Check className="size-3" strokeWidth={2.5} />
         {pending ? "Approving…" : label}
       </button>
-      {error && <span className="w-full text-[11px] text-flag">{error}</span>}
+      {error && <span className="w-full text-meta text-flag">{error}</span>}
     </div>
   );
 }

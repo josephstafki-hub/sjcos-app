@@ -29,7 +29,16 @@ async function uniqueSlug(name: string): Promise<string> {
 }
 
 /** Onboard a sub from the directory's "Onboard a sub" form, then open them. */
-export async function createSub(formData: FormData) {
+export async function createSub(formData: FormData): Promise<void> {
+  const slug = await createSubRecord(formData);
+  if (slug) redirect(`/subs/${slug}`);
+}
+export async function createSubFromInbox(formData: FormData): Promise<{slug?:string}> {
+  return {slug: await createSubRecord(formData)};
+}
+
+async function createSubRecord(formData: FormData) {
+  await requireAccess("subs");
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return;
   const trade = String(formData.get("trade") ?? "").trim();
@@ -45,15 +54,27 @@ export async function createSub(formData: FormData) {
   );
 
   revalidatePath("/subs");
-  redirect(`/subs/${slug}`);
+  return slug;
 }
 
 /** Save the owner's private notes on a sub. Owner-gated. */
 export async function setSubNotes(slug: string, notes: string) {
   await requireAccess("subs");
-  await query(`UPDATE subs SET notes = $2, updated_at = now() WHERE slug = $1`, [
-    slug,
-    notes.slice(0, 4000),
-  ]);
+  await query(
+    `UPDATE subs SET notes = $2, updated_at = now() WHERE slug = $1`,
+    [slug, notes.slice(0, 4000)],
+  );
   revalidatePath(`/subs/${slug}`);
+}
+
+/** Explicitly requested, rather than running inference twice on every page load. */
+export async function summarizeSub(slug: string) {
+  await requireAccess("subs");
+  const { getSub, getSubSummary } = await import("@/lib/subs");
+  const sub = await getSub(slug);
+  if (!sub) return { ok: false as const, error: "Subcontractor not found." };
+  return {
+    ok: true as const,
+    summary: await getSubSummary(sub.aiSummaryInput),
+  };
 }

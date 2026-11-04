@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { revalidatePath } from "next/cache";
 import { withTransaction, runDirect } from "@/lib/commands/db";
 import type { Principal } from "@/lib/commands/principal";
 import { handleTelegramUpdate, verifyTelegramSecret, type TelegramUpdate } from "@/lib/decisions/telegram";
@@ -10,6 +11,7 @@ import { describeApproval } from "@/lib/approved-draft-rules";
 import { askWhatShouldChange, deliverOwnerReply, markDraftCardPulled, sendOwnerTelegram } from "@/lib/owner-reply-delivery";
 import { refreshTelegramCard } from "@/lib/decisions/notify";
 import { getDecision } from "@/lib/commands/decisions";
+import { rememberReplyTarget } from "@/lib/decisions/owner-replies";
 
 // POST /api/telegram/webhook — Telegram decision buttons (A10).
 //
@@ -127,6 +129,22 @@ export async function POST(req: Request) {
       }
       if (r.pulled && r.workItemId) await markDraftCardPulled(r.workItemId, "Pulled back for changes — your note went to the agent. Its revised draft comes as a new card.").catch(() => undefined);
       await deliverOwnerReply(r, String(update.message?.text ?? "").trim().slice(0, 4000));
+    }
+    // Joe answered a portal message from Telegram: it is already in the
+    // thread (committed above). Refresh the pages that show it and confirm.
+    if (result.portalReply) {
+      const p = result.portalReply;
+      try {
+        if (p.scope) revalidatePath(p.scope.kind === "project" ? `/projects/${p.scope.slug}` : `/leads/${p.scope.slug}`);
+        revalidatePath(p.scope ? "/client-portal" : "/sub-portal");
+        revalidatePath("/chat");
+      } catch {
+        /* a stale page refreshes on its next load */
+      }
+      const ack = await sendOwnerTelegram(`Posted in the portal for ${p.recipient}. Reply here to send more.\n${appUrl()}${p.href}`, { replyTo: p.replyToMessageId });
+      if (ack != null) {
+        await rememberReplyTarget(runDirect, { chatId: p.chatId, messageId: ack, portalChannelKey: p.channelKey, portalMessageId: p.messageId, kind: "portal_ack" }).catch(() => undefined);
+      }
     }
     if (result.help) await sendOwnerTelegram(result.help.text, { replyTo: result.help.messageId });
 

@@ -1,106 +1,157 @@
 "use client";
-
 import { useState } from "react";
 import Link from "next/link";
-import { Star } from "lucide-react";
-import { Avatar, Card, Chip } from "@/components/ui";
-import type { SubCard, SubsData, TradeFilter } from "@/lib/subs";
-
+import { Search, Star } from "lucide-react";
+import {
+  Button,
+  Chip,
+  Segmented,
+  EmptyState,
+  TableWrapper,
+  Table,
+  TableHead,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TablePrimaryCell,
+  TableCell,
+} from "@/components/ui";
+import type { SubsData } from "@/lib/subs";
 export function SubsClient({ data }: { data: SubsData }) {
-  const [trade, setTrade] = useState<TradeFilter>("All");
-
-  const visible =
-    trade === "All" ? data.subs : data.subs.filter((s) => s.tradeKey === trade);
-
-  return (
-    <>
-      {/* Trade filter chips */}
-      <div className="mb-4 flex flex-wrap items-center gap-1.5">
-        {data.trades.map((t) => (
-          <button key={t} onClick={() => setTrade(t)}>
-            <Chip kind={trade === t ? "solid" : "ghost"}>{t}</Chip>
-          </button>
-        ))}
-      </div>
-
-      {/* Card grid */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {visible.map((s) => (
-          <SubGridCard key={s.slug} sub={s} />
-        ))}
-        {visible.length === 0 && (
-          <Card kind="dashed" className="col-span-full p-8 text-center">
-            <div className="text-[13px] text-ink-3">No subs in this trade yet.</div>
-          </Card>
-        )}
-      </div>
-    </>
+  const [trade, setTrade] = useState("All"),
+    [view, setView] = useState("active"),
+    [q, setQ] = useState("");
+  const [missingCoi, setMissingCoi] = useState(false);
+  const subs = data.subs.filter(
+    (s) =>
+      s.archived === (view === "archived") &&
+      (trade === "All" || s.tradeKey === trade) &&
+      (!missingCoi || s.coiStatus === "missing") &&
+      `${s.name} ${s.trade}`.toLowerCase().includes(q.toLowerCase()),
   );
-}
-
-function SubGridCard({ sub: s }: { sub: SubCard }) {
-  const expiring = s.coiStatus !== "current";
   return (
-    <Link href={`/subs/${s.slug}`} className="block">
-      <Card
-        className={["p-3.5 transition-colors hover:bg-paper-2", expiring ? "border-flag" : ""].join(" ")}
-      >
-        <div className="flex items-start gap-2.5">
-          <Avatar initials={s.initials} kind={s.fav ? "accent" : "gray"} size="lg" />
-          <div className="min-w-0 flex-1">
-            <div className="flex items-center gap-1">
-              <span className="flex-1 truncate font-serif text-[14px] font-semibold text-ink">
-                {s.name}
-              </span>
-              {s.fav && <Star className="size-3 flex-none fill-accent text-accent" strokeWidth={1.5} />}
-            </div>
-            <div className="mt-0.5 text-[11px] text-ink-3">{s.trade}</div>
-            <div className="mt-1.5 flex items-center gap-1.5">
-              <div className="flex">
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <Star
-                    key={n}
-                    className={[
-                      "size-3",
-                      n <= s.rating ? "fill-accent text-accent" : "text-ink-4",
-                    ].join(" ")}
-                    strokeWidth={1.5}
-                  />
-                ))}
-              </div>
-              <span className="text-[11px] text-ink-3">{s.jobsCount} jobs</span>
-            </div>
-          </div>
-        </div>
-
-        <div className="my-3 border-t border-dashed border-rule" />
-
-        <div className="flex flex-wrap items-center gap-1.5">
-          <Chip kind="ghost">{s.rate}</Chip>
-          {s.openJobs > 0 ? (
-            <Chip kind="accent" dot>
-              {s.openJobs} open job{s.openJobs > 1 ? "s" : ""}
-            </Chip>
-          ) : (
-            <Chip kind="ghost">no open jobs</Chip>
-          )}
-          {!s.coiLabel ? (
-            <Chip kind="flag" dot>
-              COI missing
-            </Chip>
-          ) : s.coiStatus === "expired" ? (
-            <Chip kind="flag" dot>
-              COI expired {s.coiLabel}
-            </Chip>
-          ) : expiring ? (
-            <Chip kind="flag" dot>
-              COI expires {s.coiLabel}
-            </Chip>
-          ) : (
-            <Chip kind="money">COI · {s.coiLabel}</Chip>
-          )}
-        </div>
-      </Card>
-    </Link>
+    <div className="mt-5 space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <Segmented
+          aria-label="Directory status"
+          value={view}
+          onChange={setView}
+          options={[
+            {
+              value: "active",
+              label: "Active",
+              count: data.subs.filter((s) => !s.archived).length,
+            },
+            {
+              value: "archived",
+              label: "Archived",
+              count: data.subs.filter((s) => s.archived).length,
+            },
+          ]}
+        />
+        <label className="ml-auto flex h-9 w-full items-center gap-2 rounded-md border border-rule bg-card px-3 @xl/page:w-60">
+          <Search className="size-4 shrink-0 text-ink-3" />
+          <input
+            type="search"
+            aria-label="Search subs"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search name or trade…"
+            className="w-full min-w-0 bg-transparent text-body outline-none"
+          />
+        </label>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        <label className="flex items-center gap-2 text-label text-ink-3">
+          Trade
+          <select
+            aria-label="Trade"
+            value={trade}
+            onChange={(e) => setTrade(e.target.value)}
+            className="h-8 rounded-md border border-rule bg-card px-2 text-body text-ink"
+          >
+            {data.trades.map((t) => (
+              <option key={t}>{t}</option>
+            ))}
+          </select>
+        </label>
+        <Button variant={missingCoi ? "primary" : "secondary"} size="sm" aria-pressed={missingCoi} onClick={() => setMissingCoi(!missingCoi)}>Missing COI</Button>
+        <span className="self-center text-meta text-ink-3">
+          {subs.length} shown · {data.subs.filter((s) => s.archived === (view === "archived") && s.coiStatus === "missing").length} missing COI
+        </span>
+      </div>
+      <TableWrapper>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableHeader>Subcontractor</TableHeader>
+              <TableHeader className="w-24 whitespace-nowrap @max-2xl/page:hidden">Rating</TableHeader>
+              <TableHeader numeric className="w-24 whitespace-nowrap @max-xl/page:hidden">
+                Open jobs
+              </TableHeader>
+              <TableHeader className="w-28">COI</TableHeader>
+              <TableHeader className="@max-3xl/page:hidden">Rate</TableHeader>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {subs.map((s) => (
+              <TableRow key={s.slug}>
+                <TablePrimaryCell
+                  meta={
+                    <>
+                      {s.trade}
+                      <span className="ml-2 @xl/page:hidden">
+                        · {s.openJobs} open
+                      </span>
+                    </>
+                  }
+                >
+                  <Link href={`/subs/${s.slug}`} className="hover:underline">
+                    {s.name}
+                  </Link>
+                  {s.fav && (
+                    <Star
+                      aria-label="Preferred"
+                      className="ml-2 inline size-3 fill-accent text-accent"
+                    />
+                  )}
+                </TablePrimaryCell>
+                <TableCell className="w-24 whitespace-nowrap @max-2xl/page:hidden">
+                  {s.rating ? `${s.rating} / 5` : "Not rated"}
+                </TableCell>
+                <TableCell numeric className="w-24 whitespace-nowrap @max-xl/page:hidden">
+                  {s.openJobs}
+                </TableCell>
+                <TableCell>
+                  <Link href={`/subs/${s.slug}?tab=Paperwork`}
+                    aria-label={`${s.name}: COI ${s.coiStatus === "current" ? "current, view paperwork" : `${s.coiStatus}, review or add paperwork`}`}
+                    title={s.coiStatus === "current" ? "View COI" : "Review or add COI"}
+                    className="inline-flex min-h-11 items-center gap-1 rounded-md px-1 hover:bg-hover focus-visible:outline-2 focus-visible:outline-focus">
+                    <Chip kind={s.coiStatus === "current" ? "ok" : s.coiStatus === "expiring" ? "warn" : "flag"}>
+                      {`COI ${s.coiStatus}`}
+                    </Chip><span aria-hidden="true" className="text-accent-2">→</span>
+                  </Link>
+                </TableCell>
+                <TableCell className="@max-3xl/page:hidden">
+                  {s.rate || "—"}
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        {!subs.length && (
+          <EmptyState
+            title={
+              view === "archived" ? "No archived subs" : "No matching subs"
+            }
+            description={
+              view === "archived"
+                ? "Archived subcontractors appear here. Open a record to restore it."
+                : "Onboard a subcontractor or adjust the search and trade filter."
+            }
+          />
+        )}
+      </TableWrapper>
+    </div>
   );
 }

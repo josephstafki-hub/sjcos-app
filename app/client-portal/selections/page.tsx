@@ -11,14 +11,15 @@ export default async function PortalSelectionsPage() {
   const view = slug ? await getClientSelections(slug) : EMPTY_SELECTIONS_VIEW;
 
   return (
-    <main className="mx-auto w-full max-w-3xl px-9 py-7">
+    <main className="mx-auto w-full max-w-6xl px-4 py-7 sm:px-8 [&>*]:max-w-3xl">
       <Eyebrow>Selections</Eyebrow>
-      <h1 className="mt-1 font-serif text-[26px] font-medium leading-tight text-accent-2">
+      <h1 className="mt-1 font-serif text-title font-medium leading-tight text-accent-2">
         Your decisions, room by room.
       </h1>
-      <p className="mt-1.5 text-[13px] leading-relaxed text-ink-2">
-        Pick one option for each decision — the price against your allowance is shown up
-        front, and the running budget updates as you choose.
+      <p className="mt-1.5 text-body leading-relaxed text-ink-2">
+        Pick one option for each decision. Posted prices are compared with your allowance.
+        When a price is unconfirmed, Choose records your preference for Joe to price;
+        the running total uses the allowance as a placeholder until a price is posted.
       </p>
       <div className="my-5 border-t border-rule" />
       <ClientSelections view={view} />

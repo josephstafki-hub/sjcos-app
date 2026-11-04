@@ -1,5 +1,5 @@
 import { Shell } from "@/components/shell/Shell";
-import { Eyebrow } from "@/components/ui";
+import { PageHeader, Eyebrow } from "@/components/ui";
 import { requireAccess } from "@/lib/dal";
 import { runDirect, sessionPrincipal } from "@/lib/commands/db";
 import { authorityFor } from "@/lib/commands/decisions";
@@ -77,13 +77,10 @@ export default async function DecisionsPage({ searchParams }: { searchParams: Pr
 
   return (
     <Shell breadcrumb="OPERATIONS ENGINE · DECISIONS">
-      <div className="mx-auto max-w-[980px] px-7 pb-16 pt-6">
+      <div className="mx-auto max-w-[980px] px-4 @3xl/page:px-6 pb-16 pt-6">
         <div className="mb-4">
-          <Eyebrow>
-            {ready.length} waiting on you · {held.length} on hold{owner ? ` · ${pauses.length} lane${pauses.length === 1 ? "" : "s"} paused` : ""}
-          </Eyebrow>
-          <h1 className="mt-1 font-serif text-[34px] font-medium leading-none tracking-tight text-accent-2">Decisions</h1>
-          <p className="mt-2 max-w-[680px] text-[13px] leading-relaxed text-ink-3">
+          <PageHeader title={<> Decisions </>} meta={<> {ready.length} waiting on you · {held.length} on hold{owner ? ` · ${pauses.length} lane${pauses.length === 1 ? "" : "s"} paused` : ""} </>} />
+          <p className="mt-2 max-w-[680px] text-body leading-relaxed text-ink-3">
             Each card is one exact thing an agent wants to send, buy or release — the recipients, what is in it, what is
             left out, and what approving does. Approve here or from the Telegram buttons; the first answer wins and the
             send goes out through the dispatcher, which re-checks everything at the moment it transmits.

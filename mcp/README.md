@@ -7,7 +7,10 @@ standard, so this is **AI-agnostic** — any MCP client (Claude Desktop, Claude
 Code, Cursor, Continue, Codex, …) can connect, not just Claude.
 
 It runs as its own process over **stdio**, separate from the Next app, and reads
-`DATABASE_URL` from `../.env.local`.
+its database login from `../.env.local`: the narrow `DATABASE_URL_AGENT`
+(`sjcos_agent`), falling back to `DATABASE_URL` until that line exists. Only the
+Ask window's launcher, for Joe's own runs, passes `SJC_DB_LOGIN=owner` to get the
+owner login (`deploy/db-roles.md`, `lib/db-login.mjs`).
 
 ## Read tools
 
@@ -39,13 +42,14 @@ Safe by construction — internal records, append-only audit, and proposals only
 |---|---|
 | `import_lead` | Create an inbound lead (the path for web-lead emails Hermes parses from Joe's inbox): full intake funnel — scoring, intake rows, room, feed card — and auto-starts the lead-intake runbook. Refuses a duplicate email unless `allow_duplicate` |
 | `create_project` | Create a project the way the app's buttons do: `lead_slug` converts that lead (idempotent — returns the existing project; carries client, address, value, portal access, files, chat room), or `name` (+ `client_name`/`address`/`value_display`) for a blank one like the "New project" form. Staff principals need the leads / projects area. Plain SQL in `mcp/project-tools.mjs`, kept in step with the two app actions |
+| `set_project_status_line` | Correct or clear the one-line status under a job's name on the Projects list (`projects.stage_label`, ≤300 chars; empty = show the stage name). Free text only; the job total / paid beside it stay computed. Staff principals need the projects area. `mcp/project-tools.mjs` |
 | `save_lead_rough_estimate` | The Phase 1 rough estimate on a lead (lead page › Rough estimate): `lines` [{label, value}] replaces the list, `total`, optional `notes` (assumptions / steering). Saves a **draft** and mirrors the total onto the /leads value; never sends (Joe sends from the lead page). Refuses an already-sent estimate unless `revise_sent`, and a lead that became a project. Staff need leads + estimates. Plain SQL in `mcp/lead-tools.mjs`, kept in step with the lead estimate actions |
 | `capture_knowledge` | Save a knowledge item (dedup by fingerprint; optional receipt) |
 | `create_work_item` | Add to the queue (`requires_approval` defaults true). A `due_at` on a later day snoozes the item until 00:00 Central that day — scheduled to-dos wait for their day (table trigger, applies to every writer) |
 | `update_work_item_status` | Move an item's status (done sets completed_at) |
 | `enrich_work_item` | Rewrite a **detector-filed** item's factual body into a readable brief (original kept under `--- source facts ---`); refuses non-detector items; never touches status/priority/assignee/due/approvals |
 | `snooze_work_item` | Push `due_at` out + clear app-owned promotion (`{id, days?, reason?}`); snooze lands on 00:00 Central of the new due day; logs a receipt |
-| `submit_draft_for_approval` | Chat-lane item that needs a client-facing step: save the draft + set `approval_needed` (never sends itself). If the draft starts with `To:`/`Subject:` lines matching the lead/project email, Joe's Approve click **will** send it — do not call `send_email` afterward. Returns `approve_will_send` |
+| `submit_draft_for_approval` | Chat-lane item that needs a client-facing step: save the draft + set `approval_needed` (never sends itself). If the draft starts with `To:`/`Subject:` lines matching the lead/project email, Joe's Approve click **will** send it — do not call `send_email` afterward. A client who wrote in the **client portal** gets a portal reply: pass `channel: "portal"` with just the body, and Approve posts it in their portal thread as Joe. Returns `approve_will_send` |
 | `record_agent_run` / `record_receipt` | Open/close a run; append proof-of-work |
 | `create_skill_proposal` | Propose a skill → lands `proposed`, out of the library until Joe approves in `/engine` |
 | `record_skill_used` | Log that an agent followed a skill |
@@ -405,7 +409,7 @@ so they run the exact code the owner's buttons run.
 | `list_project_files` | The project's uploaded files — the pool `attach_bid_file` draws from — with `sha256`, `updated_at` and `created_by` per file |
 | `save_project_file` | Save a document an agent wrote (markdown/text/html) into the project's files, internal only; same name replaces the older copy. Permit briefs use tag `PERMIT · Requirements` and show on the Permits tab |
 | `view_project_image` | The actual pixels of an uploaded project image (downscaled), so an agent can look at photos/plan snapshots |
-| `get_project_file` | One file by id — base64 image block, or a short-lived signed URL (any type, incl. PDFs) |
+| `get_project_file` | One file by id — base64 image block, text (text files and PDFs, `page_from`/`page_to`; a scanned PDF comes back as page images), `pages` (a PDF's pages as images, 5 at a time), or a short-lived signed URL (any type) |
 | `create_bid_package` | Start a DRAFT bid request for a category of work |
 | `update_bid_package` | Edit title / trade / scope notes / due date |
 | `attach_bid_file` | Put a project file in the packet, with the label the sub sees |

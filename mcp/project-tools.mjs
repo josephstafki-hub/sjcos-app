@@ -129,13 +129,14 @@ export function registerProjectTools(server, { rows, json, strippedDollarError, 
     // Portal login, invite, portal chat and lead-stage files follow the lead
     // onto the project. Best-effort — never block the conversion.
     try {
-      await rows(
-        `UPDATE users
-            SET link_slug = $2,
-                email = CASE WHEN email = $3 THEN $4 ELSE email END
-          WHERE role = 'client' AND link_slug = $1`,
-        [`lead:${slug}`, pslug, `lead-${slug}@client-portal.invalid`, `${pslug}@client-portal.invalid`],
-      );
+      // Owner-run helper (db/migrations/0060_db_roles.sql): the agent login
+      // cannot write users; this moves only a client login off its lead link.
+      await rows(`SELECT sjcos_relink_client_login($1, $2, $3, $4)`, [
+        `lead:${slug}`,
+        pslug,
+        `lead-${slug}@client-portal.invalid`,
+        `${pslug}@client-portal.invalid`,
+      ]);
       await rows(`UPDATE client_portal_invites SET project_slug = $2, lead_slug = NULL WHERE lead_slug = $1`, [slug, pslug]);
       await rows(`UPDATE chat_messages SET channel_key = $2 WHERE channel_key = $1`, [`portal:lead:${slug}`, `portal:${pslug}`]);
       await rows(
@@ -234,6 +235,46 @@ export function registerProjectTools(server, { rows, json, strippedDollarError, 
       if (refusal) return json({ ok: false, error: refusal });
       try {
         return json(leadSlug ? await convertLead(leadSlug, a.name) : await createBlank(a));
+      } catch (e) {
+        return json({ ok: false, error: e?.message ?? String(e) });
+      }
+    },
+  );
+
+  // The one-line "where this job stands" text under a job's name on the
+  // Projects list (projects.stage_label; empty falls back to the stage name).
+  // Agents wrote it during imports and then had no way to correct it when it
+  // went stale (Alcantara, 2026-10-30: still said two billed changes were
+  // unbilled). Free text only — the job total, paid and % paid beside it are
+  // computed from records and are never written here.
+  server.registerTool(
+    "set_project_status_line",
+    {
+      title: "Set a project's status line",
+      description:
+        "Correct or clear the one-line status shown under a job's name on the Projects list " +
+        "(\"Waiting on cabinet delivery\", \"Final invoice sent, awaiting payment\"). Use it when the line " +
+        "is stale or wrong; read the current line with list_projects (stage_label) first. Plain words, " +
+        "one sentence, at most 300 characters. State only what the records show — never claim something " +
+        "was sent, paid or signed without the record — and don't restate the job total or paid amount " +
+        "(those are computed and shown beside it). Empty text clears it, and the list shows the stage name.",
+      inputSchema: {
+        project_slug: z.string(),
+        text: z.string().describe("The new status line. Empty string clears it."),
+      },
+    },
+    async ({ project_slug, text }) => {
+      const line = String(text ?? "").replace(/\s+/g, " ").trim();
+      if (line.length > 300) return json({ ok: false, error: `That's ${line.length} characters; keep the status line to one sentence (300 max).` });
+      const mangled = strippedDollarError(line);
+      if (mangled) return mangled;
+      const refusal = await accessRefusal("projects");
+      if (refusal) return json({ ok: false, error: refusal });
+      try {
+        const before = await one(`SELECT slug, name, stage_label FROM projects WHERE slug = $1`, [String(project_slug ?? "").trim()]);
+        if (!before) return json({ ok: false, error: `Project '${project_slug}' not found. Use list_projects to find the slug.` });
+        await rows(`UPDATE projects SET stage_label = $2, updated_at = now() WHERE slug = $1`, [before.slug, line || null]);
+        return json({ ok: true, project_slug: before.slug, name: before.name, before: before.stage_label ?? null, after: line || null });
       } catch (e) {
         return json({ ok: false, error: e?.message ?? String(e) });
       }

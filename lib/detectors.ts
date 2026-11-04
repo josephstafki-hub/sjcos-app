@@ -138,9 +138,13 @@ function needsReplyDetector(): Detector {
     if (!gmailConfigured()) return { configured: false, items: [], outboundThreadIds: new Set() };
     // Every thread from the last 45 days, headers only, paged (A01): the
     // newest 150 full bodies missed older open threads on a busy inbox and
-    // burned Gmail quota.
+    // burned Gmail quota. Threads unchanged since the last run come from the
+    // kept copies (fetchThreadMetadata compares historyIds), so a warm hourly
+    // run is one list call plus the threads that moved; a cold one (after a
+    // restart, ~40 units × ~400 threads) is paced to half the minute by the
+    // background budget in lib/gmail-quota.ts rather than bursting.
     const [threads, leadRes, linkRes, projRes] = await Promise.all([
-      fetchThreadMetadata({ since: Date.now() - NEEDS_REPLY_LOOKBACK_DAYS * 86_400_000, max: 1000, allPages: true, concurrency: 5 }),
+      fetchThreadMetadata({ since: Date.now() - NEEDS_REPLY_LOOKBACK_DAYS * 86_400_000, max: 1000, allPages: true, concurrency: 3 }),
       query<{ id: string; slug: string; name: string; email: string }>(
         `SELECT id, slug, name, email FROM leads
           WHERE email IS NOT NULL AND email <> '' AND stage <> 'lost'

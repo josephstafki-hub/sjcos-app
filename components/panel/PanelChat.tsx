@@ -16,12 +16,15 @@ import {
   ShieldQuestion,
   CircleHelp,
 } from "lucide-react";
-import { VoiceButton } from "@/components/ui";
+import { useRecordMentions } from "./useRecordMentions";
+import { RunReview } from "./RunReview";
+import { AssistantMarkdown } from "./AssistantMarkdown";
+import { PanelDictation } from "./PanelDictation";
 import { mergeTranscript } from "@/lib/append-transcript";
 import { useVoiceRound } from "@/lib/use-voice-round";
-import { approveGrant, denyGrant } from "@/lib/actions/owner-grants";
-import type { PendingGrant } from "@/lib/actions/dev-agents";
-import { GrantDetails } from "@/components/engine/GrantDetails";
+import { GrantCard } from "./GrantCard";
+import { Button } from "@/components/ui/Button";
+import { Card } from "@/components/ui/Card";
 import type { SteerStatus } from "@/lib/run-steers";
 import type {
   AgentInteraction,
@@ -87,6 +90,8 @@ export function PanelChat({
   compact = false,
   threadsRail = false,
   showNarration = true,
+  threadView,
+  onThreadViewChange,
 }: {
   registerHandOff: (fn: (p: TodayPriority, kind: "do" | "prep") => void) => void;
   onRunStart: (run: ActiveRun) => void;
@@ -99,12 +104,15 @@ export function PanelChat({
    *  always-visible column (T3-style); narrower docks keep the History
    *  overlay drawer instead. */
   threadsRail?: boolean;
+  threadView?: boolean;
+  onThreadViewChange?: (open: boolean) => void;
   /** The "Here's the queue right now" opener at the top of the chat. Off in
    *  the popout window — the to-do list doesn't belong in its chats. */
   showNarration?: boolean;
 }) {
   const { priorities, waiting, refresh } = useTodayQueue();
   const [prompt, setPrompt] = useState("");
+  const mentions = useRecordMentions(prompt, setPrompt);
   const [flash, setFlash] = useState("");
   const [threadsOpen, setThreadsOpen] = useState(false);
   // Per-message express permission: the next Claude turn gets a short-lived
@@ -112,6 +120,10 @@ export function PanelChat({
   // Plain state, never written to panelStore, and reset after every send so a
   // grant never outlives the message that gave it.
   const [allowSends, setAllowSends] = useState(false);
+  // Follow-ups typed mid-run with Tab wait here and go out, one per run, when
+  // the current run ends (T3 Code's queue; Enter still steers). Per tab, and a
+  // queued turn never carries Express permission.
+  const [queued, setQueued] = useState<{ id: string; text: string; refs: typeof mentions.refs }[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -163,6 +175,16 @@ export function PanelChat({
     },
   });
   const meta = AGENT_META[chat.agent];
+  useEffect(() => { setAllowSends(false); }, [chat.conversationId, chat.agent]);
+  useEffect(() => { setQueued([]); }, [chat.conversationId]);
+  useEffect(() => {
+    // A steer the run couldn't take goes first (useAgentChat queuedNext).
+    if (chat.pending || chat.queuedNext || queued.length === 0) return;
+    const [next, ...rest] = queued;
+    setQueued(rest);
+    chat.submit({ directive: next.text, contextRefs: next.refs, display: next.text });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chat.pending, chat.queuedNext, queued]);
 
   const narration = queueNarration(priorities, { items: waiting, total: waiting.length });
 
@@ -271,16 +293,32 @@ export function PanelChat({
     setAttachments([]);
     chat.submit({
       directive: q,
+      contextRefs: mentions.refs,
       display,
       attachments: files,
       // Auto counts too — the router may hand this turn to Claude.
       allowSends: (chat.agent === "claude" || chat.agent === "auto") && allowSends ? true : undefined,
     });
     setAllowSends(false);
+    mentions.clear();
   };
 
   /** Voice-mode send: the transcript goes to the Claude concierge, which
    *  speaks back immediately and delegates any OS work. */
+  /** Tab mid-run: hold this message until the running agent finishes. */
+  const queueText = (raw: string) => {
+    const q = raw.trim();
+    if (!q || !chat.pending) return false;
+    if (attachments.length) {
+      flashNotice("Files can't be queued — send them once this run finishes");
+      return true;
+    }
+    setQueued((cur) => [...cur, { id: `${Date.now()}-${cur.length}`, text: q, refs: mentions.refs }]);
+    setPrompt("");
+    mentions.clear();
+    return true;
+  };
+
   const submitVoice = (text: string) => {
     const q = text.trim();
     if (!q || chat.pending) return;
@@ -330,29 +368,23 @@ export function PanelChat({
     });
   }, []);
 
-  // ⌘/Ctrl+K focuses the composer — the panel is the app's one Ask surface.
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        inputRef.current?.focus();
-      }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, []);
-
   // ─── Thread navigation (ThreadList: rail beside the chat, or drawer) ───────
 
   const openThread = (id: string) => {
+    setAllowSends(false);
+    mentions.clear();
     setThreadsOpen(false);
+    onThreadViewChange?.(false);
     void chat.openConversation(id);
     inputRef.current?.focus();
   };
 
   /** Plain New = Unfiled; a folder (scope / a header's "+") files it there. */
   const newThread = (folder?: RailFolder | null) => {
+    setAllowSends(false);
+    mentions.clear();
     setThreadsOpen(false);
+    onThreadViewChange?.(false);
     if (folder) chat.newChatIn(folder.id, folder.name);
     else chat.newChat();
     inputRef.current?.focus();
@@ -360,7 +392,10 @@ export function PanelChat({
 
   /** "New chat in job…": under that job's folder, created on first use. */
   const newThreadFor = (entity: FolderEntityRef, name: string) => {
+    setAllowSends(false);
+    mentions.clear();
     setThreadsOpen(false);
+    onThreadViewChange?.(false);
     chat.newChatFor(entity, name);
     inputRef.current?.focus();
   };
@@ -374,14 +409,16 @@ export function PanelChat({
   const starters = startersForRoute(route, chat.agent);
 
   const chatSection = (
-    <section className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[10px] border-[1.5px] border-ai bg-paper shadow-card">
+    <section className="@container/chat relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded-[10px] border-[1.5px] border-ai bg-paper shadow-card">
       {/* Header: agent picker + history + New chat */}
-      <div className="flex items-center gap-2 border-b border-rule px-3 py-2">
+      <div className="relative shrink-0 border-b border-rule">
+        <div className="flex flex-wrap items-center gap-1 px-3 pt-2">
         <div className="flex rounded-md border border-rule bg-paper-2 p-0.5">
           {AGENT_ORDER.map((a) => (
             <button
               key={a}
               onClick={() => {
+                setAllowSends(false);
                 chat.selectAgent(a);
                 inputRef.current?.focus();
               }}
@@ -402,7 +439,7 @@ export function PanelChat({
         </div>
         {chat.folderName && (
           <span
-            className="hidden max-w-36 truncate rounded-full bg-paper-2 px-1.5 py-px font-mono text-[10px] text-ink-3 min-[460px]:inline"
+            className="hidden max-w-36 truncate rounded-full bg-paper-2 px-1.5 py-px font-mono text-[10px] text-ink-3 @lg/chat:inline"
             title="The job this thread is filed under — the agent is told"
           >
             {chat.folderName}
@@ -410,13 +447,13 @@ export function PanelChat({
         )}
         {!chat.conversationId && chat.nextHome && (
           <span
-            className="hidden max-w-44 items-center gap-1 rounded-full bg-ai-soft px-1.5 py-px font-mono text-[10px] text-ai-2 min-[460px]:inline-flex"
+            className="hidden max-w-44 items-center gap-1 rounded-full bg-ai-soft px-1.5 py-px font-mono text-[10px] text-ai-2 @lg/chat:inline-flex"
             title="This new chat will file under this job once you send — ✕ starts it Unfiled instead"
           >
             <span className="truncate">New in {chat.nextHome.name}</span>
             <button
               onClick={chat.clearNextHome}
-              aria-label="Start Unfiled instead"
+              aria-label="Start Unfiled instead" title="Start Unfiled instead"
               className="flex-none rounded-full p-px hover:bg-paper"
             >
               <X className="size-2.5" strokeWidth={2.25} />
@@ -424,14 +461,14 @@ export function PanelChat({
           </span>
         )}
         {route && (
-          <span className="hidden truncate font-mono text-[10.5px] text-ink-4 min-[460px]:inline" title="The page the app view is showing — turns are grounded in it">
+          <span className="hidden truncate font-mono text-[10.5px] text-ink-4 @lg/chat:inline" title="The page the app view is showing — turns are grounded in it">
             {route}
           </span>
         )}
         <div className="flex-1" />
         {!threadsRail && (
           <button
-            onClick={() => setThreadsOpen((o) => !o)}
+            onClick={() => { setThreadsOpen((o) => !o); onThreadViewChange?.(!(threadView ?? threadsOpen)); }}
             aria-label="Threads"
             title="Threads"
             className="rounded-md p-1 text-ink-3 transition-colors hover:bg-paper"
@@ -453,11 +490,14 @@ export function PanelChat({
             <Plus className="size-3" strokeWidth={2} /> New
           </button>
         )}
+        </div>
+        <h2 className="break-words px-3 py-2 text-body font-semibold text-ink">{chat.conversationTitle}</h2>
       </div>
 
+      <div className="relative flex min-h-0 flex-1 flex-col">
       {/* Thread drawer — overlays the transcript on narrow docks/mobile */}
-      {!threadsRail && threadsOpen && (
-        <div className="absolute inset-x-0 top-[41px] bottom-0 z-10 flex flex-col bg-paper">
+      {!threadsRail && (threadView ?? threadsOpen) && (
+        <div className="absolute inset-x-0 inset-y-0 z-10 flex flex-col bg-paper">
           <ThreadList
             variant="drawer"
             className="min-h-0 flex-1"
@@ -469,14 +509,14 @@ export function PanelChat({
             onOpen={openThread}
             onNew={newThread}
             onNewFor={newThreadFor}
-            onClose={() => setThreadsOpen(false)}
+            onClose={() => { setThreadsOpen(false); onThreadViewChange?.(false); }}
             onCurrentRemoved={() => newThread()}
           />
         </div>
       )}
 
       {/* Scroll area: narration → starters/cards → transcript */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 py-3">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
         {showNarration && !compact && (
           <div className="whitespace-pre-wrap rounded-md bg-ai-soft px-3 py-2 text-[12.5px] leading-relaxed text-ai-2">
             {narration}
@@ -562,10 +602,10 @@ export function PanelChat({
                       m.body.startsWith("⚠️") ? "text-flag" : "text-ai-2"
                     }`}
                   >
-                    {parsed.body}
+                    <AssistantMarkdown text={parsed.body} />
                   </div>
                   <ModelActionChips actions={parsed.actions} />
-                  {chat.logs[m.id] && <ActivityLog text={chat.logs[m.id]} done />}
+                  {m.runId ? <RunReview runId={m.runId} /> : (m.workLog || chat.logs[m.id]) && <ActivityLog text={m.workLog || chat.logs[m.id]} done />}
                 </div>
               );
             })}
@@ -646,7 +686,7 @@ export function PanelChat({
       {/* Claude run controls — also shown on Auto (they apply whenever the
           router hands the turn to Claude). */}
       {(chat.agent === "claude" || chat.agent === "auto") && (
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-rule px-3 py-1.5 text-[11px] text-ink-4">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-rule px-3 py-1.5 text-meta text-ink-2">
           <OptSelect
             label="Model"
             value={chat.claudeOpts.model}
@@ -694,7 +734,7 @@ export function PanelChat({
               checked={chat.claudeOpts.withMcp}
               disabled={chat.pending}
               onChange={(e) => chat.setClaudeOpts({ withMcp: e.target.checked })}
-              className="size-3 accent-ai disabled:opacity-50"
+              className="size-3 accent-ai disabled:opacity-100 disabled:text-ink-3"
             />
             <span>Tools</span>
           </label>
@@ -707,7 +747,7 @@ export function PanelChat({
               checked={allowSends}
               disabled={chat.pending}
               onChange={(e) => setAllowSends(e.target.checked)}
-              className="size-3 accent-ai disabled:opacity-50"
+              className="size-3 accent-ai disabled:opacity-100 disabled:text-ink-3"
             />
             <span className={allowSends ? "font-medium text-flag" : undefined}>Express permission (sends)</span>
           </label>
@@ -730,7 +770,7 @@ export function PanelChat({
               </button>
             </span>
           )}
-          <span className="hidden text-ink-4/70 min-[520px]:inline">
+          <span className="hidden text-ink-3 @xl/chat:inline">
             ⇧Tab cycles · /model /context /effort /mode /mcp /session /stop
           </span>
         </div>
@@ -751,7 +791,7 @@ export function PanelChat({
               <span className="max-w-[140px] truncate">{a.name}</span>
               <button
                 type="button"
-                aria-label={`Remove ${a.name}`}
+                aria-label={`Remove ${a.name}`} title={`Remove ${a.name}`}
                 onClick={() => removeAttachment(i)}
                 className="rounded p-0.5 hover:bg-paper-2"
               >
@@ -772,6 +812,19 @@ export function PanelChat({
         onStart={() => voice.startWithBriefing(spokenQueue(priorities, { items: waiting, total: waiting.length }))}
       />
 
+      {mentions.records.length > 0 && <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 text-meta text-ink-3"><span>Working on</span>{mentions.records.map(r=><span key={r.id} className="flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-1"><a href={r.href} className="text-accent">{r.title}</a><button type="button" aria-label={`Remove context ${r.title}`} title={`Remove context ${r.title}`} onClick={()=>mentions.remove(r.id)}><X className="size-3"/></button></span>)}</div>}
+      {mentions.open && <div role="listbox" aria-label="Attach record context" className="max-h-48 overflow-y-auto border-t border-rule bg-card p-2">
+        {mentions.results.map((r,i)=><button type="button" key={r.id} role="option" aria-selected={i===mentions.index} onClick={()=>mentions.pick(r)} className={`block w-full rounded-md px-2 py-1.5 text-left text-body ${i===mentions.index?'bg-selected':'hover:bg-hover'}`}>{r.title}<span className="ml-2 text-meta text-ink-3">{r.kind} · {r.detail}</span></button>)}
+        {!mentions.results.length&&<p className="text-meta text-ink-3">{mentions.error||'Type a job, client, or invoice name to attach it.'}</p>}
+      </div>}
+      {queued.length > 0 && <div className="flex flex-col gap-1 border-t border-rule px-3 py-2" aria-label="Queued messages">
+        {queued.map((m, i) => <div key={m.id} className="flex items-center gap-2 text-meta text-ink-2">
+          <span className="flex-none text-ink-3">{i === 0 ? "Next" : "Then"}</span>
+          <span className="min-w-0 flex-1 truncate">{m.text}</span>
+          <button type="button" className="flex-none text-ink-3 hover:text-ink" aria-label={`Steer now: ${m.text}`} onClick={() => { setQueued((cur) => cur.filter((x) => x.id !== m.id)); chat.steer(m.text); }}>Steer now</button>
+          <button type="button" className="flex-none text-ink-3 hover:text-ink" aria-label={`Remove queued message: ${m.text}`} title={`Remove queued message: ${m.text}`} onClick={() => setQueued((cur) => cur.filter((x) => x.id !== m.id))}><X className="size-3" /></button>
+        </div>)}
+      </div>}
       {/* Composer */}
       <form
         onSubmit={(e) => {
@@ -798,7 +851,7 @@ export function PanelChat({
         >
           <Paperclip className={`size-4 ${uploading ? "animate-pulse" : ""}`} strokeWidth={1.75} />
         </button>
-        <VoiceButton compact onText={(t) => setPrompt((cur) => mergeTranscript(cur, t))} />
+        <PanelDictation onText={(t) => setPrompt((cur) => mergeTranscript(cur, t))} />
         <span className="hidden sm:contents">
           <VoiceRoundButton voice={voice} />
         </span>
@@ -807,7 +860,13 @@ export function PanelChat({
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
           onKeyDown={(e) => {
-            if (chat.agent === "claude" && e.key === "Tab" && e.shiftKey) {
+            if (mentions.onKeyDown(e)) return;
+            if (e.key === "Tab" && !e.shiftKey && chat.pending && prompt.trim()) {
+              e.preventDefault();
+              queueText(prompt);
+              return;
+            }
+            if ((chat.agent === "claude" || chat.agent === "auto") && e.key === "Tab" && e.shiftKey) {
               e.preventDefault();
               cycleMode(1);
             }
@@ -820,7 +879,7 @@ export function PanelChat({
             voice.voiceMode && voice.phase !== "idle"
               ? voicePlaceholder(voice.phase)
               : chat.pending
-                ? `Steer ${meta.label === "Auto" ? "the agent" : meta.label} — it reads this mid-run…`
+                ? `Steer ${meta.label === "Auto" ? "the agent" : meta.label} (Enter) or queue for after (Tab)…`
                 : `Tell ${meta.label} what to do…`
           }
           className="min-w-0 flex-1 bg-transparent font-serif text-[15px] text-ink outline-none placeholder:text-ink-4"
@@ -829,12 +888,13 @@ export function PanelChat({
           type="submit"
           disabled={uploading || (!prompt.trim() && (chat.pending || attachments.length === 0))}
           aria-label={chat.pending ? "Steer the running agent" : "Send"}
-          title={chat.pending ? "Steer: send this into the run that's working now" : undefined}
+          title={chat.pending ? "Steer: send this into the run that's working now" : "Send"}
           className="flex size-7 flex-none items-center justify-center rounded-md bg-ink text-paper transition-colors hover:bg-[#232a1e] disabled:opacity-40"
         >
           <ArrowUp className="size-4" strokeWidth={2} />
         </button>
       </form>
+      </div>
     </section>
   );
 
@@ -988,7 +1048,7 @@ function VoiceBar({
         <button
           type="button"
           onClick={() => voice.setVoiceMode(false)}
-          aria-label="Exit voice mode"
+          aria-label="Exit voice mode" title="Exit voice mode"
           className="flex size-9 flex-none items-center justify-center rounded-full border border-rule text-ink-3"
         >
           <X className="size-4" strokeWidth={2} />
@@ -997,7 +1057,7 @@ function VoiceBar({
       <button
         type="button"
         onClick={voice.voiceMode ? voice.micTap : onStart}
-        aria-label={label}
+        aria-label={label} title={label}
         style={{ boxShadow: ring }}
         className={`flex size-16 flex-none items-center justify-center rounded-full transition-[box-shadow,background-color] duration-150 ${
           p === "recording"
@@ -1283,59 +1343,6 @@ function ApprovalCard({
 
 /** An agent's request_owner_permission (owner grant), decidable inline —
  *  same decision paths as /engine/permissions, just without leaving the chat. */
-function GrantCard({ grant, onDone }: { grant: PendingGrant; onDone: (id: string) => void }) {
-  const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState("");
-  const decide = async (approve: boolean) => {
-    setBusy(true);
-    try {
-      if (approve) await approveGrant(grant.id);
-      else await denyGrant(grant.id, note.trim() || undefined);
-      onDone(grant.id);
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <div className="rounded-md border-[1.5px] border-flag/60 bg-paper px-3 py-2.5">
-      <div className="mb-1 flex items-center gap-1.5 text-[10.5px] font-medium uppercase tracking-[0.1em] text-flag">
-        <ShieldQuestion className="size-3.5" strokeWidth={1.75} />
-        Send permission — {grant.requestedBy} asks
-      </div>
-      <div className="text-[13px] font-medium text-ink">
-        {grant.detail?.headline ?? `${grant.label}${grant.targetId ? ` — ${grant.targetId}` : ""}`}
-      </div>
-      {grant.detail?.job && <div className="text-[11.5px] text-ink-3">{grant.detail.job}</div>}
-      {grant.reason && <div className="mt-0.5 text-[12px] text-ink-3">{grant.reason}</div>}
-      {grant.detail && <GrantDetails detail={grant.detail} />}
-      <div className="mt-2 flex flex-wrap items-center gap-1.5">
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void decide(true)}
-          className="rounded-md bg-ink px-2.5 py-1 text-[11.5px] font-medium text-paper transition-colors hover:bg-[#232a1e] disabled:opacity-40"
-        >
-          Approve send
-        </button>
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void decide(false)}
-          className="rounded-md border border-rule px-2.5 py-1 text-[11.5px] font-medium text-flag transition-colors hover:bg-paper-2 disabled:opacity-40"
-        >
-          Deny
-        </button>
-        <input
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          placeholder="Note (kept with a denial)…"
-          className="min-w-0 flex-1 rounded-md border border-rule bg-paper px-2 py-1 text-[11.5px] text-ink outline-none placeholder:text-ink-4"
-        />
-      </div>
-    </div>
-  );
-}
-
 /** Compact labeled dropdown for the Claude run controls. */
 function OptSelect({
   label,
@@ -1368,7 +1375,7 @@ function OptSelect({
         value={value}
         disabled={disabled}
         onChange={(e) => onChange(e.target.value)}
-        className="rounded border border-rule bg-card px-1.5 py-0.5 text-[11px] text-ink-2 outline-none disabled:opacity-50"
+        className="rounded border border-rule bg-card px-1.5 py-0.5 text-label text-ink-2 outline-none disabled:opacity-100 disabled:text-ink-3"
       >
         {options.filter((o) => !o.group).map(render)}
         {groups.map((g) => (

@@ -19,8 +19,10 @@ import "server-only";
 // Joe's box, never a log line.
 
 import { randomUUID } from "node:crypto";
+import { connectionCopy } from "./comms/connection-copy";
 import { query, queryOne } from "./db";
 import { commsEnvReport, voiceConfigFrom, type VoiceConfig } from "./comms/env";
+import { resolveCallIdentity, callIdentityLabel } from "./comms/call-identity";
 import { normalizeE164 } from "./comms/phone";
 import {
   DEFAULT_RECORDING_NOTICE,
@@ -130,12 +132,21 @@ const CALL_COLS = `id, direction, call_session_id, counterparty_leg_id, owner_le
 
 export async function getCall(id: string): Promise<CallRow | null> {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
-  return queryOne<CallRow>(`SELECT ${CALL_COLS} FROM calls WHERE id = $1`, [id]);
+  const call = await queryOne<CallRow>(`SELECT ${CALL_COLS} FROM calls WHERE id = $1`, [id]);
+  return call ? resolveCallIdentity(call, matchPhoneToRecord) : null;
 }
 
 export async function listCalls(limit = 100): Promise<CallRow[]> {
   const { rows } = await query<CallRow>(`SELECT ${CALL_COLS} FROM calls ORDER BY started_at DESC LIMIT $1`, [limit]);
-  return rows;
+  const matches = new Map<string, ReturnType<typeof matchPhoneToRecord>>();
+  const lookup = (phone: string) => {
+    let result = matches.get(phone);
+    if (!result) { result = matchPhoneToRecord(phone); matches.set(phone, result); }
+    return result;
+  };
+  const resolved: CallRow[] = [];
+  for (const call of rows) resolved.push(await resolveCallIdentity(call, lookup));
+  return resolved;
 }
 
 export async function getCallEvents(id: string): Promise<{ event_type: string; note: string; occurred_at: string | null; created_at: string }[]> {
@@ -161,7 +172,7 @@ function toState(r: CallRow): CallState {
 }
 
 export function callDisplayName(r: Pick<CallRow, "contact_name" | "counterparty_number">): string {
-  return r.contact_name?.trim() || r.counterparty_number;
+  return callIdentityLabel(r);
 }
 
 // ─── Webhook handling ────────────────────────────────────────────────────────
@@ -538,8 +549,7 @@ export type PlaceCallResult =
 export async function placeCall(input: PlaceCallInput): Promise<PlaceCallResult> {
   const cfg = voiceConfig();
   if (!cfg) {
-    const s = voiceStatus();
-    return { ok: false, error: s.enabled ? `Voice is misconfigured: ${s.problems.join("; ")}` : "Voice is not configured (VOICE_APPLICATION_ID unset).", blocked: "not_configured" };
+    return { ok: false, error: connectionCopy("voice").error, blocked: "not_configured" };
   }
   const norm = normalizeE164(input.to);
   if (!norm.ok) return { ok: false, error: norm.error, blocked: "invalid_number" };

@@ -51,6 +51,10 @@ import "server-only";
 import { query, queryOne } from "./db";
 import { gmailConfigured, sendNewEmail } from "./gmail";
 import { emit } from "./notify";
+import { UNKNOWN_OUTCOME, ambiguousSendError, directSendBlocked } from "./direct-send-gate";
+import type { Run } from "./commands/core";
+
+const runQ: Run = async (sql, params) => (await query(sql, params as never[])).rows as never;
 
 /** Hard ceiling per timer run. Bid lists are a handful of subs, so a healthy
  *  sweep sends far fewer; hitting this cap means something is wrong. */
@@ -182,7 +186,7 @@ async function claim(
      ON CONFLICT (invite_id, kind) DO UPDATE
        SET status = 'queued', error = NULL, created_at = now(),
            subject = EXCLUDED.subject, body = EXCLUDED.body
-       WHERE bid_invite_emails.status = 'failed'
+       WHERE (bid_invite_emails.status = 'failed' AND COALESCE(bid_invite_emails.error, '') NOT LIKE '${UNKNOWN_OUTCOME}%')
           OR (bid_invite_emails.status = 'queued'
               AND bid_invite_emails.created_at < now() - interval '1 hour')
      RETURNING id`,
@@ -195,13 +199,26 @@ async function claim(
  *  marks the row 'failed' (re-claimable next sweep) and returns false. */
 async function deliver(claimId: number, kind: BidEmailKind, r: ChaseRow): Promise<boolean> {
   const { subject, body } = compose(kind, r);
+  // Lanes and opt-outs (Tier 4): held, not sent; the next sweep tries again.
+  const blocked = await directSendBlocked(runQ, { lane: "sends", to: r.email });
+  if (blocked) {
+    await query(`UPDATE bid_invite_emails SET status = 'failed', error = $2 WHERE id = $1`, [claimId, `held: ${blocked}`.slice(0, 300)]);
+    return false;
+  }
   try {
     await sendNewEmail({ to: r.email, subject, bodyText: body });
   } catch (e) {
+    const msg = String((e as Error)?.message ?? e);
+    // It may have gone out: never retried on its own (that's how a sub gets
+    // two nudges). Joe is told to check Sent.
+    const unknown = ambiguousSendError(e);
     await query(`UPDATE bid_invite_emails SET status = 'failed', error = $2 WHERE id = $1`, [
       claimId,
-      String((e as Error)?.message ?? e).slice(0, 300),
+      (unknown ? `${UNKNOWN_OUTCOME}: ${msg}` : msg).slice(0, 300),
     ]);
+    if (unknown) {
+      await emit({ kind: "job", tag: "Bid", accent: "flag", icon: "mail", flagged: true, title: `Bid follow-up to ${r.sub_name} may not have sent — ${r.title}`, subline: "Gmail didn't confirm it. Check Sent before sending it again; it won't retry on its own.", href: `/projects/${r.slug}` }).catch(() => undefined);
+    }
     return false;
   }
   await query(`UPDATE bid_invite_emails SET status = 'sent', sent_at = now() WHERE id = $1`, [

@@ -6,6 +6,7 @@
 
 import { ai } from "./ai";
 import { query } from "./db";
+import { COMPLIANCE_SOURCE, CENTRAL_TODAY } from "./compliance-source.mjs";
 
 /** Timeline dot tone — flag (urgent), accent (action/license), ghost (routine). */
 export type ComplianceDot = "flag" | "accent" | "ghost";
@@ -49,6 +50,7 @@ export interface ComplianceData {
   filters: string[];
   windows: ComplianceWindowCard[];
   timeline: TimelineRow[];
+  history: TimelineRow[];
 }
 
 // ─── DB row → display mapping ────────────────────────────────────────────────
@@ -72,19 +74,24 @@ interface ComplianceRow {
 const COMPLIANCE_SELECT = `
   SELECT id, title,
          to_char(due_date, 'FMMon FMDD')        AS due_label,
-         upper(to_char(due_date, 'FMMon FMDD'))  AS timeline_date,
-         (due_date - CURRENT_DATE)::int          AS days_until,
+         to_char(due_date, 'FMMon FMDD')  AS timeline_date,
+         (due_date - ${CENTRAL_TODAY})::int          AS days_until,
          COALESCE(who, '')                       AS who,
          COALESCE(NULLIF(step, ''), '—')         AS step,
          COALESCE(dot, 'ghost')                  AS dot,
          COALESCE(kind, 'other')                 AS kind,
          COALESCE(notes, '')                     AS notes
-  FROM compliance_items
-  WHERE resolved = false
+  FROM (${COMPLIANCE_SOURCE}) compliance
   ORDER BY due_date`;
 
 export async function getComplianceData(): Promise<ComplianceData> {
-  const { rows } = await query<ComplianceRow>(COMPLIANCE_SELECT);
+  const [{ rows }, historyRes] = await Promise.all([
+    query<ComplianceRow>(COMPLIANCE_SELECT),
+    query<TimelineRow>(`SELECT id::text AS id, to_char(due_date, 'FMMon FMDD') AS date,
+      'ghost' AS dot, title AS what, COALESCE(who, '') AS who,
+      COALESCE(step, '') AS step, COALESCE(kind, 'other') AS kind, COALESCE(notes, '') AS notes
+      FROM compliance_items WHERE resolved = true ORDER BY due_date DESC`),
+  ]);
 
   // Bucket open items by days-until-due. Overdue items fall into the urgent
   // window. Items beyond 90 days (e.g. next year's 1099 run) stay on the
@@ -103,7 +110,7 @@ export async function getComplianceData(): Promise<ComplianceData> {
   const timeline: TimelineRow[] = rows.map((r) => ({
     id: r.id,
     date: r.timeline_date,
-    dot: (r.dot === "flag" || r.dot === "accent" ? r.dot : "ghost") as ComplianceDot,
+    dot: (r.days_until <= 14 ? "flag" : r.dot === "flag" || r.dot === "accent" ? r.dot : "ghost") as ComplianceDot,
     what: r.title,
     who: r.who,
     step: r.step,
@@ -123,11 +130,12 @@ export async function getComplianceData(): Promise<ComplianceData> {
   const summaryInput = `${urgent} item${urgent === 1 ? "" : "s"} need attention soon: ${urgentLine}.`;
 
   return {
-    eyebrow: `${next30} items in next 30 days · ${urgent} urgent`,
+    eyebrow: `${next30} item${next30 === 1 ? "" : "s"} in next 30 days · ${urgent} urgent`,
     summaryInput,
-    filters: ["All", "COI", "Licenses", "Tax"],
+    filters: ["All", "COI", "Licenses", "Tax", "Insurance"],
     windows,
     timeline,
+    history: historyRes.rows,
   };
 }
 

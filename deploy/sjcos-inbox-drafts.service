@@ -1,0 +1,7 @@
+[Unit]
+Description=SJC OS inbox AI draft sweep (never sends)
+After=sjcos.service
+
+[Service]
+Type=oneshot
+ExecStart=/home/joe/bin/sjcos-inbox-drafts

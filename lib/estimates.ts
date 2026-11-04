@@ -35,6 +35,8 @@ export interface EstimateDetail {
   kind: EstimateKind;
   rail: EstimateRail;
   status: EstimateStatus;
+  /** Database lock also accounts for sent/signed contracts using this estimate. */
+  lockState?: "sent" | "signed" | null;
   subtotal: number; // cents
   markupTotal: number; // cents
   total: number; // cents
@@ -54,6 +56,7 @@ interface EstRow {
   kind: EstimateKind;
   rail: EstimateRail;
   status: EstimateStatus;
+  lock_state: "sent" | "signed" | null;
   subtotal: number;
   markup_total: number;
   total: number;
@@ -91,7 +94,7 @@ function lineToView(r: LineRow): EstimateLineView {
 export async function getProjectEstimates(slug: string): Promise<EstimateDetail[]> {
   const { rows: ests } = await query<EstRow>(
     `SELECT e.id, e.title, e.kind, e.rail, e.status, e.subtotal, e.markup_total, e.total,
-            e.draw_schedule, e.created_at
+            e.draw_schedule, e.created_at, estimate_out_to_client(e.id) AS lock_state
        FROM estimates e JOIN projects p ON p.id = e.project_id
       WHERE p.slug = $1
       ORDER BY e.created_at DESC`,
@@ -121,6 +124,7 @@ export async function getProjectEstimates(slug: string): Promise<EstimateDetail[
     kind: e.kind,
     rail: e.rail,
     status: e.status,
+    lockState: e.lock_state,
     subtotal: e.subtotal,
     markupTotal: e.markup_total,
     total: e.total,

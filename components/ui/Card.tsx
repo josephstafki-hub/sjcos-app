@@ -1,4 +1,4 @@
-import type { ComponentPropsWithoutRef } from "react";
+import type { ComponentPropsWithoutRef, ReactNode } from "react";
 
 export type CardKind =
   | "default"
@@ -13,7 +13,7 @@ export type CardKind =
   | "dashed";
 
 const KIND_CLASSES: Record<CardKind, string> = {
-  default: "border border-rule bg-card shadow-card",
+  default: "border border-rule-soft bg-card shadow-card",
   soft: "border border-rule-soft bg-paper",
   filled: "border border-rule bg-paper-2",
   tan: "border border-rule bg-paper-3",
@@ -39,4 +39,15 @@ export function Card({ kind = "default", className = "", children, ...rest }: Ca
       {children}
     </div>
   );
+}
+
+export function CardHeader({ title, action, className = "", ...props }: Omit<ComponentPropsWithoutRef<"div">, "title"> & { title: ReactNode; action?: ReactNode }) {
+  return <div className={`flex items-center justify-between gap-3 px-4 pb-2 pt-3.5 ${className}`} {...props}>
+    <h2 className="text-subheading font-semibold text-ink">{title}</h2>
+    {action}
+  </div>;
+}
+
+export function CardBody({ className = "", ...props }: ComponentPropsWithoutRef<"div">) {
+  return <div className={`px-4 pb-4 ${className}`} {...props} />;
 }

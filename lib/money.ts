@@ -25,6 +25,15 @@ export interface InvoiceLine {
   amount: number;
 }
 
+export interface ManualPaymentView {
+  id: number;
+  amount: number;
+  method: string;
+  receivedAt: string;
+  note: string;
+  reversed: boolean;
+}
+
 export interface Invoice {
   id: number;
   number: string;
@@ -58,6 +67,7 @@ export interface Invoice {
   revision: number;
   source: string;
   exceptionFlags: string[];
+  manualPayments?: ManualPaymentView[];
 }
 
 export interface ProjectMoney {
@@ -96,6 +106,7 @@ interface InvoiceRow {
   source: string;
   exception_flags: string[];
   sync_state: string | null;
+  manual_payments: ManualPaymentView[];
 }
 
 /** Format integer CENTS as "$12,400.00" (Phase 5.0 — money tables are cents). */
@@ -146,6 +157,13 @@ export async function getProjectMoney(slug: string): Promise<ProjectMoney> {
             COALESCE((SELECT SUM(p.amount_cents) FROM invoice_payments p WHERE p.invoice_id = i.id AND p.kind = 'payment' AND p.status = 'pending'), 0)::int AS pending,
             COALESCE((SELECT SUM(p.amount_cents) FROM invoice_payments p WHERE p.invoice_id = i.id AND p.kind IN ('credit','writeoff') AND p.status = 'settled'), 0)::int AS credits,
             COALESCE((SELECT SUM(p.amount_cents) FROM invoice_payments p WHERE p.invoice_id = i.id AND p.kind IN ('refund','return') AND p.status = 'settled'), 0)::int AS returns,
+            COALESCE((SELECT jsonb_agg(jsonb_build_object(
+              'id', p.id::int, 'amount', p.amount_cents, 'method', p.method,
+              'receivedAt', to_char(p.received_at, 'YYYY-MM-DD'), 'note', p.note,
+              'reversed', EXISTS (SELECT 1 FROM invoice_payments r WHERE r.provider = 'manual_reversal' AND r.provider_ref = 'payment:' || p.id AND r.status = 'settled')
+            ) ORDER BY p.received_at, p.id)
+              FROM invoice_payments p WHERE p.invoice_id = i.id AND p.kind = 'payment'
+                AND p.status = 'settled' AND (p.provider IS NULL OR p.provider = 'manual')), '[]'::jsonb) AS manual_payments,
             i.delivery_state, i.delivery_error, i.terms, i.economic_key, i.revision, i.source, i.exception_flags,
             (SELECT m.state FROM qbo_mappings m WHERE m.entity_kind = 'Invoice' AND m.internal_kind = 'invoice' AND m.internal_id = i.id::text
               ORDER BY m.updated_at DESC LIMIT 1) AS sync_state
@@ -182,6 +200,7 @@ export async function getProjectMoney(slug: string): Promise<ProjectMoney> {
       revision: Number(r.revision),
       source: r.source,
       exceptionFlags: r.exception_flags ?? [],
+      manualPayments: r.manual_payments ?? [],
     };
   });
   const invoices = all.filter((i) => i.lifecycle !== "void");
@@ -189,7 +208,7 @@ export async function getProjectMoney(slug: string): Promise<ProjectMoney> {
   return {
     invoices,
     voided,
-    paidTotal: invoices.reduce((s, i) => s + i.paid, 0),
+    paidTotal: invoices.reduce((s, i) => s + i.paid - i.returns, 0),
     outstanding: invoices.reduce((s, i) => s + Math.max(0, i.balance), 0),
     pendingTotal: invoices.reduce((s, i) => s + i.pending, 0),
   };

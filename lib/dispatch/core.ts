@@ -32,7 +32,7 @@ import {
   type IntentState,
 } from "../commands/intents.ts";
 import { laneOpen } from "../commands/policies.ts";
-import type { Provider, ProviderContext, ProviderResult } from "../providers/types.ts";
+import type { Provider, ProviderContext, ProviderResult, ReconcileOutcome } from "../providers/types.ts";
 import { markTransmitted, recordGrantResultRun, refundAuthorityIfUntransmitted, verifyAuthority } from "./authority.ts";
 import { EFFECTS, type Effect } from "./effects.ts";
 import { ALL_KINDS, KINDS, REQUEUE_ON_LEASE_EXPIRY, specFor } from "./kinds.ts";
@@ -249,7 +249,7 @@ export async function reconcileUnknown(deps: DispatchDeps, opts: { limit?: numbe
     const provider = spec ? deps.providers[spec.provider] : null;
     if (!provider?.reconcile) continue;
     res.checked++;
-    let outcome;
+    let outcome: ReconcileOutcome;
     try {
       outcome = await provider.reconcile({ id: intent.id, operationKey: intent.operation_key, payload: intent.payload, providerRef: intent.provider_ref, attemptedAt: intent.attempted_at });
     } catch (err) {
@@ -260,6 +260,13 @@ export async function reconcileUnknown(deps: DispatchDeps, opts: { limit?: numbe
         await run(`UPDATE action_intents SET last_error = $2 WHERE id = $1`, [intent.id, `reconcile: ${outcome.note}`.slice(0, 2000)]);
         res.stillUnknown++;
         return;
+      }
+      // The provider already took an `accepted` intent (Gmail returned 200).
+      // "Not found" afterwards is a search miss, not proof it never went:
+      // re-sending it is how Joe got 4-5 copies of each Egan email
+      // (2026-11-02). Settle it as confirmed; never send it again.
+      if (outcome.state === "pending" && intent.state === "accepted") {
+        outcome = { state: "confirmed", providerRef: intent.provider_ref, providerState: intent.provider_state ?? "sent", note: `provider accepted the send; ${outcome.note.replace(/; safe to retry$/, "")} — not re-sending` };
       }
       if (outcome.state === "pending") {
         // Nothing transmitted after all: the earlier attempt's transmitted

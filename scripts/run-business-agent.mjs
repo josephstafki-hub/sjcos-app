@@ -18,16 +18,16 @@
 // Filing runs (kind 'filing': finish a document Joe just sorted) are small and
 // run on a cheap model: SJC_FILING_AGENT_MODEL (default "haiku"), 15 turns.
 //
-// Database: DATABASE_URL from the environment first, else .env.local next to
-// the repo (the production path when the timer runs it). Evaluations always
-// pass DATABASE_URL (the harness) explicitly.
+// Database: the narrow sjcos_agent login (deploy/db-roles.md) — DATABASE_URL_AGENT
+// from the environment or .env.local, falling back to DATABASE_URL until Joe
+// adds that line. Evaluations pass DATABASE_URL (the harness) explicitly, which
+// beats the file (lib/db-login.mjs).
 //
 // Claude runs go through lib/agent-runtime/claude-runner.mjs: the logged-in
 // `claude` CLI, business profile (no shell / edits / web), --strict-mcp-config
 // with only the sjcos server, whose DATABASE_URL is the one this process uses.
 // SJC_PRINCIPAL_USER_ID is never set: unattended runs spend no owner grant.
 
-import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
@@ -37,6 +37,7 @@ import { enqueueMissingFinancials } from "../lib/workflow/financials-fill.ts";
 import { buildBusinessInstructions } from "../lib/agent-runtime/instructions.ts";
 import { runClaudeBusiness } from "../lib/agent-runtime/claude-runner.mjs";
 import { runHermesBusiness } from "../lib/agent-runtime/hermes-runner.mjs";
+import { databaseUrlFor } from "../lib/db-login.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -46,12 +47,11 @@ function arg(name, dflt) {
 }
 const has = (name) => process.argv.includes(name);
 
+// The narrow agent login (deploy/db-roles.md): DATABASE_URL_AGENT, else an
+// explicit DATABASE_URL (harness / evals), else .env.local — see lib/db-login.mjs.
+// The same URL goes to the MCP server each run spawns.
 function databaseUrl() {
-  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
-  const env = readFileSync(path.join(REPO, ".env.local"), "utf8");
-  const m = env.match(/^DATABASE_URL=(.+)$/m);
-  if (!m) throw new Error("DATABASE_URL not found (env or .env.local)");
-  return m[1].trim().replace(/^["']|["']$/g, "");
+  return databaseUrlFor("agent", { envFile: path.join(REPO, ".env.local") });
 }
 
 export const FILING_MODEL = process.env.SJC_FILING_AGENT_MODEL || "haiku";

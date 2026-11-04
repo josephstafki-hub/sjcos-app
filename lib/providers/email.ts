@@ -7,9 +7,8 @@
 // Gmail gives us no idempotency key, so "did it go out?" is answered from
 // the provider's own record, never guessed.
 //
-// Requested change (status file): lib/gmail.ts sendNewEmail returns void, so
-// the Gmail message id cannot be recorded; a `headers`/return-id extension
-// there would let us stamp X-SJC-Op and reconcile by rfc822msgid.
+// sendNewEmail returns the Gmail thread id, recorded as the provider ref; an
+// intent that has one is confirmed without searching.
 
 import { classifyTransportError, NotTransmittedError, outboundDisabled, recordFakeSend, type Provider, type ProviderContext, type ProviderResult, type ReconcileOutcome } from "./types.ts";
 
@@ -90,6 +89,8 @@ export function makeEmailProvider(transport: EmailTransport = defaultTransport):
     },
     async reconcile(intent): Promise<ReconcileOutcome> {
       if (outboundDisabled()) return { state: "unknown", note: "outbound disabled; nothing to reconcile against" };
+      // Gmail handed back an id when it took the message: it is in the mailbox.
+      if (intent.providerRef) return { state: "confirmed", providerRef: intent.providerRef, providerState: "sent", note: "Gmail returned an id at send time" };
       if (!transport.findSent) return { state: "unknown", note: "transport cannot search sent mail" };
       const since = intent.attemptedAt ? new Date(intent.attemptedAt).getTime() - 5 * 60_000 : Date.now() - 24 * 3600_000;
       try {
@@ -105,6 +106,20 @@ export function makeEmailProvider(transport: EmailTransport = defaultTransport):
       }
     },
   };
+}
+
+const normSubject = (v: string) => v.normalize("NFKC").replace(/\s+/g, " ").trim().toLowerCase();
+
+/** Pick the sent thread for this send out of a recipient's recent sent mail:
+ *  outbound, addressed to `to`, same subject (whitespace/case-insensitive). */
+export function matchSent(
+  rows: { id: string; date: number; outbound: boolean; toLine: string; subject: string }[],
+  q: { to: string; subject: string },
+): { id: string; date: number } | null {
+  const to = q.to.toLowerCase();
+  const subject = normSubject(q.subject || "(no subject)");
+  const hit = rows.find((r) => r.outbound && r.toLine.toLowerCase().includes(to) && normSubject(r.subject) === subject);
+  return hit ? { id: hit.id, date: hit.date } : null;
 }
 
 async function loadAttachments(transport: EmailTransport, refs: EmailAttachmentRef[]): Promise<EmailTransportMessage["attachments"]> {
@@ -126,16 +141,19 @@ const defaultTransport: EmailTransport = {
   async send(msg) {
     const gmail = await import("../gmail");
     if (!gmail.gmailConfigured()) throw new NotTransmittedError("Gmail is not connected.", true);
-    await gmail.sendNewEmail({ to: msg.to, subject: msg.subject, bodyText: msg.bodyText, bodyHtml: msg.bodyHtml, attachments: msg.attachments });
-    return { id: null };
+    const sent = await gmail.sendNewEmail({ to: msg.to, subject: msg.subject, bodyText: msg.bodyText, bodyHtml: msg.bodyHtml, attachments: msg.attachments });
+    return { id: sent?.threadId ?? null };
   },
   async findSent(q) {
     const gmail = await import("../gmail");
     if (!gmail.gmailConfigured()) return null;
-    const subject = q.subject.replace(/"/g, "").slice(0, 120);
-    const rows = await gmail.fetchThreadMetadata({ max: 10, since: q.sinceMs, q: `in:sent to:${q.to}${subject ? ` subject:"${subject}"` : ""}` });
-    const hit = rows.find((r) => r.outbound && r.toLine.toLowerCase().includes(q.to.toLowerCase()));
-    return hit ? { id: hit.id, date: hit.date } : null;
+    // No subject in the Gmail query: the API's quoted-phrase search silently
+    // matches nothing for subjects with "$", "(" or "," (Egan USAA review mail,
+    // 2026-11-02 — every copy was in Sent, the search said no, and the
+    // dispatcher re-sent it 4-5 times). List recent sent mail to the
+    // recipient and compare subjects here instead.
+    const rows = await gmail.fetchThreadMetadata({ max: 25, since: q.sinceMs, q: `in:sent to:${q.to}` });
+    return matchSent(rows, q);
   },
   async loadAttachment(ref) {
     const [{ readFile }, path, { UPLOAD_DIR }] = await Promise.all([import("node:fs/promises"), import("node:path"), import("../uploads")]);

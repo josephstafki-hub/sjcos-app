@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import pg from "pg";
 import { withTestDb, harnessAvailable, cleanFoundation } from "./_harness/testdb.mjs";
-import { SEED_VERSIONS, WORKFLOW_DIGEST_V2, checksumOf } from "../lib/agent-runtime/instruction-texts.mjs";
+import { SEED_VERSIONS, TONE_GUIDE_V2, WORKFLOW_DIGEST_V2, checksumOf } from "../lib/agent-runtime/instruction-texts.mjs";
 import { readFileSync } from "node:fs";
 import { standingContextBlock as standingBlockJs, activateInstructionVersion, proposeInstructionVersion, rollbackInstructionVersion } from "../lib/agent-runtime/instructions-block.mjs";
 import { buildBusinessInstructions, standingContextBlock, loadActiveInstructionBlocks } from "../lib/agent-runtime/instructions.ts";
@@ -216,6 +216,27 @@ test("hooks: decision resolved / work item done / signature enqueue the right tr
   });
 });
 
+test("hooks: a worker run closing its own to-do on the job does not wake a second run; a person closing one still does", { skip }, async () => {
+  await withTestDb(async (url, client) => {
+    await cleanAgents(client);
+    const tx = txOver(url);
+    const { projectId } = await seedProject(client);
+    // A worker run is working this job (status 'running' until finishExecution).
+    const ex = await tx((r) => startExecution(r, { triggerKind: "financials", triggerRef: `project:${projectId}:financials`, runtime: "claude", entryPoint: "worker", principal: { kind: "agent", agent: "business-agent-worker" }, projectId, instructionVersions: {} }));
+    const own = await client.query(`INSERT INTO work_items (title, project_id, status) VALUES ('Fill in the financials for ZZ', $1, 'done') RETURNING id`, [projectId]);
+    assert.equal(await tx((r) => onWorkItemDone(r, own.rows[0].id, { principalKind: "agent" })), null, "the run's own step is not news");
+    assert.equal(await tx((r) => onWorkItemDone(r, own.rows[0].id, { principalKind: "service" })), null, "MCP completions without an agent name count as the run too");
+    const joes = await client.query(`INSERT INTO work_items (title, project_id, status) VALUES ('Joe closed this', $1, 'done') RETURNING id`, [projectId]);
+    assert.equal((await tx((r) => onWorkItemDone(r, joes.rows[0].id, { principalKind: "user" }))).kind, "note", "a person's completion always wakes the agent");
+    const approved = await client.query(`INSERT INTO work_items (title, project_id, status, approval_status) VALUES ('Approved by Joe', $1, 'done', 'approved') RETURNING id`, [projectId]);
+    assert.equal((await tx((r) => onWorkItemDone(r, approved.rows[0].id, { principalKind: "agent" }))).kind, "approval", "an owner approval is never swallowed");
+    // Once the run has finished, an agent completion on the job is an event again.
+    await tx((r) => finishExecution(r, ex.id, { status: "done", toolTrace: [], toolNames: [], resultSummary: "ok", recordsTouched: [], ownerPrompts: 0, blockedReason: null, nextTrigger: null, error: null, latencyMs: 1, costUsd: 0, numTurns: 1 }));
+    const later = await client.query(`INSERT INTO work_items (title, project_id, status) VALUES ('Hermes closed this later', $1, 'done') RETURNING id`, [projectId]);
+    assert.equal((await tx((r) => onWorkItemDone(r, later.rows[0].id, { principalKind: "agent" }))).kind, "note");
+  });
+});
+
 test("executions record versions, tool trace, records touched, blocked reason; worker runs a trigger end to end with a fake runner", { skip }, async () => {
   await withTestDb(async (url, client) => {
     await cleanAgents(client);
@@ -370,5 +391,26 @@ test("workflow_digest v2 (0053): above-allowance choices are a change order only
     // Re-running it changes nothing.
     await client.query(readFileSync(new URL("../db/migrations/0053_workflow_digest_allowance_v2.sql", import.meta.url), "utf8"));
     assert.equal((await client.query(`SELECT count(*)::int AS n FROM agent_instruction_versions WHERE key = 'workflow_digest'`)).rows[0].n, 2);
+  });
+});
+
+test("tone_guide v2 (0063): a portal message gets a portal reply; the migration's text = the module's", { skip }, async () => {
+  await withTestDb(async (_url, client) => {
+    await cleanAgents(client);
+    const run = async (sql, params) => (await client.query(sql, params)).rows;
+    const sql = readFileSync(new URL("../db/migrations/0063_tone_guide_portal_v2.sql", import.meta.url), "utf8");
+    await client.query(sql);
+    const blocks = await loadActiveInstructionBlocks(run);
+    assert.equal(blocks.tone_guide.version, 2);
+    assert.equal(blocks.tone_guide.body, TONE_GUIDE_V2);
+    assert.equal(blocks.tone_guide.checksum, checksumOf(TONE_GUIDE_V2));
+    assert.match(blocks.tone_guide.body, /channel "portal"/);
+    assert.match(blocks.tone_guide.body, /Never answer a portal message with an email/);
+    assert.match(blocks.tone_guide.body, /Client email drafts start with "To: <address>"/, "the email rule is kept");
+    const { rows } = await client.query(`SELECT version, state FROM agent_instruction_versions WHERE key = 'tone_guide' ORDER BY version`);
+    assert.deepEqual(rows.map((r) => `${r.version}:${r.state}`), ["1:retired", "2:active"]);
+    // Re-running it changes nothing.
+    await client.query(sql);
+    assert.equal((await client.query(`SELECT count(*)::int AS n FROM agent_instruction_versions WHERE key = 'tone_guide'`)).rows[0].n, 2);
   });
 });

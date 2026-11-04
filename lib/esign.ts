@@ -46,7 +46,9 @@ interface SigRow {
 // Qualified with the sr alias so the joined queries (projects also has id /
 // status / created_at) aren't ambiguous. All three reads alias the table sr.
 const SIG_SELECT = `
-  sr.id, sr.doc_type, sr.title, sr.body, sr.file_id, sr.status, sr.signer_name,
+  sr.id, sr.doc_type, sr.title, sr.body, sr.file_id,
+  CASE WHEN EXISTS (SELECT 1 FROM document_drafts d WHERE d.signature_request_id = sr.id AND d.status = 'void')
+    THEN 'void' ELSE sr.status END AS status, sr.signer_name,
   sr.signer_email, sr.signed_name, sr.signed_at, sr.decline_reason,
   sr.created_at, sr.sent_at, sr.signed_method, sr.witness_name, sr.signature_file_id`;
 
@@ -115,6 +117,7 @@ export async function getClientSignatures(
                                   JOIN projects p ON p.lead_id = l.id
                                  WHERE p.slug = $1))
         AND sr.status IN ('sent','signed','declined')
+        AND NOT EXISTS (SELECT 1 FROM document_drafts d WHERE d.signature_request_id = sr.id AND d.status = 'void')
       ORDER BY (sr.status = 'sent') DESC, sr.created_at DESC`,
     [slug],
   );
@@ -131,6 +134,7 @@ export async function getLeadClientSignatures(
        FROM signature_requests sr
       WHERE sr.lead_slug = $1
         AND sr.status IN ('sent','signed','declined')
+        AND NOT EXISTS (SELECT 1 FROM document_drafts d WHERE d.signature_request_id = sr.id AND d.status = 'void')
       ORDER BY (sr.status = 'sent') DESC, sr.created_at DESC`,
     [leadSlug],
   );

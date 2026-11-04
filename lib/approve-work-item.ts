@@ -40,6 +40,7 @@ export async function finishApproval(opts: {
     return { ok: true, held: { to: send.to, subject: send.subject }, notice: send.notice };
   }
   await maybeAdvanceRunbook(opts.id); // W6: a done-but-unapproved step advances on approval
+  if (send.outcome === "posted") return { ok: true, posted: { to: send.to } };
   return send.outcome === "sent"
     ? { ok: true, sent: { to: send.to, subject: send.subject } }
     : { ok: true, notice: send.notice };

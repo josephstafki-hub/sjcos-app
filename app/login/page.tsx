@@ -43,22 +43,22 @@ export default async function LoginPage({
   const notice = invite ? (INVITE_NOTICE[invite] ?? INVITE_NOTICE.failed) : null;
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-paper px-4">
+    <div className="flex min-h-dvh items-center justify-center bg-paper px-4 py-8">
       <div className="w-full max-w-[380px]">
         <div className="mb-6 flex flex-col items-center gap-3 text-center">
           <Logo />
           <div>
-            <h1 className="font-serif text-[26px] font-medium leading-none text-accent-2">
+            <h1 className="font-serif text-title font-medium leading-none text-accent-2">
               Welcome back
             </h1>
-            <p className="mt-1.5 text-[12px] text-ink-3">
+            <p className="mt-1.5 text-label text-ink-3">
               Sign in to your SJ Carpentry workspace.
             </p>
           </div>
         </div>
 
         {notice && (
-          <div className="mb-4 rounded-lg border border-flag/30 bg-flag/5 px-4 py-3 text-[12px] leading-snug text-ink-2">
+          <div className="mb-4 rounded-lg border border-flag/30 bg-flag/5 px-4 py-3 text-label leading-snug text-ink-2">
             {notice}
           </div>
         )}
@@ -67,9 +67,17 @@ export default async function LoginPage({
           <LoginForm />
         </div>
 
-        <p className="mt-5 flex justify-center gap-4 text-[11px] text-ink-4">
-          <Link href="/privacy" className="hover:text-ink-2">Privacy Policy</Link>
-          <Link href="/eula" className="hover:text-ink-2">End-User License Agreement</Link>
+        {/* No self-serve reset by design: the owner resets staff passwords (Settings › Team),
+            and clients sign in from the link in their project email. */}
+        <p className="mt-4 text-center text-meta text-ink-3">
+          Forgot your password? Joe resets team passwords in Settings › Team &amp; roles.
+          <br />
+          Clients: open the portal link in your project email.
+        </p>
+
+        <p className="mt-5 flex justify-center gap-4 text-meta text-ink-3">
+          <Link href="/privacy" className="inline-flex min-h-11 items-center hover:text-ink-2">Privacy Policy</Link>
+          <Link href="/eula" className="inline-flex min-h-11 items-center hover:text-ink-2">End-User License Agreement</Link>
         </p>
       </div>
     </div>

@@ -109,3 +109,20 @@ test("an unfinished budget and no budget are different problems, and say so", ()
   assert.equal(text.flanagan, "On site with no budget — profit isn't known");
   assert.equal(text.louiselle, "On site with an unfinished budget — profit isn't known");
 });
+
+
+test("processing payments stay in the balance but never in unpaid / overdue attention", () => {
+  const make = (pendingCents) => job({ slug: "alcantara", name: "Alcantara", billingSource: "invoices" }, {
+    invoices: [{ number: "INV-004", milestone: "Draw", amountCents: 225000, balanceCents: 225000,
+      paidCents: 0, pendingCents, status: "sent", createdOn: "2026-08-01", sentOn: "2026-08-01", paidOn: null }],
+  });
+  const view = make(225000);
+  assert.equal(view.clientInvoices[0].statusLabel, "Processing");
+  const company = buildCompanyMoney([view]);
+  assert.equal(company.totals.unpaidInvoicesCents, 225000, "pending cash is not collected");
+  assert.deepEqual(company.attention.filter(a => a.kind.startsWith("invoice_")).map(a => a.kind), ["invoice_processing"]);
+  assert.match(company.attention[0].text, /Processing/);
+  assert.ok(!/unpaid|has been out/.test(company.attention[0].text));
+  assert.equal(buildCompanyMoney([make(0)]).attention[0].kind, "invoice_overdue", "failed payment returns to collection");
+  assert.equal(buildCompanyMoney([make(10000)]).attention[0].kind, "invoice_processing", "partial pending payment suppresses collection too");
+});

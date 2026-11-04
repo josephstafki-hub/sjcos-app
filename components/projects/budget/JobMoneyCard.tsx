@@ -16,18 +16,18 @@ export function JobMoneyCard({ money, isOwner, onEdit }: { money: JobMoney; isOw
     show && (
       <div key={label} className="flex items-baseline gap-3 text-ink-2">
         <span className="min-w-0 flex-1">{label}</span>
-        <span className="font-mono">{fmtUsd(cents)}</span>
+        <span className="tabular-nums">{fmtUsd(cents)}</span>
       </div>
     );
   const head = (label: string, cents: number) => (
     <div className="flex items-baseline gap-3 font-semibold text-ink">
       <span className="flex-1">{label}</span>
-      <span className="font-mono text-[14px]">{fmtUsd(cents)}</span>
+      <span className="tabular-nums text-subheading">{fmtUsd(cents)}</span>
     </div>
   );
 
   return (
-    <Card className="flex flex-col gap-3 p-4 text-[12.5px]">
+    <Card className="flex flex-col gap-3 p-4 text-body">
       <div className="grid grid-cols-1 gap-4 @xl:grid-cols-2">
         <div className="flex flex-col gap-1">
           {head("Job total", money.totalCents)}
@@ -52,10 +52,10 @@ export function JobMoneyCard({ money, isOwner, onEdit }: { money: JobMoney; isOw
         </div>
       </div>
       {money.openingNote && (money.openingTotalCents > 0 || money.openingCollectedCents > 0) && (
-        <p className="text-[11.5px] text-ink-3">Outside the app: {money.openingNote}</p>
+        <p className="text-meta text-ink-3">Outside the app: {money.openingNote}</p>
       )}
       <div className="flex flex-wrap items-center gap-2 border-t border-rule-soft pt-2.5">
-        <p className="min-w-0 flex-1 text-[11.5px] leading-snug text-ink-3">
+        <p className="min-w-0 flex-1 text-meta leading-snug text-ink-3">
           The projects list shows these same figures. They come from the estimate, change orders, invoices and payments; record a payment on its invoice and they move.
         </p>
         {isOwner && <button type="button" onClick={onEdit} className={BTN}>Money outside the app</button>}

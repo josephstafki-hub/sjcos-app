@@ -17,6 +17,7 @@ import {
   updateDocDraftFields,
   renderDocDraft,
   submitDocDraftForSignature,
+  retryDocDraftSignatureDelivery,
   voidDocDraft,
   deleteDocDraft,
   unlockDocDraftForEdit,
@@ -68,6 +69,18 @@ export async function submitDocDraftForSignatureAction(
   revalidatePath("/projects");
   revalidatePath("/client-portal");
   return { ok: true, delivery: res.delivery };
+}
+
+/** Retry only the email on an existing open signature request. */
+export async function retryDocDraftSignatureDeliveryAction(id: number) {
+  await requireAccess("projects");
+  const res = await retryDocDraftSignatureDelivery(id);
+  if (res.ok) {
+    revalidatePath("/projects");
+    revalidatePath("/leads");
+    revalidatePath("/client-portal");
+  }
+  return res;
 }
 
 /** In-person signing: create the signature request WITHOUT emailing it (the
@@ -123,7 +136,12 @@ export async function setDocDraftVisibilityAction(
 export async function voidDocDraftAction(id: number): Promise<R> {
   await requireAccess("projects");
   const res = await voidDocDraft(id);
-  if (res.ok) revalidatePath("/projects");
+  if (res.ok) {
+    revalidatePath("/projects");
+    revalidatePath("/leads");
+    revalidatePath("/client-portal");
+    revalidatePath("/sign", "layout");
+  }
   return res;
 }
 

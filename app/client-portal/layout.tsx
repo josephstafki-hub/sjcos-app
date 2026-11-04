@@ -1,13 +1,14 @@
+import { PreviewPicker } from "@/components/portal/PreviewPicker";
 import Link from "next/link";
 import { Bell, ArrowLeft } from "lucide-react";
-import { Avatar, Chip } from "@/components/ui";
+import { Avatar } from "@/components/ui";
 import { requireRole } from "@/lib/dal";
 import { getProject } from "@/lib/projects";
-import { queryOne } from "@/lib/db";
+import { query, queryOne } from "@/lib/db";
 import {
   EMPTY_PORTAL_BADGES,
   getPortalBadgesForScope,
-  parseLinkSlug,
+  portalScope,
   type PortalBadges,
 } from "@/lib/client-portal";
 import { PortalNav, type PortalNavItem } from "@/components/portal/PortalNav";
@@ -29,12 +30,13 @@ export default async function ClientPortalLayout({
   children: React.ReactNode;
 }) {
   const user = await requireRole("owner", "client");
-  const scope = user.role === "client" ? parseLinkSlug(user.linkSlug) : null;
+  const scope = await portalScope();
+  const previewProjects = user.role === "owner" ? (await query<{ slug: string; name: string }>("SELECT slug, name FROM projects ORDER BY name")).rows : [];
 
   // "Client opened the portal" — once per day per client, into the activity
   // ledger the owner reads on the lead/project Client portal tab. Best-effort;
   // an owner previewing is not a visit.
-  if (scope) await logPortalVisit(scope, user.name);
+  if (scope && user.role === "client") await logPortalVisit(scope, user.name);
 
   const [title, badges] = await Promise.all([
     scope?.kind === "project"
@@ -70,32 +72,34 @@ export default async function ClientPortalLayout({
   const attention = badges.decisions + badges.toSign + badges.confirm;
 
   return (
-    <div className="flex h-screen flex-col bg-paper">
-      <header className="flex h-[50px] flex-none items-center gap-3 border-b border-rule bg-paper-2 px-7">
-        <span className="font-serif text-[15px] font-semibold text-accent-2">SJ Carpentry</span>
-        <span className="hidden font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3 sm:inline">
-          Client portal · {title ?? "Your project"}
-        </span>
-        <div className="flex-1" />
+    <div className="flex h-dvh flex-col bg-paper">
+      <header className="flex min-h-16 flex-none flex-wrap items-center gap-3 border-b border-rule bg-card px-4 sm:px-7">
+        <div className="min-w-0 flex-1 py-2">
+          <span className="font-serif text-heading font-semibold text-accent-2">SJ Carpentry</span>
+          <p className="text-body text-ink-2">
+            {title ?? (user.role === "owner" ? "Owner preview" : "No project linked — contact Joe")}
+          </p>
+        </div>
         {user.role === "owner" && (
           <Link
             href="/today"
-            className="inline-flex items-center gap-1 rounded-md border border-rule px-2 py-1 text-[11px] font-medium text-ink-2 transition-colors hover:bg-paper-3"
+            className="inline-flex items-center gap-1 rounded-md border border-rule px-2 py-1 text-meta font-medium text-ink-2 transition-colors hover:bg-paper-3"
           >
             <ArrowLeft className="size-3" strokeWidth={1.75} />
             Return to SJC OS
           </Link>
         )}
-        <Chip kind={attention > 0 ? "accent" : "ghost"}>
+        <span aria-label={`${attention} items need your attention`} className="inline-flex items-center gap-1 text-label text-ink-2">
           <Bell className="mr-0.5 inline size-2.5" strokeWidth={1.75} />
           {attention}
-        </Chip>
+        </span>
         <Avatar initials={user.initials || "—"} size="sm" />
       </header>
 
+      {user.role === "owner" && <PreviewPicker projects={previewProjects} selected={scope?.slug ?? ""} />}
       <PortalNav items={items} />
 
-      <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
+      <div className="@container/page min-h-0 flex-1 overflow-y-auto max-sm:[&_button]:min-h-11 max-sm:[&_input:not([type=checkbox])]:min-h-11 max-sm:[&_label:has(input[type=file])]:min-h-11 pb-[env(safe-area-inset-bottom)]">{children}</div>
       <LiveUpdates />
     </div>
   );

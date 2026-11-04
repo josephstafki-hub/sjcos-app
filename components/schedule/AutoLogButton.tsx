@@ -14,10 +14,15 @@ export function AutoLogButton() {
   function run() {
     setNote(null);
     startTransition(async () => {
-      const res = await runAction(() => autoLogTodayFromPhotos(), { fallback: "Could not draft today's logs." });
+      const res = await runAction(() => autoLogTodayFromPhotos(), {
+        fallback: "Could not draft today's logs.",
+      });
       if (!res.ok) return;
       if (res.drafted === 0) setNote("No new photos today");
-      else setNote(`Drafted ${res.drafted} log${res.drafted === 1 ? "" : "s"}: ${res.projects.join(", ")}`);
+      else
+        setNote(
+          `Drafted ${res.drafted} log${res.drafted === 1 ? "" : "s"}: ${res.projects.join(", ")}`,
+        );
     });
   }
 
@@ -26,13 +31,13 @@ export function AutoLogButton() {
       <button
         onClick={run}
         disabled={pending}
-        className="inline-flex items-center gap-1 rounded-md border border-ai bg-ai px-2.5 py-1 text-[12px] font-semibold text-white transition-colors hover:bg-ai-2 disabled:opacity-60"
+        className="inline-flex items-center gap-1 rounded-md border border-ai bg-ai px-2.5 py-1 text-label font-semibold text-white transition-colors hover:bg-ai-2 disabled:opacity-60"
       >
         <Sparkles className="size-3" strokeWidth={1.75} />
         {pending ? "Drafting logs…" : "Auto-log from photos"}
       </button>
       {note && (
-        <span className="inline-flex items-center gap-1 text-[11px] text-ink-3">
+        <span className="inline-flex items-center gap-1 text-meta text-ink-3">
           <Check className="size-3 text-money" strokeWidth={2} />
           {note}
         </span>

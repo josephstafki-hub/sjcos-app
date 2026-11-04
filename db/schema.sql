@@ -208,6 +208,10 @@ CREATE TABLE IF NOT EXISTS threads (
   updated_at      timestamptz NOT NULL DEFAULT now()
 );
 
+-- Unified inbox: handled-through marker for texts, portals and website forms.
+ALTER TABLE threads ADD COLUMN IF NOT EXISTS inbox_key text;
+CREATE UNIQUE INDEX IF NOT EXISTS threads_inbox_key_uq ON threads (inbox_key);
+
 -- ─── Notifications ──────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS notifications (
   id          uuid PRIMARY KEY DEFAULT gen_random_uuid(),

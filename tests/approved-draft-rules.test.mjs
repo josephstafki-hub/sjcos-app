@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   parseEmailDraft,
+  parsePortalDraft,
   planApprovedSend,
   approveNotice,
   describeApproval,
@@ -124,4 +125,39 @@ test("approveNotice + describeApproval read as the owner sees them", () => {
     message: "Approved. Nothing was emailed: x.",
   });
   assert.equal(describeApproval({ ok: false, error: "boom" }).kind, "error");
+});
+
+// ─── portal replies (2026-10-31, Tierney: an agent drafted an EMAIL reply to
+//     a message Tom wrote in the client portal) ─────────────────────────────
+
+const PORTAL = "To: client portal\n\nHi Tom, good call on doing the lights first. I'm checking with the electrician and will confirm the order.";
+
+test("portal draft: 'To: client portal' is a portal reply, never an email address", () => {
+  assert.deepEqual(parsePortalDraft(PORTAL), { body: PORTAL.split("\n\n")[1] });
+  assert.equal(parseEmailDraft(PORTAL), null);
+  assert.ok(parsePortalDraft("To: Portal\nSubject: ignored\n\nHi"));
+  assert.ok(parsePortalDraft("Channel: portal\n\nHi"));
+  assert.equal(parsePortalDraft("To: tom@example.com\nSubject: x\n\nHi"), null);
+  assert.equal(parsePortalDraft("Hi Tom, portal is fine."), null);
+  assert.equal(parsePortalDraft("To: client portal\n\n   "), null, "no body → nothing to post");
+});
+
+test("portal draft: Approve posts it when the client has a portal login", () => {
+  const plan = planApprovedSend({ record: { kind: "project", email: "tom@example.com", portal: true }, draft: PORTAL });
+  assert.equal(plan.outcome, "portal");
+  assert.match(plan.body, /^Hi Tom/);
+});
+
+test("portal draft: no portal login → failed (the gate reopens), never an email instead", () => {
+  const plan = planApprovedSend({ record: { kind: "lead", email: "tom@example.com", portal: false }, draft: PORTAL });
+  assert.equal(plan.outcome, "failed");
+  assert.match(plan.error, /no portal login/);
+  assert.equal(planApprovedSend({ record: null, draft: PORTAL }).outcome, "not_email");
+});
+
+test("describeApproval: a posted portal reply says so", () => {
+  const d = describeApproval({ ok: true, posted: { to: "Tom Tierney" } });
+  assert.equal(d.kind, "success");
+  assert.equal(d.title, "Posted in the portal");
+  assert.match(d.message, /Tom Tierney/);
 });

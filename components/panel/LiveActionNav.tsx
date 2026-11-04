@@ -203,7 +203,7 @@ export function LiveActionNav() {
       </button>
       <button
         onClick={() => setChip(null)}
-        aria-label="Dismiss"
+        aria-label="Dismiss" title="Dismiss"
         className="rounded-full p-1 text-ink-4 transition-colors hover:bg-paper-2"
       >
         <X className="size-3" strokeWidth={2} />

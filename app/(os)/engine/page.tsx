@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Shell } from "@/components/shell/Shell";
-import { Eyebrow } from "@/components/ui";
+import { PageHeader } from "@/components/ui";
 import { requireAccess } from "@/lib/dal";
 import { getEngineData } from "@/lib/engine";
 import { getRecentKnowledge } from "@/lib/brain";
@@ -27,23 +27,18 @@ export default async function EnginePage() {
 
   return (
     <Shell breadcrumb="OPERATIONS ENGINE">
-      <div className="mx-auto max-w-[1120px] px-7 pb-16 pt-6">
+      <div className="mx-auto max-w-6xl px-4 @3xl/page:px-6 pb-16 pt-6">
         <div className="mb-4">
-          <Eyebrow>
-            {counts.total} work item{counts.total === 1 ? "" : "s"} · {counts.approval} awaiting approval ·{" "}
-            {counts.waiting} waiting · {skills.proposed.length} skill proposal
-            {skills.proposed.length === 1 ? "" : "s"} · {memories.pending.length} memor
-            {memories.pending.length === 1 ? "y" : "ies"} pending
-          </Eyebrow>
-          <h1 className="mt-1 font-serif text-[34px] font-medium leading-none tracking-tight text-accent-2">
-            Operations engine
-          </h1>
-          <p className="mt-2 max-w-[640px] text-[13px] leading-relaxed text-ink-3">
+          <PageHeader title={<> Operations engine </>} meta={<> {counts.approval} approvals · {counts.active} active · {counts.waiting} waiting </>} />
+          <details className="mt-2">
+          <summary className="cursor-pointer py-1 text-meta text-ink-2">Engine tools and record counts</summary>
+          <p className="mt-2 max-w-[640px] text-body leading-relaxed text-ink-3">
             The shared work queue, knowledge base, and skill library that Joe, Hermes, Claude Code and
             other agents coordinate through. Agent writes are logged and reversible; anything
             client-facing waits for your approval.
           </p>
-          <nav className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[12px]">
+          <p className="mt-2 text-meta text-ink-2">The work-item total covers all unarchived records, including done and cancelled. Approval and waiting counts cover all folders; waiting includes blocked work. Folder counts cover open work; “Waiting on me” narrows the current folder and filters to work waiting on you.</p>
+          <nav className="mt-4 flex flex-wrap gap-2">
             {[
               { href: "/engine/decisions", label: "Decisions" },
               ...(user.role === "owner" ? [{ href: "/engine/permissions", label: "Permissions" }] : []),
@@ -51,11 +46,16 @@ export default async function EnginePage() {
               { href: "/engine/measure", label: "Measurement" },
               { href: "/engine/houzz-exit", label: "Houzz exit" },
             ].map((l) => (
-              <Link key={l.href} href={l.href} className="text-accent-2 underline-offset-2 hover:underline">
-                {l.label}
+              <Link
+                key={l.href}
+                href={l.href}
+                className="rounded-md border border-rule bg-paper-2 px-3 py-1.5 text-[12px] font-semibold text-ink-2 transition-colors hover:border-accent hover:text-accent-2"
+              >
+                {l.label} →
               </Link>
             ))}
           </nav>
+          </details>
         </div>
 
         <EngineClient

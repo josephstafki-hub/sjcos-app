@@ -109,11 +109,21 @@ async function deliverReferralThanks(lead: {
 }
 
 /** Create a lead from the "New lead" form, then open its detail page. */
-export async function createLead(formData: FormData) {
+export async function createLead(formData: FormData): Promise<void> {
+  const slug = await createLeadRecord(formData);
+  if (slug) redirect(`/leads/${slug}`);
+}
+export async function createLeadFromInbox(formData: FormData): Promise<{slug?:string}> {
+  return {slug: await createLeadRecord(formData)};
+}
+
+async function createLeadRecord(formData: FormData) {
   await requireAccess("leads");
   const name = String(formData.get("name") ?? "").trim();
   if (!name) return;
   const scope = String(formData.get("scope") ?? "").trim();
+  const email = String(formData.get("email") ?? "").trim() || null;
+  const phone = String(formData.get("phone") ?? "").trim() || null;
   const valueDisplay = String(formData.get("value") ?? "").trim() || null;
   const source = String(formData.get("source") ?? "").trim() || "Manual entry";
   const referrerName = String(formData.get("referrer_name") ?? "").trim() || null;
@@ -121,9 +131,9 @@ export async function createLead(formData: FormData) {
 
   const slug = await uniqueSlug(name);
   await query(
-    `INSERT INTO leads (slug, name, scope, value_display, source, referrer_name, referrer_email, stage, last_contact_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 'intake', now())`,
-    [slug, name, scope, valueDisplay, source, referrerName, referrerEmail],
+    `INSERT INTO leads (slug, name, scope, value_display, source, referrer_name, referrer_email, email, phone, stage, last_contact_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'intake', now())`,
+    [slug, name, scope, valueDisplay, source, referrerName, referrerEmail, email, phone],
   );
   await logLeadActivity(slug, "created", `Lead created · ${source}`);
 
@@ -169,7 +179,7 @@ export async function createLead(formData: FormData) {
 
   revalidatePath("/leads");
   revalidatePath("/notifications");
-  redirect(`/leads/${slug}`);
+  return slug;
 }
 
 /** Owner: manually (re)send a referral thank-you for a lead. */
@@ -326,8 +336,11 @@ export async function updateLeadContact(
   slug: string,
   email: string,
   phone: string,
-): Promise<{ ok: boolean }> {
+): Promise<{ ok: boolean; error?: string }> {
   await requireAccess("leads");
+  if (email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+    return { ok: false, error: "Enter a valid email address, such as name@example.com." };
+  }
   const res = await query(
     `UPDATE leads SET email = NULLIF($2, ''), phone = NULLIF($3, ''), updated_at = now()
       WHERE slug = $1`,

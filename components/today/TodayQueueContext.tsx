@@ -10,6 +10,7 @@ import {
   promoteTodayItem,
   sendBackTodayItem,
 } from "@/lib/actions/today";
+import { toast } from "@/components/ui/Toast";
 import type { AssignedTo, TodayPriority, WaitingItem } from "@/lib/today";
 
 export type { WaitingItem };
@@ -119,6 +120,8 @@ export function TodayQueueProvider({
     setBusyId(id);
     try {
       applySnapshot(await completeTodayItem(id));
+    } catch {
+      toast({kind:"error",title:"Couldn't refresh this to-do",message:"Refresh to check its latest status before trying again."});
     } finally {
       setBusyId(null);
     }
@@ -128,6 +131,8 @@ export function TodayQueueProvider({
     setBusyId(id);
     try {
       applySnapshot(await snoozeTodayItem(id, days));
+    } catch {
+      toast({kind:"error",title:"Couldn't refresh this to-do",message:"Refresh to check its latest status before trying again."});
     } finally {
       setBusyId(null);
     }
@@ -137,6 +142,8 @@ export function TodayQueueProvider({
     setBusyId(id);
     try {
       applySnapshot(await assignTodayItem(id, userIds));
+    } catch {
+      toast({kind:"error",title:"Couldn't refresh this to-do",message:"Refresh to check its latest status before trying again."});
     } finally {
       setBusyId(null);
     }
@@ -146,6 +153,8 @@ export function TodayQueueProvider({
     setBusyId(id);
     try {
       applySnapshot(await promoteTodayItem(id));
+    } catch {
+      toast({kind:"error",title:"Couldn't refresh this to-do",message:"Refresh to check its latest status before trying again."});
     } finally {
       setBusyId(null);
     }
@@ -155,6 +164,8 @@ export function TodayQueueProvider({
     setBusyId(id);
     try {
       applySnapshot(await sendBackTodayItem(id));
+    } catch {
+      toast({kind:"error",title:"Couldn't refresh this to-do",message:"Refresh to check its latest status before trying again."});
     } finally {
       setBusyId(null);
     }

@@ -1,6 +1,5 @@
-import { redirect } from "next/navigation";
+import { Shell } from "@/components/shell/Shell";
 
-/** The ⌘K popup is gone — the operator panel is the app's one Ask surface. */
 export default function CmdkPage() {
-  redirect("/today");
+  return <Shell breadcrumb="Search"><div className="p-6 text-body text-ink-3">Search pages, records and conversations with ⌘K or Ctrl+K.</div></Shell>;
 }

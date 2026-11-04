@@ -11,6 +11,7 @@
 
 import { NextResponse } from "next/server";
 import { isGmailRateLimit } from "@/lib/gmail";
+import { runAsGmailBackground } from "@/lib/gmail-quota";
 import { emit } from "@/lib/notify";
 import { query } from "@/lib/db";
 import { recordCronRun, type CronErrorClass } from "@/lib/worker/cron-runs";
@@ -80,7 +81,9 @@ export async function runCronJob(
   const started = new Date();
   const ran_at = started.toISOString();
   try {
-    const result = await job();
+    // Timer work runs at background Gmail priority: it takes at most half of
+    // the per-minute quota and stands aside while anyone is sending.
+    const result = await runAsGmailBackground(job);
     await ledger(jobName, started, true, null, null, summarize(result));
     return NextResponse.json({ ok: true, ran_at, ...result });
   } catch (err) {

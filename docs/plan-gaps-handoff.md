@@ -237,7 +237,9 @@ by Joe/staff don't feed the weekly update (only sub logs do).
   - Still open:
     - The workflow runbooks (`db/seed-workflow-runbooks.mjs`) aren't seeded live. They seed as inactive or
       proposed for Joe to approve in /engine, so run that at deploy.
-    - Live jobs show stage W01 (5 projects) or W09 (2), with no backfill.
+    - ~~Live jobs show stage W01 or W09.~~ **Done (branch `t3/stage-backfill`, migration 0054):** the
+      workflow stage follows the project status forward (trigger), new rows start there, and open jobs are
+      backfilled.
 - ~~**W03 and W11:**~~ **Done (branch `t3/tier3-w11-w03`, `lib/workflow/cards.ts`):**
   - W03: a "Who does what" card lists every scope item (Joe / a sub / a supplier, supply vs install, his
     prices). `stage_package_release` stages it first when the current allocation hasn't been reviewed, and
@@ -317,9 +319,15 @@ by Joe/staff don't feed the weekly update (only sub logs do).
   - ~~`revisions.ts` has no callers.~~ **Done (branch `t3/tier3-closeout`):** every signed document's
     content is pinned as its revision (a signature step in `lib/esign-hooks.ts`). The designer also pins
     through it (#83).
-  - `lib/closeout/marketing.ts` (publication rights, marketing drafts, the publish card) is still unwired.
-    The dispatcher has no `publication` kind and no social/website provider, so there is nowhere to post.
-    **Ask Joe** where marketing posts should go before wiring it.
+  - **Marketing is copy and paste (Joe, 2026-10-30: no paid social APIs).** /marketing drafts posts; Joe
+    copies the text and marks it posted.
+    - Each draft card now shows the job's photos with an **OK to share** tick (`publication_rights`, owner
+      only, `setPhotoShareable`) and a Download link for the shareable ones.
+    - **Posting agent (branch `t3/marketing-posting-agent`, PR, not deployed):** a social draft goes to one
+      site (Facebook page, Instagram, Google Business Profile). Joe approves the `publish_marketing` card,
+      the dispatcher's `publication` kind hands it to a memory-capped posting run, and Claude puts it up in
+      a browser on this server that Joe signed in to himself (live sign-in window on /marketing). The draft
+      gets the post's link. Migration 0056. Design and safety: `docs/marketing.md`. **Removed 2026-11-03** (Joe: not worth it); never posted.
 - ~~**Designer (A21):**~~ **Done (branch `t3/tier3-designer`):**
   - "Estimate from plan" now reads a pinned design version. It reuses the newest version when that version
     is the live drawing; otherwise it snapshots a new one first.
@@ -349,24 +357,35 @@ by Joe/staff don't feed the weekly update (only sub logs do).
   limits nor the A24 operating instructions. It has the full environment, the live repo and no timeout
   (`scripts/run-claude-agent.mjs` `buildPrompt` `~175-200`, `DEV_CLAUDE_TIMEOUT_MS` unset). Discuss with
   Joe before limiting his own tool.
-- **Hermes picked by a staff member runs as Joe**, with no person attached and no revocation check
-  (`lib/actions/ai-chat.ts:~152-183`).
+- ~~**Hermes picked by a staff member runs as Joe.**~~ **Done (branch `t3/tier4-hermes-staff`):**
+  - A staff turn in an Auto thread goes to Claude, which runs bound to that person.
+  - A staff thread pinned to Hermes or Qwen is refused, and voice won't delegate to them for staff.
 - **No database role isolation or dollar cap:**
   - `deploy/db-roles.sql` was never applied, and `DATABASE_URL_AGENT` is unused.
   - The worker identity lib (`lib/authority/worker-identity.ts`) has no callers.
-  - There's no dollar cap on worker runs (`scripts/run-business-agent.mjs:~66`).
-- **Owner grants aren't tied to the content** of the send (`lib/owner-grant-types.ts:~84-113`).
-- **Direct sends skip lanes, opt-outs and unknown-outcome handling:**
+  - ~~There's no dollar cap on worker runs.~~ **Done (branch `t3/tier4-cost-cap`):** a daily cap
+    (`agents.daily_cost_cap_usd`, default $25; normal days are $1–$9). When it's hit, the worker claims
+    nothing more that day and Joe gets one alert.
+- ~~**Owner grants aren't tied to the content.**~~ **Done (same branch):** a grant approved for an exact
+  message (a staged send) covers that subject and body only, checked at the agent call and at dispatch.
+  Run-scoped "Express permission" grants stay broad by design.
+- ~~**Direct sends skip lanes, opt-outs and unknown-outcome handling.**~~ **Done (same branch,
+  `lib/direct-send-gate.ts`):** all five check the lane and opt-outs first. A bid follow-up whose send may
+  have gone out is marked "unknown outcome" and never retried on its own (Joe gets a flag). The five:
   - `lib/bid-follow-ups.ts:~199`
   - `lib/newsletter-drip.ts:~243`
   - `lib/doc-drafts.ts:~871`
   - `lib/portal-publish.ts:~98`
   - `lib/lead-first-response.ts:~757`
-- **Monitoring:**
-  - There's no off-server uptime check, so a dead server alerts no one.
-  - The monitor's only fallback when Telegram fails is a local log.
-  - `docs/automation-reliability/monitoring.md` is referenced but missing.
-- **MCP:** the server has no `instructions`, and panel runs don't record which instruction versions they loaded.
+- ~~**Monitoring.**~~ **Done (branch `t3/tier4-mcp-monitor`):**
+  - The monitor pings an off-box heartbeat URL (`SJCOS_HEALTHCHECK_URL`): `/fail` with the problems on
+    failure. That URL is also the fallback when Telegram delivery fails.
+  - `docs/automation-reliability/monitoring.md` is written.
+  - **Joe owes:** make the free healthchecks.io check and paste the URL.
+- ~~**MCP.**~~ **Done (same branch):**
+  - The server sends `instructions` on connect (sends need grants; never touch policies/pricing/money
+    totals; the estimate and CO rules; email to-dos carry their message).
+  - Panel runs record `instruction_versions` (migration 0055).
 - **Evals** ran once on `claude-opus-5`. Re-run them on the live models (Opus 5.5, Haiku 5.5) and add
   V28 (message style) and V46 (loading parity).
 

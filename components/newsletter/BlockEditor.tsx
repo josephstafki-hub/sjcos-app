@@ -14,7 +14,7 @@ import { runAction } from "@/lib/run-action";
 import type { BlockKind, NewsletterBlock, RecentJob } from "@/lib/newsletter";
 
 const input =
-  "w-full rounded-md border border-rule bg-paper px-2.5 py-1.5 text-[13px] text-ink outline-none focus:border-accent disabled:bg-paper-2";
+  "w-full rounded-md border border-rule bg-paper px-2.5 py-1.5 text-body text-ink outline-none focus:border-accent disabled:bg-paper-2";
 
 const KIND_LABEL: Record<BlockKind, string> = {
   text: "Text",
@@ -57,8 +57,8 @@ export function BlockEditor({
                 type="button"
                 onClick={() => onMove(-1)}
                 disabled={index === 0}
-                className="rounded p-0.5 text-ink-4 hover:bg-paper-2 hover:text-ink-2 disabled:opacity-25"
-                aria-label="Move up"
+                className="rounded p-0.5 text-ink-3 hover:bg-paper-2 hover:text-ink-2 disabled:opacity-25"
+                aria-label="Move up" title="Move up"
               >
                 <ChevronUp className="size-3.5" strokeWidth={1.5} />
               </button>
@@ -66,16 +66,16 @@ export function BlockEditor({
                 type="button"
                 onClick={() => onMove(1)}
                 disabled={index === total - 1}
-                className="rounded p-0.5 text-ink-4 hover:bg-paper-2 hover:text-ink-2 disabled:opacity-25"
-                aria-label="Move down"
+                className="rounded p-0.5 text-ink-3 hover:bg-paper-2 hover:text-ink-2 disabled:opacity-25"
+                aria-label="Move down" title="Move down"
               >
                 <ChevronDown className="size-3.5" strokeWidth={1.5} />
               </button>
               <button
                 type="button"
                 onClick={onRemove}
-                className="rounded p-0.5 text-ink-4 hover:text-flag"
-                aria-label="Remove section"
+                className="rounded p-0.5 text-ink-3 hover:text-flag"
+                aria-label="Remove section" title="Remove section"
               >
                 <X className="size-3.5" strokeWidth={1.5} />
               </button>
@@ -87,7 +87,7 @@ export function BlockEditor({
       {kind === "divider" && (
         <div className="py-1">
           <div className="border-t border-rule" />
-          <p className="mt-1.5 text-[11px] text-ink-3">A horizontal rule between sections.</p>
+          <p className="mt-1.5 text-meta text-ink-3">A horizontal rule between sections.</p>
         </div>
       )}
 
@@ -98,7 +98,7 @@ export function BlockEditor({
             onChange={(e) => onChange({ heading: e.target.value })}
             disabled={locked}
             placeholder="Section heading"
-            className="mb-1.5 w-full rounded-md border border-transparent bg-transparent px-1 py-0.5 font-serif text-[15px] font-semibold text-ink outline-none hover:border-rule-soft focus:border-accent disabled:opacity-70"
+            className="mb-1.5 w-full rounded-md border border-transparent bg-transparent px-1 py-0.5 font-serif text-subheading font-semibold text-ink outline-none hover:border-rule-soft focus:border-accent disabled:opacity-70"
           />
           <textarea
             value={block.body}
@@ -149,7 +149,7 @@ export function BlockEditor({
               value={block.align ?? "center"}
               onChange={(e) => onChange({ align: e.target.value as "left" | "center" })}
               disabled={locked}
-              className="rounded-md border border-rule bg-paper px-2 py-1.5 text-[12px] text-ink-2 outline-none focus:border-accent"
+              className="rounded-md border border-rule bg-paper px-2 py-1.5 text-meta text-ink-2 outline-none focus:border-accent"
             >
               <option value="center">Center</option>
               <option value="left">Left</option>
@@ -160,9 +160,9 @@ export function BlockEditor({
             onChange={(e) => onChange({ buttonUrl: e.target.value })}
             disabled={locked}
             placeholder="sjcarpentryllc.com/contact"
-            className={`${input} font-mono text-[12px]`}
+            className={`${input} text-meta`}
           />
-          <p className="text-[11px] text-ink-3">
+          <p className="text-meta text-ink-3">
             Both fields are required — a button with no link is dropped when the issue is sent.
           </p>
         </div>
@@ -242,7 +242,7 @@ function ImageBlock({
           className="max-h-[220px] w-full rounded-md border border-rule object-cover"
         />
       ) : (
-        <div className="flex h-[110px] items-center justify-center rounded-md border border-dashed border-rule text-[12px] text-ink-3">
+        <div className="flex h-[110px] items-center justify-center rounded-md border border-dashed border-rule text-meta text-ink-3">
           No photo yet
         </div>
       )}
@@ -265,7 +265,7 @@ function ImageBlock({
               type="button"
               onClick={() => fileRef.current?.click()}
               disabled={busy}
-              className="inline-flex items-center gap-1 rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-60"
+              className="inline-flex items-center gap-1 rounded-md border border-rule px-2.5 py-1 text-meta font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-60"
             >
               {busy ? (
                 <Loader2 className="size-3.5 animate-spin" strokeWidth={1.5} />
@@ -278,7 +278,7 @@ function ImageBlock({
               type="button"
               onClick={() => setLinkOpen((o) => !o)}
               disabled={busy}
-              className="inline-flex items-center gap-1 rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-60"
+              className="inline-flex items-center gap-1 rounded-md border border-rule px-2.5 py-1 text-meta font-semibold text-ink-2 hover:bg-paper-2 disabled:opacity-60"
             >
               <Link2 className="size-3.5" strokeWidth={1.5} /> Pull from a link
             </button>
@@ -292,18 +292,18 @@ function ImageBlock({
                   onKeyDown={(e) => e.key === "Enter" && pullFromLink()}
                   disabled={busy}
                   placeholder="sjcarpentryllc.com/blog/whatever-post"
-                  className={`${input} font-mono text-[12px]`}
+                  className={`${input} text-meta`}
                 />
                 <button
                   type="button"
                   onClick={pullFromLink}
                   disabled={busy || !linkUrl.trim()}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1.5 text-[12px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-50"
+                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-ink bg-ink px-2.5 py-1.5 text-meta font-semibold text-paper hover:bg-ink-hover disabled:opacity-50"
                 >
                   Fetch
                 </button>
               </div>
-              <p className="text-[11px] text-ink-3">
+              <p className="text-meta text-ink-3">
                 Pulls the page&apos;s preview image (og:image) and title. Tapping the photo will
                 open that link — same as a button block&apos;s URL.
               </p>
@@ -326,21 +326,21 @@ function ImageBlock({
         placeholder="Describe the photo (shown when images are blocked)"
         className={input}
       />
-      <p className="text-[11px] text-ink-3">
+      <p className="text-meta text-ink-3">
         Most clients block images until the reader allows them — the description is what they see
         first.
       </p>
 
       {block.buttonUrl && (
-        <div className="flex items-center gap-1.5 rounded-md bg-paper-2 px-2.5 py-1.5 text-[11px] text-ink-2">
-          <Link2 className="size-3 shrink-0 text-ink-4" strokeWidth={1.5} />
+        <div className="flex items-center gap-1.5 rounded-md bg-paper-2 px-2.5 py-1.5 text-meta text-ink-2">
+          <Link2 className="size-3 shrink-0 text-ink-3" strokeWidth={1.5} />
           <span className="min-w-0 flex-1 truncate font-mono">{block.buttonUrl}</span>
           {!locked && (
             <button
               type="button"
               onClick={() => onChange({ buttonUrl: "" })}
-              className="shrink-0 text-ink-4 hover:text-flag"
-              aria-label="Remove link"
+              className="shrink-0 text-ink-3 hover:text-flag"
+              aria-label="Remove link" title="Remove link"
             >
               <X className="size-3" strokeWidth={2} />
             </button>
@@ -378,7 +378,7 @@ export function AddBlockBar({
               ...(k === "button" ? { align: "center" as const } : {}),
             })
           }
-          className="inline-flex items-center gap-1 rounded-md border border-rule px-2.5 py-1 text-[12px] font-semibold text-ink-2 hover:bg-paper-2"
+          className="inline-flex items-center gap-1 rounded-md border border-rule px-2.5 py-1 text-meta font-semibold text-ink-2 hover:bg-paper-2"
         >
           <Plus className="size-3.5" strokeWidth={2} /> {KIND_LABEL[k]}
         </button>
@@ -388,7 +388,7 @@ export function AddBlockBar({
           value=""
           onChange={(e) => onAddJob(e.target.value)}
           disabled={pending}
-          className="rounded-md border border-rule bg-paper px-2 py-1 text-[12px] text-ink-2 outline-none focus:border-accent"
+          className="rounded-md border border-rule bg-paper px-2 py-1 text-meta text-ink-2 outline-none focus:border-accent"
         >
           <option value="">+ Add from a completed job…</option>
           {recentJobs.map((j) => (
@@ -399,7 +399,7 @@ export function AddBlockBar({
           ))}
         </select>
       )}
-      {pending && <span className="text-[11px] text-ink-3">{AI_NAME} drafting…</span>}
+      {pending && <span className="text-meta text-ink-3">{AI_NAME} drafting…</span>}
     </div>
   );
 }

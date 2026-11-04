@@ -38,6 +38,10 @@ import "server-only";
 // stale 'drafting' row the sweep re-claims after 10 minutes.
 
 import { query, queryOne } from "./db";
+import { directSendBlocked } from "./direct-send-gate";
+import type { Run } from "./commands/core";
+
+const runQ: Run = async (sql, params) => (await query(sql, params as never[])).rows as never;
 import { AI_NAME } from "./ai-name";
 import { askHermes, chatReplyClaude } from "./dev-agents";
 import { gmailConfigured, sendNewEmail } from "./gmail";
@@ -752,6 +756,8 @@ export async function sendLeadFirstResponse(
   const body = (opts.body ?? row.body).trim();
   if (!body) return { ok: false, error: "The email body is empty." };
   const auto = opts.auto ?? false;
+  const blocked = await directSendBlocked(runQ, { lane: "sends", to });
+  if (blocked) return { ok: false, error: `Not sent: ${blocked}` };
 
   try {
     await sendNewEmail({ to, subject, bodyText: body });

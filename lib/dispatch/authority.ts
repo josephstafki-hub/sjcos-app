@@ -118,7 +118,15 @@ export async function verifyAuthority(run: Run, intent: ActionIntent, worker: st
 
   if (intent.grant_id) {
     if (!isGatedAction(action)) return { ok: false, reason: `"${action}" is not a gated action a grant can cover.`, disposition: "cancel" };
-    const target = { kind: hint.target_kind ?? intent.target_kind ?? "", id: hint.target_id ?? intent.target_id ?? intent.recipient ?? "", to: hint.to ?? intent.recipient ?? undefined };
+    // The message itself, for a grant Joe approved for an exact message.
+    const pl = intent.payload as { subject?: string; bodyText?: string; body?: string; text?: string };
+    const body = pl.bodyText ?? pl.body ?? pl.text;
+    const target = {
+      kind: hint.target_kind ?? intent.target_kind ?? "",
+      id: hint.target_id ?? intent.target_id ?? intent.recipient ?? "",
+      to: hint.to ?? intent.recipient ?? undefined,
+      content: typeof body === "string" ? { subject: pl.subject ?? null, body } : null,
+    };
     const r = await consumeGrantRun(run, intent.grant_id, action, target, `intent ${intent.operation_key}`);
     if (!r.ok) {
       const [g] = await run<{ status: string }>(`SELECT status FROM owner_grants WHERE id = $1`, [intent.grant_id]);
@@ -220,7 +228,7 @@ export async function consumeGrantRun(
   run: Run,
   grantId: string,
   action: string,
-  target: { kind: string; id: string; to?: string },
+  target: { kind: string; id: string; to?: string; content?: { subject?: string | null; body: string } | null },
   note = "",
 ): Promise<{ ok: true; grant: OwnerGrant } | { ok: false; error: string }> {
   if (!isGatedAction(action)) return { ok: false, error: `"${action}" is not a gated action.` };

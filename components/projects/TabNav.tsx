@@ -43,7 +43,7 @@ export function TabLink({
       title={title}
       className={
         className ??
-        "inline-flex items-center gap-0.5 font-mono text-[10px] font-medium uppercase tracking-[0.08em] text-accent-2 hover:text-accent"
+        "inline-flex items-center gap-1 text-label font-medium text-accent-2 hover:text-accent"
       }
     >
       {children}

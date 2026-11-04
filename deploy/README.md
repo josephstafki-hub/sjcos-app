@@ -181,6 +181,27 @@ journalctl --user -u sjcos-detect.service -n 20       # last result (JSON)
 systemctl --user list-timers sjcos-detect.timer       # next run
 ```
 
+## Gmail quota
+
+Google meters Gmail per mailbox per minute per Cloud project (6,000 units for
+projects created after 2026-05-01; a full thread read costs 120, a send 100).
+`lib/gmail.ts` keeps every thread it has read and re-reads only what Gmail's
+change log (`history.list`, 2 units) says moved; `lib/gmail-quota.ts` books
+each call against the minute — sends first, people next, timers (everything
+under `runCronJob`) capped at half and paused while a send is waiting.
+
+- `GMAIL_UNITS_PER_MINUTE` — the limit to plan against (default 6000). Set it
+  to the "Units per minute per user" figure on the Cloud console's Quotas page
+  if that is higher.
+- `GMAIL_SMTP_FALLBACK=1` — opt-in send backstop: a send the API refuses for
+  quota goes through smtp.gmail.com instead (`lib/gmail-smtp.ts`). Needs the
+  full-mailbox scope, so reconnect the mailbox (/api/inbox/oauth/start) after
+  turning it on. Without the scope it logs once an hour and sends keep waiting
+  on the API (about a minute) as before.
+
+After a restart the first detector / lead-sync run re-reads everything at half
+the minute, which can take several minutes — the cron scripts allow 15 / 10.
+
 ## Scheduler — hourly bid follow-up sweep
 
 A systemd **user timer** runs the bid-chase sweep (`/api/cron/bid-follow-ups`)
@@ -384,7 +405,9 @@ Install any timer the same way as the existing ones:
 `INTUIT_CLIENT_ID` / `INTUIT_CLIENT_SECRET` / `QBO_REALM_ID` / `QBO_REFRESH_TOKEN` / `QBO_ENV` (sandbox|production) (unset = fake QBO
 adapter, dry-run), `BACKUP_PASSPHRASE` + one of `BACKUP_DIR` / `BACKUP_RCLONE_REMOTE`
 / `BACKUP_SSH_TARGET`, optional `SJC_AGENT_MODEL` / `SJC_AGENT_RUNTIME` for the
-business worker, optional `DATABASE_URL_AGENT` once `deploy/db-roles.sql` is applied.
+business worker, optional `DATABASE_URL_AGENT` / `DATABASE_URL_WORKER` /
+`DATABASE_URL_READONLY` / `DATABASE_URL_BACKUP` once the narrow logins are applied
+(`deploy/db-roles.md`; each falls back to `DATABASE_URL`).
 
 **Rollback:** code rollback (`~/sjcos-backups/next-rollback` + restart) and
 `pause lane all` on `/engine/decisions`; migrations are additive and stay.

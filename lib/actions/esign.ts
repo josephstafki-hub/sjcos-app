@@ -21,6 +21,7 @@ import { finalizeSignedDraft } from "@/lib/doc-drafts";
 import { storeBuffer } from "@/lib/upload-store";
 import { parseSignatureDataUrl } from "@/lib/signature-image";
 import type { DocType, SigMethod } from "@/lib/esign-types";
+import { withEsignTransaction, lockSignableRequest, SIGNATURE_CLOSED_ERROR } from "@/lib/esign-state";
 import { signatureHooksWithRetry } from "@/lib/esign-hooks";
 import { classifySignedDoc } from "@/lib/workflow/engine";
 
@@ -146,6 +147,7 @@ interface SignableDoc {
   status: string;
   estimate_id: string | null;
   change_order_id: string | null;
+  draft_closed: boolean;
 }
 
 /** Verify a request belongs to the given portal scope and is still awaiting
@@ -156,12 +158,14 @@ async function loadSignable(id: number, slug: string) {
   const leadSlug = slug.startsWith("lead:") ? slug.slice("lead:".length) : null;
   return queryOne<SignableDoc>(
     leadSlug
-      ? `SELECT sr.title, sr.status, sr.estimate_id, sr.change_order_id
+      ? `SELECT sr.title, sr.status, sr.estimate_id, sr.change_order_id,
+                EXISTS (SELECT 1 FROM document_drafts d WHERE d.signature_request_id = sr.id AND d.status <> 'submitted') AS draft_closed
            FROM signature_requests sr
           WHERE sr.id = $1 AND sr.lead_slug = $2`
       : // A project scope also reaches requests created during its lead stage —
         // the client's link upgraded on conversion, the paperwork didn't move.
-        `SELECT sr.title, sr.status, sr.estimate_id, sr.change_order_id
+        `SELECT sr.title, sr.status, sr.estimate_id, sr.change_order_id,
+                EXISTS (SELECT 1 FROM document_drafts d WHERE d.signature_request_id = sr.id AND d.status <> 'submitted') AS draft_closed
            FROM signature_requests sr
           WHERE sr.id = $1
             AND (sr.project_id = (SELECT id FROM projects WHERE slug = $2)
@@ -204,47 +208,60 @@ interface ApplySignatureInput {
  *  render the executed copy. Returns false if the request was no longer
  *  awaiting signature — someone else got there first — so nothing was written. */
 async function applySignature(o: ApplySignatureInput): Promise<boolean> {
-  let signatureFileId: string | null = null;
-  if (o.signatureImage) {
-    const stored = await storeBuffer(o.signatureImage, {
-      filename: `signature-${o.id}.png`,
-      mime: "image/png",
-      idPrefix: "sig",
-      projectKey: o.projectKey,
-      tag: "SIGNATURE",
-      subtitle: `Drawn signature · ${o.signedName} · ${o.doc.title}`,
-    });
-    if (stored.ok) signatureFileId = stored.id;
-    else console.error(`[esign] signature image not stored for request ${o.id}: ${stored.error}`);
-  }
+  const committed = await withEsignTransaction(async (client) => {
+    if (!(await lockSignableRequest(client, o.id))) return false;
+    let signatureFileId: string | null = null;
+    if (o.signatureImage) {
+      const stored = await storeBuffer(o.signatureImage, {
+        filename: `signature-${o.id}.png`,
+        mime: "image/png",
+        idPrefix: "sig",
+        projectKey: o.projectKey,
+        tag: "SIGNATURE",
+        subtitle: `Drawn signature · ${o.signedName} · ${o.doc.title}`,
+      });
+      if (stored.ok) signatureFileId = stored.id;
+      else console.error(`[esign] signature image not stored for request ${o.id}: ${stored.error}`);
+    }
 
-  const r = await query(
-    `UPDATE signature_requests
-        SET status = 'signed', signed_name = $2, signed_at = now(), consent = true,
-            signed_ip = $3, signed_user_agent = $4, signed_method = $5,
-            signature_file_id = $6, witness_name = $7
-      WHERE id = $1 AND status = 'sent'`,
-    [o.id, o.signedName, o.meta.ip, o.meta.ua, o.method, signatureFileId, o.witnessName],
-  );
-  if (r.rowCount === 0) return false;
+    const r = await client.query(
+      `UPDATE signature_requests
+          SET status = 'signed', signed_name = $2, signed_at = now(), consent = true,
+              signed_ip = $3, signed_user_agent = $4, signed_method = $5,
+              signature_file_id = $6, witness_name = $7
+        WHERE id = $1 AND status = 'sent'`,
+      [o.id, o.signedName, o.meta.ip, o.meta.ua, o.method, signatureFileId, o.witnessName],
+    );
+    if (r.rowCount === 0) return false;
 
-  const detail =
-    o.method === "in_person"
-      ? `Signed "${o.doc.title}" in person on SJ Carpentry's device${o.witnessName ? `, presented by ${o.witnessName}` : ""} (consent given)`
-      : o.method === "drawn"
-        ? `Signed "${o.doc.title}" with a drawn signature (consent given)`
-        : `Signed "${o.doc.title}" (consent given)`;
-  await logEvent(o.id, "signed", o.signedName, detail, o.meta);
+    await client.query(
+      `UPDATE document_drafts SET status = 'signed', updated_at = now()
+        WHERE signature_request_id = $1 AND status = 'submitted'`, [o.id],
+    );
+    if (o.method === "in_person") {
+      await client.query(
+        `INSERT INTO signature_events (request_id, kind, actor, ip, user_agent, detail)
+         SELECT $1, 'presented', $2, $3, $4, $5
+          WHERE NOT EXISTS (SELECT 1 FROM signature_events WHERE request_id = $1 AND kind = 'presented')`,
+        [o.id, o.witnessName || "SJ Carpentry", o.meta.ip, o.meta.ua,
+         `Presented in person by ${o.witnessName || "SJ Carpentry"} for ${o.signedName} to sign`],
+      );
+    }
 
-  // A template draft (Documents tab) keys its status chip off document_drafts,
-  // not the signature_request — carry the signed state across so the owner sees
-  // "Signed" instead of a stuck "Sent for signature". No-op for legacy
-  // estimate-generated requests that have no draft row.
-  await query(
-    `UPDATE document_drafts SET status = 'signed', updated_at = now()
-      WHERE signature_request_id = $1`,
-    [o.id],
-  );
+    const detail =
+      o.method === "in_person"
+        ? `Signed "${o.doc.title}" in person on SJ Carpentry's device${o.witnessName ? `, presented by ${o.witnessName}` : ""} (consent given)`
+        : o.method === "drawn"
+          ? `Signed "${o.doc.title}" with a drawn signature (consent given)`
+          : `Signed "${o.doc.title}" (consent given)`;
+    await client.query(
+      `INSERT INTO signature_events (request_id, kind, actor, ip, user_agent, detail)
+       VALUES ($1, 'signed', $2, $3, $4, $5)`,
+      [o.id, o.signedName, o.meta.ip, o.meta.ua, detail],
+    );
+    return true;
+  });
+  if (!committed) return false;
 
   // Produce the executed copy (signature stamped in + certificate page). The
   // binding signature is already recorded above, so this is an enhancement of
@@ -333,7 +350,7 @@ export async function signSignatureRequest(id: number, formData: FormData): Prom
 
   const doc = await loadSignable(id, slug);
   if (!doc) return { ok: false, error: "Document not found." };
-  if (doc.status !== "sent") return { ok: false, error: "This document is no longer awaiting signature." };
+  if (doc.status !== "sent" || doc.draft_closed) return { ok: false, error: SIGNATURE_CLOSED_ERROR };
 
   const meta = await clientMeta();
   const done = await applySignature({
@@ -346,7 +363,7 @@ export async function signSignatureRequest(id: number, formData: FormData): Prom
     meta,
     projectKey: slug.startsWith("lead:") ? undefined : slug,
   });
-  if (!done) return { ok: false, error: "This document is no longer awaiting signature." };
+  if (!done) return { ok: false, error: SIGNATURE_CLOSED_ERROR };
 
   // Only a real client signature notifies Joe — owner-preview signing is a
   // test click, not news.
@@ -397,7 +414,8 @@ export async function signInPersonAction(id: number, formData: FormData): Promis
   if (!parsed.ok) return { ok: false, error: parsed.error };
 
   const doc = await queryOne<SignableDoc & { project_slug: string | null; lead_slug: string | null }>(
-    `SELECT sr.title, sr.status, sr.estimate_id, sr.change_order_id, sr.lead_slug,
+    `SELECT sr.title, sr.status, sr.estimate_id, sr.change_order_id,
+                EXISTS (SELECT 1 FROM document_drafts d WHERE d.signature_request_id = sr.id AND d.status <> 'submitted') AS draft_closed, sr.lead_slug,
             p.slug AS project_slug
        FROM signature_requests sr
        LEFT JOIN projects p ON p.id = sr.project_id
@@ -405,21 +423,11 @@ export async function signInPersonAction(id: number, formData: FormData): Promis
     [id],
   );
   if (!doc) return { ok: false, error: "Document not found." };
-  if (doc.status !== "sent") return { ok: false, error: "This document is no longer awaiting signature." };
+  if (doc.status !== "sent" || doc.draft_closed) return { ok: false, error: SIGNATURE_CLOSED_ERROR };
 
   const witness = user.name || "SJ Carpentry";
   const linkSlug = doc.project_slug ?? (doc.lead_slug ? `lead:${doc.lead_slug}` : null);
   const meta = await clientMeta();
-
-  // A request that was emailed earlier and is now being signed on the owner's
-  // device: note the hand-over in the trail once, so the certificate reads
-  // created → sent → presented in person → signed.
-  await query(
-    `INSERT INTO signature_events (request_id, kind, actor, ip, user_agent, detail)
-     SELECT $1, 'presented', $2, $3, $4, $5
-      WHERE NOT EXISTS (SELECT 1 FROM signature_events WHERE request_id = $1 AND kind = 'presented')`,
-    [id, witness, meta.ip, meta.ua, `Presented in person by ${witness} for ${signedName} to sign`],
-  );
 
   const done = await applySignature({
     id,
@@ -431,7 +439,7 @@ export async function signInPersonAction(id: number, formData: FormData): Promis
     meta,
     projectKey: doc.project_slug ?? undefined,
   });
-  if (!done) return { ok: false, error: "This document is no longer awaiting signature." };
+  if (!done) return { ok: false, error: SIGNATURE_CLOSED_ERROR };
 
   const href = linkSlug
     ? ownerHrefForLinkSlug(linkSlug, { tab: "Documents", focus: `signature-${id}` })
@@ -465,7 +473,7 @@ export async function declineSignatureRequest(id: number, formData: FormData): P
   const reason = String(formData.get("reason") ?? "").trim();
   const doc = await loadSignable(id, slug);
   if (!doc) return { ok: false, error: "Document not found." };
-  if (doc.status !== "sent") return { ok: false, error: "This document is no longer awaiting signature." };
+  if (doc.status !== "sent" || doc.draft_closed) return { ok: false, error: SIGNATURE_CLOSED_ERROR };
 
   const meta = await clientMeta();
   await query(

@@ -1,5 +1,6 @@
 "use client";
 
+import { Button, Segmented } from "@/components/ui";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
@@ -7,7 +8,7 @@ import {
   Undo2, Redo2, ChevronDown, Printer, Share2, Layers, AlertTriangle, MoreHorizontal, Check, Grid3x3, Magnet, ImageUp,
 } from "lucide-react";
 import { runAction } from "@/lib/run-action";
-import { runChecks } from "@/lib/plan-checks";
+import { useChecks } from "./inspector/ChecksPanel";
 import { renamePlanDesign, duplicatePlanDesign, deletePlanDesign, savePlanAsTemplate } from "@/lib/actions/plan-designs";
 import type { DesignerContext, ViewMode } from "./view-state";
 import { ALL_LAYERS } from "./view-state";
@@ -36,43 +37,30 @@ export function TopBar({
   const router = useRouter();
   const { d, view, setView, design } = ctx;
   const [menu, setMenu] = useState<null | "history" | "snap" | "layers" | "design" | "level">(null);
-  const warnings = runChecks(d.doc).filter((c) => c.severity === "warn").length;
+  const issues = useChecks(ctx).filter((c) => !d.doc.ignoredChecks.includes(c.id));
+  const warnings = issues.length;
   const levels = d.doc.levels;
   const level = levels.find((l) => l.id === d.levelId) ?? levels[0];
 
   const close = () => setMenu(null);
-  const btn = "inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-1 text-[11.5px] font-medium text-ink-2 hover:bg-paper-2 disabled:opacity-40";
+  const btn = "inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-1 text-meta font-medium text-ink-2 hover:bg-paper-2 disabled:opacity-40";
 
   return (
-    <div className="relative flex flex-none flex-wrap items-center gap-1.5 border-b border-rule bg-paper px-3 py-1.5">
+    <div className="relative flex flex-none flex-wrap items-center gap-1.5 border-b border-rule bg-paper px-3 py-1.5 max-sm:[&_button]:min-h-11 max-sm:[&_button]:min-w-11">
       {/* View switcher */}
-      <div className="flex overflow-hidden rounded-md border border-rule">
-        {MODES.map((m) => (
-          <button
-            key={m.id}
-            onClick={() => setView({ mode: m.id })}
-            title={`${m.label} (${m.key})`}
-            className={[
-              "px-2.5 py-1 text-[11.5px] font-semibold",
-              view.mode === m.id ? "bg-ink text-paper" : "bg-card text-ink-2 hover:bg-paper-2",
-            ].join(" ")}
-          >
-            {m.label}
-          </button>
-        ))}
-      </div>
+      <Segmented className="max-sm:h-auto" aria-label="Drawing view" value={view.mode} onChange={mode => setView({mode: mode as typeof view.mode})} options={MODES.map(m => ({value:m.id,label:m.label}))} />
 
       {/* Level */}
       <div className="relative">
-        <button className={btn} onClick={() => setMenu(menu === "level" ? null : "level")}>
+        <Button variant="secondary" size="sm" className={btn} onClick={() => setMenu(menu === "level" ? null : "level")}>
           {level?.name ?? "Level"}
           <ChevronDown className="size-3" />
-        </button>
+        </Button>
         {menu === "level" && (
           <Menu onClose={close}>
             {levels.map((l) => (
               <MenuItem key={l.id} active={l.id === d.levelId} onClick={() => { d.setLevelId(l.id); close(); }}>
-                {l.name} <span className="ml-1 font-mono text-[9px] text-ink-4">{l.ceilingIn}&quot; clg</span>
+                {l.name} <span className="ml-1 tabular-nums text-meta text-ink-3">{l.ceilingIn}&quot; clg</span>
               </MenuItem>
             ))}
             <div className="my-1 border-t border-rule" />
@@ -91,21 +79,21 @@ export function TopBar({
 
       {/* Undo / redo */}
       <div className="flex items-center gap-0.5">
-        <button className={btn} onClick={d.undo} disabled={!d.canUndo} title="Undo (⌘Z)">
+        <Button variant="secondary" size="sm" className={btn} onClick={d.undo} disabled={!d.canUndo} aria-label="Undo" title="Undo (⌘Z)">
           <Undo2 className="size-3.5" />
-        </button>
-        <button className={btn} onClick={d.redo} disabled={!d.canRedo} title="Redo (⇧⌘Z)">
+        </Button>
+        <Button variant="secondary" size="sm" className={btn} onClick={d.redo} disabled={!d.canRedo} aria-label="Redo" title="Redo (⇧⌘Z)">
           <Redo2 className="size-3.5" />
-        </button>
+        </Button>
         <div className="relative">
-          <button className={btn} onClick={() => setMenu(menu === "history" ? null : "history")} title="History">
+          <Button variant="secondary" size="sm" className={btn} onClick={() => setMenu(menu === "history" ? null : "history")} aria-label="History" title="History">
             <ChevronDown className="size-3" />
-          </button>
+          </Button>
           {menu === "history" && (
             <Menu onClose={close} wide>
               {[...d.history].reverse().slice(0, 30).map((h) => (
                 <MenuItem key={h.index} onClick={() => { d.jumpTo(h.index); close(); }} active={h.index === d.history.length - 1}>
-                  <span className="font-mono text-[9px] text-ink-4">{h.index}</span> {h.label}
+                  <span className="tabular-nums text-meta text-ink-3">{h.index}</span> {h.label}
                 </MenuItem>
               ))}
             </Menu>
@@ -119,22 +107,22 @@ export function TopBar({
 
       {/* Snap */}
       <div className="relative">
-        <button className={btn} onClick={() => setMenu(menu === "snap" ? null : "snap")} title="Snap settings">
+        <Button variant="secondary" size="sm" className={btn} onClick={() => setMenu(menu === "snap" ? null : "snap")} title="Snap settings">
           <Magnet className="size-3.5" />
           {view.snapOn ? `${d.doc.settings.snapIn}"` : "off"}
-        </button>
+        </Button>
         {menu === "snap" && (
           <Menu onClose={close}>
             <MenuItem onClick={() => setView({ snapOn: !view.snapOn })} active={view.snapOn}>
               Snapping {view.snapOn ? "on" : "off"}
             </MenuItem>
-            <div className="px-2 py-1 font-mono text-[9px] uppercase text-ink-4">Grid</div>
+            <div className="px-2 py-1 text-label font-medium text-ink-3">Grid</div>
             {SNAPS.map((s) => (
               <MenuItem key={s} active={d.doc.settings.snapIn === s} onClick={() => d.apply({ op: "setSettings", patch: { snapIn: s } }, { transient: true })}>
                 {s}&quot;
               </MenuItem>
             ))}
-            <div className="px-2 py-1 font-mono text-[9px] uppercase text-ink-4">Angle</div>
+            <div className="px-2 py-1 text-label font-medium text-ink-3">Angle</div>
             {ANGLES.map((a) => (
               <MenuItem key={a} active={d.doc.settings.angleSnap === a} onClick={() => d.apply({ op: "setSettings", patch: { angleSnap: a } }, { transient: true })}>
                 {a === 0 ? "free" : `${a}°`}
@@ -144,13 +132,13 @@ export function TopBar({
         )}
       </div>
 
-      <button className={btn} onClick={() => setView({ showGrid: !view.showGrid })} title="Grid" aria-pressed={view.showGrid}>
+      <Button variant="secondary" size="sm" className={btn} onClick={() => setView({ showGrid: !view.showGrid })} aria-label="Grid" title="Grid" aria-pressed={view.showGrid}>
         <Grid3x3 className={`size-3.5 ${view.showGrid ? "" : "opacity-40"}`} />
-      </button>
+      </Button>
 
-      <button className={btn} onClick={onFit} title="Zoom to fit (F)">
+      <Button variant="secondary" size="sm" className={btn} onClick={onFit} title="Zoom to fit (F)">
         Fit
-      </button>
+      </Button>
 
       <button
         className={`${btn} ${view.panel === "underlay" ? "border-ink" : ""}`}
@@ -163,15 +151,15 @@ export function TopBar({
 
       {/* Layers */}
       <div className="relative">
-        <button className={btn} onClick={() => setMenu(menu === "layers" ? null : "layers")} title="Layers">
+        <Button variant="secondary" size="sm" className={btn} onClick={() => setMenu(menu === "layers" ? null : "layers")} title="Layers">
           <Layers className="size-3.5" />
           {view.layers.size < ALL_LAYERS.length ? `${view.layers.size}/${ALL_LAYERS.length}` : "Layers"}
-        </button>
+        </Button>
         {menu === "layers" && (
           <Menu onClose={close} wide>
             <div className="grid grid-cols-2 gap-x-2">
               {ALL_LAYERS.map((l) => (
-                <label key={l} className="flex items-center gap-1.5 px-2 py-0.5 text-[11.5px] text-ink hover:bg-paper-2">
+                <label key={l} className="flex items-center gap-1.5 px-2 py-0.5 text-meta text-ink hover:bg-paper-2">
                   <input
                     type="checkbox"
                     checked={view.layers.has(l)}
@@ -195,7 +183,7 @@ export function TopBar({
                   key={p}
                   onClick={() => setView({ phase: p })}
                   className={[
-                    "rounded-full border px-2 py-0.5 text-[10.5px] capitalize",
+                    "rounded-full border px-2 py-0.5 text-meta capitalize",
                     view.phase === p ? "border-ink bg-ink text-paper" : "border-rule bg-card text-ink-2",
                   ].join(" ")}
                 >
@@ -211,26 +199,27 @@ export function TopBar({
       <button
         className={`${btn} ${warnings ? "border-flag/40 text-flag" : ""}`}
         onClick={() => setView({ panel: "checks" })}
-        title="Checks"
+        title={issues[0]?.message ?? "No open issues"}
+        aria-label={`${warnings} issues — open explanations`}
       >
         <AlertTriangle className="size-3.5" />
-        {warnings}
+        {warnings} issues
       </button>
 
-      <button className={btn} onClick={onPrint} title="Print / drawing set">
+      <Button variant="secondary" size="sm" className={btn} onClick={onPrint} title="Print / drawing set">
         <Printer className="size-3.5" />
         Print
-      </button>
-      <button className={`${btn} border-ink bg-ink text-paper hover:bg-[#232a1e]`} onClick={() => setView({ panel: "versions" })} title="Versions, publish, sign">
+      </Button>
+      <button className={`${btn} border-ink bg-ink text-paper hover:bg-ink-hover`} onClick={() => setView({ panel: "versions" })} title="Versions, publish, sign">
         <Share2 className="size-3.5" />
         Publish
       </button>
 
       {/* Design menu */}
       <div className="relative">
-        <button className={btn} onClick={() => setMenu(menu === "design" ? null : "design")} title="Design menu">
+        <Button variant="secondary" size="sm" className={btn} onClick={() => setMenu(menu === "design" ? null : "design")} aria-label="Design menu" title="Design menu">
           <MoreHorizontal className="size-3.5" />
-        </button>
+        </Button>
         {menu === "design" && (
           <Menu onClose={close} align="right">
             <MenuItem
@@ -296,7 +285,7 @@ function SaveBadge({ ctx }: { ctx: DesignerContext }) {
   const s = ctx.d.save;
   if (s.kind === "conflict") {
     return (
-      <div className="flex items-center gap-1 rounded-md border border-flag/40 bg-flag-soft px-2 py-0.5 text-[11px] text-flag">
+      <div className="flex items-center gap-1 rounded-md border border-flag/40 bg-flag-soft px-2 py-0.5 text-meta text-flag">
         Changed elsewhere (rev {s.rev})
         <button className="underline" onClick={ctx.d.reloadFromConflict}>Reload</button>
         <button className="underline" onClick={ctx.d.keepMineOverConflict}>Keep mine</button>
@@ -305,10 +294,10 @@ function SaveBadge({ ctx }: { ctx: DesignerContext }) {
   }
   const text = s.kind === "saved" ? "Saved" : s.kind === "dirty" ? "Editing…" : s.kind === "saving" ? "Saving…" : s.kind === "offline" ? "Offline" : "Save failed";
   return (
-    <span className={`inline-flex items-center gap-1 text-[11px] ${s.kind === "saved" ? "text-money" : s.kind === "error" ? "text-flag" : "text-ink-3"}`}>
+    <span className={`inline-flex items-center gap-1 text-meta ${s.kind === "saved" ? "text-money" : s.kind === "error" ? "text-flag" : "text-ink-3"}`}>
       {s.kind === "saved" && <Check className="size-3" />}
       {text}
-      {ctx.readOnly && <span className="ml-1 rounded bg-paper-3 px-1 font-mono text-[9px] text-ink-3">READ ONLY</span>}
+      {ctx.readOnly && <span className="ml-1 rounded bg-paper-3 px-1 tabular-nums text-meta text-ink-3">Read only</span>}
     </span>
   );
 }
@@ -319,7 +308,7 @@ function Menu({ children, onClose, wide, align }: { children: React.ReactNode; o
       <div className="fixed inset-0 z-30" onClick={onClose} />
       <div
         className={[
-          "absolute top-full z-40 mt-1 flex flex-col rounded-md border border-rule bg-card p-1 shadow-xl",
+          "absolute top-full z-40 mt-1 flex flex-col rounded-md border border-rule bg-card p-1 shadow-pop",
           wide ? "min-w-[260px]" : "min-w-[170px]",
           align === "right" ? "right-0" : "left-0",
         ].join(" ")}
@@ -346,7 +335,7 @@ function MenuItem({
   href?: string;
 }) {
   const cls = [
-    "rounded px-2 py-1 text-left text-[11.5px]",
+    "rounded px-2 py-1 text-left text-meta",
     active ? "bg-ink text-paper" : danger ? "text-flag hover:bg-flag-soft" : "text-ink hover:bg-paper-2",
   ].join(" ");
   if (asLink && href) {

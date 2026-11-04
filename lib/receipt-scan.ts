@@ -30,7 +30,12 @@ const CLAUDE_BIN = process.env.CLAUDE_BIN ?? `${process.env.HOME}/.local/bin/cla
 /** Sonnet by default: faded thermal paper and handwriting are worth it. */
 const MODEL = process.env.RECEIPT_SCAN_MODEL ?? "sonnet";
 const TIMEOUT_MS = 150_000;
-const MAX_PICTURES = 8;
+/** What one Claude read can carry. Not a limit on how many photos are sent:
+ *  every photo is stored; a very long receipt is read from as many pages as
+ *  fit in one request (Anthropic caps a request at 100 images and 32 MB, and
+ *  base64 adds a third). */
+const READ_MAX_PICTURES = 100;
+const READ_MAX_BYTES = 20 * 1024 * 1024;
 const VISION_MIME = /^image\/(jpeg|png|gif|webp)$/;
 
 export interface Picture {
@@ -131,7 +136,7 @@ export type ScanUploadResult =
 /** Store the photos and put each receipt in the tray, marked "reading".
  *  The caller reads them (readReceipts) once it has answered the phone. */
 export async function scanUploads(input: ScanUploadInput): Promise<ScanUploadResult> {
-  const files = input.files.filter((f) => f.bytes.length > 0).slice(0, 20);
+  const files = input.files.filter((f) => f.bytes.length > 0);
   if (!files.length) return { ok: false, error: "No photo came through." };
   let senderProjectId: string | null = null;
   if (input.projectSlug) {
@@ -139,7 +144,7 @@ export async function scanUploads(input: ScanUploadInput): Promise<ScanUploadRes
     if (!p) return { ok: false, error: "That job wasn't found." };
     senderProjectId = p.id;
   }
-  const groups = input.oneReceipt ? [files.slice(0, MAX_PICTURES)] : files.map((f) => [f]);
+  const groups = input.oneReceipt ? [files] : files.map((f) => [f]);
   const receipts: { id: number; existed: boolean }[] = [];
   const skipped: string[] = [];
   const from = `Scanned by ${input.senderName || "the team"}`.slice(0, 200);
@@ -217,11 +222,16 @@ async function picturesOf(fileIds: string[]): Promise<Picture[]> {
     `SELECT id, storage_path, mime_type FROM files WHERE id = ANY($1::text[])`, [fileIds]);
   const byId = new Map(rows.map((r) => [r.id, r]));
   const out: Picture[] = [];
-  for (const id of fileIds.slice(0, MAX_PICTURES)) {
+  let bytes = 0;
+  for (const id of fileIds) {
+    if (out.length >= READ_MAX_PICTURES) break;
     const r = byId.get(id);
     if (!r?.storage_path) continue;
     const pic = await preparePicture(await readUpload(r.storage_path), r.mime_type ?? "");
-    if (pic) out.push(pic);
+    if (!pic) continue;
+    if (out.length && bytes + pic.bytes.length > READ_MAX_BYTES) break;
+    bytes += pic.bytes.length;
+    out.push(pic);
   }
   return out;
 }

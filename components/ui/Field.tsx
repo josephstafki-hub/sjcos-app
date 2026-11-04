@@ -10,9 +10,9 @@ type FieldProps = {
 /** Label + value readout, used on detail pages. */
 export function Field({ label, value, className = "" }: FieldProps) {
   return (
-    <div className={`flex flex-col gap-1 ${className}`}>
+    <div className={`flex flex-col gap-1.5 ${className}`}>
       <Eyebrow muted>{label}</Eyebrow>
-      <div className="text-[13px] text-ink">{value ?? <span className="text-ink-4">—</span>}</div>
+      <div className="text-body text-ink">{value ?? <span className="text-ink-3">—</span>}</div>
     </div>
   );
 }

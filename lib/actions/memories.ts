@@ -14,7 +14,7 @@ type Result = { ok: true } | { ok: false; error: string };
 export async function approveMemoryEvidence(id: string): Promise<Result> {
   await requireAccess("ai");
   await query(
-    `UPDATE agent_memories SET review_status = 'approved', updated_at = now() WHERE id = $1`,
+    `UPDATE agent_memories SET review_status = 'approved', can_use_as_instruction = false, updated_at = now() WHERE id = $1`,
     [id],
   );
   revalidatePath("/engine");
@@ -40,7 +40,7 @@ export async function approveMemoryInstruction(id: string): Promise<Result> {
 export async function rejectMemory(id: string): Promise<Result> {
   await requireAccess("ai");
   await query(
-    `UPDATE agent_memories SET review_status = 'rejected', updated_at = now() WHERE id = $1`,
+    `UPDATE agent_memories SET review_status = 'rejected', can_use_as_instruction = false, updated_at = now() WHERE id = $1`,
     [id],
   );
   revalidatePath("/engine");
@@ -68,4 +68,13 @@ export async function setMemoryStaleAfter(id: string, date: string): Promise<Res
   );
   revalidatePath("/engine");
   return { ok: true };
+}
+
+/** Restore to review without silently restoring instruction authority. */
+export async function restoreMemory(id: string): Promise<Result> {
+  await requireAccess("ai");
+  await query(`UPDATE agent_memories SET review_status = 'pending', can_use_as_instruction = false,
+    requires_user_confirmation = true, updated_at = now() WHERE id = $1`, [id]);
+  revalidatePath("/engine");
+  return {ok:true};
 }

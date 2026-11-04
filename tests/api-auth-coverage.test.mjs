@@ -12,7 +12,7 @@ import path from "node:path";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
 
-const AUTH = /\b(getUserFromRequest|requireRole|requireOwner|requireAccess|requireUser|getCurrentUser|getSessionUser|readSession|verifySession|requirePortal|CRON_SECRET|verifyCron|cronAuth|timingSafeEqual|verifyWebhook|verifySignature|webhookSecret|Bearer)\b/;
+const AUTH = /\b(getUserFromRequest|requireRole|requireOwner|requireAccess|requireUser|getCurrentUser|getSessionUser|readSession|verifySession|requirePortal|CRON_SECRET|verifyCron|cronAuth|cronAuthorized|timingSafeEqual|verifyWebhook|verifySignature|webhookSecret|Bearer)\b/;
 
 const PUBLIC = {
   "app/api/inbox/oauth/callback/route.ts": "OAuth redirect target; validates state",

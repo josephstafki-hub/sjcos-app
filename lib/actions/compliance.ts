@@ -4,6 +4,7 @@
 
 import { revalidatePath } from "next/cache";
 import { query, queryOne } from "@/lib/db";
+import { COMPLIANCE_SOURCE, CENTRAL_TODAY } from "../compliance-source.mjs";
 import { requireAccess } from "@/lib/dal";
 
 /** Mark a compliance item resolved — drops it from the windows + timeline. */
@@ -15,15 +16,15 @@ export async function resolveComplianceItem(id: string) {
 
 /** "Collect renewals" on /compliance: park one Open Engine work item per
  *  unresolved item due in the next 45 days (deduped against open items by
- *  title). Internal only — nothing is sent to a sub or carrier from here. */
+ *  source record). Internal only — nothing is sent to a sub or carrier from here. */
 export async function queueRenewalRequests(): Promise<
   { ok: true; queued: number; alreadyQueued: number } | { ok: false; error: string }
 > {
   await requireAccess("compliance");
   const { rows } = await query<{ id: string; title: string; due: string }>(
     `SELECT id, title, to_char(due_date, 'FMMon FMDD') AS due
-       FROM compliance_items
-      WHERE NOT resolved AND due_date <= CURRENT_DATE + 45
+       FROM (${COMPLIANCE_SOURCE}) compliance
+      WHERE due_date <= ${CENTRAL_TODAY} + 45
       ORDER BY due_date`,
   );
   let queued = 0;
@@ -44,7 +45,7 @@ export async function queueRenewalRequests(): Promise<
     await query(
       `INSERT INTO work_items (title, body, priority, assignee_kind, source_kind, source_id, created_by)
        VALUES ($1, $2, 'normal', 'human', 'compliance_renewal', $3, 'user')`,
-      [title, `Due ${r.due}. Chase the renewal document, then mark the compliance item resolved.`, r.id],
+      [title, `Due ${r.due}. Collect the renewal document and update the policy or compliance record.`, r.id],
     );
     queued++;
   }
@@ -53,4 +54,19 @@ export async function queueRenewalRequests(): Promise<
     revalidatePath("/today");
   }
   return { ok: true, queued, alreadyQueued };
+}
+
+/** Recover a mistakenly resolved compliance record. */
+export async function reopenComplianceItem(id: string) {
+  await requireAccess("compliance");
+  await query(`UPDATE compliance_items SET resolved = false WHERE id = $1`, [id]);
+  revalidatePath("/compliance");
+  return { ok: true };
+}
+
+export async function summarizeCompliance() {
+  await requireAccess("compliance");
+  const { getComplianceData, getComplianceSummary } = await import("../compliance");
+  const data = await getComplianceData();
+  return { ok: true as const, summary: await getComplianceSummary(data.summaryInput) };
 }

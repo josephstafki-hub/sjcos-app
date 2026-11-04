@@ -52,7 +52,13 @@ export function LeadTabs({
       <Suspense fallback={null}>
         <FocusScroll focus={focus} />
       </Suspense>
-      <Tabs tabs={TAB_LABELS} active={active} onSelect={setActive} />
+      <label className="flex items-center gap-2 py-2 text-label @xl/page:hidden">
+        Section
+        <select aria-label="Section" value={active} onChange={(e) => setActive(Number(e.target.value))} className="h-11 min-w-0 flex-1 rounded-md border border-rule bg-card px-3 text-body">
+          {TAB_LABELS.map((label, i) => <option key={label} value={i}>{label}</option>)}
+        </select>
+      </label>
+      <div className="hidden @xl/page:block"><Tabs tabs={TAB_LABELS} active={active} onSelect={setActive} /></div>
       <div className="mt-4">
         <SwitchTabContext.Provider value={switchTab}>
           {content ?? (

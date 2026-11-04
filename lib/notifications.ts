@@ -6,6 +6,7 @@
 // ride alongside so a card can read "INTAKE" while still filtering under its
 // kind. The red border tracks `flagged`.
 
+import { notificationStatusCopy } from "./daily-work-presentation";
 import type { NotificationKind } from "./types";
 import { query } from "./db";
 import { syncComplianceNotifications } from "./notify";
@@ -85,8 +86,7 @@ function rowToCard(r: NotificationRow): NotificationCard {
     kind: r.kind,
     tag: r.tag ?? r.kind,
     accent: (r.accent ?? "ghost") as NotifAccent,
-    title: r.title,
-    subline: r.subline ?? "",
+    ...notificationStatusCopy({ title: r.title, subline: r.subline ?? "", resolution: resolved ? (r.resolution ?? "done") : null }),
     when: relativeAge(r.age_seconds ?? 0),
     whenAbsolute: r.when_absolute ?? "",
     createdAt: r.created_at,

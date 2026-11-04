@@ -27,6 +27,11 @@ import "server-only";
 // client list by accident.
 
 import { query, queryOne } from "./db";
+import { directSendBlocked } from "./direct-send-gate";
+import { laneOpen } from "./commands/policies";
+import type { Run } from "./commands/core";
+
+const runQ: Run = async (sql, params) => (await query(sql, params as never[])).rows as never;
 import { sendNewEmail } from "./gmail";
 import { getOrCreateGroup } from "./newsletter-import";
 import { renderIssueHtml, renderIssueText } from "./newsletter-render";
@@ -205,6 +210,9 @@ export interface DripResult {
  *  run concurrently — guard 4 (the unique index) is what makes both true. */
 export async function runDrip(): Promise<DripResult> {
   const result: DripResult = { sent: 0, skipped: 0, failed: 0, completed: 0 };
+  // A paused publication lane (or 'all') stops the drip before anything is
+  // claimed, so nobody advances; it picks up where it was once resumed.
+  if (!(await laneOpen(runQ, "publication")).open) return result;
   const due = await findDue(MAX_SENDS_PER_RUN);
   const base = baseUrl();
 
@@ -222,6 +230,13 @@ export async function runDrip(): Promise<DripResult> {
     const subject = loaded.issue.title.trim() || "SJ Carpentry LLC";
     const text = renderIssueText(loaded.issue, opts);
     const html = renderIssueHtml(loaded.issue, opts);
+
+    // Opted out of email (communication_optouts): never mailed; step on past it.
+    if (await directSendBlocked(runQ, { lane: "publication", to: row.email })) {
+      await advance(row, result);
+      result.skipped++;
+      continue;
+    }
 
     // Claim the send FIRST. If the unique index rejects it, this issue already
     // went to this address — advance without sending.

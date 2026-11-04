@@ -18,7 +18,7 @@ export function AiBubble({ children, actions, className = "" }: AiBubbleProps) {
     <Card kind="ai" className={`p-2.5 ${className}`}>
       <div className="flex items-start gap-2">
         <Sparkles className="mt-0.5 size-4 flex-none text-ai-2" strokeWidth={1.5} />
-        <div className="flex-1 text-[13px] text-ai-2">
+        <div className="min-w-0 flex-1 text-body text-ai-2">
           {children}
           {actions && <div className="mt-2.5 flex flex-wrap items-center gap-2">{actions}</div>}
         </div>

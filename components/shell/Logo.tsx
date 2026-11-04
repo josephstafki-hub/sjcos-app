@@ -2,10 +2,11 @@ type LogoProps = {
   /** On the green sidebar, render the lockup in cream. */
   onDark?: boolean;
   className?: string;
+  compact?: boolean;
 };
 
 /** SJC OS monoline lockup — gabled-roof mark + wordmark. */
-export function Logo({ onDark, className = "" }: LogoProps) {
+export function Logo({ onDark, compact, className = "" }: LogoProps) {
   const frame = onDark ? "rgba(255,255,255,0.12)" : "var(--paper-3)";
   const outline = onDark ? "var(--paper)" : "var(--ink)";
   const peak = onDark ? "var(--sidebar-sage)" : "var(--accent)";
@@ -29,12 +30,12 @@ export function Logo({ onDark, className = "" }: LogoProps) {
           strokeLinejoin="round"
         />
       </svg>
-      <span
+      {!compact && <span
         className="font-mono text-[11px] font-semibold tracking-[0.18em]"
         style={{ color: word }}
       >
         SJC&nbsp;OS
-      </span>
+      </span>}
     </div>
   );
 }

@@ -103,3 +103,9 @@ export interface SignatureEventView {
   detail: string;
   atLabel: string;
 }
+
+/** Email delivery does not determine whether a request is open for signing. */
+export interface SignatureDelivery {
+  status: "unknown" | "pending" | "sent" | "failed" | "in_person";
+  note: string;
+}

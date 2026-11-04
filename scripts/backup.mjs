@@ -33,13 +33,17 @@ import { ARTIFACT_EXT, cipherFromEnv, encryptFile, fileSize, sha256File } from "
 import { targetFromEnv } from "../lib/backup/targets.ts";
 import { alertOnBackupHealth, backupHealth } from "../lib/backup/status.ts";
 import { loadEnvFile, REPO_ROOT } from "../lib/worker/load-app.mjs";
+import { databaseUrlFor } from "../lib/db-login.mjs";
 
 const args = parseArgs(process.argv.slice(2));
 
 // Env file: only when SJCOS_ENV names it (systemd) — never a silent default to
 // the live .env.local from a developer shell.
 if (process.env.SJCOS_ENV) loadEnvFile(process.env.SJCOS_ENV);
-const url = args.url ?? (process.env.SJCOS_ENV ? process.env.DATABASE_URL : undefined);
+// pg_dump and the backup_runs ledger use the read-only backup login
+// (DATABASE_URL_BACKUP, deploy/db-roles.md), falling back to DATABASE_URL
+// until Joe adds that line. The owner alert (notifyOwner) keeps DATABASE_URL.
+const url = args.url ?? (process.env.SJCOS_ENV && process.env.DATABASE_URL ? databaseUrlFor("backup") : undefined);
 if (!url) fail("no database: pass --url <postgres url> or run with SJCOS_ENV=<env file> (systemd)");
 
 const now = args.now ? new Date(args.now) : new Date();

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { COMPLIANCE_SOURCE, CENTRAL_TODAY } from "../lib/compliance-source.mjs";
 // SJC OS — MCP server (AI-agnostic).
 //
 // A standard Model Context Protocol server exposing curated tools over the SJC OS
@@ -91,21 +92,28 @@ import { registerProcurementTools } from "./procurement-tools.mjs";
 import { registerBillingTools } from "./billing-tools.mjs";
 import { registerContextTools } from "./context-tools.mjs";
 import { registerFieldTools } from "./field-tools.mjs";
+import { editWorkItem } from "../lib/work-item-edit.ts";
+import { registerDirectoryTools } from "./directory-tools.mjs";
 import { registerTeamTools } from "./team-tools.mjs";
 import { registerProjectTools } from "./project-tools.mjs";
 import { registerLeadTools } from "./lead-tools.mjs";
 import { areaRefusal, logLiveChanges, writeTable } from "./tool-shared.mjs";
 import { registerFilingTools } from "./filing-tools.mjs";
 import { registerUploadTools } from "./upload-tools.mjs";
+import { databaseUrlFor, mcpLogin } from "../lib/db-login.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// Database login (deploy/db-roles.md): the narrow sjcos_agent login
+// (DATABASE_URL_AGENT) unless the launcher explicitly asked for the owner —
+// scripts/run-claude-agent.mjs sets SJC_DB_LOGIN=owner only for Joe's own
+// operator runs in the Ask window. Hermes, claude.ai / ChatGPT (via
+// sjcos-mcp.service), business runs, staff panel turns and bare `claude mcp`
+// stdio spawns all get the narrow login. Falls back to DATABASE_URL until Joe
+// adds the DATABASE_URL_AGENT line.
+const DB_LOGIN = mcpLogin();
 function databaseUrl() {
-  if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
-  const env = readFileSync(path.join(__dirname, "..", ".env.local"), "utf8");
-  const m = env.match(/^DATABASE_URL=(.+)$/m);
-  if (!m) throw new Error("DATABASE_URL not found (env or .env.local)");
-  return m[1].trim().replace(/^["']|["']$/g, "");
+  return databaseUrlFor(DB_LOGIN, { envFile: path.join(__dirname, "..", ".env.local") });
 }
 
 const pool = new pg.Pool({ connectionString: databaseUrl(), max: 4 });
@@ -411,8 +419,38 @@ function strippedDollarError(...texts) {
 // so concurrent HTTP clients each need their own instance. The shared `pool` and
 // module-level helpers are reused across instances — only tool registration (a
 // handful of microseconds of zod schema setup) repeats.
+// Tier 4: what every MCP client (Hermes, claude.ai, ChatGPT, the panel) is
+// told when it connects. The detailed, versioned rules come from
+// get_operating_context; these are the few that must hold even for a client
+// that never calls it.
+export const SERVER_INSTRUCTIONS = [
+  "SJC OS is SJ Carpentry's system of record. Before working a project or lead, call get_operating_context (the versioned operating rules, active policies and scoped context). Read records with the tools; never rebuild history from an inbox scan.",
+  "Client-facing sends (emails, texts, invoices, POs, bid packages, documents for signature, newsletter release) need Joe's owner grant: draft and stage, then request_owner_permission. Pass owner_grant_id only for the exact target and message it was approved for. Never route around a grant.",
+  "Never activate a policy, arm a drip, or change pricing/markup; those are Joe's. A job's total, paid and % paid are computed from records; never write them.",
+  "Estimates: the formal estimate lives under Documents and is locked once out to the client. Before the contract, client changes are a Pre-con change estimate; after it, a change order. A selection over its allowance is a change order only after the contract.",
+  "Every to-do from an email passes email {message_id, thread_id} to create_work_item. Complete work with evidence (complete_work_item_with_evidence / update_work_item_status) and record what you did (record_agent_run, record_receipt).",
+  "Write money as \"$\" amounts through the tools; pass long text through mcp/call-tool.mjs stdin, never as a double-quoted shell argument.",
+].join("\n\n");
+
 function buildServer() {
-const server = new McpServer({ name: "sjcos", version: "1.0.0" });
+const server = new McpServer({ name: "sjcos", version: "1.0.0" }, { instructions: SERVER_INSTRUCTIONS });
+
+// A refusal from the narrow database login (deploy/db-roles.md) comes back as
+// a plain answer the agent can act on, not a crash. Every register*Tools
+// module below registers through this same server object.
+const registerToolRaw = server.registerTool.bind(server);
+server.registerTool = (name, spec, handler) =>
+  registerToolRaw(name, spec, async (...args) => {
+    try {
+      return await handler(...args);
+    } catch (e) {
+      if (e?.code !== "42501") throw e;
+      return {
+        isError: true,
+        content: [{ type: "text", text: `${e.message}. This connection's database login may not make that change — it is Joe's to do in the app or from his own Ask window. Stage it for him instead (stage_decision, request_owner_permission or ask_owner).` }],
+      };
+    }
+  });
 
 server.registerTool(
   "business_snapshot",
@@ -434,7 +472,7 @@ server.registerTool(
       rows(`SELECT status, count(*)::int AS n FROM projects GROUP BY status ORDER BY status`),
       rows(`SELECT count(*)::int AS subs FROM subs`),
       rows(`SELECT COALESCE(sum(amount),0)::int AS outstanding FROM invoices WHERE status = 'sent'`),
-      rows(`SELECT count(*)::int AS due_60d FROM compliance_items WHERE resolved = false AND due_date - CURRENT_DATE BETWEEN 0 AND 60`),
+      rows(`SELECT count(*)::int AS due_60d FROM (${COMPLIANCE_SOURCE}) compliance WHERE due_date <= ${CENTRAL_TODAY} + 60`),
       rows(`SELECT status, count(*)::int AS n FROM work_items GROUP BY status ORDER BY status`),
       rows(`SELECT count(*)::int AS n FROM work_items WHERE approval_status = 'requested'`),
       // Never let a financials hiccup take the whole snapshot down.
@@ -616,15 +654,15 @@ server.registerTool(
   {
     title: "List subcontractors",
     description: "List subs, optionally filtered by trade (substring match). Includes COI status + expiry.",
-    inputSchema: { trade: z.string().optional() },
+    inputSchema: { trade: z.string().optional(), archived: z.boolean().optional() },
   },
-  async ({ trade }) => {
-    const where = trade ? `WHERE trade ILIKE $1` : ``;
+  async ({ trade, archived = false }) => {
+    const where = `WHERE (archived_at IS NOT NULL) = $1` + (trade ? ` AND trade ILIKE $2` : ``);
     return json(
       await rows(
-        `SELECT slug, name, trade, rate, rating, jobs_count, coi_status, coi_expires_at, email, phone
+        `SELECT slug, name, trade, rate, rating, GREATEST(jobs_count, (SELECT count(*)::int FROM project_subs ps JOIN projects p ON p.id=ps.project_id WHERE ps.sub_slug=subs.slug AND p.status='warranty')) AS jobs_count, CASE WHEN coi_expires_at IS NULL THEN 'missing' WHEN coi_expires_at < CURRENT_DATE THEN 'expired' WHEN coi_expires_at-CURRENT_DATE <= 30 THEN 'expiring' ELSE 'current' END AS coi_status, coi_expires_at, email, phone
            FROM subs ${where} ORDER BY fav DESC, name`,
-        trade ? [`%${trade}%`] : [],
+        trade ? [archived, `%${trade}%`] : [archived],
       ),
     );
   },
@@ -635,10 +673,10 @@ server.registerTool(
   {
     title: "List vendors",
     description: "List materials suppliers (vendors), favorites first. Distinct from subs (labor).",
-    inputSchema: {},
+    inputSchema: { archived: z.boolean().optional() },
   },
-  async () =>
-    json(await rows(`SELECT id, slug, name, trade, email, phone, fav FROM vendors ORDER BY fav DESC, name`)),
+  async ({ archived = false }) =>
+    json(await rows(`SELECT id, slug, name, trade, email, phone, fav FROM vendors WHERE (archived_at IS NOT NULL) = $1 ORDER BY fav DESC, name`, [archived])),
 );
 
 server.registerTool(
@@ -696,9 +734,9 @@ server.registerTool(
   async ({ within_days = 90 }) => {
     return json(
       await rows(
-        `SELECT title, kind, due_date, (due_date - CURRENT_DATE) AS days_out, owner, step
-           FROM compliance_items
-          WHERE resolved = false AND due_date - CURRENT_DATE BETWEEN 0 AND $1
+        `SELECT title, kind, due_date, (due_date - ${CENTRAL_TODAY}) AS days_out, who AS owner, step
+           FROM (${COMPLIANCE_SOURCE}) compliance
+          WHERE due_date <= ${CENTRAL_TODAY} + $1
           ORDER BY due_date`,
         [within_days],
       ),
@@ -714,15 +752,18 @@ server.registerTool(
     inputSchema: { project_slug: z.string().optional(), status: z.string().optional() },
   },
   async ({ project_slug, status }) => {
+    const requestStatus = `CASE WHEN EXISTS (
+      SELECT 1 FROM document_drafts d WHERE d.signature_request_id = sr.id AND d.status = 'void'
+    ) THEN 'void' ELSE sr.status END`;
     const conds = [];
     const params = [];
     if (project_slug) { params.push(project_slug); conds.push(`p.slug = $${params.length}`); }
-    if (status) { params.push(status); conds.push(`sr.status = $${params.length}`); }
+    if (status) { params.push(status); conds.push(`${requestStatus} = $${params.length}`); }
     const where = conds.length ? `WHERE ${conds.join(" AND ")}` : ``;
     return json(
       await rows(
-        `SELECT sr.id, sr.doc_type, sr.title, sr.status, sr.signer_name, sr.signed_name,
-                sr.signed_at, p.slug AS project_slug
+        `SELECT sr.id, sr.doc_type, sr.title, ${requestStatus} AS status, sr.signer_name, sr.signed_name,
+                sr.signed_at, sr.email_delivery_status, sr.email_delivery_note, sr.emailed_at, p.slug AS project_slug
            FROM signature_requests sr
            LEFT JOIN projects p ON p.id = sr.project_id
            ${where}
@@ -1313,7 +1354,7 @@ server.registerTool(
          (title, body, priority, assignee_kind, assignee_key, due_at, project_id, lead_id,
           expected_skill_slug, expected_runbook_slug, requires_approval, source_kind, created_by,
           source_id, obligation_id)
-       VALUES ($1,$2,$3,$4,$5,NULLIF($6,'')::timestamptz,$7,$8,$9,$10,$11,$13,$12,$14,$15)
+       VALUES ($1,$2,$3,$4,$5,CASE WHEN length($6::text) = 10 THEN ($6::date::timestamp AT TIME ZONE 'America/Chicago') ELSE NULLIF($6,'')::timestamptz END,$7,$8,$9,$10,$11,$13,$12,$14,$15)
        RETURNING id`,
       [
         a.title, a.body ?? "", a.priority ?? "normal", a.assignee_kind ?? "human",
@@ -1325,6 +1366,24 @@ server.registerTool(
     );
     const onIt = resolved.people.length ? await writeAssignees(r[0].id, resolved.people) : [];
     return json({ ok: true, id: r[0].id, assigned_to: onIt ?? [] });
+  },
+);
+
+server.registerTool(
+  "update_work_item",
+  {
+    title: "Edit a work item",
+    description: "Correct title, description, priority, due date or linked job without creating a duplicate. Omit fields to keep them; null clears a date or job. Future due dates stay snoozed until that day in Central time. To change people, use assign_work_item (owner instruction required).",
+    inputSchema: {
+      id: z.string().uuid(), title: z.string().optional(), body: z.string().optional(),
+      priority: z.enum(["low", "normal", "high", "urgent"]).optional(),
+      due_at: z.string().nullable().optional(), project_slug: z.string().nullable().optional(), lead_slug: z.string().nullable().optional(),
+    },
+  },
+  async ({id, ...patch}) => {
+    const mangled = strippedDollarError(patch.title, patch.body);
+    if (mangled) return mangled;
+    return json(await editWorkItem(rows, id, patch));
   },
 );
 
@@ -1678,6 +1737,21 @@ server.registerTool(
 );
 
 server.registerTool(
+  "restore_work_item",
+  {
+    title: "Restore a done or snoozed to-do",
+    description: "Reopen done/cancelled human work, or explicitly bring snoozed work back today. Reopen preserves its due date; snoozed recovery changes the due day to today. Never promotes work.",
+    inputSchema: { id: z.string(), from: z.enum(["done", "snoozed"]) },
+  },
+  async ({ id, from }) => {
+    const { recoverWorkItem } = await import("../lib/today-recovery.mjs");
+    const ok = await recoverWorkItem(rows, id, from);
+    if (ok) await rows(`INSERT INTO agent_receipts (work_item_id, receipt_kind, label) VALUES ($1, 'db_row', $2)`, [id, from === "done" ? "Reopened to-do" : "Brought snoozed to-do back today"]);
+    return json(ok ? { ok: true, id } : { ok: false, error: "No matching done or snoozed human to-do." });
+  },
+);
+
+server.registerTool(
   "snooze_work_item",
   {
     title: "Snooze a work item",
@@ -1726,19 +1800,43 @@ server.registerTool(
       "email, Joe's Approve click WILL send it. Do not call send_email afterward. " +
       "For a client email, ALWAYS start the draft with \"To: <their email>\" and " +
       "\"Subject: …\" lines, a blank line, then the body — a draft with no To: line " +
-      "is NOT emailed on approval (Joe just sees 'Nothing was emailed').",
+      "is NOT emailed on approval (Joe just sees 'Nothing was emailed'). " +
+      "REPLY ON THE CHANNEL IT CAME IN ON: a client who wrote in the client portal gets their reply in the " +
+      "portal — pass channel: \"portal\" and just the message body (no To:/Subject:, no sign-off block). " +
+      "Joe's Approve click then posts it in that client's portal thread as Joe. An emailed client gets an email draft. " +
+      "Draft the reply proactively, even when Joe has to decide something first (a short holding reply that " +
+      "promises nothing is fine).",
     inputSchema: {
       work_item_id: z.string(),
       draft: z.string(),
       kind: z.string().optional(),
+      channel: z
+        .enum(["email", "portal"])
+        .optional()
+        .describe("'portal' = reply in the client portal thread of the work item's project/lead (Approve posts it). Default: email (or an internal draft with no To: line)."),
     },
   },
-  async ({ work_item_id, draft, kind = "draft" }) => {
+  async ({ work_item_id, draft: rawDraft, kind: rawKind, channel = "email" }) => {
     const item = await rows(
       `SELECT id, title, lead_id, project_id, runbook_instance_id FROM work_items WHERE id = $1`,
       [work_item_id],
     );
     if (!item[0]) return json({ ok: false, error: `No work item ${work_item_id}` });
+    let draft = rawDraft;
+    if (channel === "portal") {
+      if (!item[0].lead_id && !item[0].project_id) {
+        return json({ ok: false, error: "A portal reply needs a work item on the client's project or lead (it posts in that portal thread)." });
+      }
+      // Normalise: drop any header block the agent wrote, then mark it a portal reply.
+      const lines = String(rawDraft ?? "").trimStart().split(/\r?\n/);
+      let i = 0;
+      while (i < lines.length && /^(To|Subject|From|Cc|Channel|Via):/i.test(lines[i])) i++;
+      if (i > 0 && i < lines.length && !lines[i].trim()) i++;
+      const body = lines.slice(i).join("\n").trim();
+      if (!body) return json({ ok: false, error: "The portal reply is empty." });
+      draft = `To: client portal\n\n${body}`;
+    }
+    const kind = rawKind ?? (channel === "portal" ? "portal_reply" : "draft");
     const fp = createHash("md5").update(draft).digest("hex");
     const k = await rows(
       `INSERT INTO knowledge_items (content, kind, source, project_id, lead_id, content_fingerprint, created_by)
@@ -1747,7 +1845,10 @@ server.registerTool(
        RETURNING id`,
       [draft, kind, item[0].project_id, item[0].lead_id, fp],
     );
-    const knowledgeId = k[0]?.id ?? null;
+    // The same text staged before (fingerprint hit): point at that row so
+    // Approve still finds the draft.
+    const knowledgeId =
+      k[0]?.id ?? (await rows(`SELECT id FROM knowledge_items WHERE content_fingerprint = $1 LIMIT 1`, [fp]))[0]?.id ?? null;
     // A fresh draft supersedes any earlier "Approved. Nothing was emailed" notice.
     await rows(
       `UPDATE work_items
@@ -1781,9 +1882,12 @@ server.registerTool(
       ok: true,
       knowledge_id: knowledgeId,
       approve_will_send: approveWillSend.willSend,
+      channel,
       note:
-        "If the draft starts with To:/Subject: matching the lead/project email, Joe's Approve " +
-        "click WILL send it. Do not call send_email afterward. " + approveWillSend.note,
+        channel === "portal"
+          ? "Joe's Approve click posts this in the client portal. Do not post or email it yourself. " + approveWillSend.note
+          : "If the draft starts with To:/Subject: matching the lead/project email, Joe's Approve " +
+            "click WILL send it. Do not call send_email afterward. " + approveWillSend.note,
     });
   },
 );
@@ -1792,6 +1896,21 @@ server.registerTool(
  *  reduced to "will Joe's Approve click email this draft?" so the agent hears
  *  about a missing To: line or a wrong address while it can still fix it. */
 async function approveWouldEmail(draft, leadId, projectId) {
+  if (/^To:\s*client portal\s*$/im.test(String(draft ?? "").trimStart().split(/\r?\n/)[0] ?? "")) {
+    // Portal reply: Approve posts it if the client has a portal login
+    // (lib/approved-draft-send.ts postApprovedPortalReply).
+    const r = await rows(
+      `SELECT EXISTS (SELECT 1 FROM users u WHERE u.role = 'client' AND u.active AND u.link_slug = ps.slug) AS ok
+         FROM (SELECT COALESCE(
+                 (SELECT slug FROM projects WHERE id = $2),
+                 (SELECT p.slug FROM projects p WHERE p.lead_id = $1 ORDER BY p.created_at DESC LIMIT 1),
+                 (SELECT 'lead:' || slug FROM leads WHERE id = $1)) AS slug) ps`,
+      [leadId ?? null, projectId ?? null],
+    );
+    return r[0]?.ok
+      ? { willSend: true, note: "Approve will post it in the client portal." }
+      : { willSend: false, note: "This client has no portal login, so Approve will refuse to post it. Send an email draft instead." };
+  }
   const lines = String(draft ?? "").trimStart().split(/\r?\n/);
   let to = null;
   for (const line of lines) {
@@ -2865,6 +2984,7 @@ server.registerTool(
   // unattended and unknown runs are refused. Never an owner account, and never
   // an owner row, through MCP. Internal records, nothing emailed, no delete.
   // See mcp/team-tools.mjs.
+  registerDirectoryTools(server, { rows, json, currentPrincipal, pool });
   registerTeamTools(server, { rows, json, currentPrincipal });
   registerProjectTools(server, { rows, json, strippedDollarError, currentPrincipal });
   // A lead's Phase 1 rough estimate (the lead page's Rough estimate tab):

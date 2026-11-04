@@ -1,238 +1,272 @@
 "use client";
-
-import { useMemo, useState, useTransition, type ReactNode } from "react";
-import { Check, Sparkles } from "lucide-react";
-import { Card, Chip } from "@/components/ui";
-import { resolveComplianceItem, queueRenewalRequests } from "@/lib/actions/compliance";
+import { Fragment, useState, useTransition, type ReactNode } from "react";
+import { CalendarCheck, ChevronDown, Sparkles } from "lucide-react";
+import {
+  AiBubble,
+  Button,
+  PageHeader,
+  Segmented,
+  KpiTile,
+  Table,
+  TableWrapper,
+  TableHead,
+  TableBody,
+  TableHeader,
+  TableRow,
+  TableCell,
+  TablePrimaryCell,
+  EmptyState,
+  Chip,
+} from "@/components/ui";
+import type { ComplianceWindowCard, TimelineRow } from "@/lib/compliance";
+import {
+  resolveComplianceItem,
+  reopenComplianceItem,
+  queueRenewalRequests,
+  summarizeCompliance,
+} from "@/lib/actions/compliance";
 import { runAction } from "@/lib/run-action";
-import type {
-  ComplianceDot,
-  ComplianceWindowCard,
-  TimelineRow,
-} from "@/lib/compliance";
-
-const DOT: Record<ComplianceDot, string> = {
-  flag: "bg-flag",
-  accent: "bg-accent",
-  ghost: "bg-ink-4",
-};
-
-// A filter chip matches one or more compliance kinds. COI groups certificates
-// of insurance with the auto/insurance policies; "All" matches everything.
-const FILTER_KINDS: Record<string, string[] | null> = {
-  All: null,
-  COI: ["coi", "insurance"],
+const FILTER_KINDS: Record<string, string[]> = {
+  COI: ["coi"],
   Licenses: ["license"],
   Tax: ["tax"],
+  Insurance: ["insurance"],
 };
-
+const KIND_LABELS: Record<string, string> = {
+  coi: "COI",
+  license: "License",
+  tax: "Tax",
+  insurance: "Insurance",
+  other: "Other",
+};
 export function ComplianceClient({
   eyebrow,
   filters,
   windows,
   timeline,
+  history: historyRows = [],
   aiSlot,
 }: {
   eyebrow: string;
   filters: string[];
   windows: ComplianceWindowCard[];
   timeline: TimelineRow[];
-  aiSlot: ReactNode;
+  history?: TimelineRow[];
+  aiSlot?: ReactNode;
 }) {
+  const [summary, setSummary] = useState("");
+  const [history, setHistory] = useState(false);
   const [active, setActive] = useState("All");
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [resolved, setResolved] = useState<Set<string>>(new Set());
-  const [, startTransition] = useTransition();
-
-  const matches = (kind: string) => {
-    const kinds = FILTER_KINDS[active];
-    return !kinds || kinds.includes(kind);
-  };
-
-  const shownWindows = useMemo(
-    () =>
-      windows.map((w) => ({
-        ...w,
-        items: w.items.filter((it) => matches(it.kind)),
-      })),
-    [windows, active],
+  const [pending, start] = useTransition();
+  const matches = (kind: string) =>
+    !FILTER_KINDS[active] || FILTER_KINDS[active].includes(kind);
+  const shown = (history ? historyRows : timeline).filter((r) =>
+    matches(r.kind),
   );
-
-  const shownTimeline = timeline.filter(
-    (r) => matches(r.kind) && !resolved.has(r.id),
-  );
-
-  // Optimistic: the row drops out now and comes back only if the write fails
-  // (runAction toasts the failure).
-  const resolve = (id: string) => {
-    setResolved((s) => new Set(s).add(id));
-    startTransition(async () => {
-      await runAction(() => resolveComplianceItem(id), {
-        fallback: "Could not resolve that item.",
-        onError: () =>
-          setResolved((s) => {
-            const next = new Set(s);
-            next.delete(id);
-            return next;
-          }),
-      });
-    });
-  };
-
   return (
     <>
-      {/* Header — flex-wrap so the chip group drops below the title in a
-          narrow content column instead of overlapping it. */}
-      <div className="mb-3.5 flex flex-wrap items-end gap-3">
-        <div className="min-w-0">
-          <div className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
-            {eyebrow}
-          </div>
-          <h1 className="mt-1 font-serif text-[34px] font-medium leading-none tracking-tight text-accent-2">
-            Compliance
-          </h1>
-        </div>
-        <div className="ml-auto flex flex-wrap items-center gap-1.5">
-          {filters.map((f) => (
-            <button key={f} onClick={() => setActive(f)}>
-              <Chip kind={f === active ? "solid" : "ghost"}>{f}</Chip>
-            </button>
-          ))}
-          <CollectRenewalsButton />
-        </div>
-      </div>
-
-      {aiSlot}
-
-      {/* Window cards */}
-      <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-3">
-        {shownWindows.map((w) => (
-          <Card key={w.label} kind={w.urgent ? "flag" : "default"} className="p-3.5">
-            <div
-              className={[
-                "font-mono text-[9px] font-semibold uppercase tracking-[0.14em]",
-                w.urgent ? "text-flag" : "text-ink-3",
-              ].join(" ")}
+      <PageHeader
+        title="Compliance"
+        meta={eyebrow}
+        actions={
+          <>
+            <Button
+              variant="ghost"
+              className="text-ai-2"
+              icon={Sparkles}
+              disabled={pending}
+              onClick={() =>
+                start(async () => {
+                  const r = await runAction(() => summarizeCompliance());
+                  if (r.ok) setSummary(r.summary);
+                })
+              }
             >
-              {w.label}
-            </div>
-            <div className="mt-1 font-serif text-[22px] font-semibold text-ink">
-              {w.items.length} item{w.items.length === 1 ? "" : "s"}
-            </div>
-            <div className="mt-2.5 flex flex-col gap-1.5">
-              {w.items.map((it) => (
-                <div key={it.title} className="flex items-center gap-2">
-                  <span className="flex-1 text-[12px] text-ink-2">{it.title}</span>
-                  <span className="font-mono text-[11px] text-ink-3">{it.due}</span>
-                </div>
-              ))}
-              {w.items.length === 0 && (
-                <span className="text-[11px] text-ink-4">None in this filter.</span>
-              )}
-            </div>
-          </Card>
-        ))}
-      </div>
-
-      {/* Year-ahead timeline */}
-      <Card id="compliance-timeline" className="scroll-mt-4 overflow-hidden p-0">
-        <div className="border-b border-rule bg-paper-2 px-4 py-2.5">
-          <h2 className="font-serif text-[14px] font-semibold text-ink">
-            Year ahead · timeline
-          </h2>
-        </div>
-        {shownTimeline.map((r) => {
-          const open = expanded === r.id;
+              Summarize
+            </Button>
+            <CollectRenewalsButton />
+          </>
+        }
+        filters={
+          <Segmented
+            aria-label="Compliance filter"
+            value={active}
+            onChange={setActive}
+            options={filters.map((f) => ({ value: f, label: f }))}
+          />
+        }
+      />
+      <div className="mt-6 grid grid-cols-2 gap-3 @xl/page:grid-cols-3">
+        {windows.map((w, n) => {
+          const count = w.items.filter((i) => matches(i.kind)).length;
           return (
-            <div key={r.id} className="border-b border-rule-soft last:border-b-0">
-              <button
-                onClick={() => setExpanded(open ? null : r.id)}
-                className="flex w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-paper-2"
-              >
-                <span className={`size-2 flex-none rounded-full ${DOT[r.dot]}`} />
-                <span className="w-[64px] flex-none font-mono text-[11px] text-ink-2">
-                  {r.date}
-                </span>
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-serif text-[13.5px] font-semibold text-ink">
-                    {r.what}
-                  </div>
-                  <div className="text-[11px] text-ink-3">{r.who}</div>
-                </div>
-                <span className="hidden max-w-[32%] text-right text-[11px] text-ink-3 sm:block">
-                  {r.step}
-                </span>
-              </button>
-              {open && (
-                <div className="flex items-start gap-3 border-t border-rule-soft bg-paper-2 px-4 py-3">
-                  <div className="min-w-0 flex-1 space-y-1 text-[12px] text-ink-2">
-                    <div>
-                      <span className="text-ink-3">Type:</span>{" "}
-                      <span className="uppercase">{r.kind}</span>
-                    </div>
-                    <div>
-                      <span className="text-ink-3">Next step:</span> {r.step}
-                    </div>
-                    {r.notes && (
-                      <div>
-                        <span className="text-ink-3">Notes:</span> {r.notes}
-                      </div>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => resolve(r.id)}
-                    className="flex-none rounded-md border border-rule px-2 py-1 text-[11px] font-semibold text-ink-3 transition-colors hover:bg-paper hover:text-ink"
-                  >
-                    Resolve
-                  </button>
-                </div>
-              )}
-            </div>
+            <KpiTile
+              key={w.label}
+              label={["Urgent · 0–14 days", "15–30 days", "31–90 days"][n]}
+              value={count}
+              tone={count ? (w.urgent ? "flag" : "warn") : "default"}
+              meta={count === 1 ? "item to review" : "items to review"}
+            />
           );
         })}
-        {shownTimeline.length === 0 && (
-          <div className="px-4 py-6 text-center text-[12px] text-ink-3">
-            Nothing in this filter.
-          </div>
-        )}
-      </Card>
+      </div>
+      {summary && <AiBubble className="mt-4">{summary}</AiBubble>}
+      {aiSlot}
+      <section id="compliance-timeline" className="mt-6 scroll-mt-4">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="font-serif text-heading">
+            {history ? "Resolved items" : "Year ahead · timeline"}
+          </h2>
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setHistory(!history);
+              setExpanded(null);
+            }}
+          >
+            {history ? "View timeline" : "View resolved"}
+          </Button>
+        </div>
+        <TableWrapper>
+          <Table>
+            <TableHead>
+              <tr>
+                <TableHeader>Renewal & next step</TableHeader>
+                <TableHeader>Due</TableHeader>
+                <TableHeader className="@max-3xl/page:hidden">Type</TableHeader>
+                <TableHeader>
+                  <span className="sr-only">Details</span>
+                </TableHeader>
+              </tr>
+            </TableHead>
+            <TableBody>
+              {shown.map((r) => (
+                <Fragment key={r.id}>
+                  <TableRow>
+                    <TablePrimaryCell meta={r.who}>
+                      <button
+                        className="text-left hover:underline"
+                        onClick={() =>
+                          setExpanded(expanded === r.id ? null : r.id)
+                        }
+                        aria-expanded={expanded === r.id}
+                      >
+                        {r.what}
+                      </button>
+                      <p className="mt-1 text-meta font-normal text-ink-3">
+                        {r.step}
+                      </p>
+                    </TablePrimaryCell>
+                    <TableCell
+                      className={r.dot === "flag" ? "text-flag" : "text-ink-2"}
+                    >
+                      {r.date}
+                    </TableCell>
+                    <TableCell className="@max-3xl/page:hidden">
+                      <Chip kind={r.dot === "flag" ? "warn" : "neutral"}>
+                        {KIND_LABELS[r.kind] ?? "Other"}
+                      </Chip>
+                    </TableCell>
+                    <TableCell>
+                      <Button
+                        variant="ghost"
+                        icon={ChevronDown}
+                        iconOnly
+                        aria-label={`Details for ${r.what}`}
+                        title="Show details"
+                        onClick={() =>
+                          setExpanded(expanded === r.id ? null : r.id)
+                        }
+                      />
+                    </TableCell>
+                  </TableRow>
+                  {expanded === r.id && (
+                    <tr>
+                      <td colSpan={4} className="bg-paper-2/50 px-4 py-3">
+                        <p className="text-body text-ink-2">
+                          {r.notes || r.step}
+                        </p>
+                        <div className="mt-3">
+                          {!history && r.kind === "insurance" ? (
+                            <Button
+                              href="#insurance-policies"
+                              variant="secondary"
+                            >
+                              Update policy below
+                            </Button>
+                          ) : (
+                            <Button
+                              variant="secondary"
+                              disabled={pending}
+                              onClick={() =>
+                                start(async () => {
+                                  await runAction(async () => {
+                                    if (history)
+                                      await reopenComplianceItem(r.id);
+                                    else await resolveComplianceItem(r.id);
+                                    return { ok: true };
+                                  });
+                                })
+                              }
+                            >
+                              {history ? "Reopen item" : "Mark resolved"}
+                            </Button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+            </TableBody>
+          </Table>
+          {!shown.length && (
+            <EmptyState
+              compact
+              icon={CalendarCheck}
+              title={
+                history
+                  ? "No resolved items in this view"
+                  : "No renewals in this view"
+              }
+              description="Tracked license, tax, COI and insurance renewal dates appear here. Add an insurance policy below or choose another filter."
+            />
+          )}
+        </TableWrapper>
+      </section>
     </>
   );
 }
-
-/** Header action: queue one Engine work item per unresolved compliance item due
- *  in the next 45 days. Internal only — nothing is emailed from here. */
 function CollectRenewalsButton() {
-  const [pending, startTransition] = useTransition();
-  const [note, setNote] = useState<string | null>(null);
-
-  function run() {
-    setNote(null);
-    startTransition(async () => {
-      const res = await runAction(() => queueRenewalRequests(), { fallback: "Could not queue the renewals." });
-      if (!res.ok) return;
-      if (res.queued === 0 && res.alreadyQueued === 0) setNote("Nothing due in the next 45 days");
-      else if (res.queued === 0) setNote("Already queued");
-      else setNote(`${res.queued} queued to Engine`);
-    });
-  }
-
+  const [pending, start] = useTransition();
+  const [note, setNote] = useState("");
   return (
-    <span className="inline-flex items-center gap-1.5">
-      <button
-        onClick={run}
+    <div className="flex flex-wrap items-center gap-2">
+      <Button
         disabled={pending}
-        className="inline-flex items-center gap-1 rounded-md border border-ai bg-ai px-2.5 py-1 text-[12px] font-semibold text-white transition-colors hover:bg-ai-2 disabled:opacity-60"
+        onClick={() => {
+          setNote("");
+          start(async () => {
+            const r = await runAction(() => queueRenewalRequests());
+            if (r.ok)
+              setNote(
+                r.queued
+                  ? `${r.queued} queued to Engine`
+                  : r.alreadyQueued
+                    ? "Renewals already queued"
+                    : "No renewals due in the next 45 days",
+              );
+          });
+        }}
       >
-        <Sparkles className="size-3" strokeWidth={1.75} />
         {pending ? "Queueing…" : "Collect renewals"}
-      </button>
+      </Button>
       {note && (
-        <span className="inline-flex items-center gap-1 text-[11px] text-ink-3">
-          <Check className="size-3 text-money" strokeWidth={2} />
+        <span role="status" className="text-meta text-ink-3">
           {note}
         </span>
       )}
-    </span>
+    </div>
   );
 }

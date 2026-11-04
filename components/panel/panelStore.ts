@@ -69,7 +69,7 @@ const LAYOUT_KEYS = ["width", "collapsed", "where", "follow"] as const;
 
 export const PANEL_MIN_WIDTH = 320;
 export const PANEL_MAX_WIDTH = 1000;
-export const PANEL_DEFAULT_WIDTH = 640;
+export const PANEL_DEFAULT_WIDTH = 420;
 
 export const PANEL_DEFAULTS: PanelState = {
   conversationId: null,

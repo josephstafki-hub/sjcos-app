@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { classifyTransportError, NotTransmittedError, fakeOutbox, resetFakeOutbox, setFakeOutcome } from "../lib/providers/types.ts";
-import { makeEmailProvider } from "../lib/providers/email.ts";
+import { makeEmailProvider, matchSent } from "../lib/providers/email.ts";
 import { makeSmsProvider } from "../lib/providers/sms.ts";
 import { makeTelegramProvider } from "../lib/providers/telegram.ts";
 import { makeVoiceProvider } from "../lib/providers/voice.ts";
@@ -80,6 +80,10 @@ test("email provider with a real transport maps outcomes and reconciles from Sen
     const absent = makeEmailProvider({ ...okT, findSent: async () => null });
     assert.equal((await absent.reconcile({ id: "i", operationKey: "k", payload: { to: "a@example.test", subject: "s", bodyText: "b" }, providerRef: null, attemptedAt: new Date(Date.now() - 60_000).toISOString() })).state, "unknown");
     assert.equal((await absent.reconcile({ id: "i", operationKey: "k", payload: { to: "a@example.test", subject: "s", bodyText: "b" }, providerRef: null, attemptedAt: new Date(Date.now() - 20 * 60_000).toISOString() })).state, "pending");
+    // Gmail gave an id at send time → confirmed without a search
+    const withRef = await absent.reconcile({ id: "i", operationKey: "k", payload: { to: "a@example.test", subject: "s", bodyText: "b" }, providerRef: "thr-1", attemptedAt: new Date(Date.now() - 20 * 60_000).toISOString() });
+    assert.equal(withRef.state, "confirmed");
+    assert.equal(withRef.providerRef, "thr-1");
   } finally {
     process.env.SJC_OUTBOUND_DISABLED = "1";
   }
@@ -215,4 +219,16 @@ test("W06 card: built from the payload, hashes over the same object, shows gaps 
   assert.match(text, /^\[SJC OS\] Decision: Deck framing → Dave/);
   assert.match(text, /Missing \/ open: .*No-Email Joe/);
   assert.match(text, /https:\/\/os\.example\.test\/engine\/decisions\?d=x$/);
+});
+
+test("matchSent: subjects with $ ( , match locally — the Gmail phrase search never did (Egan, 2026-11-02)", () => {
+  const subject = "Egan - USAA supplement invoice EGAN-USAA-01 ($29,206.64) for review";
+  const rows = [
+    { id: "other", date: 3, outbound: true, toLine: "josephstafki@sjcarpentryllc.com", subject: "Something else" },
+    { id: "inbound", date: 2, outbound: false, toLine: "josephstafki@sjcarpentryllc.com", subject },
+    { id: "hit", date: 1, outbound: true, toLine: "Joe <JosephStafki@sjcarpentryllc.com>", subject: `  ${subject.replace("for review", "for  review")} ` },
+  ];
+  assert.deepEqual(matchSent(rows, { to: "josephstafki@sjcarpentryllc.com", subject }), { id: "hit", date: 1 });
+  assert.equal(matchSent(rows, { to: "someone@example.test", subject }), null, "wrong recipient");
+  assert.equal(matchSent(rows.slice(0, 2), { to: "josephstafki@sjcarpentryllc.com", subject }), null, "inbound copy is not proof of a send");
 });

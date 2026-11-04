@@ -34,8 +34,11 @@ import { enqueueAgentTrigger } from "../agent-runtime/triggers.ts";
 export interface ReplyTarget {
   /** A permission/decision card… */
   decisionId: string | null;
-  /** …or a staged-draft (work item) card. Exactly one is set. */
+  /** …or a staged-draft (work item) card… */
   workItemId: string | null;
+  /** …or a portal message push (a client or sub wrote in the portal). Exactly
+   *  one of the three is set. Only ever matched by an explicit reply. */
+  portal?: { channelKey: string; messageId: string | null } | null;
   /** How it was matched: Joe replied to a message, or it was the only open card. */
   matched: "reply" | "only_open";
 }
@@ -46,6 +49,14 @@ export interface ReplyTarget {
  *  null + how many are open, so the bot can ask Joe to reply to the card. */
 export async function findReplyTarget(run: Run, chatId: string, replyToMessageId: number | null): Promise<{ target: ReplyTarget | null; open: number }> {
   if (replyToMessageId != null) {
+    // A reply to a portal message push: Joe is answering the client (or sub)
+    // in the portal. Checked first and only on an explicit reply.
+    const [portal] = await run<{ portal_channel_key: string; portal_message_id: string | null }>(
+      `SELECT portal_channel_key, portal_message_id::text AS portal_message_id FROM telegram_reply_targets
+        WHERE chat_id = $1 AND message_id = $2 AND portal_channel_key IS NOT NULL`,
+      [chatId, replyToMessageId],
+    );
+    if (portal) return { target: { decisionId: null, workItemId: null, portal: { channelKey: portal.portal_channel_key, messageId: portal.portal_message_id }, matched: "reply" }, open: 0 };
     const [hit] = await run<{ decision_id: string | null; work_item_id: string | null }>(
       `SELECT decision_id, work_item_id FROM (
          SELECT t.decision_id, t.work_item_id, 0 AS pri, t.created_at FROM telegram_reply_targets t
@@ -274,17 +285,36 @@ async function recordDraftReply(
   return { id: replyId, decisionId: null, workItemId: w.id, title: w.title, grantId: null, route, conversationId, pulled, priorStatus: pulled ? null : w.approval_status, triggerId };
 }
 
-/** A bot message Joe may reply to (card, prompt, agent answer) → its
- *  decision or staged draft. */
+/** A bot message Joe may reply to (card, prompt, agent answer, portal message
+ *  push) → its decision, staged draft or portal thread. */
 export async function rememberReplyTarget(
   run: Run,
-  input: { chatId: string; messageId: number | string; decisionId?: string | null; workItemId?: string | null; ownerReplyId?: string | null; kind: string },
+  input: {
+    chatId: string;
+    messageId: number | string;
+    decisionId?: string | null;
+    workItemId?: string | null;
+    ownerReplyId?: string | null;
+    portalChannelKey?: string | null;
+    portalMessageId?: number | string | null;
+    kind: string;
+  },
 ): Promise<void> {
-  if (!input.decisionId && !input.workItemId) return;
+  if (!input.decisionId && !input.workItemId && !input.portalChannelKey) return;
   await run(
-    `INSERT INTO telegram_reply_targets (chat_id, message_id, decision_id, work_item_id, owner_reply_id, kind) VALUES ($1, $2, $3, $4, $5, $6)
-     ON CONFLICT (chat_id, message_id) DO UPDATE SET decision_id = EXCLUDED.decision_id, work_item_id = EXCLUDED.work_item_id, owner_reply_id = EXCLUDED.owner_reply_id, kind = EXCLUDED.kind`,
-    [input.chatId, Number(input.messageId), input.decisionId ?? null, input.workItemId ?? null, input.ownerReplyId ?? null, input.kind],
+    `INSERT INTO telegram_reply_targets (chat_id, message_id, decision_id, work_item_id, owner_reply_id, portal_channel_key, portal_message_id, kind) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+     ON CONFLICT (chat_id, message_id) DO UPDATE SET decision_id = EXCLUDED.decision_id, work_item_id = EXCLUDED.work_item_id, owner_reply_id = EXCLUDED.owner_reply_id,
+       portal_channel_key = EXCLUDED.portal_channel_key, portal_message_id = EXCLUDED.portal_message_id, kind = EXCLUDED.kind`,
+    [
+      input.chatId,
+      Number(input.messageId),
+      input.decisionId ?? null,
+      input.workItemId ?? null,
+      input.ownerReplyId ?? null,
+      input.portalChannelKey ?? null,
+      input.portalMessageId != null && input.portalMessageId !== "" ? Number(input.portalMessageId) : null,
+      input.kind,
+    ],
   );
 }
 

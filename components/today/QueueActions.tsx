@@ -1,5 +1,6 @@
 "use client";
 
+import { Button } from "@/components/ui";
 import { useRouter } from "next/navigation";
 import { Sparkles, Check, Clock, ArrowUpRight, ArrowUp, ArrowDown, UserRound } from "lucide-react";
 import { useTodayQueue } from "./TodayQueueContext";
@@ -16,12 +17,6 @@ export function pageLabel(href?: string): string {
   if (href.startsWith("/schedule")) return "Open schedule";
   return "Open";
 }
-
-const CHIP =
-  "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11px] transition-colors disabled:opacity-50";
-const PLAIN = `${CHIP} border-rule bg-paper-2 font-semibold text-ink-2 hover:bg-paper`;
-const DIM = `${CHIP} border-rule bg-paper-2 font-medium text-ink-3 hover:bg-paper`;
-const AI = `${CHIP} border-ai/40 bg-ai-soft font-semibold text-ai-2 hover:bg-ai/15`;
 
 /** The lane-specific buttons on a to-do — the same set on an Up next card
  *  (`place="card"`) and on a list row opened in place (`place="list"`). The
@@ -86,52 +81,48 @@ export function QueueActions({
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       {showHermes && (
-        <button onClick={() => handOff("do")} disabled={busy} className={AI}>
+        <Button size="sm" onClick={() => handOff("do")} disabled={busy} variant="ai">
           <Sparkles className="size-3" strokeWidth={1.5} /> Have AI do it
-        </button>
+        </Button>
       )}
       {showPrep && (
-        <button onClick={() => handOff("prep")} disabled={busy} className={AI}>
+        <Button size="sm" onClick={() => handOff("prep")} disabled={busy} variant="ai">
           <Sparkles className="size-3" strokeWidth={1.5} /> Prep me a summary
-        </button>
+        </Button>
       )}
       {showOpen && (
-        <button
+        <Button size="sm"
           onClick={open}
           disabled={busy}
-          className={
-            p.lane === "deep"
-              ? `${CHIP} border-ink/25 bg-paper-2 font-semibold text-ink hover:bg-paper`
-              : PLAIN
-          }
+          variant="secondary"
         >
           {pageLabel(p.href)} <ArrowUpRight className="size-3" strokeWidth={2} />
-        </button>
+        </Button>
       )}
       {showDone && (
-        <button onClick={() => complete(p.id)} disabled={busy} className={PLAIN}>
+        <Button size="sm" onClick={() => complete(p.id)} disabled={busy} variant="secondary">
           <Check className="size-3" strokeWidth={2} /> Mark done
-        </button>
+        </Button>
       )}
       {showUp && (
-        <button onClick={() => promote(p.id)} disabled={busy} className={PLAIN}>
+        <Button size="sm" onClick={() => promote(p.id)} disabled={busy} variant="secondary">
           <ArrowUp className="size-3" strokeWidth={2} /> Up next
-        </button>
+        </Button>
       )}
       {showSnooze && (
-        <button onClick={() => snooze(p.id)} disabled={busy} className={DIM}>
+        <Button size="sm" onClick={() => snooze(p.id)} disabled={busy} variant="ghost">
           <Clock className="size-3" strokeWidth={1.5} /> Snooze 3d
-        </button>
+        </Button>
       )}
       {showBack && (
-        <button
+        <Button size="sm"
           onClick={() => sendBack(p.id)}
           disabled={busy}
           title="Move this back to the list. It won't come back up on its own."
-          className={DIM}
+          variant="ghost"
         >
           <ArrowDown className="size-3" strokeWidth={2} /> Back to list
-        </button>
+        </Button>
       )}
       {showAssign && (
         <AssigneePicker
@@ -139,7 +130,7 @@ export function QueueActions({
           assigned={p.assignedTo ?? []}
           onChange={(ids) => assign(p.id, ids)}
           disabled={busy}
-          triggerClassName={DIM}
+          triggerClassName="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-label text-ink-2 hover:bg-hover"
           trigger={
             <>
               <UserRound className="size-3" strokeWidth={1.5} />
@@ -160,17 +151,7 @@ export function QueueActions({
 export function AssignmentLine({ assignment }: { assignment: NonNullable<TodayPriority["assignment"]> }) {
   return (
     <div className="flex items-center gap-1.5">
-      <span className="flex flex-none -space-x-1">
-        {assignment.others.map((a) => (
-          <span
-            key={a.userId}
-            className="grid size-[18px] place-items-center rounded-full bg-accent-soft font-mono text-[9px] font-semibold text-accent-2 ring-1 ring-paper"
-          >
-            {a.initials}
-          </span>
-        ))}
-      </span>
-      <span className="text-[12px] font-semibold text-accent-2">{assignment.label}</span>
+      <span className="text-meta font-semibold text-accent-2">{assignment.label}</span>
     </div>
   );
 }

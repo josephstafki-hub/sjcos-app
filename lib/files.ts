@@ -13,6 +13,7 @@ export interface FileRow {
   id: string;
   /** Project folder this file lives under — drives the tree-rail filter. */
   projectKey: string;
+  mimeType: string;
   type: FileType;
   name: string;
   /** Stage/tag label shown in its column, e.g. "CONTRACT" / "AI · DRAFT". */
@@ -43,6 +44,7 @@ export interface FilesData {
   projects: { slug: string; name: string }[];
   /** Type filter chips; the last ("AI tags") is an `ai` chip. */
   typeFilters: string[];
+  trash: { id: string; name: string; projectKey: string; deleted: string }[];
   files: FileRow[];
   selectedId: string;
   previews: Record<string, FilePreview>;
@@ -60,13 +62,14 @@ interface FileDbRow {
   subtitle: string | null;
   ai_tags: string[];
   storage_path: string | null;
+  mime_type: string | null;
 }
 
 export async function getFilesData(): Promise<FilesData> {
   const [{ rows }, projectRes] = await Promise.all([
     query<FileDbRow>(`
       SELECT id, project_key, type, name, tag, ai_origin,
-             modified_label, size_label, subtitle, ai_tags, storage_path
+             modified_label, size_label, subtitle, ai_tags, storage_path, mime_type
       FROM files
       ORDER BY sort, name
     `),
@@ -81,6 +84,7 @@ export async function getFilesData(): Promise<FilesData> {
   ]);
 
   const files: FileRow[] = rows.map((r) => ({
+    mimeType: r.mime_type ?? "",
     id: r.id,
     projectKey: r.project_key,
     type: r.type,
@@ -96,9 +100,10 @@ export async function getFilesData(): Promise<FilesData> {
   for (const r of rows) {
     // Real uploads + generated docs live on this server; anything without a blob
     // is an index/placeholder row.
-    const mirror: { label: string; value: string; chip?: ChipKind } = r.storage_path
-      ? { label: "Storage", value: "On server ✓", chip: "money" }
-      : { label: "Storage", value: "No file attached" };
+    const mirror: { label: string; value: string; chip?: ChipKind } =
+      r.storage_path
+        ? { label: "Storage", value: "On server ✓", chip: "money" }
+        : { label: "Storage", value: "No file attached" };
 
     previews[r.id] = {
       name: r.name,
@@ -124,9 +129,26 @@ export async function getFilesData(): Promise<FilesData> {
 
   return {
     projects: projectRes.rows,
-    typeFilters: ["All", "Contracts", "Drawings", "Photos", "Invoices", "AI tags"],
+    typeFilters: [
+      "All",
+      "Contracts",
+      "Drawings",
+      "Photos",
+      "Invoices",
+      "AI tags",
+    ],
     files,
-    selectedId: files[0]?.id ?? "",
+    selectedId: "",
+    trash: (
+      await query<{
+        id: string;
+        name: string;
+        projectKey: string;
+        deleted: string;
+      }>(
+        `SELECT file_id AS id, name, project_slug AS "projectKey", to_char(deleted_at, 'FMMon FMDD, YYYY') AS deleted FROM file_trash WHERE purge_after > now() ORDER BY deleted_at DESC`,
+      )
+    ).rows,
     previews,
   };
 }

@@ -34,7 +34,7 @@ export function SubSafety({ orientations }: { orientations: SubOrientation[] }) 
     <div>
       <div className="flex items-center gap-1.5">
         <HardHat className="size-3.5 text-accent" strokeWidth={1.75} />
-        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-ink-3">Safety orientation</span>
+        <span className="font-sans text-meta text-ink-3">Safety orientation</span>
       </div>
       <div className="mt-2 flex flex-col gap-2.5">
         {orientations.map((o) => {
@@ -42,7 +42,7 @@ export function SubSafety({ orientations }: { orientations: SubOrientation[] }) 
           return (
             <div key={o.id} className="rounded-md border border-rule bg-paper p-2.5">
               <div className="flex items-center gap-2">
-                <span className="flex-1 font-serif text-[13px] font-semibold text-ink">{o.trade}</span>
+                <span className="flex-1 font-serif text-body font-semibold text-ink">{o.trade}</span>
                 {isAcked ? (
                   <Chip kind="money" dot>
                     acknowledged
@@ -52,14 +52,14 @@ export function SubSafety({ orientations }: { orientations: SubOrientation[] }) 
                     type="button"
                     onClick={() => ack(o.id)}
                     disabled={pending}
-                    className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2 py-0.5 text-[11px] font-semibold text-paper hover:bg-[#232a1e] disabled:opacity-60"
+                    className="inline-flex items-center gap-1 rounded-md border border-ink bg-ink px-2 py-0.5 text-meta font-semibold text-paper hover:bg-ink-hover disabled:opacity-60"
                   >
                     <Check className="size-2.5" strokeWidth={2} />
                     Acknowledge
                   </button>
                 )}
               </div>
-              <p className="mt-1.5 whitespace-pre-line text-[12px] leading-snug text-ink-2">{o.body}</p>
+              <p className="mt-1.5 whitespace-pre-line text-label leading-snug text-ink-2">{o.body}</p>
             </div>
           );
         })}

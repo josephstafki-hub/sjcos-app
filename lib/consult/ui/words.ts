@@ -568,7 +568,7 @@ export function plainWords(code: string | undefined | null, ctx: { name?: string
     case 'missing_precache': case 'checksum_mismatch': case 'invalid_manifest': return "Couldn’t download the offline pages.";
     case 'snapshot_unavailable': return "Couldn’t download the visit details.";
     case 'unknown_proposal': case 'proposal_mismatch': return 'That value was already decided.';
-    case 'evidence_too_large': case 'batch_too_large': return 'The office could not take this much visit evidence at once. Your answers are saved here. Keep working and ask Joe to review the visit.';
+    case 'evidence_too_large': case 'batch_too_large': return 'This change is too large to save or send. Shorten the notes or remove repeated detail, then save again. Earlier saved answers are kept.';
     case 'evidence_conflict': case 'stale_snapshot': return 'This device has an older copy of the visit. Reload.';
     case 'findings_failed': return "Couldn’t apply findings to the scope — Try again";
     default: return 'Something went wrong. Your answers are still saved on this device. Try again.';
@@ -592,8 +592,8 @@ const CLOSE_REFUSED_LINES: Record<CloseErrorCode, string> = {
   rebase_required: 'Joe reopened this visit after some answers were typed here. Pick which value to keep, then close again.',
   device_access_denied: 'This visit is being filled in on another device, so this one can’t close it. Your answers are saved here; ask Joe to move the visit to this device.',
   missing_device_manifest_required: 'Another device worked on this visit and hasn’t closed. Close it on that device, or ask Joe to set it aside. Your answers are saved here.',
-  evidence_too_large: 'The office couldn’t take this much at once. Your answers are saved here; ask Joe to look over the visit.',
-  batch_too_large: 'The office couldn’t take this much at once. Your answers are saved here; ask Joe to look over the visit.',
+  evidence_too_large: 'Shorten the notes or remove repeated detail, then save again. Earlier saved answers are kept.',
+  batch_too_large: 'Shorten the notes or remove repeated detail, then save again. Earlier saved answers are kept.',
   owner_required: 'Only Joe can set a return-visit or trade-walk day. Take the day off, then close again.',
   person_required: 'Only the person on this visit can close it. Your answers are saved on this device.',
   signed_out: 'You were signed out. Your answers are saved on this device; sign in, then close again.',

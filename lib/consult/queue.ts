@@ -34,6 +34,7 @@ export async function payloadHash(value: unknown): Promise<string> {
 }
 export function enqueue(state: QueueState, op: ConsultOp, projection: Record<string,unknown>): QueueState {
   if (state.blocked) throw new Error(state.blocked);
+  if(new TextEncoder().encode(canonicalJson(op)).byteLength>256*1024-512)throw new Error('batch_too_large');
   const duplicate=state.entries.find((entry)=>entry.op.client_event_id===op.client_event_id);
   if (duplicate) {
     if (canonicalJson(duplicate.op)!==canonicalJson(op)) throw new Error('idempotency_mismatch');

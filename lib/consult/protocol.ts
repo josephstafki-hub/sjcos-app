@@ -33,6 +33,29 @@ export const evidenceSchema=z.strictObject({
  return_day:day.optional(),
 });
 export const decisionSchema=evidenceSchema.pick({skips:true,flags:true,trade_walks:true,no_trades_confirmed:true,rrp:true,ack_reason:true}).extend({trade_walks:z.array(z.strictObject({trade:z.string().max(8000),needed:z.boolean().nullable(),reason:z.string().max(8000),day:day.optional()})).max(50),flags:z.record(z.string(),z.strictObject({disposition:z.enum(['price_it','allowance','sub_must_look','not_an_issue']),note:z.string().max(8000)})),rrp:evidenceSchema.shape.rrp.extend({redelivery_day:z.string().max(10).optional()})});
+async function readDecisions(c:PoolClient,target:string,closeEvidence:unknown):Promise<unknown>{
+ const events=(await c.query("SELECT payload,type FROM consult_events WHERE consult_id=$1 AND type IN ('decisions','close_evidence') ORDER BY server_revision,created_at",[target])).rows;
+ let decisions:unknown=null;
+ for(const event of events){
+  if(event.type==='close_evidence') decisions=closeEvidence?Object.fromEntries(Object.entries(closeEvidence).filter(([key])=>key in decisionSchema.shape)):null;
+  else decisions=mergeDecisions(decisions,event.payload.payload);
+ }
+ return decisions;
+}
+export function mergeDecisions(before:unknown,payload:unknown):unknown {
+ if(!payload || typeof payload!=='object' || !('patch' in payload))return decisionSchema.parse(payload);
+ const patch=(payload as {patch:Record<string,unknown>}).patch;
+ const out:Record<string,unknown>={skips:{},flags:{},trade_walks:[],no_trades_confirmed:false,rrp:{receipt:false,firm_current:false,renovator_current:false,redelivery_required:false},ack_reason:null,...(before as object??{})};
+ for(const [key,value] of Object.entries(patch)){
+  if(!(key in decisionSchema.shape))throw new Error('invalid_command');
+  if(key==='skips'||key==='flags'){
+   const map={...(out[key] as Record<string,unknown>)};
+   for(const [id,item] of Object.entries(value as Record<string,unknown>)){if(item===null)delete map[id];else map[id]=item;}
+   out[key]=map;
+  }else out[key]=value;
+ }
+ return decisionSchema.parse(out);
+}
 const address=z.strictObject({instance_id:uuid,field_key:z.string().regex(/^[a-z][a-z0-9_]*$/)});
 const opSchema=z.strictObject({protocol_version:z.literal(1),client_event_id:uuid,device_id:uuid,device_epoch:rev.min(1),seq:rev.min(1),base_revision:rev,generation:rev.min(1),type:z.enum(['start','answer','clear','create_instance','remove_instance','resolve','discard_rejection','decisions']),target:z.unknown(),payload:z.unknown(),payload_sha256:z.string().regex(/^[a-f0-9]{64}$/)});
 const answerPayload=z.strictObject({summary_text:z.string().min(1).max(32000).optional(),status:z.enum(['answered','skipped','cleared']),value:z.unknown().optional(),unit:z.string().optional(),skip_reason:skip.optional(),skip_note:z.string().max(8000).optional()});
@@ -76,8 +99,7 @@ export async function snapshot(c:PoolClient,context:Context,target:string):Promi
  prefill.discovery_notes.push(...(await c.query("SELECT notes->>'summary' summary FROM calls WHERE (project_id=$1 OR lead_id=(SELECT lead_id FROM projects WHERE id=$1)) AND notes_status='done' AND notes->>'summary' IS NOT NULL ORDER BY started_at DESC LIMIT 20",[project])).rows);
  const visitor_notes=(await one<{payload:{visitor_notes:string}}>(c,"SELECT payload FROM consult_events WHERE consult_id=$1 AND type='scheduled_notes' ORDER BY created_at DESC LIMIT 1",[target]))?.payload.visitor_notes??'';
  const closeEvidence=(await one<{evidence:unknown}>(c,'SELECT evidence FROM consult_close_evidence WHERE consult_id=$1',[target]))?.evidence??null;
- const latest=(await one<{payload:{payload:unknown};type:string}>(c,"SELECT payload,type FROM consult_events WHERE consult_id=$1 AND type IN ('decisions','close_evidence') ORDER BY server_revision DESC,created_at DESC LIMIT 1",[target]));
- const decisions=latest?.type==='decisions'?latest.payload.payload:closeEvidence?decisionSchema.parse(Object.fromEntries(Object.entries(closeEvidence).filter(([key])=>key in decisionSchema.shape))):null;
+ const decisions=await readDecisions(c,target,closeEvidence);
 
  const media=(await c.query("SELECT m.sha256 hash,m.event_id,m.kind,m.instance_id,m.field_key,m.shot_key,f.mime_type mime,jsonb_build_object('file_id',m.file_id,'media_id',m.id) receipt FROM consult_media m JOIN files f ON f.id=m.file_id WHERE m.consult_id=$1 AND m.removed_at IS NULL AND m.kind IN ('photo','initials') ORDER BY m.created_at",[target])).rows.map(m=>({...m,...(!m.field_key?{field_key:undefined}:{}),...(!m.shot_key?{shot_key:undefined}:{})}));
  const reopened=await latestReopen(c,target);
@@ -182,7 +204,7 @@ export async function batch(c:PoolClient,context:Context,target:string,input:unk
    if(s.consult.status!=='scheduled'||Number(s.consult.revision)!==op.base_revision)throw new Error('conflict');
    await c.query("UPDATE consults SET status='in_progress',revision=revision+1,started_at=now(),started_by=$2 WHERE id=$1",[target,actor]);receipt.revision=op.base_revision+1;
   }else if(op.type==='decisions'){
-   z.null().parse(op.target);decisionSchema.parse(op.payload);
+   z.null().parse(op.target);mergeDecisions((s as unknown as {decisions:unknown}).decisions,op.payload);
    if(op.base_revision!==Number(s.consult.revision))throw new Error('conflict');
    // Partial wrap decisions are durable evidence, not a claim that Close checks passed.
    await c.query('UPDATE consults SET revision=revision+1 WHERE id=$1',[target]);receipt.revision=Number(s.consult.revision)+1;

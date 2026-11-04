@@ -3,7 +3,7 @@ import {deadlineFetch,transportCode} from './transport.ts';
 import {ConsultOfflineStore,assertOfflineLease,partitionKey,verifyLease,type SignedLease,type OfflineIdentity,type OfflineLease} from './offline.ts';
 import {applyReceipt,applyServerEpoch,enqueue,nextBatch,type QueueState,type ConsultOp,type OpReceipt} from './queue.ts';
 export interface LocalBlob {summary_text?:string;hash:string;event_id:string;mime:string;kind:'photo'|'initials';instance_id:string;field_key?:string;shot_key?:string;receipt?:{file_id:string;media_id:string}}
-export interface LocalVisit {queue:QueueState;snapshot:unknown;blobs:LocalBlob[];last_send:number|null;close_intent?:{started_at?:number;baseline_hash?:string;evidence:Record<string,unknown>|null;request?:{expected_revision:number;manifest:unknown}};last_send_failure?:{code:string;at:number;detail?:string}|null}
+export interface LocalVisit {queue:QueueState;snapshot:unknown;blobs:LocalBlob[];last_send:number|null;close_intent?:{paused?:string;notified?:boolean;started_at?:number;baseline_hash?:string;evidence:Record<string,unknown>|null;request?:{expected_revision:number;manifest:unknown}};last_send_failure?:{code:string;at:number;detail?:string}|null}
 export type OfflineRepository=Pick<ConsultOfflineStore,'load'|'save'|'saveBlob'|'loadBlob'|'preflight'|'close'|'deleteBlob'|'blobHashes'>;
 export class OfflineEngine {
  lastSendFailure:{code:string;at:number;detail?:string}|null=null;
@@ -28,7 +28,8 @@ export class OfflineEngine {
  async saveCloseIntent(evidence:Record<string,unknown>|null){return this.exclusive(async()=>{const v=this.read();if(v)await this.commit({...v,close_intent:{evidence,baseline_hash:(v.snapshot as {close_evidence_hash?:string})?.close_evidence_hash,started_at:Date.now()}});});}
  async saveCloseRequest(request:{expected_revision:number;manifest:unknown}){return this.exclusive(async()=>{const v=this.read();if(v?.close_intent)await this.commit({...v,close_intent:{...v.close_intent,request}});});}
  /** r10 R10-1: after the office refused a close, drop the refused request but keep the intent, so the next try builds a fresh one. */
- async clearCloseRequest(){return this.exclusive(async()=>{const v=this.read();if(v?.close_intent?.request){const {request:_drop,...rest}=v.close_intent;void _drop;await this.commit({...v,close_intent:rest});}});}
+ async pauseClose(code:string,notified=false){return this.exclusive(async()=>{const v=this.read();if(v?.close_intent)await this.commit({...v,close_intent:{...v.close_intent,paused:code,notified}});});}
+ async clearCloseRequest(){return this.exclusive(async()=>{const v=this.read();if(v?.close_intent){const {request:_drop,paused:_paused,...rest}=v.close_intent;void _drop;await this.commit({...v,close_intent:rest});}});}
  async clearCloseIntent(request?:{expected_revision:number;manifest:unknown}){return this.exclusive(async()=>{const v=this.read();if(request && JSON.stringify(v?.close_intent?.request)!==JSON.stringify(request))return;if(v)await this.commit({...v,close_intent:undefined});});}
  /** One durable transaction: initialization is either entirely present or absent. */
  async captureBatch(ops:ConsultOp[],projection:Record<string,unknown>){return this.exclusive(async()=>{const v=this.read();if(!v)throw new Error('not_prepared');let queue=v.queue;for(const op of ops)queue=enqueue(queue,op,projection);await this.commit({...v,queue});});}

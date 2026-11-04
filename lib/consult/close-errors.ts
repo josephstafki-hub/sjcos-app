@@ -7,3 +7,5 @@ export const CLOSE_ERROR_ACTIONS = {
  signed_out:'reload', access_denied:'back_to_visits', invalid_command:'go_to_field', json_required:'reload', csrf:'reload', consult_key_unavailable:'retry'
 } as const;
 export type CloseErrorCode = keyof typeof CLOSE_ERROR_ACTIONS;
+
+export function transientClose(code: string): boolean { return code === 'no_signal' || /^http_(408|429|5\d\d)$/.test(code); }

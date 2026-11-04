@@ -44,3 +44,27 @@ export async function discardOp(q: QueueState, device: string, b: Baseline, reje
 }
 
 export const decisionsOp = (q: QueueState, device: string, b: Baseline, draft: unknown) => envelope(q, device, 'decisions', null, draft, b.rev);
+
+
+// Each patch is independently receipted; null explicitly clears a map entry.
+export function decisionPatches(before: unknown, after: unknown): unknown[] {
+ const old=(before??{}) as Record<string,unknown>, next=after as Record<string,unknown>;
+ const patches:unknown[]=[];
+ for(const key of Object.keys(next)){
+  if(key==='skips'||key==='flags'){
+   const a=(old[key]??{}) as Record<string,unknown>, b=(next[key]??{}) as Record<string,unknown>;
+   for(const id of new Set([...Object.keys(a),...Object.keys(b)]))
+    if(JSON.stringify(a[id])!==JSON.stringify(b[id]))patches.push({patch:{[key]:{[id]:b[id]??null}}});
+  }else if(JSON.stringify(old[key])!==JSON.stringify(next[key]))patches.push({patch:{[key]:next[key]}});
+ }
+ const batches:unknown[]=[];
+ let pending:Record<string,unknown>={};
+ for(const item of patches as {patch:Record<string,unknown>}[]){
+  const candidate={...pending};
+  for(const [key,value] of Object.entries(item.patch))candidate[key]=(key==='skips'||key==='flags')?{...(pending[key] as object??{}),...(value as object)}:value;
+  if(new TextEncoder().encode(JSON.stringify(candidate)).length>32000 && Object.keys(pending).length){batches.push({patch:pending});pending=item.patch;}
+  else pending=candidate;
+ }
+ if(Object.keys(pending).length)batches.push({patch:pending});
+ return batches;
+}

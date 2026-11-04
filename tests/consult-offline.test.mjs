@@ -136,11 +136,11 @@ test('empty-queue Close retries a lost acknowledgement after cold unlock with th
   if(++attempts===1)throw new TypeError('Failed to fetch');
   return Response.json({complete:true,checks:[],revision:2});
  };
- t.after(()=>{globalThis.fetch=previous;if(ctl.timer)clearTimeout(ctl.timer);store.close();});
- await ctl.drain();assert.equal(ctl.state.closing.step,'waiting_signal');assert.ok(ctl.timer);
+ t.after(()=>{globalThis.fetch=previous;if(ctl.closeTimer)clearTimeout(ctl.closeTimer);store.close();});
+ await ctl.drain();assert.equal(ctl.state.closing.step,'waiting_signal');assert.ok(ctl.closeTimer);
  // The actual scheduled callback (no browser online event or user action).
  let retried;const drain=ctl.drain.bind(ctl);ctl.drain=(...args)=>(retried=drain(...args));
- const timer=ctl.timer,fire=timer._onTimeout;clearTimeout(timer);fire();await retried;
+ const timer=ctl.closeTimer,fire=timer._onTimeout;clearTimeout(timer);fire();await retried;
  assert.equal(ctl.state.closing.step,'done');assert.equal(attempts,2);assert.equal(effects,1);assert.equal(cold.read().close_intent,undefined);
 });
 

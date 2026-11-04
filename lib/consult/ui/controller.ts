@@ -18,7 +18,7 @@ import { canonicalJson, enqueue, closeManifest, type QueueState } from '../queue
 import { registerConsultWorker, type PrecacheManifest } from '../service-worker.ts';
 import type { ReadyCheck, CheckResult } from '../readiness.ts';
 import { HOUSE_WIDE, baselineOf, buildModel, emptyDraft, manifestBlobs, moduleNoun, predictRevisions, unsentCount, type Baseline, type Display, type EvidenceDraft, type Snapshot } from './model.ts';
-import { decisionsOp, answerOp, createInstanceOp, discardOp, removeInstanceOp, resolveOp, startOp, uuid, type AnswerPayload } from './ops.ts';
+import { decisionPatches, decisionsOp, answerOp, createInstanceOp, discardOp, removeInstanceOp, resolveOp, startOp, uuid, type AnswerPayload } from './ops.ts';
 
 export interface Boot {
   status?:string; closed_at?:string|null; completeness?:unknown;
@@ -424,7 +424,23 @@ export class VisitController {
     return this.commit((q, b) => discardOp(q, this.state.device, b, e.op, reason), 'Removed');
   }
   /** Every local decision is a durable, independently receipted sync operation. */
-  setDraft(draft: EvidenceDraft) { this.set({code:null});return this.commit((q,b)=>decisionsOp(q,this.state.device,b,draft), 'Decision', draft).then(()=>true).catch(e=>{this.set({code:codeOf(e)});return false;}); }
+  setDraft(draft: EvidenceDraft) {
+    const next=this.writes.then(async()=>{
+      if(new TextEncoder().encode(JSON.stringify(draft)).length>1800000)throw new Error('evidence_too_large');
+      const previous=this.state.draft;
+      if(!this.engine || !this.state.local)throw new Error('not_prepared');
+      let q=this.state.local.queue; const base=this.baseline(), ops=[];
+      for(const patch of decisionPatches(previous,draft)){
+        const op=await decisionsOp(q,this.state.device,base,patch);
+        q=enqueue(q,op,this.projection(draft));ops.push(op);base.rev++;
+      }
+      await this.engine.captureBatch(ops,this.projection(draft));
+      this.set({local:this.engine.read(),draft,lastSaved:'Decision'});this.schedule(0);
+      return true;
+    });
+    this.writes=next.catch(()=>undefined);
+    return next.catch(e=>{this.set({code:codeOf(e)});return false;});
+  }
 
   async photo(file: Blob, meta: { instance_id: string; field_key?: string; shot_key?: string; kind?: 'photo' | 'initials' }, label: string, summaryText?: string) {
     if (!this.engine) throw new Error('not_prepared');
@@ -538,6 +554,14 @@ export class VisitController {
   private closeToken: object | null = null;
   private async resumeClose() {
     if (!this.engine || this.closing) return;
+    const paused=this.engine.read()?.close_intent;
+    if(paused?.paused){
+      if(!paused.notified)try{
+        await post(this.state.consultId,'report_close_failure',{reason:paused.paused});
+        await this.engine.pauseClose(paused.paused,true);
+      }catch{this.closeTimer=setTimeout(()=>{void this.resumeClose();},60_000);}
+      return;
+    }
     const engine = this.engine, epoch = this.memoryEpoch, token = {};
     this.closeToken = token;
     const owns = () => {
@@ -582,12 +606,14 @@ export class VisitController {
       if (!owns()) return;
       const rawCode = codeOf(e), code = transientClose(rawCode) && rawCode !== 'no_signal' ? 'close_timeout' : rawCode;
       this.set({ local: this.engine?.read() ?? null, closing: { step: code === 'no_signal' ? 'waiting_signal' : 'error', code } });
-      if (!transientClose(rawCode) || Date.now()-(local.close_intent?.started_at??Date.now())>=30*60_000) {
+      if (!transientClose(rawCode)) await engine.pauseClose(rawCode);
+      if (!engine.read()?.close_intent?.notified && (!transientClose(rawCode) || Date.now()-(local.close_intent?.started_at??Date.now())>=30*60_000)) {
         try { await post(this.state.consultId,'report_close_failure',{reason:rawCode});
-          if(owns())this.set({closing:{step:'error',code,ownerNotified:true}});
+          if(owns()) { await engine.pauseClose(transientClose(rawCode)?'':rawCode,true); this.set({closing:{step:'error',code,ownerNotified:true}}); }
         } catch { /* Keep the intent and retry reporting when connectivity returns. */ }
       }
-      this.schedule(Math.min(60_000,2000*2**Math.min(this.closeAttempts++,5)));
+      if (!transientClose(rawCode) && !engine.read()?.close_intent?.notified) this.closeTimer=setTimeout(()=>{void this.resumeClose();},60_000);
+      if (transientClose(rawCode)) this.closeTimer=setTimeout(()=>{void this.drain();},Math.min(60_000,2000*2**Math.min(this.closeAttempts++,5)));
     } finally { if (owns()) { this.closing = false; this.closeToken = null; } }
   }
   dismissClosing() { this.set({ closing: null }); }

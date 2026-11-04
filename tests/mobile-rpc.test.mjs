@@ -44,12 +44,6 @@ test('returned action refusal becomes 400', async () => {
   assert.deepEqual(await response.json(), { error: 'Changed since preview.' });
 });
 
-test('staff-crafted lead portal send is denied before its action runs', async () => {
-  let invoked=false;
-  const actions={post:defineAction({area:'leads',ownerOnly:true,input:z.object({body:z.string()}),run:async()=>{invoked=true;}})};
-  const response=await call('post',{body:'Hello'},{...staff,permissions:['leads','projects']},actions);
-  assert.equal(response.status,403);assert.equal(invoked,false);
-});
 test('lead create navigation result survives the dispatcher',async()=>{
  const actions={create:defineAction({area:'leads',input:z.object({name:z.string(),phone:z.string().optional(),email:z.string().optional(),address:z.string().optional()}).strict(),run:async()=>({slug:'new-lead',redirect:'/leads/new-lead'})})};
  const response=await call('create',{name:'Client',phone:'555',email:'client@example.com',address:'Main St'},owner,actions);
@@ -186,4 +180,99 @@ test('notification title and subline are sanitized together', async () => {
   const { plainNoticePair } = await import('../lib/mobile-rpc/destinations.ts');
   assert.deepEqual(plainNoticePair('Comms configuration failed', 'SMS: missing SMS_API_KEY, SMS_FROM_NUMBER'), { title: 'Texting needs attention', subline: 'Ask the owner to check the phone service settings.' });
   assert.deepEqual(plainNoticePair('Contract signed: Spaeth', 'Chuck Spaeth signed electronically'), { title: 'Contract signed: Spaeth', subline: 'Chuck Spaeth signed electronically' });
+});
+
+test('real SMS/call registrations dispatch for Comms staff, refuse other staff before sending', async () => {
+ let sends = 0;
+ const { commsActions } = await isolatedModule('../lib/mobile-rpc/comms.ts', ['commsActions'], {
+  z, defineAction, sendSmsReply: async () => { sends++; return {ok:true}; },
+  placeCallAction: async () => { sends++; return {ok:true,callId:'test'}; },
+ });
+ for (const [name,body] of [['sms.send',{threadId:1,body:'Hello'}],['calls.place',{phone:'6125551234'}]]) {
+  assert.equal((await call(name,body,{...staff,permissions:['comms']},commsActions)).status,200);
+  assert.equal((await call(name,body,staff,commsActions)).status,403);
+ }
+ assert.equal(sends,2);
+});
+
+test('lead portal registration requires Leads and Projects but permits staff', async () => {
+ let sends=0;
+ const { MobileInputError } = await import('../lib/mobile-rpc/dispatch.ts');
+ const { leadsActions } = await isolatedModule('../lib/mobile-rpc/leads.ts',['leadsActions'],{
+  z,defineAction,MobileInputError,hasAccess:(u,area)=>u.role==='owner'||u.permissions.includes(area),
+  sendLeadPortalMessage:async()=>{sends++;},
+ });
+ assert.equal((await call('leads.portalMessage',{slug:'lead',body:'Hello'},{...staff,permissions:['leads','projects']},leadsActions)).status,200);
+ assert.equal((await call('leads.portalMessage',{slug:'lead',body:'Hello'},{...staff,permissions:['leads']},leadsActions)).status,400);
+ assert.equal((await call('leads.portalMessage',{slug:'lead',body:'Hello'},{...staff,permissions:['projects']},leadsActions)).status,403);
+ assert.equal(sends,1);
+});
+
+test('me.callPhone normalizes, clears, rejects invalid/unknown fields and scopes writes to caller', async () => {
+ const {normalizeE164}=await import('../lib/comms/phone.ts');
+ const {callPhoneInput}=await isolatedModule('../lib/mobile-rpc/me.ts',['callPhoneInput'],{z,normalizeE164});
+ const writes=[];
+ const {POST}=await isolatedModule('../app/api/mobile/rpc/me.callPhone/route.ts',['POST'],{
+  getUserFromRequest:async()=>staff,getCurrentUser:async()=>staff,callPhoneInput,
+  query:async(...args)=>{writes.push(args);},
+ });
+ for(const [phone,expected] of [['(612) 555-1234','+16125551234'],[null,null]]) {
+  const response=await POST(request({phone}));assert.equal(response.status,200);
+  assert.deepEqual(await response.json(),{ok:true,result:{phone:expected}});
+  assert.deepEqual(writes.at(-1)[1],[expected,staff.id]);
+ }
+ for(const body of [{phone:''},{phone:'123'},{phone:'+441234567890'},{phone:42},{},{phone:null,userId:'owner'}]) assert.equal((await POST(request(body))).status,400);
+ assert.equal(writes.length,2);
+ const other=await isolatedModule('../app/api/mobile/rpc/me.callPhone/route.ts',['POST'],{
+  getUserFromRequest:async()=>staff,getCurrentUser:async()=>owner,callPhoneInput,query:async()=>assert.fail('identity conflict wrote'),
+ });
+ assert.equal((await other.POST(request({phone:null}))).status,401);
+});
+
+test('multipart email passes uploads and reply mode to the same web actions', async () => {
+ const sent=[];
+ class CommsReadError extends Error {}
+ const {POST}=await isolatedModule('../app/api/mobile/inbox/send/route.ts',['POST'],{
+  z,CommsReadError,getCurrentUser:async()=>staff,
+  commsRead:async(req,area,run)=>{assert.equal(area,'inbox');return Response.json(await run(staff));},
+  sendNewEmailAction:async input=>{sent.push(input);return {ok:true};},
+  sendReplyAction:async input=>{sent.push(input);return {ok:true};},
+ });
+ for(const mode of ['new','reply','replyAll']) {
+  const data=new FormData();
+  for(const [key,value] of Object.entries({mode,threadId:'thread',view:'sent',to:'client@example.com',cc:'other@example.com',subject:'Hello',body:'Attached'})) data.set(key,value);
+  data.append('files',new Blob(['PDF'],{type:'application/pdf'}),'note.pdf');
+  const response=await POST(new Request('http://local/api/mobile/inbox/send',{method:'POST',body:data}));
+  assert.deepEqual(await response.json(),{ok:true});
+  const input=sent.at(-1);assert.equal(input.files.get('files').name,'note.pdf');assert.equal(input.cc,'other@example.com');
+  if(mode!=='new'){assert.equal(input.threadId,'thread');assert.equal(input.replyAll,mode==='replyAll');}
+ }
+});
+
+test('call bridge selects caller cell, preserves owner fallback and refuses missing staff cell/own-cell calls', async () => {
+ const {readFile}=await import('node:fs/promises');
+ const {stripTypeScriptTypes}=await import('node:module');
+ const {normalizeE164}=await import('../lib/comms/phone.ts');
+ const source=(await readFile(new URL('../lib/voice.ts',import.meta.url),'utf8')).split('export async function placeCall(')[1];
+ const body=stripTypeScriptTypes('async function placeCall('+source);
+ for(const [role,phone,to,expected] of [
+  ['owner',null,'6125559999','+16125550000'],
+  ['owner','+16125551111','6125559999','+16125551111'],
+  ['staff','+16125552222','6125559999','+16125552222'],
+  ['staff',null,'6125559999',null],
+  ['staff','+16125552222','6125552222',null],
+ ]) {
+  let payload,insert,grantChecks=0;
+  const deps={voiceConfig:()=>({forwardTo:'+16125550000',fromNumber:'+16125553333'}),normalizeE164,
+   queryOne:async()=>({phone,role}),checkGrantCovers:async()=>{grantChecks++;return {ok:true};},
+   matchPhoneToRecord:async()=>null,randomUUID:()=> 'call',query:async(sql,values)=>{insert=values;},
+   withTransaction:async run=>run(()=>{}),enqueueIntent:async(run,input)=>{payload=input;return {intent:{id:'intent'}};},
+   flowConfig:()=>({ringSeconds:25}),dispatchIntentsNow:async()=>[{responseClass:'accepted'}],
+  };
+  const placeCall=Function(...Object.keys(deps),body+';return placeCall;')(...Object.values(deps));
+  const result=await placeCall({to,grantId:'grant',actor:role,caller:{id:role,role}});
+  assert.equal(result.ok,expected!==null);
+  if(expected){assert.equal(payload.payload.to,expected);assert.equal(insert[3],expected);assert.equal(payload.grantId,'grant');assert.equal(grantChecks,1);}
+  else {assert.equal(grantChecks,0);assert.equal(payload,undefined);if(!phone)assert.equal(result.error,'Add your cell number in Settings to call from the business line.');}
+ }
 });

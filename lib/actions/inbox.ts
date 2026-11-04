@@ -378,6 +378,7 @@ export async function draftReplyAction(
 export async function sendReplyAction(input: {
   threadId: string;
   toEmail?: string;
+  cc?: string;
   subject?: string;
   body: string;
   replyAll?: boolean;
@@ -393,6 +394,7 @@ export async function sendReplyAction(input: {
       await sendReply({
         threadId: input.threadId,
         toEmail: input.toEmail,
+        cc: input.cc,
         subject: input.subject,
         bodyText: input.body,
         replyAll: input.replyAll,

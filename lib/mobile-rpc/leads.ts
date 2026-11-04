@@ -44,5 +44,5 @@ export const leadsActions = {
   "leads.taskDone": defineAction({ area: "leads", input: task.extend({ done: z.boolean() }), run: async ({slug,id,done}) => { await checkTask(slug,id); return setLeadTaskDone(id,done,slug); } }),
   "leads.taskDelete": defineAction({ area: "leads", input: task, run: async ({slug,id}) => { await checkTask(slug,id); return deleteLeadTask(id,slug); } }),
   "leads.sendFirstResponse": defineAction({ area: "leads", ownerOnly: true, input: base.extend({ subject: s.min(1), body: s.min(1) }), run: ({slug,subject,body}) => sendFirstResponseAction(slug,subject,body) }),
-  "leads.portalMessage": defineAction({ area: "leads", ownerOnly: true, input: base.extend({ body: s.min(1) }), run: ({slug,body}, user) => { if (!hasAccess(user,"projects")) throw new MobileInputError("Projects access is required."); return sendLeadPortalMessage(slug,form({body})); } }),
+  "leads.portalMessage": defineAction({ area: "leads", input: base.extend({ body: s.min(1) }), run: ({slug,body}, user) => { if (!hasAccess(user,"projects")) throw new MobileInputError("Projects access is required."); return sendLeadPortalMessage(slug,form({body})); } }),
 };

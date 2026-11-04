@@ -1352,6 +1352,7 @@ function buildMime(
 export async function sendReply(opts: {
   threadId: string;
   toEmail?: string;
+  cc?: string;
   subject?: string;
   bodyText: string;
   replyAll?: boolean;
@@ -1366,8 +1367,10 @@ export async function sendReply(opts: {
   if (isNoReplyAddress(to)) throw new Error("That address doesn't accept replies.");
   if (!validRecipient(to)) throw new Error("Enter a valid recipient email.");
   const subject = /^re:/i.test(conversation.subject) ? conversation.subject : `Re: ${conversation.subject}`;
+  if (opts.cc && (/[\r\n]/.test(opts.cc) || splitAddresses(opts.cc).some(v => !validRecipient(emailAddress(v))))) throw Error("Enter valid Cc email addresses.");
+  const cc = [...new Set([...(opts.replyAll ? target.cc : []), ...splitAddresses(opts.cc ?? "")])];
   const extra = [
-    ...(opts.replyAll && target.cc.length ? [`Cc: ${target.cc.join(', ')}`] : []),
+    ...(cc.length ? [`Cc: ${cc.join(', ')}`] : []),
     ...(target.inReplyTo ? [`In-Reply-To: ${target.inReplyTo}`] : []),
     ...(target.references ? [`References: ${target.references}`] : []),
   ];

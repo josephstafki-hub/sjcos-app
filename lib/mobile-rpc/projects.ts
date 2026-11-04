@@ -52,6 +52,6 @@ export const projectsActions = {
       if(!report)throw new Error("Incident receipt unavailable");
       return {ok:true,incidentId:reserved.id,fileId:report.fileId,pdfSaved:!!report.fileId};
     }); return requestId?operation:operation.result??{ok:false,error:operation.message??"Report could not be confirmed."}; } }),
-  "projects.portal.send": defineAction({ area:"projects", ownerOnly:true, input:job.extend({body:text}), run:async ({slug,body}) => { await requireMobileProject(slug); return sendProjectMessage(slug,projectForm({body})); } }),
+  "projects.portal.send": defineAction({ area:"projects", input:job.extend({body:text}), run:async ({slug,body}) => { await requireMobileProject(slug); return sendProjectMessage(slug,projectForm({body})); } }),
   "projects.file.publish": defineAction({ area:"projects", ownerOnly:true, input:job.extend({id:z.string().min(1).max(200),visible:z.boolean()}), run:async ({slug,id,visible}) => { if (!await queryOne(`SELECT 1 FROM files f JOIN projects p ON p.slug=$1 WHERE f.id=$2 AND (f.project_key=p.slug OR f.lead_slug=(SELECT slug FROM leads WHERE id=p.lead_id))`,[slug,id])) throw new MobileInputError("File not found on this job."); return setFileClientVisibility(id,visible); } }),
 };

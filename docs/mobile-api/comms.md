@@ -4,7 +4,7 @@ All requests require `Authorization: Bearer <session JWT>`. Send no cookies.
 Reads require `inbox`, `comms` (SMS/calls), or `chat` access as indicated by path.
 Writes use the shared RPC dispatcher and existing web actions; grants, mailbox
 scope, record checks, and scheduled-to-do rules remain authoritative. SMS sends
-and call placement are owner-only: the phone click runs the same single-use-grant
+and call placement require Comms access: the phone click runs the same single-use-grant
 creation/spend as the web. Chat sends park outward portal deliveries for approval;
 posting never releases them.
 
@@ -167,7 +167,7 @@ cached reader; it uses the web email-obligation association/deduplication path.
 requires Leads access, uses the email's sender address, then links the new lead.
 This is two existing web actions, not an atomic transaction. New SMS links the
 thread after a successful send; failures retain the web's failed thread.
-`calls.place` rings the owner's configured cell first, then the counterparty.
+`calls.place` rings the calling user's cell first, then the counterparty (see r9 below).
 
 Nonempty body/title/name values trim whitespace and are capped at 20,000 chars;
 thread IDs are `[-A-Za-z0-9_]`, up to 512 chars. Email subject/recipient fields
@@ -190,9 +190,8 @@ keys and return the same `{error}` failures. Compatibility draft defaults to
 Qwen, as before; RPC draft follows the web action's default (Hermes).
 
 Web-only omissions: keyboard shortcuts, sender preference/screening rules,
-channel creation, room participant management, room archiving. Outbound file
-uploads/forwarding are not exposed by these JSON write bodies. No schema,
-migration, worker, permission manifest, or existing helper export changed.
+channel creation, room participant management, room archiving. Outbound files use the multipart endpoint below; JSON write bodies stay unchanged.
+Forwarding original attachments remains web-only. See r9 for the users schema addition.
 
 ## Verification and handoff
 
@@ -233,3 +232,124 @@ GET `/api/mobile/sms/[id]/media/[fileId]` serves bytes with Comms authorization 
 checks that the file belongs to a message in that thread. URLs support the shared file
 handler's thumbnail/download parameters. Projects access is unnecessary. MIME and file
 name come from stored metadata; use the same bearer token to fetch media.
+
+## Backend r9 — staff sends, caller cell, email uploads (2026-11-04)
+
+These rules supersede earlier owner-only/fixed-owner-cell descriptions. All routes
+require a bearer session; writes reject a conflicting cookie identity. No other
+owner-only action changed (invoice send, file publish, first-response send, settings).
+
+### Updated existing actions and read fields
+
+| POST path | Exact JSON input | Exact success response | Access |
+|---|---|---|---|
+| `/api/mobile/rpc/sms.send` | `{threadId:number;body:string}` | `RpcResponse<Awaited<ReturnType<typeof sendSmsReply>>>` | Comms |
+| `/api/mobile/rpc/sms.new` | `{phone:string;body:string;contactName?:string;link?:{type:"lead"\|"project"\|"sub"\|"vendor";slug:string}}` | `RpcResponse<Awaited<ReturnType<typeof startSmsThread>>>` | Comms |
+| `/api/mobile/rpc/calls.place` | `{phone:string;contactName?:string}` | `RpcResponse<{ok:boolean;callId?:string;error?:string}>` | Comms |
+| `/api/mobile/rpc/projects.portal.send` | `{slug:string;body:string}` | `{ok:true;result:null}` | Projects |
+| `/api/mobile/rpc/leads.portalMessage` | `{slug:string;body:string}` | `{ok:true;result:null}` | Leads **and** Projects |
+
+All also return `ApiError` on failure. Existing field validation is unchanged.
+SMS and calls still invoke the existing web actions and their grant paths. Portal
+posts still use the existing portal actions and delivery approval rules.
+
+The existing `allowedActions:string[]` fields change as follows (no renamed fields):
+
+- GET `/api/mobile/sms`: top-level includes `sms.new` for Comms users; each thread
+  includes `sms.send` when neither `optedOut` nor `blockedAt` is set, plus `sms.read`.
+- GET `/api/mobile/sms/[id]`: same per-thread send/read rule.
+- GET `/api/mobile/calls` and `/api/mobile/calls/[id]`: includes `calls.place` for Comms users.
+- GET `/api/mobile/projects/[slug]`: includes `projects.portal.send` for Projects users.
+- GET `/api/mobile/leads/[slug]`: includes `leads.portalMessage` for users with both areas.
+
+### GET `/api/mobile/me`
+
+No body or area permission; only logged-in staff/owner. Exact response:
+
+```ts
+import type { CurrentUser } from "@/lib/dal";
+type MeResponse = {
+  user: CurrentUser; // {id,email,name,role,initials,linkSlug,permissions}
+  callPhone: string | null; // stored users.phone, normalized +1 E.164
+  callPhoneFormatted: string | null; // e.g. "(612) 555-1234"
+} | { error: string };
+```
+
+`callPhone` is the stored personal setting, not the owner's fallback number. Null
+means unset, including for an owner who can still call using the configured fallback.
+401 missing/invalid session, 403 portal roles, 500 unexpected failure.
+
+### POST `/api/mobile/rpc/me.callPhone`
+
+No area permission; only logged-in staff/owner. Dedicated RPC route (the shared
+area-gated dispatcher and registry are unchanged). Exact JSON and response:
+
+```ts
+type CallPhoneInput = { phone: string | null };
+type CallPhoneResponse =
+  | { ok: true; result: { phone: string | null } }
+  | { error: string };
+```
+
+Required `phone`, no other keys. A string is at most 100 characters and uses the
+shared US `normalizeE164` validator: `(612) 555-1234` becomes `+16125551234`.
+Empty/invalid/non-US numbers return 400; `null` clears it. Only the authenticated
+user's row is updated. 401 invalid/conflicting identity, 403 portal roles, 500
+unexpected failure. This endpoint writes through the website database login;
+there is no new permission for narrow database logins to write users.
+
+Migration: `db/migrations/0073_users_call_phone.sql`, adds nullable `users.phone`
+with a normalized US E.164 check. No new table, trigger, worker/MCP write path or
+role grant; the existing DB role manifest stays unchanged.
+
+Web/mobile call placement passes the authenticated caller to `placeCall`:
+owner uses their stored cell or, if null, existing `cfg.forwardTo`; staff uses
+their stored cell. Missing staff cell returns exactly:
+`{error:"Add your cell number in Settings to call from the business line."}`
+through RPC (HTTP 400). The own-cell guard compares the recipient with the
+selected caller cell. That cell is stored in `calls.owner_number` and in the
+initial dial intent. Normalization, grant validation/spending and call flow stay
+on the existing path. Legacy granted agent calls without a human caller retain
+the configured owner bridge.
+
+### POST `/api/mobile/inbox/send`
+
+Bearer plus Inbox access. `Content-Type: multipart/form-data; boundary=...`;
+let the HTTP client generate the boundary. Exact fields:
+
+```ts
+type EmailSendFields = {
+  mode: "new" | "reply" | "replyAll";
+  threadId?: string; // required for reply/replyAll; [-A-Za-z0-9_], max 512
+  view?: string; // max 600; accepted for client context, not used for sending
+  to: string; // max 20,000; new requires nonblank; replies may use "" for web target
+  cc?: string; // comma-separated, max 2,000
+  subject: string; // max 2,000; replies retain the web's threaded subject behavior
+  body: string; // trimmed nonempty, max 20,000
+  files?: File[]; // zero or more repeated multipart parts named "files"
+};
+type EmailSendResponse = { ok: true } | { error: string };
+```
+
+`new` calls `sendNewEmailAction`; `reply`/`replyAll` calls `sendReplyAction` with
+`replyAll:false`/`true`. The original FormData reaches `outgoingAttachments` in
+those actions. Files use the exact web limits: at most 50 files, combined raw
+size at most 20 MiB, JPEG/PNG/GIF/WebP/HEIC/HEIF, PDF, DOC/DOCX, XLS/XLSX,
+PPT/PPTX, TXT/CSV/RTF/ODT. The shared validator checks filename, extension and
+MIME agreement before reading bytes; its errors return 400. Mailbox selection,
+attachment processing and sending use the same web actions. Reply Cc extends
+the shared web action/Gmail helper with an optional field; reply-all merges it
+with the web's resolved Cc recipients. Existing web/JSON callers omit that field
+and keep their behavior. No new helper was exported from existing files.
+
+400 invalid multipart/fields or web refusal, 401 invalid/conflicting session,
+403 no Inbox access, 500 unexpected failure. Existing JSON `inbox.compose` and
+`inbox.reply` RPCs and compatibility routes keep their existing shapes.
+
+Validation: `node --test tests/mobile-rpc.test.mjs` passes 21 tests, including
+mocked production registrations for staff SMS/calls, lead portal dual-area checks,
+profile normalization/clearing/identity scoping, multipart action forwarding,
+and caller-cell bridge/fallback/refusal paths. Locked `tsc --noEmit` passed.
+Migration application and bearer HTTP/provider smoke tests remain for the QA
+coordinator; no database migration, provider send, server, browser, build, commit
+or push was run here. No open API questions; email forwarding remains web-only.

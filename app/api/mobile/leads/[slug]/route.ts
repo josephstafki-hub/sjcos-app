@@ -32,7 +32,7 @@ export async function GET(
   const next = lead.stage === "lost" ? undefined : STAGES[stageIndex(lead.stage) + 1];
   const detail = {
     stageStepper: { stages: STAGES, current: lead.stage, next: lead.projectSlug ? null : next ?? null },
-    allowedActions: ["leads.contact", "leads.intake", "leads.taskAdd", "leads.taskDone", "leads.taskUpdate", "leads.taskDelete", ...(lead.projectSlug ? [] : lead.stage === "lost" ? ["leads.reopen"] : ["leads.lost", next ? "leads.advance" : "leads.convert"]), ...(user.role === "owner" && firstResponse?.status === "pending" && lead.email ? ["leads.sendFirstResponse"] : []), ...(user.role === "owner" && hasAccess(user, "projects") ? ["leads.portalMessage"] : [])],
+    allowedActions: ["leads.contact", "leads.intake", "leads.taskAdd", "leads.taskDone", "leads.taskUpdate", "leads.taskDelete", ...(lead.projectSlug ? [] : lead.stage === "lost" ? ["leads.reopen"] : ["leads.lost", next ? "leads.advance" : "leads.convert"]), ...(user.role === "owner" && firstResponse?.status === "pending" && lead.email ? ["leads.sendFirstResponse"] : []), ...(hasAccess(user, "leads") && hasAccess(user, "projects") ? ["leads.portalMessage"] : [])],
     contact: { name: lead.name, phone: lead.phone, email: lead.email, address: lead.address },
     tasks, activity, score, firstResponse, portalMessages:portalMessages.map(m=>({...m,initials:personInitials(m.name)})),
     firstResponseSend: { canSend: user.role === "owner" && firstResponse?.status === "pending" && Boolean(lead.email), effect: "Sends this email to the lead. A rough estimate response may move the lead to Rough estimate and add a follow-up task." },

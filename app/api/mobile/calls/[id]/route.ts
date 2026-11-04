@@ -8,6 +8,6 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
  return commsRead(req,"comms",async user=>{
   const call=await getCall(uuid(id));if(!call)throw new CommsReadError("Call not found.",404);
   const options=await getSmsLinkOptions();
-  return {call:{...call,transcript:mobileTranscript(call.transcript,call.contact_name,user.role==="owner",call.direction)},events:await getCallEvents(id),name:callDisplayName(call),record:linkedRecord(call.link_type,call.link_slug,options),statusLabel:call.status.replaceAll("_"," "),label:call.direction==="inbound"?"Incoming call":"Outgoing call",recordingUrl:call.recording_file_id&&hasAccess(user,"projects")?`/api/mobile/calls/${id}/recording`:null,allowedActions:user.role==="owner"?["calls.place"]:[]};
+  return {call:{...call,transcript:mobileTranscript(call.transcript,call.contact_name,user.role==="owner",call.direction)},events:await getCallEvents(id),name:callDisplayName(call),record:linkedRecord(call.link_type,call.link_slug,options),statusLabel:call.status.replaceAll("_"," "),label:call.direction==="inbound"?"Incoming call":"Outgoing call",recordingUrl:call.recording_file_id&&hasAccess(user,"projects")?`/api/mobile/calls/${id}/recording`:null,allowedActions:hasAccess(user,"comms")?["calls.place"]:[]};
  });
 }

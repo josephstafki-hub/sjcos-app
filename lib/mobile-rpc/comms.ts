@@ -38,14 +38,14 @@ export const commsActions = {
     if(result.slug) await linkThread(threadId,"lead",result.slug);
     return result;
   } }),
-  "sms.send": defineAction({ area: "comms", ownerOnly: true, input: z.object({threadId:z.number().int().positive(),body:text}).strict(), run: ({threadId,body})=>sendSmsReply(threadId,body) }),
-  "sms.new": defineAction({ area: "comms", ownerOnly: true, input: z.object({phone:z.string().min(1).max(100),body:text,contactName:z.string().max(300).optional(),link:link.optional()}).strict(), run: async ({phone,body,contactName,link})=> {
+  "sms.send": defineAction({ area: "comms", input: z.object({threadId:z.number().int().positive(),body:text}).strict(), run: ({threadId,body})=>sendSmsReply(threadId,body) }),
+  "sms.new": defineAction({ area: "comms", input: z.object({phone:z.string().min(1).max(100),body:text,contactName:z.string().max(300).optional(),link:link.optional()}).strict(), run: async ({phone,body,contactName,link})=> {
     const result=await startSmsThread(phone,body,contactName??"");
     if(result.ok && result.threadId && link) await linkSmsThread(result.threadId,link.type,link.slug);
     return result;
   } }),
   "sms.read": defineAction({ area:"comms", input:z.object({threadId:z.number().int().positive()}).strict(), run:({threadId})=>markSmsThreadRead(threadId) }),
-  "calls.place": defineAction({ area:"comms", ownerOnly:true, input:z.object({phone:z.string().min(1).max(100),contactName:z.string().max(300).optional()}).strict(), run:({phone,contactName})=>placeCallAction(phone,contactName) }),
+  "calls.place": defineAction({ area:"comms", input:z.object({phone:z.string().min(1).max(100),contactName:z.string().max(300).optional()}).strict(), run:({phone,contactName})=>placeCallAction(phone,contactName) }),
   "chat.send": defineAction({ area:"chat", input:z.object({roomId:z.string().min(1).max(300),body:text}).strict(), run:async ({roomId,body},user)=> {
     const data=await chatData(user); if(!data.views[roomId] || data.views[roomId].archived) throw new MobileInputError("You're not in that conversation.");
     return sendChatMessage(roomId,body);

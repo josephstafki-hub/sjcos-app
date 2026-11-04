@@ -10,7 +10,7 @@ import { CoverageMark } from "@/components/ui/CoverageMark";
 import type { FieldView, ShotView } from "@/lib/consult/ui/model";
 import type { AnswerPayload } from "@/lib/consult/ui/ops";
 import { W, conflictSideLabel, plainWords, skipLine, skippedNotNA } from "@/lib/consult/ui/words";
-import { Box, Btn, Choice, scrollInPane } from "./primitives";
+import { Banner, Box, Btn, Choice, scrollInPane } from "./primitives";
 import { showLength } from "./Keypad";
 import { curly } from "@/lib/consult/typography";
 import { MeasureText } from "../MeasureText";
@@ -40,6 +40,13 @@ export interface FieldActions {
   /** r10 R10-2: certifications that run out before the planned finish (only when Renovate Right applies),
    *  shown under the expiry field they came from (`field_address` = "era.<field key>"). */
   certWarnings?: CertificationWarning[];
+  /** r14 R14-1: the field a refused close landed on — it says why, above its label, until its next save. */
+  refusedAddr?: string | null;
+}
+
+/** r14 R14-1: the calm status note on the field a refused close named. */
+function RefusedNote() {
+  return <div className="mb-3"><Banner kind="status">{W.fieldRefusedNote}</Banner></div>;
 }
 
 /** r5: the last word and the * travel together, so a * never sits alone on a line. */
@@ -128,6 +135,7 @@ export function PhotoRow({ shot, actions, fieldKey, sectionId }: { shot: ShotVie
   const disabled = actions.photosOk !== true;
   return (
     <div className="mt-3 rounded-md border-2 border-rule-soft bg-paper p-3">
+      {actions.refusedAddr === shot.addr && <RefusedNote />}
       <div className="flex flex-wrap items-start justify-between gap-2">
         <p className="min-w-0 flex-1 font-semibold text-ink">Photo · <LabelText text={shot.def.label} required={shot.required} /></p>
         <MarkCell f={{ mark: shot.mark }} />
@@ -287,6 +295,7 @@ export function FieldRow({ f, actions, sectionId, last }: { f: FieldView; action
   if (f.readOnly) return <ReadOnlyText f={f} focused={actions.focusAddr === f.addr} />;
   return (
     <div ref={ref} id={`f-${f.addr}`} className={`border-b-2 border-rule-soft py-4 ${actions.focusAddr === f.addr ? "rounded-md bg-accent-soft/40 px-2" : ""} ${ring ? "consult-ring" : ""}`}>
+      {actions.refusedAddr === f.addr && <RefusedNote />}
       {d.say && <p className="mb-1 font-serif text-[1em] italic text-ink-2"><span className="not-italic font-semibold text-ink">{W.say}</span> {d.say}</p>}
       <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1">
         <p className="min-w-0 flex-1 basis-[10em] text-[1em] font-semibold text-ink">

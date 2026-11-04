@@ -13,6 +13,7 @@ import type { FieldView, SectionView, ShotView, VisitModel, EvidenceDraft, Displ
 import { leaveLine, leaveList, moduleNoun, nextOpen, resumeSection, selectionHint, spokenSelections } from "@/lib/consult/ui/model";
 import type { AnswerPayload } from "@/lib/consult/ui/ops";
 import { W, closeRefusalFocus, fill, plainWords, spokenDuration, visitDuration } from "@/lib/consult/ui/words";
+import type { RefusalFocus } from "@/lib/consult/close-errors";
 import { Banner, Btn, Eyebrow, Sheet, scrollInPane } from "./primitives";
 import { FieldRow, MarkCell, PhotoRow, type FieldActions } from "./FieldRow";
 import { Keypad } from "./Keypad";
@@ -119,6 +120,8 @@ export function VisitScreen({ device, model, display, api, thumbs, online, draft
   const [wrapWhy, setWrapWhy] = useState(false);
   const [tradeDay, setTradeDay] = useState(false);
   useEffect(() => { if (sheet === null) setWrapWhy(false); if (sheet !== "trades") setTradeDay(false); }, [sheet]);
+  // r14 R14-1: a refused close landed on this field — it says why until that field's next save or ‹ Sections.
+  const [fieldWhy, setFieldWhy] = useState<string | null>(null);
   const [leave, setLeave] = useState<{ from: string; go: () => void } | null>(null);
   const [remove, setRemove] = useState<SectionView | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -140,7 +143,7 @@ export function VisitScreen({ device, model, display, api, thumbs, online, draft
   useEffect(() => { viewRef.current = view; }, [view]);
   useEffect(() => {
     history.pushState({ consult: "tool" }, "");
-    const onPop = () => { history.pushState({ consult: "tool" }, ""); if (viewRef.current === "section") setView("list"); };
+    const onPop = () => { history.pushState({ consult: "tool" }, ""); if (viewRef.current === "section") { setFieldWhy(null); setView("list"); } };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
@@ -154,6 +157,8 @@ export function VisitScreen({ device, model, display, api, thumbs, online, draft
   }, [active, view, model]);
   const openSection = (id: string, addr?: string) => {
     setLeave(null); setActive(id); setView("section"); jump(addr ?? null);
+    // r14 R14-1: opening another section drops a refused field's note (its own section keeps it).
+    setFieldWhy((w) => (w?.startsWith(`${id}:`) ? w : null));
     // The pane that scrolls: <main> below 1024 px, the right pane from 1024 px. Never the document.
     if (!addr) { main.current?.scrollTo?.({ top: 0 }); (main.current?.closest("[data-scroll]") as HTMLElement | null)?.scrollTo?.({ top: 0 }); }
   };
@@ -173,8 +178,8 @@ export function VisitScreen({ device, model, display, api, thumbs, online, draft
   const actions: FieldActions = {
     device, thumbs, online, photosOk: model.photosOk, focusAddr, focusTick, showToClient: api.showToClient, clientNeedsDate: needDate,
     houseId: model.sections.find((s) => s.module.key === "house")?.instance.id,
-    certWarnings: model.certificationWarnings,
-    answer: async (f, p) => { const inst = f.addr.split(":")[0]; await wrap(api.answer(inst, f.key, f.def.label, p)); },
+    certWarnings: model.certificationWarnings, refusedAddr: fieldWhy,
+    answer: async (f, p) => { const inst = f.addr.split(":")[0]; const ok = await wrap(api.answer(inst, f.key, f.def.label, p).then(() => true)); if (ok && f.addr === fieldWhy) setFieldWhy(null); },
     keypad: (f) => {
       setKeypad({ f });
       // Below 1024 px the keypad covers the lower half: bring the field it fills into the top half.
@@ -206,6 +211,12 @@ export function VisitScreen({ device, model, display, api, thumbs, online, draft
 
   // r5: the close result's row buttons land here — the same ways forward Before you wrap has.
   const pickDate = () => { void api.ensureClosing().then((id) => { setSheet(null); openSection(id, `${id}:estimate_promised`); }); };
+  /** r14 R14-1: the field a refused close lands on — the same places the focus: branch below goes to.
+   *  null where it falls back to Before you wrap (a field not on this visit, no "Photos okay?" field). */
+  const refusedAt = (t: RefusalFocus): string | null =>
+    "closing" in t ? dateField?.addr ?? null
+    : "house" in t ? houseInst?.fields.find((x) => x.key === "photos_ok")?.addr ?? null
+    : "addr" in t && model.sections.some((x) => x.instance.id === t.addr.split(":")[0]) ? t.addr : null;
   const wrapRefused = () => { setSheet("wrap"); setWrapWhy(true); };
   const runAction = (action: string) => {
     const field = model.open.find((o) => o.kind === "field" && !o.partly) ?? model.open.find((o) => o.kind === "field");
@@ -235,6 +246,8 @@ export function VisitScreen({ device, model, display, api, thumbs, online, draft
         const refusal = action.startsWith("focus:");
         const target = refusal ? closeRefusalFocus(action.slice(6)) : null;
         if (!target || ("sheet" in target && target.sheet === "wrap")) { if (refusal) wrapRefused(); else setSheet("wrap"); break; }
+        // r14 R14-1: the field it lands on says "The office couldn't read this answer" (fieldWhy).
+        setFieldWhy(refusedAt(target));
         if ("sheet" in target) setSheet(target.sheet);
         else if ("closing" in target) pickDate();
         else if ("house" in target) { if (houseInst?.fields.some((x) => x.key === "photos_ok")) runAction("review_permissions"); else wrapRefused(); }
@@ -370,7 +383,8 @@ export function VisitScreen({ device, model, display, api, thumbs, online, draft
         <div className="mt-6"><Btn tone="quiet" onClick={() => setRemove(section)}>{fill(W.removeInstance, { name: section.label })}</Btn></div>
       )}
       <div className="lg:h-6" aria-hidden />
-      <BottomBar left={<Btn className="lg:hidden" onClick={() => guard(() => setView("list"))}>‹ {W.sections}</Btn>}
+      {/* r14 R14-1: ‹ Sections clears a refused field's note. */}
+      <BottomBar left={<Btn className="lg:hidden" onClick={() => guard(() => { setFieldWhy(null); setView("list"); })}>‹ {W.sections}</Btn>}
         right={<Btn tone="primary" className="ml-auto min-w-[8em]" onClick={next}>{W.next}</Btn>} />
     </section>
   );
@@ -408,8 +422,9 @@ export function VisitScreen({ device, model, display, api, thumbs, online, draft
         onSave={async (v: SkipValue) => {
           const key = skip.field?.addr ?? skip.shot!.addr;
           const next = { ...draft, skips: { ...draft.skips, [key]: v } };
-          if (skip.field) { const inst = skip.field.addr.split(":")[0]; if(skip.field.key==="client_initials") next.ack_reason=[v.reason,v.note].filter(Boolean).join(" · "); await wrap(api.answer(inst, skip.field.key, skip.field.def.label, { status: "skipped", skip_reason: v.reason, skip_note: v.note, unit: skip.field.def.unit }, next)); }
+          if (skip.field) { const inst = skip.field.addr.split(":")[0]; if(skip.field.key==="client_initials") next.ack_reason=[v.reason,v.note].filter(Boolean).join(" · "); if (await wrap(api.answer(inst, skip.field.key, skip.field.def.label, { status: "skipped", skip_reason: v.reason, skip_note: v.note, unit: skip.field.def.unit }, next).then(() => true)) && key === fieldWhy) setFieldWhy(null); }
           else if(!await api.setDraft(next)) return;
+          else if (key === fieldWhy) setFieldWhy(null);
           setSkip(null);
         }} />}
       <WrapSheet open={sheet === "wrap"} onClose={() => setSheet(null)} model={model} draft={draft} hasInitials={hasInitials} refused={refused} needDate={needDate} reopened={reopened} refusedNote={wrapWhy}

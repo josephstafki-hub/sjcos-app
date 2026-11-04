@@ -12,7 +12,7 @@ import {sendHealth,sendDeadlines,type SendHealth} from "@/lib/consult/ui/send-he
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import { VisitController, type Boot } from "@/lib/consult/ui/controller";
 import { buildEvidence, refusedEntries, summaryInput, unsentCount } from "@/lib/consult/ui/model";
-import { W, fill, plainWords } from "@/lib/consult/ui/words";
+import { W, closeRefusalPlace, fill, plainWords } from "@/lib/consult/ui/words";
 import { Banner, Btn, LinkBtn, Sheet, useWakeLock } from "./primitives";
 import { CompleteCard, GetReadyCard, UnlockCard, ScreenHead, centralTime } from "./GetReady";
 import { MoreMenu, useSun } from "./MoreMenu";
@@ -179,6 +179,7 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
       body = <>{banners}<ClosingScreen closing={st.closing} unsent={unsent} online={st.online} autoApply={!!boot?.auto_apply} findings={(st.fresh?.findings_job as { status: string; last_error: string | null } | null) ?? null} findingsCode={st.findingsCode} unmeasured={model.unmeasured}
         onSend={() => void ctl.drain(true)} onRetry={() => void ctl.close(buildEvidence(model, st.draft, !!initials))} onKeepWorking={() => ctl.dismissClosing()} onAction={(a) => { setAfter(a); ctl.dismissClosing(); }} onReopen={(r) => ctl.reopen(r)} onApply={() => void ctl.applyFindings()} home={home}
         signInHref={signInHref} staff={staffUser} closedAt={(st.fresh ?? snap)?.consult.closed_at}
+        refusedPlace={st.closing.step === "error" ? closeRefusalPlace(st.closing.field, model) : null}
         onRefused={(fix) => {
           // r10 R10-1: a refused close is dropped (reload / back / a place on the visit / keep working) or rebuilt (send now, try again).
           // r11 R11-1: each fix goes where its line says; a field the office named is focused there.

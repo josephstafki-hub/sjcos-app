@@ -207,6 +207,12 @@ export const W = {
   answersLocked: 'Answers are locked.',
   // r12 extra: Before you wrap opened from a refused close the office named no field for.
   wrapRefusedNote: 'The office couldn’t read these answers — check them, then close again.',
+  // r14 R14-1: a refused close that names one answer the app can place — the line names it, and the
+  // field it lands on says why (cleared on that field's next save, or on ‹ Sections).
+  refusedOneAnswer: 'The office couldn’t read one answer: {field}. Check it, then close again.',
+  fieldRefusedNote: 'The office couldn’t read this answer — check it, then close again.',
+  flagsPlace: 'Flags',
+  ackPlace: 'Why initials were skipped',
   // r12 extra: a trade-walk day only Joe sets, said on its trade in Trade walks.
   tradeWalkDay: 'Walk day {day} — only Joe sets it.',
   tradeWalkDayOff: 'Take the day off',
@@ -708,6 +714,37 @@ export function reopenedHead(r: {who?: string|null; when?: string|Date|null}): s
  const d = r.when ? new Date(r.when) : null;
  const when = d && Number.isFinite(d.getTime()) ? new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}).format(d).replace(/[\s\u202f]?AM$/,' am').replace(/[\s\u202f]?PM$/,' pm') : '';
  return `Reopened by ${first}${when ? ` · ${when}` : ''}`;
+}
+
+/** r14 R14-1: the visit a refusal's field is looked up in — the parts `conflictName` reads. */
+export type RefusalPlaceModel = { sections: { instance: { id: string }; label: string; module: { key: string }; fields: { addr: string; key: string; def: { label: string } }[]; shots?: { addr: string; def: { label: string } }[] }[] };
+export type RefusalPlace = { target: RefusalFocus; button: string; label: string };
+/** r14 R14-1: a refused close whose named field the app can place somewhere other than Before you wrap —
+ *  the refusal button says where it goes (Go to field, or the sheet's own name) and the line names the
+ *  answer ("Section › Field", as `conflictName` does). null = Before you wrap with its own line and note:
+ *  an unknown field, a skip with no field address, a field not on this visit, or no "Photos okay?" field.
+ *  The same cases `VisitScreen`'s `focus:` branch sends to the wrap sheet. */
+export function closeRefusalPlace(field: string | null | undefined, model: RefusalPlaceModel): RefusalPlace | null {
+  const target = closeRefusalFocus(field);
+  if (!target) return null;
+  const named = (moduleKey: string | null, addr: string | null, fieldKey: string | null, fallback: string) => {
+    const s = model.sections.find((x) => (addr ? x.instance.id === addr.split(':')[0] : x.module.key === moduleKey));
+    const f = s?.fields.find((x) => (addr ? x.addr === addr : x.key === fieldKey));
+    const shot = !f && addr ? s?.shots?.find((x) => x.addr === addr) : undefined;
+    return [s?.label, f?.def.label ?? shot?.def.label ?? fallback].filter(Boolean).join(' › ');
+  };
+  if ('sheet' in target) {
+    const sheet = { rrp: W.rrpTitle, flags: W.flagsPlace, trades: W.tradeWalkTitle, ack: W.noInitialsSay, wrap: null }[target.sheet];
+    return sheet ? { target, button: sheet, label: target.sheet === 'ack' ? W.ackPlace : sheet } : null;
+  }
+  if ('closing' in target) return { target, button: W.goToField, label: named('closing', null, 'estimate_promised', W.promisedBy) };
+  if ('house' in target) {
+    const house = model.sections.find((x) => x.module.key === 'house');
+    return house?.fields.some((x) => x.key === 'photos_ok') ? { target, button: W.goToField, label: named('house', null, 'photos_ok', 'photos_ok') } : null;
+  }
+  const inst = target.addr.split(':')[0];
+  if (!model.sections.some((x) => x.instance.id === inst)) return null;
+  return { target, button: W.goToField, label: named(null, target.addr, null, target.addr.split(':').slice(1).join(':')) };
 }
 
 /** r13 R13-2: where a refused close's named field goes on the visit. The office names the promised date

@@ -10,7 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import { CoverageMark } from "@/components/ui/CoverageMark";
 import type { EvidenceDraft, FieldView, ShotView, VisitModel } from "@/lib/consult/ui/model";
 import type { ClosingState } from "@/lib/consult/ui/controller";
-import { CHECK_ACTION_WORDS, CLOSE_FIX_LABEL, FLAG_CHOICES, W, closeRefusal, closeRefusalCalm, fill, plainWords, quantitiesLine, reopenedHead, type CloseFix } from "@/lib/consult/ui/words";
+import { CHECK_ACTION_WORDS, CLOSE_FIX_LABEL, FLAG_CHOICES, W, closeRefusal, closeRefusalCalm, fill, plainWords, quantitiesLine, reopenedHead, type CloseFix, type RefusalPlace } from "@/lib/consult/ui/words";
 import type { Snapshot } from "@/lib/consult/ui/model";
 import { flagLead } from "@/lib/consult/ui/flag-lead";
 import { MeasureText } from "../MeasureText";
@@ -77,10 +77,12 @@ export function WrapSheet({ open, onClose, model, draft, hasInitials, refused, o
     <Sheet open={open} onClose={onClose} side title={title}
       footer={<>
         {/* r10 R10-3: words left, a 56 px Go to field right (under them when narrow) — no separator dot.
-            While a conflict is open the sheet's own Close is the way back, so Keep working steps aside. */}
-        {firstConflict && <div className="flex w-full basis-full flex-wrap items-center justify-between gap-x-3 gap-y-1 text-ink">
+            While a conflict is open the sheet's own Close is the way back, so Keep working steps aside.
+            r14 extra: Go to field is the outlined secondary button (full width when narrow), as on every
+            other Go to field, so it reads as the way forward above the greyed Close visit. */}
+        {firstConflict && <div className="flex w-full basis-full flex-wrap items-center justify-between gap-x-3 gap-y-2 text-ink">
           <p className="min-w-0"><span aria-hidden className="mr-1 font-bold text-flag">!</span><span className="font-semibold">{fill(conflictN === 1 ? W.conflictBeforeClose : W.conflictsBeforeClose, { n: conflictN })}</span></p>
-          <Btn tone="quiet" onClick={() => onGo(firstConflict.instance_id, firstConflict.key)}>{W.goToField}</Btn>
+          <Btn className="max-md:w-full" onClick={() => onGo(firstConflict.instance_id, firstConflict.key)}>{W.goToField}</Btn>
         </div>}
         {!firstConflict && <Btn className="max-md:w-full" onClick={onClose}>{W.keepWorking}</Btn>}<Btn tone="primary" className="max-md:w-full" onClick={onCloseVisit} disabled={conflictN > 0 || refused > 0}>{closeLabel}</Btn></>}>
       <ReopenedNote reopened={reopened} className="mb-3" />
@@ -88,7 +90,8 @@ export function WrapSheet({ open, onClose, model, draft, hasInitials, refused, o
       <div className="mb-5 grid gap-3">
         {/* r3 C7: what stops a Complete close comes first — flags, promised date, client initials. */}
         {model.flags.length > 0 && <Line text={undecidedFlags.length ? fill(undecidedFlags.length === 1 ? W.flagsLine : W.flagsLinePlural, { n: undecidedFlags.length }) : `Flags: all ${model.flags.length} decided ✓`} action={<Btn onClick={onFlags}>{W.reviewFlags}</Btn>} done={undecidedFlags.length === 0} />}
-        <Line text={model.promised ? `${W.promisedBy} ${promisedLabel(model.promised)} ✓` : dateSkipped ? (dateSkip!.skip_reason === "Joe sets the date" ? W.promisedJoeSets : `${W.promisedSkipped} · ${dateSkip!.skip_note!.trim()} ✓`) : W.promisedMissing} action={dateOk ? undefined : onPromised && <Btn onClick={onPromised}>{W.pickDate}</Btn>} done={dateOk} />
+        {/* r14 extra: "Thu, Nov 12 ✓" stays together — the ✓ never wraps alone. */}
+        <Line text={model.promised ? <>{W.promisedBy} <span className="whitespace-nowrap">{promisedLabel(model.promised)} ✓</span></> : dateSkipped ? (dateSkip!.skip_reason === "Joe sets the date" ? W.promisedJoeSets : `${W.promisedSkipped} · ${dateSkip!.skip_note!.trim()} ✓`) : W.promisedMissing} action={dateOk ? undefined : onPromised && <Btn onClick={onPromised}>{W.pickDate}</Btn>} done={dateOk} />
         {/* r5: the same row shape as every other card — words left, the two buttons stacked on the right. */}
         <Line text={hasInitials ? "Client initials ✓" : draft.ack_reason ? `No initials · ${draft.ack_reason}` : "Client initials — not yet"} note={!hasInitials && needDate ? `→ ${W.pickDateBeforeClient}` : undefined}
           action={hasInitials ? undefined : <span className="grid justify-items-stretch gap-2"><Btn onClick={onClient} disabled={needDate}>{W.showToClient}</Btn><Btn tone="quiet" onClick={onAck}>{W.noInitialsSay}</Btn></span>} done={!ackOpen} />
@@ -139,7 +142,7 @@ export function WrapSheet({ open, onClose, model, draft, hasInitials, refused, o
  *  (a conflict, a refused answer) is the ! Problem style. Done lines carry their own ✓ in the text.
  *  r6 D2: below 600 px every line stacks — mark and words, then the note, then the button(s) at full
  *  width; side by side from 600 px. ○ Open is the 15 px row mark (r6 extra). */
-function Line({ text, action, warn, stack, done, info, note }: { text: string; action?: React.ReactNode; warn?: boolean; stack?: boolean; done?: boolean; info?: boolean; note?: string }) {
+function Line({ text, action, warn, stack, done, info, note }: { text: React.ReactNode; action?: React.ReactNode; warn?: boolean; stack?: boolean; done?: boolean; info?: boolean; note?: string }) {
   return (
     <div className={`grid gap-2 rounded-md border-2 px-3 py-2 ${action && !stack ? "min-[600px]:grid-cols-[minmax(0,1fr)_auto] min-[600px]:items-center" : ""} ${warn ? "border-flag bg-flag-soft" : done || info ? "border-rule-soft bg-paper" : "border-rule bg-card"}`}>
       <div className="min-w-0">
@@ -266,7 +269,7 @@ export function AckSheet({ open, onClose, draft, onSave, saveError, summaryText 
 }
 
 /** Visit closed — sending → Complete / Needs finishing, the same words for Joe's and staff visits. */
-export function ClosingScreen({ closing, unsent, online, autoApply, findings, findingsCode, unmeasured = 0, onSend, onRetry, onKeepWorking, onReopen, onApply, onAction, onRefused, signInHref, staff = false, closedAt }: {
+export function ClosingScreen({ closing, unsent, online, autoApply, findings, findingsCode, unmeasured = 0, onSend, onRetry, onKeepWorking, onReopen, onApply, onAction, onRefused, signInHref, staff = false, closedAt, refusedPlace }: {
   closing: ClosingState; unsent: number; online: boolean; autoApply: boolean; findings: { status: string; last_error: string | null } | null; findingsCode: string | null;
   /** r8 domain E4: estimate quantities with no measured answer, said under ✓ Complete. */
   unmeasured?: number;
@@ -282,6 +285,8 @@ export function ClosingScreen({ closing, unsent, online, autoApply, findings, fi
   staff?: boolean;
   /** r11 extra: the close time, said in the ✓ Complete heading as the opened Complete screen does. */
   closedAt?: string | null;
+  /** r14 R14-1: the answer a refused close named, when the app can place it (closeRefusalPlace). */
+  refusedPlace?: RefusalPlace | null;
 }) {
   const [reopening, setReopening] = useState(false); const [reason, setReason] = useState(""); const [err, setErr] = useState<string | null>(null);
   const r = closing.result;
@@ -313,7 +318,11 @@ export function ClosingScreen({ closing, unsent, online, autoApply, findings, fi
       {closing.step === "error" && !slow && (() => {
         // r10 R10-1: the office refused — the visit is not closed and nothing is sending. Say what happened
         // and offer the one fix for this code; Try again only where trying again can work.
-        const refusal = closeRefusal(closing.code);
+        // r14 R14-1: "Check Before you wrap" names a place the button doesn't go when the office named one
+        // answer the app can place — then the line names that answer and the button says where it goes.
+        const found = closeRefusal(closing.code);
+        const place = found.fix === "before_you_wrap" ? refusedPlace ?? null : null;
+        const refusal = place ? { ...found, line: fill(W.refusedOneAnswer, { field: place.label }) } : found;
         const refused = (fix: CloseFix | "retry") => (onRefused ? onRefused(fix) : fix === "retry" ? onRetry() : onKeepWorking());
         // r11 R11-1: the button goes where the line says (CLOSE_FIX_LABEL / CLOSE_FIX_CUE). Where only Joe
         // can act, Keep working is the one (primary) button. Sign in is the signed-out banner's own link.
@@ -326,7 +335,7 @@ export function ClosingScreen({ closing, unsent, online, autoApply, findings, fi
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
             {refusal.fix === "sign_in" && signInHref
               ? <LinkBtn tone="primary" href={signInHref} onClick={(e) => { e.preventDefault(); refused("sign_in"); }}>{CLOSE_FIX_LABEL.sign_in}</LinkBtn>
-              : <Btn tone="primary" onClick={() => refused(refusal.fix)} disabled={refusal.fix === "send_now" && !online}>{refusal.fix === "send_now" && !online ? W.sendNowNeedsSignal : CLOSE_FIX_LABEL[refusal.fix]}</Btn>}
+              : <Btn tone="primary" onClick={() => refused(refusal.fix)} disabled={refusal.fix === "send_now" && !online}>{refusal.fix === "send_now" && !online ? W.sendNowNeedsSignal : place ? place.button : CLOSE_FIX_LABEL[refusal.fix]}</Btn>}
             {refusal.fix !== "back_to_visits" && !only && <Btn onClick={() => refused("keep_working")}>{W.keepWorking}</Btn>}
           </div>
         </>;

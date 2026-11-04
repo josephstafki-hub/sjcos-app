@@ -5,18 +5,19 @@
  * close result: Visit closed — sending · Complete · Needs finishing (n open) with the
  * failing checks in plain words. No item count is a score; the server decides Complete.
  */
-import {closeAction, closeResultOpenCount, openCheckPhrase, openItemCount} from '@/lib/consult/completeness';
+import {closeAction, closeResultOpenCount, completeCountsLine, openCheckPhrase, openItemCount} from '@/lib/consult/completeness';
 import { useState } from "react";
 import { CoverageMark } from "@/components/ui/CoverageMark";
 import type { EvidenceDraft, FieldView, ShotView, VisitModel } from "@/lib/consult/ui/model";
 import type { ClosingState } from "@/lib/consult/ui/controller";
-import { CHECK_ACTION_WORDS, FLAG_CHOICES, W, closeRefusal, fill, plainWords, quantitiesLine, reopenedHead, type CloseFix } from "@/lib/consult/ui/words";
+import { CHECK_ACTION_WORDS, CLOSE_FIX_LABEL, FLAG_CHOICES, W, closeRefusal, closeRefusalCalm, fill, plainWords, quantitiesLine, reopenedHead, type CloseFix } from "@/lib/consult/ui/words";
 import type { Snapshot } from "@/lib/consult/ui/model";
 import { flagLead } from "@/lib/consult/ui/flag-lead";
 import { MeasureText } from "../MeasureText";
+import { centralTime } from "./GetReady";
 import { CertWarningList } from "../CertWarning";
-import type { CertificationWarning } from "@/lib/consult/rrp";
-import { Banner, Box, Btn, Choice, Sheet, TextInput } from "./primitives";
+import { certDate, clampDay, type CertificationWarning } from "@/lib/consult/rrp";
+import { Banner, Box, Btn, Choice, LinkBtn, Sheet, TextInput } from "./primitives";
 
 const itemLabel = (o: VisitModel["open"][number]) => (o.kind === "field" ? (o.item as FieldView).def.label : `Photo · ${(o.item as ShotView).def.label}`);
 const itemAddr = (o: VisitModel["open"][number]) => (o.kind === "field" ? (o.item as FieldView).addr : (o.item as ShotView).addr);
@@ -201,6 +202,7 @@ export function TradeSheet({ open, onClose, model, draft, onSave, saveError }: {
 
 export function RrpSheet({ model, onGo, open, onClose, draft, onSave, saveError }: { open: boolean; onClose: () => void; draft: EvidenceDraft; saveError?: string | null; onSave: (d: EvidenceDraft) => Promise<boolean>; model: VisitModel; onGo: () => void }) {
   const [rrp, setRrp] = useState(draft.rrp);
+  const dayWindow = model.redeliveryWindow;
   const toggle = (k: "receipt" | "firm_current" | "renovator_current" | "redelivery_required", label: string) => (
     <button type="button" role="checkbox" aria-checked={rrp[k]} onClick={() => setRrp({ ...rrp, [k]: !rrp[k] })}
       className={`min-h-14 rounded-md border-2 px-3 py-2 text-left font-semibold ${rrp[k] ? "border-accent bg-accent-soft text-ink" : "border-rule bg-card text-ink-2"}`}>
@@ -223,7 +225,11 @@ export function RrpSheet({ model, onGo, open, onClose, draft, onSave, saveError 
       </ul>
       <div className="mt-3 grid gap-3">
         <Btn onClick={onGo}>{W.rrpGoEra}</Btn>{toggle("redelivery_required", W.rrpRedelivery)}
-        {rrp.redelivery_required && <label className="block"><span className="font-semibold">{W.rrpRedeliveryDay}</span>{model.redeliveryWindow && <p>Pick a day from {model.redeliveryWindow.min} to {model.redeliveryWindow.max}. Earlier than that is too early to count.</p>}<input type="date" min={model.redeliveryWindow?.min} max={model.redeliveryWindow?.max} value={rrp.redelivery_day ?? ""} onChange={(e) => setRrp({ ...rrp, redelivery_day: e.target.value || undefined })} className="mt-1 block min-h-14 rounded-md border-2 border-rule bg-card px-3 text-[max(16px,1em)]" /></label>}
+        {/* r11 domain Fix 1: with the start known the day is limited to start − 60 … start − 7 (40 CFR 745.84(a)(1)),
+            and the hint says why. With no start yet it stays open; the office clamps it once the start is set. */}
+        {rrp.redelivery_required && <label className="block"><span className="font-semibold">{W.rrpRedeliveryDay}</span>
+          {dayWindow && <span id="rrp-redelivery-why" className="mt-1 block text-ink-2">{W.rrpRedeliveryWindow} {W.rrpRedeliveryRange.split(/(\{from\}|\{to\})/).map((part, i) => part === "{from}" ? <span key={i} className="whitespace-nowrap">{certDate(dayWindow.min)}</span> : part === "{to}" ? <span key={i} className="whitespace-nowrap">{certDate(dayWindow.max)}</span> : part)}</span>}
+          <input type="date" min={dayWindow?.min} max={dayWindow?.max} aria-describedby={dayWindow ? "rrp-redelivery-why" : undefined} value={rrp.redelivery_day ?? ""} onChange={(e) => setRrp({ ...rrp, redelivery_day: e.target.value ? clampDay(e.target.value, dayWindow) : undefined })} className="mt-1 block min-h-14 rounded-md border-2 border-rule bg-card px-3 text-[max(16px,1em)]" /></label>}
       </div>
     </Sheet>
   );
@@ -244,7 +250,7 @@ export function AckSheet({ open, onClose, draft, onSave, saveError, summaryText 
 }
 
 /** Visit closed — sending → Complete / Needs finishing, the same words for Joe's and staff visits. */
-export function ClosingScreen({ closing, unsent, online, autoApply, findings, findingsCode, unmeasured = 0, onSend, onRetry, onKeepWorking, onReopen, onApply, onAction, onRefused, home }: {
+export function ClosingScreen({ closing, unsent, online, autoApply, findings, findingsCode, unmeasured = 0, onSend, onRetry, onKeepWorking, onReopen, onApply, onAction, onRefused, home, signInHref, staff = false, closedAt }: {
   closing: ClosingState; unsent: number; online: boolean; autoApply: boolean; findings: { status: string; last_error: string | null } | null; findingsCode: string | null;
   /** r8 domain E4: estimate quantities with no measured answer, said under ✓ Complete. */
   unmeasured?: number;
@@ -253,10 +259,17 @@ export function ClosingScreen({ closing, unsent, online, autoApply, findings, fi
   onAction?: (action: string) => void;
   /** r10 R10-1: a refused close's way forward (Reload, Back to visits, Send now then close again, Go to field,
    *  Try again) or Keep working. Each drops or rebuilds the refused close so it can't pop back up. */
-  onRefused?: (fix: CloseFix | "retry" | "keep_working") => void;
+  onRefused?: (fix: CloseFix | "retry") => void;
+  /** r11 R11-1: the same /login?next= link the signed-out banner uses. */
+  signInHref?: string;
+  /** r11 extra: a staff visitor sees "Joe applies the findings" instead of the Apply findings button. */
+  staff?: boolean;
+  /** r11 extra: the close time, said in the ✓ Complete heading as the opened Complete screen does. */
+  closedAt?: string | null;
 }) {
   const [reopening, setReopening] = useState(false); const [reason, setReason] = useState(""); const [err, setErr] = useState<string | null>(null);
   const r = closing.result;
+  const closedWhen = closedAt ? centralTime(closedAt, { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
   const openN = r ? closeResultOpenCount(r) : 0;
   // r7 R7-2: a slow office (408 / 429 / 5xx, the 15 s request deadline, or this device's answers still
   // on their way after a timed-out send while online) is the calm "◐ Still closing…", never the red generic error.
@@ -285,30 +298,38 @@ export function ClosingScreen({ closing, unsent, online, autoApply, findings, fi
         // r10 R10-1: the office refused — the visit is not closed and nothing is sending. Say what happened
         // and offer the one fix for this code; Try again only where trying again can work.
         const refusal = closeRefusal(closing.code);
-        const refused = (fix: CloseFix | "retry" | "keep_working") => (onRefused ? onRefused(fix) : fix === "retry" ? onRetry() : onKeepWorking());
-        const fixWords: Record<CloseFix | "retry", string> = { reload: W.reload, back_to_visits: W.backToVisits, send_now: W.sendNowCloseAgain, go_to_field: W.goToField, retry: W.tryAgain };
+        const refused = (fix: CloseFix | "retry") => (onRefused ? onRefused(fix) : fix === "retry" ? onRetry() : onKeepWorking());
+        // r11 R11-1: the button goes where the line says (CLOSE_FIX_LABEL / CLOSE_FIX_CUE). Where only Joe
+        // can act, Keep working is the one (primary) button. Sign in is the signed-out banner's own link.
+        const only = refusal.fix === "keep_working";
         return <>
           <h1 className="font-serif text-[1.6em] font-semibold text-ink">{W.visitNotClosed}</h1>
-          <div className="mt-3"><Banner kind="action" role="status">{refusal.line}</Banner></div>
+          {/* r11 extra: a refusal one tap of Reload fixes is the calm status banner, not the ⚠ one. */}
+          <div className="mt-3"><Banner kind={closeRefusalCalm(refusal.fix) ? "status" : "action"} role="status">{refusal.line}</Banner></div>
           {closing.ownerNotified && <p className="mt-2 text-ink-2" role="status">{W.ownerToldNotClosed}</p>}
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <Btn tone="primary" onClick={() => refused(refusal.fix)} disabled={refusal.fix === "send_now" && !online}>{refusal.fix === "send_now" && !online ? W.sendNowNeedsSignal : fixWords[refusal.fix]}</Btn>
-            {refusal.fix !== "back_to_visits" && <Btn onClick={() => refused("keep_working")}>{W.keepWorking}</Btn>}
+            {refusal.fix === "sign_in" && signInHref
+              ? <LinkBtn tone="primary" href={signInHref} onClick={(e) => { e.preventDefault(); refused("sign_in"); }}>{CLOSE_FIX_LABEL.sign_in}</LinkBtn>
+              : <Btn tone="primary" onClick={() => refused(refusal.fix)} disabled={refusal.fix === "send_now" && !online}>{refusal.fix === "send_now" && !online ? W.sendNowNeedsSignal : CLOSE_FIX_LABEL[refusal.fix]}</Btn>}
+            {refusal.fix !== "back_to_visits" && !only && <Btn onClick={() => refused("keep_working")}>{W.keepWorking}</Btn>}
           </div>
         </>;
       })()}
       {closing.step === "done" && r && <>
         {r.complete ? <>
-          <h1 className="font-serif text-[1.8em] font-semibold text-accent-2">✓ {W.complete}</h1>
+          {/* r11 extra: the same heading as the opened Complete screen (CompleteCard) — with the close time. */}
+          <h1 className="font-serif text-[1.8em] font-semibold text-accent-2">✓ {W.complete}{closedWhen ? ` · ${closedWhen}` : ""}</h1>
           {unmeasured > 0 && <p className="mt-1 font-semibold text-ink">{quantitiesLine(unmeasured)}</p>}
-          <p className="mt-2 font-mono text-ink">Price-critical {r.price_critical.done}/{r.price_critical.total} · Record {r.record.done}/{r.record.total} · {r.price_critical.skipped + r.record.skipped} skipped</p>
+          <p className="mt-2 font-mono text-ink">{completeCountsLine(r)}</p>
           <p className="mt-1 text-ink-2">Answers and photos sent ✓</p>
           {!autoApply && (
             <div className="mt-4 rounded-lg border-2 border-rule p-3">
               {findings?.status === "applied" || findings?.status === "done" ? <p className="font-semibold text-accent-2">Findings applied ✓</p>
                 : findings?.status === "failed" || findingsCode ? <Banner kind="action" actions={<Btn onClick={onApply}>{W.tryAgain}</Btn>}>{"Couldn’t apply findings to the scope"}</Banner>
                 : findings ? <p className="text-ink-2">{W.findingsWaiting}</p>
-                : <Btn tone="primary" onClick={onApply}>{W.applyFindings}</Btn>}
+                // r11 extra: words beside the button; a staff visitor can't apply them, so Joe does it in the office.
+                : staff ? <p className="text-ink">{W.joeAppliesFindings}</p>
+                : <div className="grid gap-2"><p className="text-ink">{W.applyFindingsWhat}</p><Btn tone="primary" onClick={onApply} className="justify-self-start">{W.applyFindings}</Btn></div>}
             </div>
           )}
         </> : <>
@@ -342,7 +363,9 @@ export function ClosingScreen({ closing, unsent, online, autoApply, findings, fi
         <div className="mt-6 grid gap-3 sm:grid-cols-2">
           {!r.complete && <Btn tone="primary" onClick={onKeepWorking}>{W.keepWorking}</Btn>}
           {r.complete && !reopening && <Btn onClick={() => setReopening(true)}>{W.reopen}</Btn>}
-          <a href={home} className="inline-flex min-h-14 items-center justify-center rounded-md border-2 border-rule bg-card px-4 font-semibold text-ink no-underline">{W.back}</a>
+          {/* r11 extra: ✓ Complete goes back to the visit list, as the opened Complete screen does. */}
+          {r.complete ? <LinkBtn href="/consult/">{W.backToVisits}</LinkBtn>
+            : <a href={home} className="inline-flex min-h-14 items-center justify-center rounded-md border-2 border-rule bg-card px-4 font-semibold text-ink no-underline">{W.back}</a>}
         </div>
         {reopening && (
           <form className="mt-4 grid gap-3" onSubmit={async (e) => { e.preventDefault(); setErr(null); try { await onReopen(reason.trim()); } catch (x) { setErr(plainWords(x instanceof Error ? x.message : "")); } }}>

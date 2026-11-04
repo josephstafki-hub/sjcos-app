@@ -86,6 +86,14 @@ export function consultCompleteness(input: CompletionInput) {
   return { complete: checks.every((c) => !c.open.length), checks: checks.map(c=>({...c,action:closeAction(c.code),open_phrase:openCheckPhrase(c.code,c.open)})), price_critical: counts('price_critical'), record: counts('record') };
 }
 
+/** r11 extra: one count everywhere. The server-filled visit context module ("Never asked") and
+ *  context modules are not the visitor's items: neither the device model nor the office completion
+ *  counts them, so the reopened visit and its close result read the same Price-critical n/n. */
+export const countedModule = (m: { key: string; context_module?: unknown }) => m.key !== 'visit' && !m.context_module;
+/** r11 extra: the one "Price-critical a/b · Record c/d · n skipped" line (own close result and opened Complete). */
+export function completeCountsLine(c: { price_critical: { total: number; done: number; skipped?: number }; record: { total: number; done: number; skipped?: number } }): string {
+ return `Price-critical ${c.price_critical.done}/${c.price_critical.total} · Record ${c.record.done}/${c.record.total} · ${(c.price_critical.skipped ?? 0) + (c.record.skipped ?? 0)} skipped`;
+}
 export function openItemCount(counts: {price_critical:{total:number;done:number};record:{total:number;done:number}}, openCloseChecks=0):number { const n=sectionCounts({pc:counts.price_critical,record:counts.record});return n.total-n.done+openCloseChecks; }
 
 /** r10 extra: the close result's "n open" — the field and photo items plus each other open check row it lists,

@@ -1,6 +1,6 @@
 /**
  * r6 D4 (docs/plans/reviews/build-consult-r6-design.md): a flag card leads with the number or answer
- * that tripped it — "Measured 20″ — less than 24″ in front of the toilet …" — so the visitor sees
+ * that tripped it — "Measured 20″ in front of the toilet. A new toilet needs …" — so the visitor sees
  * why it fired and can fix a typo instead of pricing it. Pure; shared by the visit and its tests.
  */
 import { displayLength } from '../length.ts';
@@ -26,6 +26,10 @@ export function flagLead(f: VisitModel["flags"][number], model: VisitModel): str
   const lead = measured
     ? `${W.measured} ${shown.length === 1 ? value(shown[0]) : shown.map((m) => `${label(m)} ${value(m)}`).join(", ")}`
     : shown.map((m) => `${label(m)}: ${value(m)}`).join(" · ");
+  // r11 domain E1: a "Less than 24″ in front of …" hint reads as two sentences with the measured value:
+  // "Measured 20″ in front of the toilet. A new toilet needs at least 24″ …" — no dash after the number.
+  const less = measured && shown.length === 1 ? /^Less than \S+ (.+)$/.exec(f.hint) : null;
+  if (less) return `${lead} ${less[1]}`;
   const hint = PROPER.test(f.hint) || /^[A-Z]{2}/.test(f.hint) ? f.hint : f.hint.charAt(0).toLowerCase() + f.hint.slice(1);
   return `${lead} — ${hint}`;
 }

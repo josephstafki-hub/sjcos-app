@@ -38,3 +38,8 @@ export function redeliveryWindow(start?:string|null){
  const offset=(days:number)=>{const d=new Date(start.slice(0,10)+'T12:00:00Z');d.setUTCDate(d.getUTCDate()-days);return d.toISOString().slice(0,10);};
  return {min:offset(60),max:offset(7)};
 }
+/** r11 domain Fix 1: a picked re-delivery day kept inside the window (typed dates can skip min/max). */
+export function clampDay(day:string,window:{min:string;max:string}|null|undefined):string{
+ if(!window||!/^\d{4}-\d{2}-\d{2}$/.test(day))return day;
+ return day<window.min?window.min:day>window.max?window.max:day;
+}

@@ -44,7 +44,7 @@ export const FLAG_HINTS: Record<string, string> = {
   'bath_scope.existing_tub_material': 'A cast-iron tub takes two people to remove or break up.',
   'bath_scope.wet_wall_exterior': 'Pipes in an outside wall can freeze — they may need moving or insulating.',
   'bath_scope.fan_duct_length': 'A long or bent fan duct — the sub checks the fan still moves enough air.',
-  'bath_scope.toilet_front_clearance': 'Less than 24″ in front of the toilet — a new toilet needs at least 24″ (Minnesota plumbing code).',
+  'bath_scope.toilet_front_clearance': 'Less than 24″ in front of the toilet. A new toilet needs at least 24″ (Minnesota plumbing code).',
   'bath_scope.only_bathroom': 'Their only bathroom — plan a working toilet every night, or a portable one.',
   'bath_scope.curb': 'A curbless shower means lowering the floor — check the joists.',
   'bath_scope.vanity_width': 'The vanity they want is wider than the wall.',

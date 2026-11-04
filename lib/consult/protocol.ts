@@ -16,7 +16,7 @@ import type { PoolClient } from 'pg';
 import { createHash, randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { canonicalJson } from './queue.ts';
-import { consultCompleteness, type CompletionInput, type CompletionItem } from './completeness.ts';
+import { consultCompleteness, countedModule, type CompletionInput, type CompletionItem } from './completeness.ts';
 import { compileCondition } from './forms/conditions.ts';
 import { validateModule, validateTemplate, type FormRegistry } from './forms/validate.ts';
 import type { ModuleDef, TemplateDef } from './form-types.ts';
@@ -325,6 +325,7 @@ export async function completion(c:PoolClient,context:Context,target:string){
  const media=(await c.query('SELECT id,instance_id,field_key,shot_key,sha256,kind FROM consult_media WHERE consult_id=$1 AND removed_at IS NULL',[target])).rows;
  const fields:CompletionItem[]=[], photos:CompletionItem[]=[],flags:CompletionInput['flags']=[];
  for(const i of live){const m=modules.find(m=>m.key===i.module_key);if(!m)throw new Error('unknown_module');
+  if(!countedModule(m))continue; // r11 extra: the same items the device counts (server-filled visit context is not one)
   const values={...global};for(const a of s.heads.filter(a=>a.instance_id===i.id&&a.status==='answered'))values[a.field_key]=a.value;for(const f of m.fields){const derived=projection.scalar(i,f.key);if(derived!==undefined)values[f.key]=derived;}
   values['toilet_fixture_plans']=live.filter(fixture=>fixture.module_key==='plumb_fixture' && sameBathroom(i,fixture)).flatMap(fixture=>{const get=(key:string)=>s.heads.find(a=>a.instance_id===fixture.id&&a.field_key===key&&a.status==='answered')?.value;return get('fixture')==='Toilet'?[get('plan')]:[];});
     const localKnown=new Set([...known,...m.fields.map(f=>f.key)]);

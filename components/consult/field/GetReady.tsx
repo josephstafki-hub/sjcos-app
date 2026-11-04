@@ -12,6 +12,7 @@ import type { ReadyCheck, CheckResult } from "@/lib/consult/readiness";
 import type { ReadyResult } from "@/lib/consult/ui/controller";
 import { READY_LABEL, READY_ROWS, W, fill, plainWords, quantitiesLine, readyReason } from "@/lib/consult/ui/words";
 import { Btn, LinkBtn, TextInput } from "./primitives";
+import { completeCountsLine } from "@/lib/consult/completeness";
 
 export function centralTime(iso: string | number | null | undefined, opts: Intl.DateTimeFormatOptions = { weekday: "short", hour: "numeric", minute: "2-digit" }) {
   if (iso === null || iso === undefined) return "";
@@ -157,7 +158,7 @@ export function CompleteCard({ title, closedAt, completeness, unmeasured = 0, lo
       <section className="px-4 pb-8 pt-4" aria-live="polite">
         <h1 className="font-serif text-[1.8em] font-semibold text-accent-2">✓ {W.complete}{when ? ` · ${when}` : ""}</h1>
         {unmeasured > 0 && <p className="mt-1 font-semibold text-ink">{quantitiesLine(unmeasured)}</p>}
-        {c?.price_critical && c.record && <p className="mt-2 font-mono text-ink">Price-critical {c.price_critical.done}/{c.price_critical.total} · Record {c.record.done}/{c.record.total} · {(c.price_critical.skipped ?? 0) + (c.record.skipped ?? 0)} skipped</p>}
+        {c?.price_critical && c.record && <p className="mt-2 font-mono text-ink">{completeCountsLine({ price_critical: c.price_critical, record: c.record })}</p>}
         <p className="mt-3 text-ink">{W.completeLocked}</p>
         <div className="mt-5 grid gap-3">
           <LinkBtn tone="primary" wide href={lookOver}>{W.lookOver}</LinkBtn>

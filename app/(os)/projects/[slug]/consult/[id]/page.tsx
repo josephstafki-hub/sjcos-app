@@ -6,7 +6,7 @@ import { Button, PageHeader } from "@/components/ui";
 import { CoverageMark } from "@/components/ui/CoverageMark";
 import { requireAccess } from "@/lib/dal";
 import { consultDevices, lookOverExtra, readSnapshot, scheduleOptions, visitHead } from "@/lib/consult/ui/server";
-import { buildModel, emptyDraft, type EvidenceDraft, type FieldView, type SectionView } from "@/lib/consult/ui/model";
+import { buildModel, emptyDraft, officeFlagText, type EvidenceDraft, type FieldView, type SectionView } from "@/lib/consult/ui/model";
 import { pinnedDerivations } from "@/lib/consult/derive";
 import { closeResultOpenCount, openCheckPhrase } from "@/lib/consult/completeness";
 import { displayLength } from "@/lib/consult/length";
@@ -254,7 +254,7 @@ export default async function ConsultLookOver({ params, searchParams }: { params
                 })}
               </ul>
             ) : <p className="text-body text-ink-3">No photos yet.</p>}
-            {model.flags.length > 0 && <div className="mt-4"><p className="eyebrow mb-1">Flags</p><ul className="grid gap-1 text-body">{model.flags.map((f) => <li key={f.key}>{f.kind === "advisory" ? <span className="text-ink-2"><span aria-hidden className="font-semibold">⚐</span> <MeasureText text={f.hint} /></span> : <><span className="font-semibold text-flag">⚑</span> <MeasureText text={f.issue} /></>} — {draft.flags[f.key] ? `${draft.flags[f.key].disposition.replace(/_/g, " ")} · ${draft.flags[f.key].note}` : "needs a decision"}</li>)}</ul></div>}
+            {model.flags.length > 0 && <div className="mt-4"><p className="eyebrow mb-1">Flags</p><ul className="grid gap-1 text-body">{model.flags.map((f) => <li key={f.key}>{f.kind === "advisory" ? <span className="text-ink-2"><span aria-hidden className="font-semibold">⚐</span> <MeasureText text={f.hint} /></span> : <><span className="font-semibold text-flag">⚑</span> <MeasureText text={officeFlagText(f.issue, f.hint)} /></>} — {draft.flags[f.key] ? `${draft.flags[f.key].disposition.replace(/_/g, " ")} · ${draft.flags[f.key].note}` : "needs a decision"}</li>)}</ul></div>}
             {draft.trade_walks.length > 0 && <div className="mt-4"><p className="eyebrow mb-1">{W.tradeWalkTitle}</p><ul className="grid gap-1 text-body">{draft.trade_walks.map((w) => <li key={w.trade}>{w.trade}: {w.needed ? "walk-through needed" : "no walk-through"} · {w.reason}</li>)}</ul></div>}
             {ev?.promised_date && <p className="mt-4 text-body text-ink">{W.promisedBy} {fmt(`${ev.promised_date}T12:00:00-06:00`, { weekday: "short", month: "short", day: "numeric" })}</p>}
             {snap.conflicts.length > 0 && <p className="mt-4 text-body font-semibold text-flag">! {snap.conflicts.length} {snap.conflicts.length === 1 ? "conflict" : "conflicts"} to pick — whoever gets there first, the visitor or Joe, picks.</p>}

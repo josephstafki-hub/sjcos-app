@@ -306,6 +306,12 @@ export const W = {
   reopen: 'Reopen',
   reopenReason: 'Why reopen it?',
   applyFindings: 'Apply findings',
+  // r11 extra: the words beside Apply findings; a staff visitor sees who does it instead of the button.
+  applyFindingsWhat: 'Puts today’s measurements and flags into the job’s scope.',
+  joeAppliesFindings: 'Joe applies the findings in the office.',
+  // r11 domain Fix 1: why the re-delivery day is limited.
+  rrpRedeliveryWindow: 'Between 60 and 7 days before the start, so the pamphlet still counts.',
+  rrpRedeliveryRange: 'Pick a day from {from} to {to}.',
   findingsApplied: 'Findings applied ✓ {when}',
   findingsFailed: "Couldn’t apply findings to the scope — [Try again]",
   findingsWaiting: 'Applying findings…',
@@ -581,28 +587,40 @@ export function plainWords(code: string | undefined | null, ctx: { name?: string
 export type CloseFix = (typeof CLOSE_ERROR_ACTIONS)[CloseErrorCode];
 export const CLOSE_REFUSED_FALLBACK = 'The office didn’t take the close. Nothing was lost — your answers are saved on this device. Try again in a minute; if it says this again, tell Joe.';
 const CLOSE_REFUSED_LINES: Record<CloseErrorCode, string> = {
-  conflict: 'The office changed this visit since this device last checked. Your answers are saved here.',
-  stale_snapshot: 'The office changed this visit since this device last checked. Your answers are saved here.',
-  evidence_conflict: 'The office changed the wrap-up answers since this device last checked. Your answers are saved here.',
-  complete_locked: 'This visit is already Complete in the office. Nothing was lost.',
-  manifest_sequence_gap: 'Some answers haven’t reached the office yet. They’re saved on this device.',
-  unresolved_rejections: 'The office turned down some answers from this device. They’re saved here; Before you wrap lists them.',
-  manifest_blob_missing: 'Some photos haven’t reached the office yet. They’re saved on this device.',
-  manifest_initials_missing: 'The client’s initials haven’t reached the office yet. They’re saved on this device.',
-  rebase_required: 'Joe reopened this visit after some answers were typed here. Pick which value to keep, then close again.',
-  device_access_denied: 'This visit is being filled in on another device, so this one can’t close it. Your answers are saved here; ask Joe to move the visit to this device.',
-  missing_device_manifest_required: 'Another device worked on this visit and hasn’t closed. Close it on that device, or ask Joe to set it aside. Your answers are saved here.',
-  evidence_too_large: 'Shorten the notes or remove repeated detail, then save again. Earlier saved answers are kept.',
-  batch_too_large: 'Shorten the notes or remove repeated detail, then save again. Earlier saved answers are kept.',
-  owner_required: 'Only Joe can set a return-visit or trade-walk day. Take the day off, then close again.',
-  person_required: 'Only the person on this visit can close it. Your answers are saved on this device.',
+  conflict: 'The office changed this visit since this device last checked. Your answers are saved here; reload to get the office’s copy, then close again.',
+  stale_snapshot: 'The office changed this visit since this device last checked. Your answers are saved here; reload to get the office’s copy, then close again.',
+  evidence_conflict: 'The office changed the wrap-up answers since this device last checked. Your answers are saved here; reload to get the office’s copy, then close again.',
+  complete_locked: 'This visit is already Complete in the office. Nothing was lost; go back to visits to open it.',
+  manifest_sequence_gap: 'Some answers haven’t reached the office yet. They’re saved on this device; send them, then close again.',
+  unresolved_rejections: 'The office turned down some answers from this device. They’re saved here; Before you wrap lists them. Fix them, then send and close again.',
+  manifest_blob_missing: 'Some photos haven’t reached the office yet. They’re saved on this device; send them, then close again.',
+  manifest_initials_missing: 'The client’s initials haven’t reached the office yet. They’re saved on this device; send them, then close again.',
+  rebase_required: 'Joe reopened this visit after some answers were typed here. In the field, pick which value to keep, then close again.',
+  device_access_denied: 'This visit is being filled in on another device, so this one can’t close it. Your answers are saved here; keep working and ask Joe to move the visit to this device.',
+  missing_device_manifest_required: 'Another device worked on this visit and hasn’t closed. Your answers are saved here; keep working, and close it on that device or ask Joe to set it aside.',
+  evidence_too_large: 'The office couldn’t take this much at once. Keep working: shorten the notes or remove repeated detail, then close again. Earlier saved answers are kept.',
+  batch_too_large: 'The office couldn’t take this much at once. Keep working: shorten the notes or remove repeated detail, then close again. Earlier saved answers are kept.',
+  owner_required: 'Only Joe can set a trade-walk day. Take the day off in Trade walks, then close again.',
+  person_required: 'Only the person on this visit can close it. Your answers are saved on this device; go back to visits.',
   signed_out: 'You were signed out. Your answers are saved on this device; sign in, then close again.',
-  access_denied: 'Your access to this visit was removed. Your answers are locked on this device and Joe can recover them.',
+  access_denied: 'Your access to this visit was removed. Your answers are locked on this device and Joe can recover them; go back to visits.',
   invalid_command: 'The office couldn’t read the wrap-up answers. Check Before you wrap, then close again.',
-  json_required: 'This page is out of date with the office. Your answers are saved here.',
-  csrf: 'This page is out of date with the office. Your answers are saved here.',
+  json_required: 'This page is out of date with the office. Your answers are saved here; reload the page, then close again.',
+  csrf: 'This page is out of date with the office. Your answers are saved here; reload the page, then close again.',
   consult_key_unavailable: 'The office server isn’t ready yet. Your answers are saved here; try again in a minute.',
 };
+/** r11 R11-1: the button under each fix, and the place or action in it that the code's line names
+ *  (so the button always goes where the line says). Keep working alone = only Joe can act. */
+export const CLOSE_FIX_LABEL: Record<CloseFix | 'retry', string> = {
+  reload: W.reload, back_to_visits: W.backToVisits, send_now: W.sendNowCloseAgain, go_to_field: W.goToField,
+  before_you_wrap: W.beforeYouWrap, trade_walks: W.tradeWalkTitle, sign_in: W.signIn, keep_working: W.keepWorking, retry: W.tryAgain,
+};
+export const CLOSE_FIX_CUE: Record<CloseFix | 'retry', string> = {
+  reload: 'reload', back_to_visits: 'back to visits', send_now: 'send', go_to_field: 'field',
+  before_you_wrap: 'Before you wrap', trade_walks: 'Trade walks', sign_in: 'sign in', keep_working: 'keep working', retry: 'try again',
+};
+/** r11 extra: refusals a tap of Reload fixes are the calm blue status banner, not the ⚠ one. */
+export const closeRefusalCalm = (fix: CloseFix | 'retry') => fix === 'reload';
 export function closeRefusal(code: string | undefined | null): { line: string; fix: CloseFix | 'retry'; known: boolean } {
   const known = !!code && Object.prototype.hasOwnProperty.call(CLOSE_ERROR_ACTIONS, code);
   return known ? { line: CLOSE_REFUSED_LINES[code as CloseErrorCode], fix: CLOSE_ERROR_ACTIONS[code as CloseErrorCode], known } : { line: CLOSE_REFUSED_FALLBACK, fix: 'retry', known };

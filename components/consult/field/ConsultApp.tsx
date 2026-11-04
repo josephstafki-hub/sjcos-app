@@ -122,6 +122,9 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
   const title = display ? `${display.client}${when ? ` · ${when}` : ""}` : W.app;
   const leave = () => { if (unsent > 0) setExit(true); else location.href = home; };
   const more = <MoreMenu exitHref={home} />;
+  const signInHref = `/login?next=${encodeURIComponent(`/consult/${consultId}`)}`;
+  // r11 extra: only Joe applies findings; anyone else on the device is told so instead of a button.
+  const staffUser = (boot?.user.role ?? (display?.visitor_staff ? "staff" : "owner")) !== "owner";
 
   let body: React.ReactNode = null;
   if (st.phase === "loading") body = <div className="mx-auto max-w-[560px]"><ScreenHead title={title} right={more} /><p className="px-4 py-6 text-ink-2" role="status">Opening…</p></div>;
@@ -136,7 +139,7 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
       <div className="mx-auto max-w-[560px]"><ScreenHead title={title} right={more} />
         <div className="grid gap-4 px-4 py-6">
           <Banner kind="action">{plainWords(code, { name: userName })}</Banner>
-          {code === "signed_out" && <LinkBtn tone="primary" wide href={`/login?next=${encodeURIComponent(`/consult/${consultId}`)}`}>{W.signIn}</LinkBtn>}
+          {code === "signed_out" && <LinkBtn tone="primary" wide href={signInHref}>{W.signIn}</LinkBtn>}
           {code === "update_required" && <Btn tone="primary" wide onClick={() => location.reload()}>{W.reload}</Btn>}
           <LinkBtn wide href={home}>{W.back}</LinkBtn>
         </div>
@@ -160,7 +163,7 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
       <div className="grid gap-3 px-4 pt-3 empty:hidden">
         {st.storageFull && <Banner kind="action">{fill(W.storageFull, { field: st.lastSaved ?? "—" })}</Banner>}
         {(st.olderBuild || st.blocked === "update_required") && <Banner kind="status" actions={<Btn onClick={() => location.reload()}>{W.reload}</Btn>}>Update ready — reload between rooms.</Banner>}
-        {st.code === "signed_out" && <Banner kind="action" actions={<LinkBtn href={`/login?next=${encodeURIComponent(`/consult/${consultId}`)}`}>{W.signIn}</LinkBtn>}>{plainWords("signed_out", { name: userName })}</Banner>}
+        {st.code === "signed_out" && <Banner kind="action" actions={<LinkBtn href={signInHref}>{W.signIn}</LinkBtn>}>{plainWords("signed_out", { name: userName })}</Banner>}
         {/* A close made without signal is kept (close_intent) and resumes by itself; keep working never cancels it. */}
         {!st.closing && st.local.close_intent && <Banner kind="status" actions={st.online ? <Btn onClick={() => void ctl.drain(true)}>{W.sendNow}</Btn> : undefined}>{W.closeWaiting}</Banner>}
         {/* r4: required sections are set up on start and on every load (an interrupted start finishes here). */}
@@ -175,18 +178,24 @@ export function ConsultApp({ boot, consultId }: { boot: Boot | null; consultId: 
     } else if (st.closing) {
       body = <>{banners}<ClosingScreen closing={st.closing} unsent={unsent} online={st.online} autoApply={!!boot?.auto_apply} findings={(st.fresh?.findings_job as { status: string; last_error: string | null } | null) ?? null} findingsCode={st.findingsCode} unmeasured={model.unmeasured}
         onSend={() => void ctl.drain(true)} onRetry={() => void ctl.close(buildEvidence(model, st.draft, !!initials))} onKeepWorking={() => ctl.dismissClosing()} onAction={(a) => { setAfter(a); ctl.dismissClosing(); }} onReopen={(r) => ctl.reopen(r)} onApply={() => void ctl.applyFindings()} home={home}
+        signInHref={signInHref} staff={staffUser} closedAt={(st.fresh ?? snap)?.consult.closed_at}
         onRefused={(fix) => {
-          // r10 R10-1: a refused close is dropped (reload / back / go to field / keep working) or rebuilt (send now, try again).
+          // r10 R10-1: a refused close is dropped (reload / back / a place on the visit / keep working) or rebuilt (send now, try again).
+          // r11 R11-1: each fix goes where its line says; a field the office named is focused there.
           if (fix === "send_now" || fix === "retry") { void ctl.closeAgain(); return; }
+          const field = st.closing?.field;
           void ctl.abandonClose().then(() => {
             if (fix === "reload") void ctl.refresh().then(() => location.reload());
             else if (fix === "back_to_visits") location.href = "/consult/";
-            else if (fix === "go_to_field") setAfter("go_conflict");
+            else if (fix === "sign_in") location.href = signInHref;
+            else if (fix === "go_to_field") setAfter(field ? `focus:${field}` : "go_conflict");
+            else if (fix === "before_you_wrap") setAfter(field ? `focus:${field}` : "before_you_wrap");
+            else if (fix === "trade_walks") setAfter("review_trades");
           });
         }} /></>;
     } else if (status === "complete") {
       body = <>{banners}<ClosingScreen closing={{ step: "done", result: { complete: true, checks: [], price_critical: { total: model.pc.total, done: model.pc.done, skipped: model.pc.skipped }, record: { total: model.record.total, done: model.record.done, skipped: model.record.skipped }, revision: 0 } }} unsent={unsent} online={st.online} autoApply={!!boot?.auto_apply}
-        findings={(st.fresh?.findings_job as { status: string; last_error: string | null } | null) ?? null} findingsCode={st.findingsCode} unmeasured={model.unmeasured} onSend={() => void ctl.drain(true)} onRetry={() => void ctl.refresh()} onKeepWorking={() => undefined} onReopen={(r) => ctl.reopen(r)} onApply={() => void ctl.applyFindings()} home={home} /></>;
+        findings={(st.fresh?.findings_job as { status: string; last_error: string | null } | null) ?? null} findingsCode={st.findingsCode} unmeasured={model.unmeasured} onSend={() => void ctl.drain(true)} onRetry={() => void ctl.refresh()} onKeepWorking={() => undefined} onReopen={(r) => ctl.reopen(r)} onApply={() => void ctl.applyFindings()} home={home} staff={staffUser} closedAt={(st.fresh ?? snap)?.consult.closed_at} /></>;
     } else {
       body = <>{banners}<VisitScreen key={resume ?? "visit"} device={st.device} startAt={resume} saveError={st.code} prefill={snap?.prefill} visitorNotes={snap?.visitor_notes} reopened={snap?.reopened} model={model} display={display} thumbs={st.thumbs} online={st.online} draft={st.draft} refused={refusedEntries(entries).length} hasInitials={!!initials} userName={userName} staff={!!display?.visitor_staff} lastSaved={st.lastSaved} startAction={after} onStartAction={() => setAfter(null)}
         forgotClose={status === "in_progress" && visitDay < today}

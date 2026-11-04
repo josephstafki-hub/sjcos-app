@@ -32,7 +32,15 @@ export interface Boot {
 export type Phase = 'loading' | 'get_ready' | 'unlock' | 'visit' | 'blocked' | 'disabled' | 'complete';
 export type ReadyResult = 'idle' | 'checking' | 'ready' | 'not_ready' | 'no_signal';
 export interface CloseResult { complete: boolean; checks: { check: number; code: string; action?: string; open: string[]; open_phrase?: string }[]; price_critical: { total: number; done: number; skipped: number }; record: { total: number; done: number; skipped: number }; revision: number }
-export interface ClosingState { step: 'sending' | 'closing' | 'done' | 'error' | 'waiting_signal'; result?: CloseResult; code?: string; ownerNotified?: boolean }
+/** r11 R11-1: `field` is the first `details[].field` the office named (a Zod path), so Go to field /
+ *  Before you wrap can focus it. */
+export interface ClosingState { step: 'sending' | 'closing' | 'done' | 'error' | 'waiting_signal'; result?: CloseResult; code?: string; ownerNotified?: boolean; field?: string }
+/** r11: the office's refusal, with its `details[]` (field / code / message) kept for the close screen. */
+export class ConsultRefusal extends Error {
+  details: { field?: string; code?: string; message?: string }[];
+  constructor(code: string, details: { field?: string; code?: string; message?: string }[] = []) { super(code); this.details = details; }
+}
+export const refusalField = (e: unknown): string | undefined => e instanceof ConsultRefusal ? e.details.find((d) => typeof d?.field === 'string' && d.field)?.field : undefined;
 export interface State {
   phase: Phase; online: boolean; boot: Boot | null; consultId: string; identity: OfflineIdentity | null; device: string;
   enrolled: boolean; olderBuild: boolean; leaseExpires: number | null;
@@ -49,7 +57,7 @@ const post = async (consultId: string, command: string, input: unknown) => {
   let body: Record<string, unknown> = {};
   try { body = await r.json(); } catch { /* empty body */ }
   if (r.status === 408 || r.status === 429 || r.status >= 500) throw new Error(`http_${r.status}`);
-  if (!r.ok || body.ok === false) throw new Error(String(body.error_code ?? body.code ?? (r.status === 401 ? 'signed_out' : r.status === 403 ? 'access_denied' : `http_${r.status}`)));
+  if (!r.ok || body.ok === false) throw new ConsultRefusal(String(body.error_code ?? body.code ?? (r.status === 401 ? 'signed_out' : r.status === 403 ? 'access_denied' : `http_${r.status}`)), Array.isArray(body.details) ? body.details as { field?: string }[] : []);
   return body;
 };
 const offlineError = isNetworkFailure;
@@ -624,11 +632,12 @@ export class VisitController {
     } catch (e) {
       if (!owns()) return;
       const rawCode = codeOf(e), code = transientClose(rawCode) && rawCode !== 'no_signal' ? 'close_timeout' : rawCode;
-      this.set({ local: this.engine?.read() ?? null, closing: { step: code === 'no_signal' ? 'waiting_signal' : 'error', code } });
+      const field = refusalField(e);
+      this.set({ local: this.engine?.read() ?? null, closing: { step: code === 'no_signal' ? 'waiting_signal' : 'error', code, ...(field ? { field } : {}) } });
       if (!transientClose(rawCode)) await engine.pauseClose(rawCode);
       if (!engine.read()?.close_intent?.notified && (!transientClose(rawCode) && !['conflict','stale_snapshot'].includes(rawCode) || Date.now()-(local.close_intent?.started_at??Date.now())>=30*60_000)) {
         try { await post(this.state.consultId,'report_close_failure',{reason:rawCode});
-          if(owns()) { await engine.pauseClose(transientClose(rawCode)?'':rawCode,true); this.set({closing:{step:'error',code,ownerNotified:true}}); }
+          if(owns()) { await engine.pauseClose(transientClose(rawCode)?'':rawCode,true); this.set({closing:{step:'error',code,ownerNotified:true,...(field?{field}:{})}}); }
         } catch { /* Keep the intent and retry reporting when connectivity returns. */ }
       }
       if (!transientClose(rawCode) && !engine.read()?.close_intent?.notified) this.closeTimer=setTimeout(()=>{void this.resumeClose();},60_000);

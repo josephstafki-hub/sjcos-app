@@ -29,11 +29,12 @@ test('every refusal close() / deviceGate() / saveEvidence() can throw has its ow
   for (const code of codes) assert.notEqual(closeRefusal(code).line, CLOSE_REFUSED_FALLBACK, code);
 });
 
-test('an unknown code gets the fallback with Try again; the fixes are the five named ones', () => {
+test('an unknown code gets the fallback with Try again; the fixes are the named ones', () => {
   assert.deepEqual(closeRefusal('something_new'), { line: CLOSE_REFUSED_FALLBACK, fix: 'retry', known: false });
   assert.deepEqual(closeRefusal(undefined).fix, 'retry');
   assert.match(CLOSE_REFUSED_FALLBACK, /^The office didn’t take the close\. Nothing was lost — your answers are saved on this device\. Try again in a minute; if it says this again, tell Joe\.$/);
-  for (const fix of Object.values(CLOSE_ERROR_ACTIONS)) assert.ok(['reload', 'back_to_visits', 'send_now', 'go_to_field', 'retry'].includes(fix), fix);
+  // r11 R11-1: Before you wrap, Trade walks, Sign in and Keep working (alone) joined the named fixes.
+  for (const fix of Object.values(CLOSE_ERROR_ACTIONS)) assert.ok(['reload', 'back_to_visits', 'send_now', 'go_to_field', 'before_you_wrap', 'trade_walks', 'sign_in', 'keep_working', 'retry'].includes(fix), fix);
   assert.equal(W.visitNotClosed, 'Not closed yet');
   assert.equal(W.ownerToldNotClosed, 'Joe has been told this visit hasn’t closed.');
   assert.equal(closeRefusal('conflict').fix, 'reload');

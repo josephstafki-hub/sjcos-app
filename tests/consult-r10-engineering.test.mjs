@@ -22,7 +22,7 @@ test('every explicit close and device-gate refusal has a UI action',()=>{
  const src=readFileSync('lib/consult/protocol.ts','utf8');
  for(const part of [src.slice(src.indexOf('async function deviceGate'),src.indexOf('async function deviceGate')+650),src.slice(src.indexOf('export async function close('),src.indexOf('export async function close(')+4500)])
  for(const [,code] of part.matchAll(/throw new Error\('([^']+)'\)/g))assert.ok(CLOSE_ERROR_ACTIONS[code],code);
- assert.equal(CLOSE_ERROR_ACTIONS.evidence_too_large,'go_to_field');
+ assert.equal(CLOSE_ERROR_ACTIONS.evidence_too_large,'keep_working'); // r11 R11-1: only shortening notes helps — Keep working alone
 });
 test('shared section and wrap counts include record and close checks',()=>{
  const section={pc:{done:0,total:26},record:{done:0,total:1}};

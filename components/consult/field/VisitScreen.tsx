@@ -1,6 +1,7 @@
 "use client";
 import {closingScriptLine} from "@/lib/consult/forms/seed/scripts";
 import {sectionCounts} from "@/lib/consult/completeness";
+import {refusalFocus} from "@/lib/consult/close-errors";
 /**
  * The visitor's screens (plan §6.3 phone portrait, §6.4 tablet landscape):
  * opening script → section list → section fields. Phone/tablet portrait: one column,
@@ -217,8 +218,19 @@ export function VisitScreen({ device, model, display, api, thumbs, online, draft
       case "add_instance": setView("list"); break;
       // r10 R10-1: "Go to field" from a refused close — the first conflict, else Before you wrap.
       case "go_conflict": { const c = model.conflicts[0]; if (c) openSection(c.instance_id, c.key); else setSheet("wrap"); break; }
+      // r11 R11-1: "Before you wrap" from a refused close opens the wrap sheet.
+      case "before_you_wrap": setSheet("wrap"); break;
       case "review_permissions": { const f = houseInst?.fields.find((x) => x.key === "photos_ok"); if (houseInst && f) openSection(houseInst.instance.id, f.addr); else setSheet("wrap"); break; }
-      default: setSheet("wrap");
+      default: {
+        // r11 R11-1: the office named a field (details[].field) — focus it, in its wrap sheet or on the visit.
+        const target = action.startsWith("focus:") ? refusalFocus(action.slice(6)) : null;
+        if (!target) { setSheet("wrap"); break; }
+        if ("sheet" in target) setSheet(target.sheet);
+        else if ("closing" in target) pickDate();
+        else if ("house" in target) runAction("review_permissions");
+        else { const inst = target.addr.split(":")[0]; if (model.sections.some((x) => x.instance.id === inst)) openSection(inst, target.addr); else setSheet("wrap"); }
+        break;
+      }
     }
   };
   const ranAction = useRef(false);

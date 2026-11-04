@@ -17,7 +17,7 @@ import { rrpFacts, certificationWarnings } from '../rrp.ts';
  */
 import type { FieldDef, ModuleDef, ShotDef, TemplateDef, When } from '../form-types.ts';
 import { compileCondition } from '../forms/conditions.ts';
-import { countingSkip, hasRiskAssumption, type CompletionItem, type RiskAssumption, type SkipReason } from '../completeness.ts';
+import { countedModule, countingSkip, hasRiskAssumption, type CompletionItem, type RiskAssumption, type SkipReason } from '../completeness.ts';
 import type { QueueEntry } from '../queue.ts';
 import type { LocalBlob } from '../offline-engine.ts';
 
@@ -86,6 +86,18 @@ export function visitorFlagText(issue: string): string {
   return t ? `${t.charAt(0).toUpperCase()}${t.slice(1)}${/[.!?]$/.test(t) ? '' : '.'}` : 'Needs a decision.';
 }
 
+/** r11 extra: the office look-over's flag line is a plain sentence. An `issue` that carries office detail
+ *  (a code citation, MDH, counsel) stays as Joe wrote it, sentence-cased; a bare fragment such as
+ *  "> wall available" or "cast iron: 2-person demo / break-up" reads as its plain hint instead. */
+export function officeFlagText(issue: string, hint?: string | null): string {
+  const t = issue.trim();
+  const sentence = /^[a-z]/.test(t) ? `${t.charAt(0).toUpperCase()}${t.slice(1)}${/[.!?]$/.test(t) ? '' : '.'}` : /^[A-Z]/.test(t) && !/[.!?]$/.test(t) ? `${t}.` : t;
+  const bare = (x: string) => x.replace(/[.!?]$/, '').toLowerCase();
+  const detail = bare(visitorFlagText(t)) !== bare(t) || /\b(?:MDH|counsel|CFR|IRC)\b/.test(t);
+  if (detail || /^[A-Z]/.test(t)) return sentence;
+  return hint?.trim() || sentence;
+}
+
 export const addrOf = (instance_id: string, field_key: string) => `${instance_id}:${field_key}`;
 export const shotAddr = (instance_id: string, shot_key: string) => `${instance_id}:shot:${shot_key}`;
 
@@ -94,7 +106,7 @@ const BUMPS = new Set(['start', 'create_instance', 'remove_instance', 'answer', 
 
 export function modulesOf(s: Snapshot): ModuleDef[] { return s.pins.filter((p) => p.kind === 'module').map((p) => p.definition as ModuleDef); }
 export function templatesOf(s: Snapshot): TemplateDef[] { return s.pins.filter((p) => p.kind === 'template').map((p) => p.definition as TemplateDef); }
-export const isHiddenModule = (m: ModuleDef) => m.key === 'visit' || !!m.context_module;
+export const isHiddenModule = (m: ModuleDef) => !countedModule(m);
 /** r6 D9: Era hazards' own year answers come first, in seed order. */
 const ERA_FIRST = ['before_1978', 'year_override_reason'];
 /** r6 D9: "Built before 1978?" hint says honestly where its answer stands — filled from the year,

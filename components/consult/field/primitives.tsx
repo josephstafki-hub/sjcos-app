@@ -25,9 +25,9 @@ export function Btn({ tone = "secondary", wide, size = 56, className = "", child
   );
 }
 
-export function LinkBtn({ href, tone = "secondary", wide, className = "", children }: { href: string; tone?: Tone; wide?: boolean; className?: string; children: ReactNode }) {
+export function LinkBtn({ href, tone = "secondary", wide, className = "", children, onClick }: { href: string; tone?: Tone; wide?: boolean; className?: string; children: ReactNode; onClick?: (e: React.MouseEvent<HTMLAnchorElement>) => void }) {
   return (
-    <a href={href} className={`min-h-14 ${wide ? "w-full" : ""} inline-flex items-center justify-center gap-2 rounded-md px-4 text-[1em] font-semibold leading-tight no-underline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus ${TONES[tone]} ${className}`}>
+    <a href={href} onClick={onClick} className={`min-h-14 ${wide ? "w-full" : ""} inline-flex items-center justify-center gap-2 rounded-md px-4 text-[1em] font-semibold leading-tight no-underline focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus ${TONES[tone]} ${className}`}>
       {children}
     </a>
   );

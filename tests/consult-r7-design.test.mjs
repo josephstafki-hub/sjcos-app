@@ -73,7 +73,7 @@ test('R7-5: skipped fields read "Skipped · reason · note", assumption words on
 test('domain 3: toilet front clearance says what to measure; lengths under 48″ read in inches', () => {
   const f = field('bath_scope', 'toilet_front_clearance');
   assert.equal(f.hint, 'From the front of the bowl to the nearest wall, vanity, tub or door swing in front of it.');
-  assert.equal(f.flag.hint, 'Less than 24″ in front of the toilet — a new toilet needs at least 24″ (Minnesota plumbing code).');
+  assert.equal(f.flag.hint, 'Less than 24″ in front of the toilet. A new toilet needs at least 24″ (Minnesota plumbing code).');
   assert.equal(displayLength(18), '18″');
   assert.equal(displayLength(19.5), '19 1/2″');
   assert.match(src('components/consult/field/Keypad.tsx'), /typeof value === "number"\) return displayLength\(value, p\)/);

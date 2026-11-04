@@ -65,12 +65,12 @@ test('R13-3: the office radon flag reads through officeFlagText and names radon 
   const s = { consult: { id, status: 'in_progress', revision: 1, completion_generation: 1 }, pins: seedModules.map((definition) => ({ kind: 'module', definition })), instances: [{ id, module_key: 'house', parent_id: null }], heads: [{ instance_id: id, field_key: 'radon_level', status: 'answered', value: 36, server_revision: 1 }], conflicts: [] };
   const flag = buildModel(s, [], [], emptyDraft()).flags.find((f) => f.kind === 'advisory' && /radon/i.test(f.issue));
   assert.ok(flag, 'a radon advisory at 36 pCi/L');
-  const text = officeFlagText(flag.issue, flag.hint);
+  const text = officeFlagText(flag.issue, flag.hint, flag.kind);
   assert.match(text, /^Radon\b/, 'the subject first');
   assert.match(text, /\b36 pCi\/L/, 'the level');
   assert.match(text, /\b4\b/, 'the action level');
   const flags = src('components/consult/office/OfficeFlags.tsx');
-  assert.match(flags, /const text = beforeDash\(officeFlagText\(f\.issue, f\.hint\)\);/);
+  assert.match(flags, /const text = beforeDash\(officeFlagText\(f\.issue, f\.hint, f\.kind\)\);/);
   assert.doesNotMatch(flags, /f\.kind === "advisory" \? f\.hint/);
 });
 

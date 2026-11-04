@@ -25,7 +25,7 @@ export function OfficeFlags({ flags, decisions }: { flags: Flag[]; decisions: Ev
         {flags.map((f) => {
           const d = decisions[f.key];
           const calm = f.kind === "advisory" || !!d;
-          const text = beforeDash(officeFlagText(f.issue, f.hint));
+          const text = beforeDash(officeFlagText(f.issue, f.hint, f.kind));
           const decidable = f.kind !== "advisory" && f.decisionAllowed !== false;
           return (
             <li key={f.key}>

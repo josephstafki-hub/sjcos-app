@@ -71,7 +71,7 @@ export const CONSENT = {
   new_person_buttons: ['They said yes — resume notes', 'They said no — keep it manual'],
 } as const;
 
-// Changed after counsel’s approval — confirm with counsel.
+// Changed after counsel’s approval — Joe approved 2026-11-03.
 export const CLOSING_NO_DATE_JOE = "Next, I price this with our trade partners and suppliers. I’ll call you with the date you’ll have the formal estimate. It shows each part of the work, the allowances for the things you’re still choosing, and what isn’t included.";
 export const CLOSING_NO_DATE_STAFF = "Next, Joe prices this with our trade partners and suppliers. He’ll be in touch to tell you when you’ll have the formal estimate. It shows each part of the work, the allowances for the things you’re still choosing, and what isn’t included.";
 export function closingScriptLine(line:string, staff:boolean, skip?:{status:string;skip_reason?:string|null;skip_note?:string|null}):string {

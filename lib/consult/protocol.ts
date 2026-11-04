@@ -240,8 +240,9 @@ export async function batch(c:PoolClient,context:Context,target:string,input:unk
     if(field?.maps_to?.kind!=='new_work'&&field?.type==='text'&&(typeof p.value!=='string'||!p.value.trim()))throw new Error('text_required');
     if(field?.range && ['number','count','year','length','length_pair'].includes(field.type)){
      const values=Array.isArray(p.value)?p.value:[p.value];
-     if(values.some(value=>typeof value!=='number'||!Number.isFinite(value)||value<field.range![0]||value>field.range![1]))throw new Error(`range:${def?.key}.${a.field_key}`);
+     if(values.some((value,index)=>{const range=field.component_ranges?.[index]??field.range!;return typeof value!=='number'||!Number.isFinite(value)||value<range[0]||value>range[1];}))throw new Error(`range:${def?.key}.${a.field_key}|${(field.component_ranges??[field.range]).map(r=>r.join('–')).join(' × ')}${field.unit==='in'?'″':''}`);
     }
+    if(def?.key==='room'&&field?.key==='part_of'){const titles=s.pins.filter(p=>p.kind==='template').map(p=>(p.definition as TemplateDef).title);if(!Array.isArray(p.value)||p.value.some(v=>!titles.includes(v)))throw new Error('invalid_room_template');}
     if(field?.type==='date')day.parse(p.value);
     if(field?.type==='multi'&&(!Array.isArray(p.value)||!p.value.length||new Set(p.value).size!==p.value.length))throw new Error('distinct_choices_required');
     if(field?.type==='length'||field?.type==='length_pair'){for(const value of Array.isArray(p.value)?p.value:[p.value])if(typeof value!=='number'||Math.abs(value*16-Math.round(value*16))>1e-8)throw new Error('length_precision');}
@@ -286,7 +287,7 @@ export async function batch(c:PoolClient,context:Context,target:string,input:unk
    receipt={id:op.client_event_id,status:conflict?409:422,error_code:conflict?'conflict':'invalid_operation',conflict:conflict?{target:op.target,current_revision:Number(s.consult.revision),proposed_revision:op.base_revision}:undefined};
    // JSONB cannot encode undefined; the optional conflict member is omitted.
    if(!conflict)delete receipt.conflict;
-   if(message.startsWith('range:'))receipt.details={fields:[message.slice(6)]};
+   if(message.startsWith('range:'))receipt.details={fields:[message.slice(6).split('|')[0]],detail:`Outside ${message.split('|')[1]} — measure again`};
    await c.query('RELEASE SAVEPOINT consult_op');
   }
   await c.query('INSERT INTO consult_sync_receipts VALUES($1,$2,$3,$4,$5,$6,$7)',[target,op.device_id,op.device_epoch,op.client_event_id,op.seq,opHash,receipt]);
@@ -325,7 +326,7 @@ export async function completion(c:PoolClient,context:Context,target:string){
  const live=s.instances.filter(i=>!i.removed_at);
  const projection=pinnedDerivations(modules,templates,live,s.heads);
  const known=new Set(modules.flatMap(m=>m.fields.map(f=>`${m.key}.${f.key}`)));
- const global:Record<string,unknown>={};
+ const global:Record<string,unknown>={'visit.template_count':templates.length};
  // Ambiguous repeat values never pick a winner for a cross-module condition.
  for(const m of modules)for(const f of m.fields){const values=live.filter(i=>i.module_key===m.key).map(i=>projection.scalar(i,f.key)).filter(v=>v!==undefined);if(values.length)global[`${m.key}.${f.key}`]=values.length===1?values[0]:values;}
  const media=(await c.query('SELECT id,instance_id,field_key,shot_key,sha256,kind FROM consult_media WHERE consult_id=$1 AND removed_at IS NULL',[target])).rows;
@@ -486,9 +487,14 @@ export async function command(c:PoolClient,context:Context,target:string,kind:st
   await c.query("UPDATE consults SET status='cancelled',revision=revision+1 WHERE id=$1",[target]);
   await audit(c,target,JSON.parse(context.payload).sub,'cancel',{reason:v.reason});return {ok:true};
  }
+ if(kind==='record_rrp_delivery'){
+  await authorize(c,context,target,'record_rrp_delivery');
+  const v=z.strictObject({method:z.enum(['hand','mail']),day:day,redelivery:z.boolean().optional()}).parse(input);
+  return (await c.query('SELECT consult_record_rrp_delivery($1,$2,$3,$4,$5) result',[context,target,v.method,v.day,v.redelivery??false])).rows[0].result;
+ }
  if(kind==='apply_findings'){
   const v=z.strictObject({expected_generation:rev.min(1),operation_id:uuid}).parse(input);
-  await authorize(c,await scoped(c,context,'apply',target),target,'apply',true);
+  await authorize(c,await scoped(c,context,'apply',target),target,'apply');
   return enqueueConsultFindings(c,target,v.expected_generation);
  }
  if(kind==='proposal_decision'){

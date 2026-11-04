@@ -1,3 +1,4 @@
+import {FLAG_HINTS} from '../forms/seed/flag-hints.ts';
 import {redeliveryWindow} from '../rrp.ts';
 import {touchedTrades} from '../trades.ts';
 import {sameBathroom} from '../flags.ts';
@@ -56,7 +57,7 @@ export interface FieldView {
   key: string; addr: string; def: FieldDef; required: boolean; applicable: boolean; mark: Mark;
   prefilledFrom?: { field: string; value: unknown; label: string }; readOnly?: boolean;
   answer?: AnswerView; conflict?: ConflictView; returnVisit: boolean; skipNote?: string; skipCounts: boolean;
-  shots: ShotView[]; flags: { kind?:string; key: string; issue: string; hint: string; address: string; measured: {field:string;value:unknown;unit?:string;address:string}[] }[]; initials?: LocalBlob;
+  shots: ShotView[]; flags: { kind?:string; decisionAllowed?:boolean; key: string; issue: string; hint: string; address: string; measured: {field:string;value:unknown;unit?:string;address:string}[] }[]; initials?: LocalBlob;
 }
 export interface SectionView {
   instance: SnapInstance; module: ModuleDef; label: string; title: string; depth: number;
@@ -68,7 +69,7 @@ export interface VisitModel {
   modules: ModuleDef[]; templates: TemplateDef[]; sections: SectionView[]; slots: ModuleSlot[];
   pc: { done: number; total: number; skipped: number }; record: { done: number; total: number; skipped: number };
   open: { section: SectionView; item: FieldView | ShotView; kind: 'field' | 'shot'; partly: boolean }[];
-  flags: { kind?:string; key: string; issue: string; hint: string; address: string; measured: {field:string;value:unknown;unit?:string;address:string}[]; section: SectionView; field: FieldView }[];
+  flags: { kind?:string; decisionAllowed?:boolean; key: string; issue: string; hint: string; address: string; measured: {field:string;value:unknown;unit?:string;address:string}[]; section: SectionView; field: FieldView }[];
   conflicts: ConflictView[]; touchedTrades: string[]; certificationWarnings:ReturnType<typeof certificationWarnings>; rrpApplies: boolean; rrp: ReturnType<typeof rrpFacts>;
   values: Record<string, unknown>; photosOk: boolean | null; promised: string | null; redeliveryWindow: {min:string;max:string}|null;
   started: boolean; status: string; generation: number;
@@ -90,8 +91,9 @@ export function visitorFlagText(issue: string): string {
 /** r11 extra: the office look-over's flag line is a plain sentence. An `issue` that carries office detail
  *  (a code citation, MDH, counsel) stays as Joe wrote it, sentence-cased; a bare fragment such as
  *  "> wall available" or "cast iron: 2-person demo / break-up" reads as its plain hint instead. */
-export function officeFlagText(issue: string, hint?: string | null): string {
-  if (/\{value\}|Radon is/.test(hint??'')) return hint!.trim();
+export function officeFlagText(issue: string, hint?: string | null, kind?:string): string {
+  if(kind==='advisory'&&hint)return hint.trim();
+  if(hint&&Object.values(FLAG_HINTS).some(template=>{const [before,after]=template.split('{value}');return after!==undefined&&hint.startsWith(before)&&hint.endsWith(after);}))return hint.trim();
   const t = issue.trim();
   const sentence = /^[a-z]/.test(t) ? `${t.charAt(0).toUpperCase()}${t.slice(1)}${/[.!?]$/.test(t) ? '' : '.'}` : /^[A-Z]/.test(t) && !/[.!?]$/.test(t) ? `${t}.` : t;
   const bare = (x: string) => x.replace(/[.!?]$/, '').toLowerCase();
@@ -311,6 +313,7 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
     if (vals.length) global[`${m.key}.${f.key}`] = vals.length === 1 ? vals[0] : vals;
   }
   const templateKeys = templates.map((t) => t.key);
+  global['visit.template_count'] = templateKeys.length;
   global['visit.templates'] = templateKeys.filter((k) => !['garage', 'openings', 'flooring'].includes(k));
   global['visit.add_ons'] = templateKeys.filter((k) => ['garage', 'openings', 'flooring'].includes(k));
 
@@ -391,8 +394,8 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
       let mark: Mark = answered ? (shotsDone ? 'covered' : 'partial') : counts ? 'not_applicable' : 'open';
       if (f.type === 'length_pair' && answered && Array.isArray(a?.value) && a!.value.some((v) => typeof v !== 'number')) mark = 'partial';
       const flags: FieldView['flags'] = [];
-      for (const flag of evaluatedFlags(f,addr,values)) flags.push({kind:flag.kind,key:flag.key,issue:flag.issue,hint:flag.hint?.replace('{value}',String(values[f.key]))??visitorFlagText(flag.issue),address:addr,measured:[...new Set(flagInputs(flag.when))].map(key=>{const parts=key.split('.'),def=parts.length===1?m.fields.find(f=>f.key===key):byKey.get(parts[0])?.fields.find(f=>f.key===parts[1]);const source=parts.length===1?inst:live.find(i=>i.module_key===parts[0]);return {field:key,value:values[key],unit:def?.unit==='in'?'″':def?.unit,address:source?addrOf(source.id,def?.key??key):addr};})});
-      const view: FieldView = { key: f.key, addr, readOnly: m.key==='closing'&&f.key==='summary', ...(prefilled?{prefilledFrom:{field:'house.year_built',value:global['house.year_built'],label:`From Year built (${global['house.year_built']})`}}:{}), def: f.key==='pamphlet_given'&&m.key==='era'&&typeof global['house.year_built']!=='number'&&global['era.before_1978']!==true?{...f,say:PAMPHLET_UNKNOWN_YEAR_LINE}:m.key==='era'&&f.key==='before_1978'?{...f,hint:yearHint(prefilled,a,global['house.year_built'])}:f, required, applicable, mark, answer: a, conflict, returnVisit: a?.status === 'skipped' && a.skip_reason === 'Get on return visit', skipNote: a?.skip_note, skipCounts: counts, shots, flags, initials };
+      for (const flag of evaluatedFlags(f,addr,values)) flags.push({kind:flag.kind,decisionAllowed:flag.kind!=='advisory',key:flag.key,issue:flag.issue,hint:flag.hint?.replace('{value}',String(values[f.key]))??visitorFlagText(flag.issue),address:addr,measured:[...new Set(flagInputs(flag.when))].map(key=>{const parts=key.split('.'),def=parts.length===1?m.fields.find(f=>f.key===key):byKey.get(parts[0])?.fields.find(f=>f.key===parts[1]);const source=parts.length===1?inst:live.find(i=>i.module_key===parts[0]);return {field:key,value:values[key],unit:def?.unit==='in'?'″':def?.unit,address:source?addrOf(source.id,def?.key??key):addr};})});
+      const view: FieldView = { key: f.key, addr, readOnly: m.key==='closing'&&f.key==='summary', ...(prefilled?{prefilledFrom:{field:'house.year_built',value:global['house.year_built'],label:`From Year built (${global['house.year_built']})`}}:{}), def: f.key==='pamphlet_given'&&m.key==='era'&&typeof global['house.year_built']!=='number'&&global['era.before_1978']!==true?{...f,say:PAMPHLET_UNKNOWN_YEAR_LINE}:m.key==='era'&&f.key==='before_1978'?{...f,hint:yearHint(prefilled,a,global['house.year_built'])}:m.key==='room'&&f.key==='part_of'?{...f,options:templates.map(t=>t.title)}:f, required, applicable, mark, answer: a, conflict, returnVisit: a?.status === 'skipped' && a.skip_reason === 'Get on return visit', skipNote: a?.skip_note, skipCounts: counts, shots, flags, initials };
       for (const fl of flags) allFlags.push({ ...fl, section, field: view });
       if (isDerived(f) || !applicable) { hidden.push(view); continue; }
       fieldViews.push(view);
@@ -412,6 +415,7 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
     if (m.key === 'era') fieldViews.sort((x, y) => Number(!ERA_FIRST.includes(x.key)) - Number(!ERA_FIRST.includes(y.key)));
     section.fields = fieldViews; section.hidden = hidden;
     section.label = instanceLabel(m, inst, n, answers);
+    if(m.key==='room'&&templates.length>1){const parts=answers.get(addrOf(inst.id,'part_of'))?.value;if(Array.isArray(parts))section.label+=' · Part of: '+parts.join(', ');}
     const pcDone = section.pc.done, pcTotal = section.pc.total;
     section.mark = pcTotal === 0 ? (section.record.total && section.record.done < section.record.total ? (section.record.done ? 'partial' : 'open') : 'covered') : pcDone === 0 ? 'open' : pcDone < pcTotal ? 'partial' : 'covered';
     sections.push(section);

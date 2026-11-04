@@ -114,7 +114,7 @@ export const kitchen: TemplateDef = {
     { key: 'floor_area', label: 'Floor area', formula: 'room.floor_area', maps_to: m('kitchen.flooring', 'Floor area') },
     { key: 'cabinet_run', label: 'Cabinet run', formula: 'kitchen_wall.base_run / 12 + kitchen_scope.island_run / 12', maps_to: m('kitchen.cabinetry', 'Cabinet run') },
     { key: 'countertop_area', label: 'Countertop area — the fabricator templates after install; this is for pricing', formula: 'kitchen_wall.base_run * 25.5 / 144 + kitchen_scope.island_top_area', maps_to: m('kitchen.countertops', 'Countertop area') },
-    { key: 'backsplash_area', label: 'Backsplash area', formula: 'kitchen_wall.base_run * kitchen_scope.backsplash_height_in / 144', maps_to: m('kitchen.backsplash', 'Backsplash area') },
+    { key: 'backsplash_area', label: 'Backsplash area', formula: 'kitchen_wall.base_run * kitchen_scope.backsplash_height_in / 144 + kitchen_scope.range_wall_tile.w * (kitchen_scope.range_wall_tile.h - kitchen_scope.backsplash_height_in) / 144', maps_to: m('kitchen.backsplash', 'Backsplash area') },
   ],
 };
 

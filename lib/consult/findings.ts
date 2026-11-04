@@ -122,6 +122,7 @@ async function visitScopeFacts(run:Run,projectId:string,scopeKey:string,consultI
  * the old first-compatible-plan-item path and never writes estimate prices. */
 export async function reconcileConsultFindings(c:PoolClient,ctx:ConsultContext,input:{consult_id:string;expected_generation:number;operation_id:string}){
  const {consult_id:id,expected_generation:generation}=input;
+ // SQL authenticates an active owner or the visit’s current assigned visitor.
  await c.query('SELECT consult_verify_context($1,$2,$3)',[ctx,id,'apply']);
  if(JSON.parse(ctx.payload).mode!=='person')throw new Error('person_required');
  return applyCompleteConsultFindings(c,input);

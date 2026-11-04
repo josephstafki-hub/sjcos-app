@@ -5,12 +5,12 @@ import {fixture} from './_harness/consult.mjs';
 test('server refuses out-of-range lengths with field path and leaves answer unchanged',async()=>withTestDb(async(_url,c)=>{
  const f=await fixture(c);
  const rows=await f.send([f.op('answer',{status:'answered',value:99999,unit:'in'})]);
- assert.equal(rows[0].status,422);assert.deepEqual(rows[0].details.fields,['room.length']);
+ assert.equal(rows[0].status,422);assert.deepEqual(rows[0].details.fields,['room.length']);assert.equal(rows[0].details.detail,'Outside 1–600″ — measure again');
  assert.equal((await c.query('SELECT count(*)::int n FROM consult_answers WHERE consult_id=$1',[f.consult])).rows[0].n,0);
 },{fresh:true}));
-test('staff cannot apply findings',async()=>withTestDb(async(_url,c)=>{
+test('unassigned staff cannot apply findings',async()=>withTestDb(async(_url,c)=>{
  const f=await fixture(c);
- await assert.rejects(f.run('apply_findings',{expected_generation:1,operation_id:crypto.randomUUID()}),/owner_required/);
+ await assert.rejects(f.run('apply_findings',{expected_generation:1,operation_id:crypto.randomUUID()},f.other),/consult access denied/);
 },{fresh:true}));
 
 test('realistic QA fixture still closes Complete',async()=>withTestDb(async(_url,c)=>{

@@ -9,9 +9,12 @@ type Answer={id:string;instance_id:string;field_key:string;status:string;value:u
 export type DerivedValue={value:number;instance_ids:string[];answer_revisions:number[]};
 export function pinnedDerivations(modules:ModuleDef[],templates:TemplateDef[],allInstances:Instance[],answers:Answer[]){
  const instances=allInstances.filter(i=>!i.removed_at),cache=new Map<string,DerivedValue|null>(),visiting=new Set<string>();
+ let activeTemplate:string|undefined;
+ const roomAllowed=(i:Instance,key=activeTemplate)=>i.module_key!=='room'||templates.length===1||!key||answers.some(a=>a.instance_id===i.id&&a.field_key==='part_of'&&a.status==='answered'&&Array.isArray(a.value)&&a.value.includes(templates.find(t=>t.key===key)?.title));
  const merge=(rows:DerivedValue[],value:number):DerivedValue=>({value,instance_ids:[...new Set(rows.flatMap(r=>r.instance_ids))].sort(),answer_revisions:[...new Set(rows.flatMap(r=>r.answer_revisions))].sort((a,b)=>a-b)});
  const zero=()=>merge([],0);
  function raw(ref:string,instance:Instance):unknown{
+  if(ref==='visit.template_count')return templates.length;
   if(ref==='visit.templates')return templates.map(t=>t.key).filter(k=>!['garage','openings','flooring'].includes(k));
   if(ref==='visit.add_ons')return templates.map(t=>t.key).filter(k=>['garage','openings','flooring'].includes(k));
   const parts=ref.split('.');const candidates=parts.length===1?[instance]:instances.filter(i=>i.module_key===parts[0]);const key=parts.at(-1)!;
@@ -19,7 +22,7 @@ export function pinnedDerivations(modules:ModuleDef[],templates:TemplateDef[],al
   return values.length===1?values[0]:values.length?values:undefined;
  }
  function field(instance:Instance,key:string,part?:string):DerivedValue|null{
-  const address=`${instance.id}:${key}:${part??''}`;if(cache.has(address))return cache.get(address)!;if(visiting.has(address))return null;visiting.add(address);
+  const address=`${activeTemplate??(instance.module_key==='bath_scope'?'bath':'')}:${instance.id}:${key}:${part??''}`;if(cache.has(address))return cache.get(address)!;if(visiting.has(address))return null;visiting.add(address);
   const module=modules.find(m=>m.key===instance.module_key),def=module?.fields.find(f=>f.key===key),a=answers.find(a=>a.instance_id===instance.id&&a.field_key===key&&a.status==='answered');
   let result:DerivedValue|null=null;
   // Optional unconditional fields still carry evidence. Only false conditional applicability is zero.
@@ -38,7 +41,7 @@ export function pinnedDerivations(modules:ModuleDef[],templates:TemplateDef[],al
  function scalar(instance:Instance,key:string):unknown{
   const address=`${instance.id}:${key}`;if(scalarVisiting.has(address))return undefined;scalarVisiting.add(address);
   try{
-   const answer=answers.find(a=>a.instance_id===instance.id&&a.field_key===key&&a.status==='answered');if(answer)return answer.value;
+   const answer=answers.find(a=>a.instance_id===instance.id&&a.field_key===key&&a.status==='answered');if(answer)return answer.value;if(instance.module_key==='visit'&&key==='template_count')return templates.length;
    const module=modules.find(m=>m.key===instance.module_key),def=module?.fields.find(f=>f.key===key);if(!def)return undefined;
    if(typeof def.required==='object'&&!conditionMatches(def.required,r=>raw(r,instance)))return undefined;
    const cases=def.derive_cases??(module&&seedModules.some(s=>canonicalJson(s)===canonicalJson(module))?derivationCases.find(d=>d.module===module.key&&d.field===key)?.cases:undefined);
@@ -55,7 +58,7 @@ export function pinnedDerivations(modules:ModuleDef[],templates:TemplateDef[],al
  function reference(ref:string,instance?:Instance):DerivedValue|null{
   const parts=ref.split('.');if(parts.length===1)return instance?field(instance,ref):null;
   if(instance&&['w','h'].includes(parts[1]))return field(instance,parts[0],parts[1]);
-  const [module,key,part]=parts;let candidates=instances.filter(i=>i.module_key===module);
+  const [module,key,part]=parts;let candidates=instances.filter(i=>i.module_key===module&&roomAllowed(i,activeTemplate??(instance?.module_key==='bath_scope'?'bath':undefined)));
   if(instance){if(instance.module_key===module)candidates=[instance];else {const related=candidates.filter(i=>i.id===instance.parent_id||i.parent_id===instance.id);if(related.length)candidates=related;}}
   if(candidates.length>1&&!modules.find(m=>m.key===module)?.repeatable&&!['sf','lf','ea'].includes(modules.find(m=>m.key===module)?.fields.find(f=>f.key===key)?.unit??''))return null;
   const rows=candidates.map(i=>field(i,key,part));if(!rows.length)return zero();if(rows.some(r=>!r))return null;
@@ -67,10 +70,12 @@ export function pinnedDerivations(modules:ModuleDef[],templates:TemplateDef[],al
    const refs=formulaReferences(term,known);
    const repeated=[...new Set(refs.map(r=>r.split('.')[0]).filter(k=>modules.some(m=>m.key===k&&m.repeatable)))];
    if(repeated.length>1)return null;
-   const contexts=repeated.length&&instance?.module_key!==repeated[0]?instances.filter(i=>i.module_key===repeated[0]&&(!instance||!instances.some(j=>j.module_key===repeated[0]&&j.parent_id===instance.id)||i.parent_id===instance.id)):[instance];
+   const contexts=repeated.length&&instance?.module_key!==repeated[0]?instances.filter(i=>i.module_key===repeated[0]&&roomAllowed(i,activeTemplate??(instance?.module_key==='bath_scope'?'bath':undefined))&&(!instance||!instances.some(j=>j.module_key===repeated[0]&&j.parent_id===instance.id)||i.parent_id===instance.id)):[instance];
    for(const context of contexts){const rows=refs.map(r=>reference(r,context));const value=evaluateFormula(term,Object.fromEntries(refs.map((r,i)=>[r,rows[i]?.value])));if(value===null)return null;results.push(merge(rows.filter((r):r is DerivedValue=>!!r),value));}
   }return merge(results,Math.round(results.reduce((n,r)=>n+r.value,0)*10000)/10000);
  }
  for(const i of instances)for(const f of modules.find(m=>m.key===i.module_key)?.fields??[])field(i,f.key);
- return {field,scalar,derived:templates.flatMap(t=>t.derived.map(d=>({definition:d,result:formula(d.formula)})))};
+ const derived=templates.flatMap(t=>t.derived.map(d=>{activeTemplate=t.key;return {definition:d,result:formula(d.formula)};}));
+ activeTemplate=undefined;
+ return {field,scalar,derived};
 }

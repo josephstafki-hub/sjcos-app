@@ -12,6 +12,7 @@ import {
 export const visit: ModuleDef = {
   key: 'visit', version: 1, title: 'Visit context (server-filled)', repeatable: false, say: [],
   fields: [
+    num('template_count', 'Number of templates', undefined, false),
     multi('templates', 'Templates on this visit', ['bath', 'kitchen', 'addition', 'basement', 'deck', 'whole', 'general'], true,
       { note: 'Server-filled from the pinned templates; whole-home also lists the nested area templates it was scheduled with. Never asked.' }),
     multi('add_ons', 'Add-ons on this visit', ['garage', 'openings', 'flooring'], false, { note: 'Server-filled from the ticked add-ons. Never asked.' }),
@@ -107,6 +108,7 @@ export const room: ModuleDef = {
   key: 'room', version: 1, title: 'Room dimensions', repeatable: true, instance_label: 'Room {n} — {name}', say: [],
   fields: [
     text('name', 'Room name', true),
+    multi('part_of', 'This room is part of', ['Bathroom','Kitchen','Addition','Basement finish','Deck','Whole-home','General / other','Garage','Windows & doors','Flooring'], gt('visit.template_count',1), {hint: 'Pick every job this room’s floor or walls belong to — e.g. a hall the kitchen floor runs into is Kitchen.'}),
     choice('level', 'Level', ['Basement', 'Main', 'Upper', 'Attic', 'Garage'], true),
     text('ahead_wall', 'Wall used as “Ahead” (facing from the entry door)', true, { hint: 'Facing the room from the main door, which wall is ahead?', note: 'orients windows/doors for the floor plan' }),
     len('length', 'Length (wall to wall, longest)', true, { range: [24, 600], precision: 0.125 }),

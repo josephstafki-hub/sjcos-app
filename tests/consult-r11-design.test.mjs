@@ -46,7 +46,7 @@ test('R11-1: the judge’s code → button table', () => {
     assert.equal(CLOSE_FIX_LABEL[fix], label, code);
   }
   assert.match(closeRefusal('invalid_command').line, /Check Before you wrap, then close again\.$/);
-  assert.match(closeRefusal('owner_required').line, /Take the day off in Trade walks, then close again\.$/);
+  assert.match(closeRefusal('owner_required').line, /Remove the day in Trade walks, then close again\.$/);
 });
 
 test('R11-1: the close screen wires each fix to its place, and Keep working stands alone where only Joe can act', () => {

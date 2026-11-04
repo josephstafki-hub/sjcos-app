@@ -200,13 +200,13 @@ export function TradeSheet({ open, onClose, model, draft, onSave, saveError, toD
         {walks.map((w, i) => (
           <fieldset key={w.trade} ref={i === firstDay ? dayRef : undefined} className="rounded-lg border-2 border-rule p-3">
             <legend className="px-1 font-semibold text-ink">{w.trade}</legend>
-            {/* r12 extra: the day only Joe sets is said on its trade, with the way to take it off beside it. */}
+            {/* r12 extra: the day only Joe sets is said on its trade, with the way to remove it beside it. */}
             {w.day && <div className="mb-3 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 max-sm:grid-cols-1">
               <p className="text-ink"><span aria-hidden className="mr-1 font-semibold text-ink-2">⚐</span>{fill(W.tradeWalkDay, { day: walkDayLabel(w.day) })}</p>
               <Btn className="max-sm:w-full" onClick={() => set(i, { day: undefined })}>{W.tradeWalkDayOff}</Btn>
             </div>}
             <Choice label={W.needsWalk} options={[true, false] as const} value={w.needed} onPick={(v) => set(i, { needed: v })} labels={(v) => (v ? W.yes : W.no)} columns={2} />
-            <div className="mt-3"><TextInput label={W.reason} value={w.reason} onChange={(v) => set(i, { reason: v })} /></div>
+            <div className="mt-3"><TextInput label={W.reason} value={w.reason} onChange={(v) => set(i, { reason: v })} multiline /></div>
           </fieldset>
         ))}
         {walks.length === 0 && <Choice options={[true] as const} value={none ? true : null} onPick={() => setNone(!none)} labels={() => W.noTrades} />}

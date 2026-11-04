@@ -65,8 +65,8 @@ test('extra: Trade walks after the trade-walk-day refusal scrolls to the trade w
   // The day is said on its trade, with a word beside the mark and a 56 px way to take it off.
   assert.match(sheet, /fill\(W\.tradeWalkDay, \{ day: walkDayLabel\(w\.day\) \}\)/);
   assert.match(sheet, /<Btn className="max-sm:w-full" onClick=\{\(\) => set\(i, \{ day: undefined \}\)\}>\{W\.tradeWalkDayOff\}<\/Btn>/);
-  assert.equal(W.tradeWalkDayOff, 'Take the day off');
-  assert.match(W.tradeWalkDay, /only Joe sets it/);
+  assert.equal(W.tradeWalkDayOff, 'Remove the day');
+  assert.match(W.tradeWalkDay, /only Joe can set a walk day/);
 });
 
 test('extra: both close results go back with ‹ Back to visits; the close time stays on one line', () => {

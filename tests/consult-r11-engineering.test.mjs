@@ -24,7 +24,7 @@ for(const status of [409,503])test('close refusal '+status+' pauses or retries u
  t.after(()=>{if(ctl.closeTimer)clearTimeout(ctl.closeTimer);globalThis.fetch=old;if(nav)Object.defineProperty(globalThis,'navigator',nav);else delete globalThis.navigator;});
  await ctl.resumeClose();
  if(status===409){
-  await ctl.resumeClose();await ctl.resumeClose();assert.equal(calls,1);assert.equal(reports,1);assert.equal(local.close_intent.paused,'stale_snapshot');
+  await ctl.resumeClose();await ctl.resumeClose();assert.equal(calls,1);assert.equal(reports,0);assert.equal(local.close_intent.paused,'stale_snapshot');
  }else{assert.ok(ctl.closeTimer);clearTimeout(ctl.closeTimer);assert.equal(calls,1);}
  success=true;await ctl.engine.clearCloseRequest();await ctl.resumeClose();
  assert.equal(calls,2);assert.equal(ctl.state.closing.result.complete,true);assert.equal(local.close_intent,undefined);
@@ -57,6 +57,6 @@ test('603-field transport size probe for skipped and answered visits',async()=>{
    largest=Math.max(largest,Buffer.byteLength(JSON.stringify({command:'ops',input:{nonce:device,ops}})));
    for(const op of ops)q=applyReceipt(q,{id:op.client_event_id,status:200},Date.now());
   }
-  console.log('R11 603-field '+mode+' largest request bytes='+largest);assert.ok(largest<262144);
+  console.log('R11 603-field '+mode+' largest request bytes='+largest);assert.ok(largest<=65536);
  }
 });

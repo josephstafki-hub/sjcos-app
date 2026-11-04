@@ -34,7 +34,7 @@ export async function payloadHash(value: unknown): Promise<string> {
 }
 export function enqueue(state: QueueState, op: ConsultOp, projection: Record<string,unknown>): QueueState {
   if (state.blocked) throw new Error(state.blocked);
-  if(new TextEncoder().encode(canonicalJson(op)).byteLength>256*1024-512)throw new Error('batch_too_large');
+  if(new TextEncoder().encode(canonicalJson(op)).byteLength>64*1024-512)throw new Error('batch_too_large');
   const duplicate=state.entries.find((entry)=>entry.op.client_event_id===op.client_event_id);
   if (duplicate) {
     if (canonicalJson(duplicate.op)!==canonicalJson(op)) throw new Error('idempotency_mismatch');
@@ -54,7 +54,7 @@ export function nextBatch(state: QueueState, now: number): ConsultOp[] {
     if (entry.status==='accepted') continue;
     if (entry.status!=='pending' || entry.next_at>now) break;
     const bytes=new TextEncoder().encode(canonicalJson(entry.op)).byteLength;
-    if (batch.length===50 || size+bytes>256*1024-256) break;
+    if (batch.length===50 || size+bytes>64*1024-512) break;
     batch.push(entry.op);size+=bytes+1;
   }
   return batch;

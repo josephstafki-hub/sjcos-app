@@ -1,5 +1,6 @@
 {
   "about": [
+    "0085 preserves the consult RRP work_items grants while bounding re-delivery dates.",
     "Which narrow database login may SELECT / INSERT / UPDATE / DELETE each public table or view (deploy/db-roles.md).",
     "Every table must be listed, even with no grants (then say why in note). The owner login (sjcos: the website, Joe's own panel runs, migrations) owns everything and is not listed.",
     "A change here needs the matching sjcos_grant(...) line in the same migration: node scripts/db-roles-sql.mjs <table> prints it. tests/db-roles-manifest-db.test.mjs compares this file with the database.",

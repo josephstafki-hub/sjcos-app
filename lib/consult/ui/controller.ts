@@ -1,3 +1,5 @@
+import {payloadHash} from '../queue.ts';
+import {evidencePatches,mergeEvidence} from '../evidence-chunks.ts';
 import {frostZones} from '../frost.ts';
 import {deadlineFetch,isNetworkFailure,transportCode,transientClose} from '../transport.ts';
 /**
@@ -554,8 +556,10 @@ export class VisitController {
   private closeToken: object | null = null;
   private async resumeClose() {
     if (!this.engine || this.closing) return;
+    if(this.closeTimer)clearTimeout(this.closeTimer);
     const paused=this.engine.read()?.close_intent;
     if(paused?.paused){
+      if (['conflict','stale_snapshot'].includes(paused.paused) && Date.now()-(paused.started_at??Date.now())<30*60_000) { this.closeTimer=setTimeout(()=>{void this.resumeClose();},60_000); return; }
       if(!paused.notified)try{
         await post(this.state.consultId,'report_close_failure',{reason:paused.paused});
         await this.engine.pauseClose(paused.paused,true);
@@ -580,12 +584,27 @@ export class VisitController {
       if (!owns()) return;
       local = engine.read()!;
       if (unsentCount(local.queue.entries)>0) throw new Error('rebase_required');
-      if(evidence && !local.close_intent?.request && local.close_intent?.baseline_hash && local.close_intent.baseline_hash !== (local.snapshot as Snapshot).close_evidence_hash) throw new Error('evidence_conflict');
+      if(evidence && !local.close_intent?.request && local.close_intent?.baseline_hash && local.close_intent.baseline_hash !== (local.snapshot as Snapshot).close_evidence_hash) {
+        if(!local.close_intent.evidence_started || !('baseline_evidence' in local.close_intent) || await payloadHash(local.close_intent.baseline_evidence??null)!==local.close_intent.baseline_hash)throw new Error('evidence_conflict');
+        let prefix=local.close_intent.baseline_evidence??null;
+        let matches=false;
+        for(const patch of evidencePatches(prefix,evidence)){
+          prefix=mergeEvidence(prefix,patch);
+          if(await payloadHash(prefix)===(local.snapshot as Snapshot).close_evidence_hash)matches=true;
+        }
+        if(!matches)throw new Error('evidence_conflict');
+      }
       let revision = Number((this.state.fresh ?? local.snapshot as Snapshot).consult.revision);
       const localSnapshot = local.snapshot as Snapshot;
       if (evidence && !local.close_intent?.request) {
-        try { const r = await post(this.state.consultId, 'evidence', { device: this.state.device, epoch: local.queue.device_epoch, expected_revision: revision, generation: local.queue.generation, baseline_hash: localSnapshot.close_evidence_hash, evidence: Object.fromEntries(Object.entries(evidence).filter(([key,value]) => canonicalJson(value) !== canonicalJson(localSnapshot.close_evidence?.[key] ?? null))) }); if (!owns()) return; revision = Number(r.revision); }
-        catch (e) { throw e; }
+        await engine.markEvidenceStarted?.();
+        let baseline = localSnapshot.close_evidence ?? null;
+        for (const patch of evidencePatches(baseline, evidence)) {
+          const r = await post(this.state.consultId, 'evidence', {map_patch:true,device:this.state.device,epoch:local.queue.device_epoch,expected_revision:revision,generation:local.queue.generation,baseline_hash:await payloadHash(baseline),evidence:patch});
+          if (!owns()) return;
+          revision=Number(r.revision);
+          baseline=mergeEvidence(baseline,patch);
+        }
       }
       const blobs = manifestBlobs(local.blobs);
       const manifest = { ...closeManifest({ ...local.queue, blocked: null }, this.state.device, blobs.photos, blobs.initials), local_pending: 0 };
@@ -607,7 +626,7 @@ export class VisitController {
       const rawCode = codeOf(e), code = transientClose(rawCode) && rawCode !== 'no_signal' ? 'close_timeout' : rawCode;
       this.set({ local: this.engine?.read() ?? null, closing: { step: code === 'no_signal' ? 'waiting_signal' : 'error', code } });
       if (!transientClose(rawCode)) await engine.pauseClose(rawCode);
-      if (!engine.read()?.close_intent?.notified && (!transientClose(rawCode) || Date.now()-(local.close_intent?.started_at??Date.now())>=30*60_000)) {
+      if (!engine.read()?.close_intent?.notified && (!transientClose(rawCode) && !['conflict','stale_snapshot'].includes(rawCode) || Date.now()-(local.close_intent?.started_at??Date.now())>=30*60_000)) {
         try { await post(this.state.consultId,'report_close_failure',{reason:rawCode});
           if(owns()) { await engine.pauseClose(transientClose(rawCode)?'':rawCode,true); this.set({closing:{step:'error',code,ownerNotified:true}}); }
         } catch { /* Keep the intent and retry reporting when connectivity returns. */ }

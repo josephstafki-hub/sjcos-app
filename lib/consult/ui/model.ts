@@ -1,3 +1,4 @@
+import {redeliveryWindow} from '../rrp.ts';
 import {touchedTrades} from '../trades.ts';
 import {sameBathroom} from '../flags.ts';
 import {conflictSideLabel} from './words.ts';
@@ -68,7 +69,7 @@ export interface VisitModel {
   open: { section: SectionView; item: FieldView | ShotView; kind: 'field' | 'shot'; partly: boolean }[];
   flags: { kind?:string; key: string; issue: string; hint: string; address: string; measured: {field:string;value:unknown;unit?:string;address:string}[]; section: SectionView; field: FieldView }[];
   conflicts: ConflictView[]; touchedTrades: string[]; certificationWarnings:ReturnType<typeof certificationWarnings>; rrpApplies: boolean; rrp: ReturnType<typeof rrpFacts>;
-  values: Record<string, unknown>; photosOk: boolean | null; promised: string | null;
+  values: Record<string, unknown>; photosOk: boolean | null; promised: string | null; redeliveryWindow: {min:string;max:string}|null;
   started: boolean; status: string; generation: number;
   /** r8 domain E4: quantities that feed the estimate with no measured answer behind them. */
   unmeasured: number;
@@ -413,7 +414,7 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
   return {
     modules, templates, sections, slots, pc: tally.pc, record: tally.record, open: allOpen, flags: allFlags, conflicts,
     touchedTrades: [...touched], certificationWarnings:certificationWarnings(global,s.prefill?.target_end_date), rrp, rrpApplies: rrpFacts(global, false, String(s.consult.scheduled_at), s.prefill?.start_date).applies, values: global, photosOk,
-    promised: typeof promisedRaw === 'string' ? promisedRaw : null, started, status, generation: Number(s.consult.completion_generation),
+    redeliveryWindow:redeliveryWindow(s.prefill?.start_date), promised: typeof promisedRaw === 'string' ? promisedRaw : null, started, status, generation: Number(s.consult.completion_generation),
     unmeasured: projection.derived.filter((d) => d.definition.maps_to && !(d.result && d.result.answer_revisions.length > 0)).length,
   };
 }

@@ -56,8 +56,8 @@ test('certification warning names who, both dates (no ISO) and what to do', () =
   const list = certificationWarnings(rrpOn, '2027-06-30');
   const firm = list.find((w) => w.field_address === 'era.firm_cert_expiry');
   const ren = list.find((w) => w.field_address === 'era.renovator_expiry');
-  assert.equal(ren.message, 'Dana Kowalski’s renovator certification runs out Mar 1, 2027 — before the planned finish, Jun 30, 2027. Renew it or put another certified renovator on the job.');
-  assert.equal(firm.message, 'SJC’s firm certification runs out Mar 1, 2027 — before the planned finish, Jun 30, 2027. Renew it before then.');
+  assert.equal(ren.message, 'Dana Kowalski’s renovator certification runs out Mar 1, 2027 — before the planned finish, Jun 30, 2027. Joe renews it or puts another certified renovator on the job.');
+  assert.equal(firm.message, 'SJC’s firm certification runs out Mar 1, 2027 — before the planned finish, Jun 30, 2027. Joe renews it before then. Apply at least 90 days before it runs out so it doesn’t lapse.');
   for (const w of list) assert.doesNotMatch(w.message, /\d{4}-\d{2}-\d{2}/);
   const p = certWarningParts(ren);
   assert.equal(p.expiry, 'Mar 1, 2027'); assert.equal(p.finish, 'Jun 30, 2027');

@@ -223,7 +223,7 @@ export function RrpSheet({ model, onGo, open, onClose, draft, onSave, saveError 
       </ul>
       <div className="mt-3 grid gap-3">
         <Btn onClick={onGo}>{W.rrpGoEra}</Btn>{toggle("redelivery_required", W.rrpRedelivery)}
-        {rrp.redelivery_required && <label className="block"><span className="font-semibold">{W.rrpRedeliveryDay}</span><input type="date" value={rrp.redelivery_day ?? ""} onChange={(e) => setRrp({ ...rrp, redelivery_day: e.target.value || undefined })} className="mt-1 block min-h-14 rounded-md border-2 border-rule bg-card px-3 text-[max(16px,1em)]" /></label>}
+        {rrp.redelivery_required && <label className="block"><span className="font-semibold">{W.rrpRedeliveryDay}</span>{model.redeliveryWindow && <p>Pick a day from {model.redeliveryWindow.min} to {model.redeliveryWindow.max}. Earlier than that is too early to count.</p>}<input type="date" min={model.redeliveryWindow?.min} max={model.redeliveryWindow?.max} value={rrp.redelivery_day ?? ""} onChange={(e) => setRrp({ ...rrp, redelivery_day: e.target.value || undefined })} className="mt-1 block min-h-14 rounded-md border-2 border-rule bg-card px-3 text-[max(16px,1em)]" /></label>}
       </div>
     </Sheet>
   );

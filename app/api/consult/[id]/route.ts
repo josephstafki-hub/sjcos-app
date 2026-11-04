@@ -40,7 +40,7 @@ async function handle(request:Request,id:string,write:boolean){
   const message=error instanceof Error?error.message:'internal_error';
   const code=message.match(/evidence_too_large|batch_too_large|stale_snapshot|missing_device_manifest_required|update_required|idempotency_mismatch|rebase_required|complete_locked|evidence_conflict|conflict|manifest_sequence_gap|sequence_gap|manifest_blob_missing|manifest_initials_missing|unresolved_rejections|device_access_denied|owner_required|consult_key_unavailable/)?.[0];
   const status=code==='evidence_too_large'||code==='batch_too_large'?413:/^(42|08|53|57|XX)/.test((error as {code?:string}).code??'')&&(error as {code?:string}).code!=='42501'?500:code==='update_required'?426:error instanceof z.ZodError?422:code==='complete_locked'?423:code==='device_access_denied'||code==='owner_required'||(error as {code?:string}).code==='42501'?403:code==='consult_key_unavailable'?503:code?409:422;
-  return Response.json({error_code:code??(status===403?'access_denied':'invalid_command')},{status});
+  return Response.json({error_code:code??(status===403?'access_denied':'invalid_command'),details:error instanceof z.ZodError?error.issues.map(i=>({field:i.path.join('.'),code:i.code,message:i.message})):undefined},{status});
  }finally{c.release();}
 }
 export async function GET(request:Request,{params}:{params:Promise<{id:string}>}){return handle(request,(await params).id,false);}

@@ -1,3 +1,5 @@
+import {mergeEvidence} from './evidence-chunks.ts';
+import {officeCloseFailure} from './close-errors.ts';
 import {touchedTrades} from './trades.ts';
 import {sameBathroom} from './flags.ts';
 import {conflictSideLabel} from './ui/words.ts';
@@ -290,14 +292,14 @@ export async function batch(c:PoolClient,context:Context,target:string,input:unk
 }
 export async function saveEvidence(c:PoolClient,context:Context,target:string,input:unknown){
  const actor=await authorize(c,context,target,'evidence');
- const v=z.strictObject({device:uuid,epoch:rev.min(1),expected_revision:rev,generation:rev.min(1).optional(),baseline:evidenceSchema.nullable().optional(),baseline_hash:z.string().regex(/^[a-f0-9]{64}$/).optional(),evidence:evidenceSchema.partial()}).parse(input);
+ const v=z.strictObject({device:uuid,epoch:rev.min(1),expected_revision:rev,generation:rev.min(1).optional(),map_patch:z.boolean().optional(),baseline:evidenceSchema.nullable().optional(),baseline_hash:z.string().regex(/^[a-f0-9]{64}$/).optional(),evidence:evidenceSchema.partial().extend({skips:z.record(z.string(),evidenceSchema.shape.skips.valueType.nullable()).optional(),flags:z.record(z.string(),evidenceSchema.shape.flags.valueType.nullable()).optional()})}).parse(input);
  await deviceGate(c,target,v.device,v.epoch,actor);const s=await snapshot(c,context,target);
  if(s.consult.status==='complete')throw new Error('complete_locked');
  if(Number(s.consult.revision)!==v.expected_revision)throw new Error('conflict');
  if(v.generation!==undefined&&v.generation!==Number(s.consult.completion_generation))throw new Error('rebase_required');
  const existing=(await one<{evidence:z.infer<typeof evidenceSchema>}>(c,'SELECT evidence FROM consult_close_evidence WHERE consult_id=$1',[target]))?.evidence??null;
  if(v.baseline_hash!==undefined && v.baseline_hash!==hash(existing))throw new Error('stale_snapshot');
- const replacement=evidenceSchema.parse({...existing,...v.evidence});
+ const replacement=evidenceSchema.parse(v.map_patch?mergeEvidence(existing,v.evidence):{...existing,...v.evidence});
  if(JSON.parse(context.payload).role!=='owner' && ((replacement.return_day && replacement.return_day!==existing?.return_day)||replacement.trade_walks.some(w=>w.day && !existing?.trade_walks.some(old=>old.trade===w.trade&&old.day===w.day))))throw new Error('owner_required');
  if(existing && hash(existing)===hash(replacement))return {revision:v.expected_revision};
  // Absence is not deletion. Replacement requires the exact evidence the editor saw.
@@ -380,7 +382,7 @@ export async function close(c:PoolClient,context:Context,target:string,input:unk
   if(Object.values(evidence.skips).some(s=>s.reason==='Get on return visit'))await todo(c,s,'return','visit','Schedule return consultation',owner,evidence.return_day??null);
   await todo(c,s,'promise','estimate',evidence.promised_date?'Prepare promised formal estimate':`Set the formal estimate date and tell ${(await one<{client:string}>(c,"SELECT coalesce(client_name,name) client FROM projects WHERE id=$1",[s.consult.project_id])).client}`,owner,evidence.promised_date);
   for(const w of evidence.trade_walks.filter(w=>w.needed))await todo(c,s,'trade',w.trade,`${w.trade}: bid walk-through`,owner,w.day??null);
-  if(evidence.rrp.redelivery_required&&evidence.rrp.redelivery_day)await todo(c,s,'rrp','redelivery','Re-deliver Renovate Right',owner,evidence.rrp.redelivery_day);
+  if(evidence.rrp.redelivery_required&&evidence.rrp.redelivery_day)await todo(c,s,'rrp','redelivery','Renovate Right: give it again — work starts more than 60 days after the visit. Get the owner’s initials, or mail it with a certificate of mailing at least 7 days before work starts',owner,evidence.rrp.redelivery_day);
  }
  await c.query('SELECT consult_reconcile_rrp($1)',[s.consult.project_id]);
  if(result.complete)await c.query('UPDATE consult_field_heads SET locked_generation=$2 WHERE consult_id=$1',[target,s.consult.completion_generation]);
@@ -502,13 +504,15 @@ export async function command(c:PoolClient,context:Context,target:string,kind:st
  if(kind==='ops')return batch(c,context,target,input);
  if(kind==='evidence')return saveEvidence(c,context,target,input);
  if(kind==='report_close_failure'){
-  await authorize(c,context,target,kind);
+  const actor=await authorize(c,context,target,kind);
   const v=z.strictObject({reason:note}).parse(input);
   const s=await snapshot(c,context,target);
   if(['complete','incomplete'].includes(s.consult.status))return {reported:false};
   const names=await one<{visitor:string;client:string}>(c,"SELECT u.name visitor,coalesce(p.client_name,p.name) client FROM consults c JOIN projects p ON p.id=c.project_id JOIN users u ON u.id=c.conducted_by WHERE c.id=$1",[target]);
-  await todo(c,s,'close_failure','visit',`${names.visitor}'s visit for ${names.client} hasn't closed — ${v.reason}`,await ownerId(c),null);
+  await todo(c,s,'close_failure','visit',`${names.visitor}'s visit for ${names.client} hasn't closed — ${officeCloseFailure(v.reason)}`,await ownerId(c),null);
   await c.query("UPDATE work_items SET status='open',completed_at=NULL WHERE source_kind='consult' AND source_id=$1 AND status IN ('done','cancelled')",[`${target}:close_failure:visit`]);
+  await c.query("UPDATE work_items SET title=$2,body=$3 WHERE source_kind='consult' AND source_id=$1",[`${target}:close_failure:visit`,`${names.visitor}'s visit for ${names.client} hasn't closed — ${officeCloseFailure(v.reason)}`,`Close refusal code: ${v.reason}`]);
+  await audit(c,target,actor,'close_failure',v);
   return {reported:true};
  }
  if(kind==='close')return close(c,context,target,input);

@@ -20,7 +20,7 @@ export const certDate=(date:string)=>new Date(date.slice(0,10)+'T12:00:00Z').toL
 /** r10 R10-2 / domain 4: who, both dates and who acts. Split so a screen can keep each date on one line. */
 export function certWarningParts(w:Pick<CertificationWarning,'who'|'expiry_date'|'planned_finish'|'field_address'>){
  const firm=w.field_address==='era.firm_cert_expiry';
- return {lead:firm?'SJC’s firm certification runs out':w.who==='The certified renovator'?'The certified renovator’s certification runs out':`${w.who}’s renovator certification runs out`,expiry:certDate(w.expiry_date),mid:'— before the planned finish,',finish:certDate(w.planned_finish),tail:firm?'Renew it before then.':'Renew it or put another certified renovator on the job.'};
+ return {lead:firm?'SJC’s firm certification runs out':w.who==='The certified renovator'?'The certified renovator’s certification runs out':`${w.who}’s renovator certification runs out`,expiry:certDate(w.expiry_date),mid:'— before the planned finish,',finish:certDate(w.planned_finish),tail:firm?'Joe renews it before then. Apply at least 90 days before it runs out so it doesn’t lapse.':'Joe renews it or puts another certified renovator on the job.'};
 }
 export function certificationWarnings(values:Record<string,unknown>, finish?:string|null):CertificationWarning[]{
  if(!finish || !compileCondition(rrpApplies,new Set(['era.before_1978','house.year_built','era.disturbs_paint','era.window_door_replacement']))(values))return [];
@@ -31,4 +31,10 @@ export function certificationWarnings(values:Record<string,unknown>, finish?:str
  const p=certWarningParts(w);
  return [{...w,message:`${p.lead} ${p.expiry} ${p.mid} ${p.finish}. ${p.tail}`}];
  });
+}
+
+export function redeliveryWindow(start?:string|null){
+ if(!start)return null;
+ const offset=(days:number)=>{const d=new Date(start.slice(0,10)+'T12:00:00Z');d.setUTCDate(d.getUTCDate()-days);return d.toISOString().slice(0,10);};
+ return {min:offset(60),max:offset(7)};
 }

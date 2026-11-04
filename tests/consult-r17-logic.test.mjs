@@ -62,10 +62,10 @@ test('lead-test question follows Not needed and hides for Assume lead present',a
   assert.equal(evaluatedFlags(plan,'era.lead_plan',{'era.before_1978':true,'era.window_door_replacement':true,'era.disturbs_paint':false,lead_plan:choice,lead_test_negative:tested}).length,count);
  }
  assert.match(question.hint,/every painted surface/);
- assert.match(question.hint,/inspector’s or risk assessor’s report/);
+ assert.match(question.hint,/licensed lead inspector’s or risk assessor’s report \(not a home inspection\)/);
  assert.match(question.hint,/kit used by a certified renovator/);
  assert.match(question.hint,/paint chips a certified renovator took/);
- assert.match(question.hint,/homeowner used doesn’t count/);
+ assert.match(question.hint,/test the homeowner did doesn’t count/);
 });
 
 test('Some new with a kept island retaining its top excludes island cabinets and top',()=>{

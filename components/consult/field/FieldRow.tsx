@@ -319,7 +319,7 @@ export function FieldRow({ f, actions, sectionId, last }: { f: FieldView; action
       )}
       {f.conflict && <ConflictPicker f={f} actions={actions} />}
       {f.flags.map((fl) => fl.kind === "advisory"
-        ? <p key={fl.key} className="mt-2 text-[0.95em] font-semibold text-ink-2"><span aria-hidden>⚐ </span>Flag · <MeasureText text={fl.hint} /> {W.advisoryTail}</p>
+        ? <p key={fl.key} className="mt-2 text-[0.95em] font-semibold text-ink-2"><span aria-hidden>⚐ </span>Flag · <MeasureText text={fl.hint} />{fl.hint.includes(W.beforeYouWrap) ? "" : ` ${W.advisoryTail}`}</p>
         : <p key={fl.key} className="mt-2 text-[0.95em] font-semibold text-flag">⚑ Flag · <MeasureText text={fl.hint} /> Decide in {W.beforeYouWrap}.</p>)}
       {actions.certWarnings?.filter((w) => w.field_address === `era.${f.key}` && answered).map((w) => <p key={w.field_address} role="note" className="mt-2 text-[0.95em] text-ink"><CertWarningText w={w} /></p>)}
       {f.shots.map((s) => <PhotoRow key={s.key} shot={s} actions={actions} fieldKey={f.key} sectionId={sectionId} />)}

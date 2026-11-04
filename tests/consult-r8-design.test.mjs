@@ -56,7 +56,7 @@ test('extra: checkboxes draw a box like the rings, no text glyph', () => {
 });
 
 test('D3: the kept-toilet field line names where the choices are; the card follows kind', () => {
-  assert.match(src('components/consult/field/FieldRow.tsx'), /Flag · <MeasureText text=\{fl\.hint\} \/> \{W\.advisoryTail\}/);
+  assert.match(src('components/consult/field/FieldRow.tsx'), /Flag · <MeasureText text=\{fl\.hint\} \/>\{fl\.hint\.includes\(W\.beforeYouWrap\) \? "" : ` \$\{W\.advisoryTail\}`\}/);
   assert.match(src('components/consult/field/WrapClose.tsx'), /f\.kind === "advisory" \? "border-rule-soft bg-paper" : "border-rule"/);
 });
 

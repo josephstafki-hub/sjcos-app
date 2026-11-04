@@ -4,7 +4,8 @@ import {touchedTrades} from './trades.ts';
 import {sameBathroom} from './flags.ts';
 import {conflictSideLabel} from './ui/words.ts';
 import {saveAcknowledgedSummary} from './summary.ts';
-import {evaluatedFlags,flagInputs} from './flags.ts';
+import {flagInputs} from './flags.ts';
+import {evaluatedFlags} from './forms/flags.ts';
 import { mergeTemplateModules } from './template-merge.ts';
 import { rrpFacts, certificationWarnings } from './rrp.ts';
 /** Owner-connection transaction service. Caller authenticates freshly and supplies a
@@ -237,6 +238,10 @@ export async function batch(c:PoolClient,context:Context,target:string,input:unk
    if(p.status==='answered'){
     if(field?.maps_to?.kind==='new_work')z.strictObject({origin:z.enum(['client_requested_optional','found_condition_required']),text:note}).parse(p.value);
     if(field?.maps_to?.kind!=='new_work'&&field?.type==='text'&&(typeof p.value!=='string'||!p.value.trim()))throw new Error('text_required');
+    if(field?.range && ['number','count','year','length','length_pair'].includes(field.type)){
+     const values=Array.isArray(p.value)?p.value:[p.value];
+     if(values.some(value=>typeof value!=='number'||!Number.isFinite(value)||value<field.range![0]||value>field.range![1]))throw new Error(`range:${def?.key}.${a.field_key}`);
+    }
     if(field?.type==='date')day.parse(p.value);
     if(field?.type==='multi'&&(!Array.isArray(p.value)||!p.value.length||new Set(p.value).size!==p.value.length))throw new Error('distinct_choices_required');
     if(field?.type==='length'||field?.type==='length_pair'){for(const value of Array.isArray(p.value)?p.value:[p.value])if(typeof value!=='number'||Math.abs(value*16-Math.round(value*16))>1e-8)throw new Error('length_precision');}
@@ -281,6 +286,7 @@ export async function batch(c:PoolClient,context:Context,target:string,input:unk
    receipt={id:op.client_event_id,status:conflict?409:422,error_code:conflict?'conflict':'invalid_operation',conflict:conflict?{target:op.target,current_revision:Number(s.consult.revision),proposed_revision:op.base_revision}:undefined};
    // JSONB cannot encode undefined; the optional conflict member is omitted.
    if(!conflict)delete receipt.conflict;
+   if(message.startsWith('range:'))receipt.details={fields:[message.slice(6)]};
    await c.query('RELEASE SAVEPOINT consult_op');
   }
   await c.query('INSERT INTO consult_sync_receipts VALUES($1,$2,$3,$4,$5,$6,$7)',[target,op.device_id,op.device_epoch,op.client_event_id,op.seq,opHash,receipt]);
@@ -482,7 +488,7 @@ export async function command(c:PoolClient,context:Context,target:string,kind:st
  }
  if(kind==='apply_findings'){
   const v=z.strictObject({expected_generation:rev.min(1),operation_id:uuid}).parse(input);
-  await authorize(c,await scoped(c,context,'apply',target),target,'apply');
+  await authorize(c,await scoped(c,context,'apply',target),target,'apply',true);
   return enqueueConsultFindings(c,target,v.expected_generation);
  }
  if(kind==='proposal_decision'){
@@ -523,7 +529,7 @@ export async function command(c:PoolClient,context:Context,target:string,kind:st
   return one(c,'SELECT consult_start($1,$2,$3,$4) epoch',[context,target,v.device,v.expected_revision]);
  }
  if(kind==='reopen'){
-  const actor=await authorize(c,context,target,'reopen');const v=z.strictObject({expected_revision:rev,reason:note}).parse(input);
+  const actor=await authorize(c,context,target,'reopen',true);const v=z.strictObject({expected_revision:rev,reason:note}).parse(input);
   const r=await one(c,'SELECT consult_reopen($1,$2,$3,$4) generation',[context,target,v.expected_revision,v.reason]);
   await c.query('UPDATE consult_devices SET close_manifest=NULL,close_ack_at=NULL WHERE consult_id=$1 AND revoked_at IS NULL',[target]);await audit(c,target,actor,'reopen',v);return r;
  }

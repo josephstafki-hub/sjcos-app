@@ -16,8 +16,8 @@ test('reconcile handles existing start, NULL preservation, and inside-window can
  await f.send([f.op('answer',{status:'answered',value:true},0,{instance_id:era,field_key:'pamphlet_given'})]);
  await f.run('evidence',{device:f.device,epoch:1,expected_revision:await f.revision(),evidence:f.evidence});await f.close();
  const rows=()=>c.query("SELECT status,(due_at AT TIME ZONE 'America/Chicago')::date::text due_day,snoozed_until=due_at snoozed FROM work_items WHERE source_id=$1",[`${f.consult}:rrp:redelivery`]);
- assert.equal((await rows()).rows[0].due_day,'2027-01-25');assert.equal((await rows()).rows[0].snoozed,true);
- for(const [picked,due] of [['2026-11-20','2026-12-03'],['2027-01-28','2027-01-25'],['2027-01-10','2027-01-10']]){
+ assert.equal((await rows()).rows[0].due_day,'2027-01-18');assert.equal((await rows()).rows[0].snoozed,true);
+ for(const [picked,due] of [['2026-11-20','2027-01-18'],['2027-01-28','2027-01-18'],['2027-01-10','2027-01-10']]){
  await c.query("UPDATE consult_close_evidence SET evidence=jsonb_set(evidence,'{rrp,redelivery_day}',to_jsonb($2::text)) WHERE consult_id=$1",[f.consult,picked]);
  await c.query('SELECT consult_reconcile_rrp($1)',[f.project]);assert.equal((await rows()).rows[0].due_day,due);
  }

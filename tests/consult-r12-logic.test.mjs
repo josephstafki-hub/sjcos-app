@@ -49,14 +49,15 @@ test('completed RRP deliveries reopen only outside the new 60-day window',async(
  await c.query("UPDATE projects SET start_date='2027-03-01' WHERE id=$1",[f.project]);
  assert.equal((await c.query("SELECT count(*)::int n FROM work_items WHERE project_id=$1 AND status='done'",[f.project])).rows[0].n,2);
  await c.query("UPDATE projects SET start_date='2027-04-15' WHERE id=$1",[f.project]);
- const rows=(await c.query("SELECT status,title,(due_at AT TIME ZONE 'America/Chicago')::date::text due_day FROM work_items WHERE project_id=$1 AND source_kind='consult'",[f.project])).rows;
- assert.equal(rows.length,2);for(const row of rows){assert.equal(row.status,'queued');assert.equal(row.due_day,'2027-04-08');assert.match(row.title,/^Start moved — /);}
+ const rows=(await c.query("SELECT status,title,body,(due_at AT TIME ZONE 'America/Chicago')::date::text due_day FROM work_items WHERE project_id=$1 AND source_kind='consult'",[f.project])).rows;
+ assert.equal(rows.length,2);for(const row of rows){assert.equal(row.status,'queued');assert.equal(row.due_day,'2027-04-01');assert.match(row.title,/^Start moved — /);assert.match(row.title,/at least 7 days before work starts/);assert.match(row.body,/Given before on Jan 20, 2027/);}
 }));
 test('radon action level is a calm advisory',()=>{
  const id='11111111-1111-4111-8111-111111111111';
  const s={consult:{id,status:'in_progress',revision:1,completion_generation:1},pins:seedModules.map(definition=>({kind:'module',definition})),instances:[{id,module_key:'house',parent_id:null}],heads:[{instance_id:id,field_key:'radon_level',status:'answered',value:4,server_revision:1}],conflicts:[]};
  const field=buildModel(s,[],[],emptyDraft()).sections.find(s=>s.module.key==='house').fields.find(f=>f.key==='radon_level');
- assert.equal(field.flags[0].kind,'advisory');assert.match(field.flags[0].issue,/Radon 4 pCi\/L/);
+ assert.equal(field.flags[0].kind,'advisory');assert.match(officeFlagText(field.flags[0].issue,field.flags[0].hint),/Radon is 4 pCi\/L/);
+ s.heads[0].value=3.9;assert.equal(buildModel(s,[],[],emptyDraft()).flags.length,0);
 });
 test('failed report can succeed later; abandoned reporting cannot restore the close screen',async(t)=>{
  const old=globalThis.fetch;t.after(()=>{globalThis.fetch=old;});

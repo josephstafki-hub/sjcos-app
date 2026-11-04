@@ -9,7 +9,7 @@ test('DB v1 export aggregates two rooms and four revisions; staff Complete reach
   await f.save();assert.equal((await f.close()).complete,true);
   const shared=JSON.parse(readFileSync(new URL('./fixtures/consult-scope-facts/v1.json',import.meta.url)));for(const v of Object.values(shared))assert.ok(consultScopeFactsV1Schema.safeParse(v).success);
   const facts=await consultScopeFacts(run,f.project,'flooring.install');assert.equal(facts.state,'reviewed');assert.equal(facts.source_version.review_revision,1);assert.ok(consultScopeFactsV1Schema.safeParse(facts).success);assert.ok(!JSON.stringify(facts).includes('http'));
-  await f.run('reopen',{expected_revision:await f.revision(),reason:'Correction'});assert.equal((await consultScopeFacts(run,f.project,'flooring.install')).state,'unreviewed');
+  await f.run('reopen',{expected_revision:await f.revision(),reason:'Correction'},f.owner);assert.equal((await consultScopeFacts(run,f.project,'flooring.install')).state,'unreviewed');
  },{fresh:true});
 });
 

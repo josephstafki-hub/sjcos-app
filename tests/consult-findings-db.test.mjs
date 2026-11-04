@@ -13,7 +13,7 @@ test('complete staff visit aggregates disjoint rooms; repeat is stable; Reopen r
   const quantities=(await c.query('SELECT quantities FROM scope_items WHERE project_id=$1',[f.project])).rows[0].quantities;assert.equal(quantities[0].qty,200);
   const items=(await c.query('SELECT items FROM site_visit_plans WHERE id=$1',[plan.id])).rows[0].items;assert.equal(items[0].status,'answered');assert.equal(items[1].status,'open');
   await c.query(`UPDATE scope_items SET quantities=quantities||'[ {"label":"Other source","qty":4,"unit":"ea","source":"owner"} ]' WHERE project_id=$1`,[f.project]);
-  await f.run('reopen',{expected_revision:await f.revision(),reason:'Correct room size'});
+  await f.run('reopen',{expected_revision:await f.revision(),reason:'Correct room size'},f.owner);
   assert.equal((await c.query('SELECT quantities FROM scope_items WHERE project_id=$1',[f.project])).rows[0].quantities.length,1);
   assert.equal((await c.query('SELECT items FROM site_visit_plans WHERE id=$1',[plan.id])).rows[0].items[0].status,'open');
   assert.ok((await c.query('SELECT retracted_at FROM site_visit_findings WHERE consult_id=$1',[f.consult])).rows[0].retracted_at);
@@ -71,7 +71,7 @@ test('Complete switch enqueues atomically and Reopen obsoletes pending jobs',asy
   const f=await findingsFixture(c);await c.query("UPDATE app_settings SET value='true' WHERE key='consult_auto_apply_findings'");await f.save();await f.close();
   assert.equal((await c.query('SELECT status FROM consult_findings_jobs')).rows[0].status,'queued');
   assert.equal((await c.query('SELECT count(*)::int n FROM consult_finding_applications')).rows[0].n,0);
-  await f.run('reopen',{expected_revision:await f.revision(),reason:'Correct'});
+  await f.run('reopen',{expected_revision:await f.revision(),reason:'Correct'},f.owner);
   assert.equal((await c.query('SELECT status FROM consult_findings_jobs')).rows[0].status,'obsolete');
  },{fresh:true});
 });
@@ -115,12 +115,12 @@ test('correction supersedes history and removing an instance retracts just its c
  await withTestDb(async(_url,c)=>{
   const f=await findingsFixture(c);await f.save();await f.close();
   async function apply(generation){await c.query('BEGIN');try{const r=await reconcileConsultFindings(c,f.context('apply'),{consult_id:f.consult,expected_generation:generation,operation_id:randomUUID()});await c.query('COMMIT');return r;}catch(e){await c.query('ROLLBACK');throw e;}}
-  await apply(1);await f.run('reopen',{expected_revision:await f.revision(),reason:'Correct dimension'});
+  await apply(1);await f.run('reopen',{expected_revision:await f.revision(),reason:'Correct dimension'},f.owner);
   const base=Number((await c.query('SELECT revision FROM consult_field_heads WHERE consult_id=$1 AND instance_id=$2 AND field_key=$3',[f.consult,f.instances[0],'length'])).rows[0].revision);
   await f.send([f.op('answer',{status:'answered',value:240,unit:'in'},base,{instance_id:f.instances[0],field_key:'length'},2)]);await f.save();assert.equal((await f.close()).complete,true);await apply(2);
   assert.equal((await c.query('SELECT quantities FROM scope_items WHERE project_id=$1',[f.project])).rows[0].quantities[0].qty,300);
   assert.ok((await c.query('SELECT superseded_at FROM consult_quantity_contributions WHERE generation=1')).rows[0].superseded_at);
-  await f.run('reopen',{expected_revision:await f.revision(),reason:'Remove room from scope'});
+  await f.run('reopen',{expected_revision:await f.revision(),reason:'Remove room from scope'},f.owner);
   await f.send([f.op('remove_instance',{},await f.revision(),{instance_id:f.instances[0]},3)]);await f.save();assert.equal((await f.close()).complete,true);await apply(3);
   assert.equal((await c.query('SELECT quantities FROM scope_items WHERE project_id=$1',[f.project])).rows[0].quantities[0].qty,100);
  },{fresh:true});
@@ -131,7 +131,7 @@ test('Reopen after estimate send preserves the locked quantity and stages one ow
   const f=await findingsFixture(c);await f.save();await f.close();
   await c.query('BEGIN');await reconcileConsultFindings(c,f.context('apply'),{consult_id:f.consult,expected_generation:1,operation_id:randomUUID()});await c.query('COMMIT');
   await c.query("INSERT INTO estimates(project_id,title,kind,status) VALUES($1,'Sent formal','formal','sent')",[f.project]);
-  await f.run('reopen',{expected_revision:await f.revision(),reason:'Correct after sending'});
+  await f.run('reopen',{expected_revision:await f.revision(),reason:'Correct after sending'},f.owner);
   assert.equal((await c.query('SELECT quantities FROM scope_items WHERE project_id=$1',[f.project])).rows[0].quantities[0].qty,200);
   assert.equal((await c.query("SELECT count(*)::int n FROM site_visit_findings WHERE consult_id=$1 AND kind='decision' AND status='needs_clarification'",[f.consult])).rows[0].n,1);
   assert.equal((await c.query("SELECT count(*)::int n FROM work_items WHERE source_kind='consult' AND source_id LIKE '%:locked-retraction:%'")).rows[0].n,1);

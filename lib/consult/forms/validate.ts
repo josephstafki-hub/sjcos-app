@@ -27,8 +27,8 @@ export const fieldSchema=z.strictObject({
  precision:z.union([z.literal(0.0625),z.literal(0.125),z.literal(0.25),z.literal(0.5),z.literal(1)]).optional(),options:z.array(text).min(1).optional(),
  required,tier,say:text.optional(),note:text.optional(),hint:text.optional(),help:text.optional(),shots:z.array(shotSchema).optional(),derive:text.optional(),
  derive_cases:z.array(z.union([z.strictObject({when:whenSchema,formula:text}),z.strictObject({when:whenSchema,value:z.union([text,z.boolean()])}),z.strictObject({when:whenSchema,gap:z.literal(true)})])).optional(),
- flags:z.array(z.strictObject({when:whenSchema,issue:text,hint:text.optional()})).optional(),
- flag:z.strictObject({when:whenSchema,issue:text,hint:text.optional()}).optional(),maps_to:mappingSchema.optional(),
+ flags:z.array(z.strictObject({when:whenSchema,issue:text,hint:text.optional(),kind:z.enum(['code','advisory']).optional()})).optional(),
+ flag:z.strictObject({when:whenSchema,issue:text,hint:text.optional(),kind:z.enum(['code','advisory']).optional()}).optional(),maps_to:mappingSchema.optional(),
 }).superRefine((v,ctx)=>{
  if(v.range && v.range[0]>v.range[1])ctx.addIssue({code:'custom',message:'Reversed range'});
  if((v.type==='choice'||v.type==='multi') && (!v.options?.length || new Set(v.options).size!==v.options.length))ctx.addIssue({code:'custom',message:'Choices need distinct options'});

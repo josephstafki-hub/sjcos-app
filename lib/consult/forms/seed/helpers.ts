@@ -3,7 +3,7 @@
 import type { AtomicWhen, FieldDef, FieldType, ShotDef, Unit, When } from '../../form-types.ts';
 
 export type Req = boolean | When;
-type Extra = Partial<Omit<FieldDef, 'key' | 'label' | 'type' | 'required'>>;
+type Extra = Partial<Omit<FieldDef, 'key' | 'label' | 'type' | 'required' | 'flag'>> & {flag?: NonNullable<FieldDef['flag']> & {kind?:'code'|'advisory'}};
 
 /** Tier rule (§7.1 "Required tiers"): every R/R? row is Price-critical unless the
  *  plan lists it as Record; O rows are optional and carry the Record tier unless

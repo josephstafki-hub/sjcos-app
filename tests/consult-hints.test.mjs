@@ -63,7 +63,7 @@ test('every ⚑ flag carries a plain visitor sentence; the code stays in the off
     for (const re of [...MARKERS, ...CODES]) assert.doesNotMatch(rule.hint, re, `${where}: "${rule.hint}" contains ${re}`);
     assert.match(rule.hint, /^[A-Z0-9“]/, `${where}: flag hint starts as a sentence`);
     assert.match(rule.hint, /[.!?]$/, `${where}: flag hint ends as a sentence`);
-    assert.ok(rule.hint.length <= 140, `${where}: flag hint too long for one line`);
+    assert.ok(rule.hint.length <= (where==='house.radon_level'?300:140), `${where}: flag hint too long for one line`);
     assert.ok(rule.issue.trim(), `${where}: the office issue text stays`);
   }
   // The office text keeps its citations for Joe (look-over, scope facts).

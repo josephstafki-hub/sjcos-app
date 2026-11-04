@@ -64,7 +64,11 @@ test('consult boundary: signed claims, assignment scope, revoked users, immutabl
   await denied('SELECT consult_capture_answer($1,$2,$3,$4,$5,$6)',[context(staff,'capture_answer'),consult,device,epoch,randomUUID(),{...operation,base_revision:accepted.revision}],/complete_locked/);
   await denied('DELETE FROM consult_field_heads WHERE consult_id=$1',[consult],/complete_locked/);
   const rev=(await c.query('SELECT revision FROM consults WHERE id=$1',[consult])).rows[0].revision;
-  assert.equal((await c.query("SELECT consult_reopen($1,$2,$3,'Correction') AS generation",[context(staff,'reopen'),consult,rev])).rows[0].generation,'2');
+  await denied("SELECT consult_reopen($1,$2,$3,'Correction')",[context(staff,'reopen'),consult,rev],/owner_required/);
+  await assert.rejects(command(c,context(staff,'reopen'),consult,'reopen',{expected_revision:Number(rev),reason:'Correction'}),/owner_required/);
+  assert.equal((await c.query('SELECT status FROM consults WHERE id=$1',[consult])).rows[0].status,'complete');
+  await denied("SELECT consult_reopen($1,$2,$3,'Correction')",[context(owner,'reopen'),consult,Number(rev)-1],/revision or lifecycle conflict/);
+  assert.equal((await c.query("SELECT consult_reopen($1,$2,$3,'Correction') AS generation",[context(owner,'reopen'),consult,rev])).rows[0].generation,'2');
   await c.query('UPDATE consult_assignments SET revoked_at=now() WHERE consult_id=$1',[consult]);
   await c.query('SET ROLE sjcos_agent');
   await denied('SELECT consult_read($1,$2)',[context(),consult]);

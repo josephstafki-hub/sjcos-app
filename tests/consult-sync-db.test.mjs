@@ -27,7 +27,7 @@ test('batch receipt replay, hash/nonce binding, stale clear/remove, manifest, Co
   const closed=await f.close();assert.equal(closed.complete,true);assert.match(closed.digest,/^[a-f0-9]{64}$/);
   assert.deepEqual(await f.close(),closed);
   const locked=f.op('answer',{status:'answered',value:121,unit:'in'},3);await assert.rejects(f.send([locked]),/complete_locked/);
-  await f.run('reopen',{expected_revision:await f.revision(),reason:'Correction'});
+  await f.run('reopen',{expected_revision:await f.revision(),reason:'Correction'},f.owner);
   const old={...f.op(),seq:locked.seq};assert.equal((await f.send([old]))[0].error_code,'rebase_required');
   assert.equal((await c.query("SELECT count(*) n FROM consult_answers WHERE field_key='length'")).rows[0].n,'1');
  },{fresh:true});

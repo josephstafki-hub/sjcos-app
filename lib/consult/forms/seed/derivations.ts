@@ -56,7 +56,7 @@ export const derivationCases: Derivation[] = [
   ]),
   d('kitchen_scope.backsplash_height_in', 'derived', 'backsplash height in inches; To the uppers / Full wall at range are measured, so they stay a gap until entered', [
     { when: eq('backsplash_height', '4″'), formula: '4' },
-    { when: isIn('backsplash_height', ['To the uppers', 'Full wall at range']), gap: true },
+    { when: isIn('backsplash_height', ['To the uppers', 'Full wall at range']), formula: 'backsplash_measured_height' },
   ]),
   d('kitchen_scope.island_run', 'derived', '(+ island length ÷ 12)', [
     { when: eq('island', 'New'), formula: 'island_length' }, { when: answered('island'), formula: '0' },

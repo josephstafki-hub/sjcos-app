@@ -5,6 +5,7 @@
  * Key: `module.field`; a field's second rule (its `flags[0]`) is `module.field#1`, and so on.
  */
 export const FLAG_HINTS: Record<string, string> = {
+  'house.radon_level': 'Radon is {value} pCi/L — at or over the 4 pCi/L level where the Minnesota Department of Health says to fix it. Mention mitigation, and don’t seal the sump or slab in a way that blocks a future system.',
   'house.alarms_locations': 'Alarms may need updating for permitted work — smoke alarms, and CO alarms near the bedrooms.',
   'house.hoa_rules': 'The HOA may need to approve the work before the permit.',
   'access.dumpster_spot': 'A dumpster on the street usually needs a city permit.',

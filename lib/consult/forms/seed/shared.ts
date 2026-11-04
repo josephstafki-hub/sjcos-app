@@ -58,7 +58,7 @@ export const house: ModuleDef = {
     }),
     text('past_problems', 'Past remodels or known problems (leaks, settling, open permits)', true),
     choice('radon_tested', 'Radon tested?', ['Yes — level', 'No', 'Unknown'], tpl('basement', 'addition', 'whole')),
-    num('radon_level', 'Radon tested? — level (pCi/L)', undefined, false),
+    num('radon_level', 'Radon tested? — level (pCi/L)', undefined, false, {flag:{kind:'advisory',when:gt('radon_level',3.99),issue:'Radon at or above 4 pCi/L (MDH)'}}),
   ],
   shots: [shot('front_of_house', 'Front of house', true), shot('house_number', 'House number', false)],
   coverage: [

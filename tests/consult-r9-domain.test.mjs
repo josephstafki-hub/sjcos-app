@@ -21,7 +21,7 @@ test('delivered pamphlet redelivery follows start and cancels; skipped gets none
  await f.send([f.op('answer',{status:'answered',value:true},0,{instance_id:era,field_key:'pamphlet_given'})]);
  await c.query('UPDATE projects SET start_date=$2 WHERE id=$1',[f.project,'2027-03-10']);
  const rows=()=>c.query("SELECT status,(due_at AT TIME ZONE 'America/Chicago')::date::text due_day,snoozed_until=due_at snoozed FROM work_items WHERE source_id=$1",[`${f.consult}:rrp:redelivery`]);
- assert.equal((await rows()).rows[0].due_day,'2027-03-03');assert.equal((await rows()).rows[0].snoozed,true);
+ assert.equal((await rows()).rows[0].due_day,'2027-02-24');assert.equal((await rows()).rows[0].snoozed,true);
  await c.query('UPDATE projects SET start_date=$2 WHERE id=$1',[f.project,'2026-12-20']);assert.equal((await rows()).rows[0].status,'cancelled');
  await c.query("DELETE FROM work_items WHERE source_id=$1",[`${f.consult}:rrp:redelivery`]);
  await f.send([f.op('answer',{status:'skipped',skip_reason:'Client absent'},await f.revision(),{instance_id:era,field_key:'pamphlet_given'})]);

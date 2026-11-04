@@ -1,6 +1,6 @@
 {
   "about": [
-    "0086 preserves narrow-role work_items grants while reopening expired RRP deliveries.",
+    "0087 preserves narrow-role work_items grants and makes reopen owner-only. 0086 preserves narrow-role work_items grants while reopening expired RRP deliveries.",
     "0085 preserves the consult RRP work_items grants while bounding re-delivery dates.",
     "Which narrow database login may SELECT / INSERT / UPDATE / DELETE each public table or view (deploy/db-roles.md).",
     "Every table must be listed, even with no grants (then say why in note). The owner login (sjcos: the website, Joe's own panel runs, migrations) owns everything and is not listed.",

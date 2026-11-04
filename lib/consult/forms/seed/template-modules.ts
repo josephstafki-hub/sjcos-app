@@ -158,6 +158,7 @@ export const kitchen_scope: ModuleDef = {
     multi('lights_wanted', 'Lights wanted', ['Recessed', 'Pendants', 'Under-cabinet', 'Toe-kick'], false),
     text('floor_continues', 'Floor continues into', true, { hint: 'Which rooms the kitchen floor runs into.', note: '→ flooring add-on suggestion' }),
     text('pantry', 'Pantry', false),
+    len('backsplash_measured_height', 'Measured backsplash height', isIn('backsplash_height', ['To the uppers','Full wall at range'])),
     caseField('backsplash_height_in', 'Backsplash height in inches', 'length', { unit: 'in' }),
     caseField('island_run', 'Island length for the cabinet run', 'length', { unit: 'in' }),
     caseField('island_top_area', 'Island top area', 'number', { unit: 'sf' }),

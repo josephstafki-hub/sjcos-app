@@ -181,3 +181,9 @@ test('post-INSERT failure: same-ID retries never insert again; status finds rece
   assert.equal(status.result.incidentId,'456');assert.equal(status.result.pdfSaved,true);
  } finally {await rm(file,{force:true});}
 });
+
+test('notification title and subline are sanitized together', async () => {
+  const { plainNoticePair } = await import('../lib/mobile-rpc/destinations.ts');
+  assert.deepEqual(plainNoticePair('Comms configuration failed', 'SMS: missing SMS_API_KEY, SMS_FROM_NUMBER'), { title: 'Texting needs attention', subline: 'Ask the owner to check the phone service settings.' });
+  assert.deepEqual(plainNoticePair('Contract signed: Spaeth', 'Chuck Spaeth signed electronically'), { title: 'Contract signed: Spaeth', subline: 'Chuck Spaeth signed electronically' });
+});

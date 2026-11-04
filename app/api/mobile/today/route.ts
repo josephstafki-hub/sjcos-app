@@ -16,5 +16,5 @@ export async function GET(req: Request) {
 
   const data = await getTodayData(user);
   const count=user.role==="owner"?await queryOne<{count:number}>(`SELECT count(*)::int AS count FROM projects WHERE status IN ('construction','closeout')`):null;
-  return NextResponse.json({...data,headerChips:data.headerChips.map(c=>({...c,label:c.label.replace(/ · on-site \+ closeout jobs, including unbilled work/,` on ${count?.count??0} open job${count?.count===1?"":"s"}`)})),priorities:data.priorities.map(p=>({...p,sub:plainNotice(p.sub)}))});
+  return NextResponse.json({...data,headerChips:data.headerChips.map(c=>({...c,label:c.label.replace(/ · on-site \+ closeout jobs, including unbilled work/,` on ${count?.count??0} job${count?.count===1?"":"s"} under way`)})),priorities:data.priorities.map(p=>({...p,sub:plainNotice(p.sub)}))});
 }

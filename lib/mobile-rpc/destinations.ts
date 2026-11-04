@@ -28,16 +28,24 @@ export function destination(href:string,ref?:string|null):MobileDestination {
   return {...base,type:"web"};
 }
 /** Only display copy is changed; no technical details or secrets are echoed. */
+const envName=/\b(?:AI_PROVIDER|ANTHROPIC_API_KEY|CRON_SECRET|DATABASE_URL|GMAIL_ACCOUNT_EMAIL|GMAIL_CLIENT_ID|GMAIL_CLIENT_SECRET|GMAIL_REDIRECT_URI|GMAIL_REFRESH_TOKEN|GMAIL_RETRY_SCALE|GMAIL_SMTP_FALLBACK|GMAIL_UNITS_PER_MINUTE|HERMES_AGENT_KEY|HERMES_AGENT_SESSION_KEY|HERMES_AGENT_URL|INTUIT_CLIENT_ID|INTUIT_CLIENT_SECRET|NEXT_PUBLIC_APP_URL|QBO_REALM_ID|SESSION_SECRET|SJC_PUBLIC_URL|SMS_API_KEY|SMS_FROM_NUMBER|SMS_HELP_AUTOREPLY|SMS_MESSAGING_PROFILE_ID|TELEGRAM_API_BASE|TELEGRAM_BOT_TOKEN|TELEGRAM_OWNER_CHAT_ID|TELNYX_API_BASE|TELNYX_API_KEY|VOICE_APPLICATION_ID|VOICE_CALL_MAX_S|VOICE_RECORDING_MAX_S|VOICE_RECORDING_NOTICE|VOICE_RING_SECONDS|VOICE_TRANSCRIPTION_ENGINE|VOICE_TTS_VOICE|VOICE_VOICEMAIL_GREETING)\b/;
+const errorPhrase=/\b(?:environment variable|env var|API key|stack trace|configuration (?:error|failed))\b/i;
 export function plainNotice(text:string):string {
  // Rewrite known configuration names or an explicit diagnostic phrase. Ordinary
  // summaries that happen to contain underscores or the word "text" pass through.
- const envName=/\b(?:AI_PROVIDER|ANTHROPIC_API_KEY|CRON_SECRET|DATABASE_URL|GMAIL_ACCOUNT_EMAIL|GMAIL_CLIENT_ID|GMAIL_CLIENT_SECRET|GMAIL_REDIRECT_URI|GMAIL_REFRESH_TOKEN|GMAIL_RETRY_SCALE|GMAIL_SMTP_FALLBACK|GMAIL_UNITS_PER_MINUTE|HERMES_AGENT_KEY|HERMES_AGENT_SESSION_KEY|HERMES_AGENT_URL|INTUIT_CLIENT_ID|INTUIT_CLIENT_SECRET|NEXT_PUBLIC_APP_URL|QBO_REALM_ID|SESSION_SECRET|SJC_PUBLIC_URL|SMS_API_KEY|SMS_FROM_NUMBER|SMS_HELP_AUTOREPLY|SMS_MESSAGING_PROFILE_ID|TELEGRAM_API_BASE|TELEGRAM_BOT_TOKEN|TELEGRAM_OWNER_CHAT_ID|TELNYX_API_BASE|TELNYX_API_KEY|VOICE_APPLICATION_ID|VOICE_CALL_MAX_S|VOICE_RECORDING_MAX_S|VOICE_RECORDING_NOTICE|VOICE_RING_SECONDS|VOICE_TRANSCRIPTION_ENGINE|VOICE_TTS_VOICE|VOICE_VOICEMAIL_GREETING)\b/;
- const errorPhrase=/\b(?:environment variable|env var|API key|stack trace|configuration (?:error|failed))\b/i;
  if(envName.test(text)||errorPhrase.test(text))
   return /(?:^|[^a-z])(?:sms|texting|telnyx)(?:[^a-z]|$)/i.test(text)?"Texting needs attention. Ask the owner to check the phone service settings.":/(?:^|[^a-z])(?:gmail|smtp|email connection)(?:[^a-z]|$)/i.test(text)?"Email needs attention. Ask the owner to check the email connection.":"A service needs attention. Ask the owner to check its connection in Settings on the web.";
  return text.replace(/\[UNVERIFIED\]\s*/g,"")
   .replace(/Check current status on the project's Subs tab\./gi,"Check the job's Subs section.")
   .replace(/(?:\d+-day\s+)?ack by (\d{4}-\d{2}-\d{2})/gi,(_,day:string)=>`Acknowledge by ${new Date(day+"T12:00:00Z").toLocaleDateString("en-US",{timeZone:"UTC",month:"short",day:"numeric"})}`);
+}
+/** A notification's title and subline are judged together, so both halves
+ *  name the same channel: "Texting needs attention" / "Ask the owner to…". */
+export function plainNoticePair(title:string,subline:string):{title:string;subline:string}{
+ const joined=`${title}. ${subline}`;
+ if(!(envName.test(joined)||errorPhrase.test(joined)))return {title:plainNotice(title),subline:plainNotice(subline)};
+ const [first,...rest]=plainNotice(joined).split(". ");
+ return {title:first.replace(/\.$/,""),subline:rest.join(". ")};
 }
 /** Titles get only the short first sentence of a rewritten notice
  *  ("Texting needs attention"), never the full instruction. */

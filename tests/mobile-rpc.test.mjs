@@ -145,6 +145,20 @@ test('destinations retain query thread, section, focus, view and original fallba
  assert.equal(job.section,'money');assert.equal(job.focus,'invoice:42');
  assert.equal(destination('/leads/a?section=portal').section,'portal');
  assert.equal(destination('/inbox?tab=calls&id=call').type,'call');
+ for (const [url,type,id] of [
+  ['/inbox/calls/c-1','call','c-1'], ['/inbox/texts/42','sms','42'], ['/inbox/sms/42','sms','42'],
+  ['/inbox/chat/r-1','chat','r-1'], ['/inbox?tab=calls&id=c-1','call','c-1'],
+  ['/inbox?tab=texts&id=42','sms','42'], ['/inbox?tab=chat&id=r-1','chat','r-1'],
+  ['/calls/c-1','call','c-1'], ['/messages/42','sms','42'], ['/chat/r-1','chat','r-1'],
+  ['/inbox?tab=chat&room=r-1','chat','r-1'], ['/inbox?tab=chat&roomId=r-1','chat','r-1'],
+  ['/inbox?tab=chat&channel=r-1','chat','r-1'], ['/inbox?tab=chat&channelId=r-1','chat','r-1'],
+  ['/inbox?tab=calls&callId=c-1','call','c-1'], ['/inbox?tab=texts&smsId=42','sms','42'],
+ ]) { const d=destination(url); assert.equal(d.type,type,url); assert.equal(d.id,id,url); }
+ assert.equal(plainNotice('Uploaded RECEIPT_SCAN_0042.JPG'),'Uploaded RECEIPT_SCAN_0042.JPG');
+ assert.equal(plainNotice('Review KITCHEN_PROFILE.pdf'),'Review KITCHEN_PROFILE.pdf');
+ assert.equal(plainNotice('Confirm PURCHASE_ORDER_ID with the vendor'),'Confirm PURCHASE_ORDER_ID with the vendor');
+ assert.equal(plainNotice('Missing SMS_API_KEY'),'Texting needs attention. Ask the owner to check the phone service settings.');
+
  assert.equal(destination('/projects/a?section=unsupported').href,'/projects/a?section=unsupported');
  assert.equal(plainNotice('Missing TELNYX_API_KEY'), 'Texting needs attention. Ask the owner to check the phone service settings.');
  assert.equal(plainNotice('5-day ack by 2026-11-06'),'Acknowledge by Nov 6');

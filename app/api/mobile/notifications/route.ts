@@ -1,7 +1,7 @@
 import { syncComplianceNotifications } from "@/lib/notify";
 import { mobileRead } from "@/lib/mobile-rpc/reads";
 import { rowToCard, audienceClause, getUnreadCount } from "@/lib/notifications";
-import { destination, plainNotice } from "@/lib/mobile-rpc/destinations";
+import { destination, plainNotice, plainTitle } from "@/lib/mobile-rpc/destinations";
 import { query } from "@/lib/db";
 export const dynamic = "force-dynamic";
 export async function GET(req:Request) {
@@ -18,7 +18,7 @@ export async function GET(req:Request) {
   const onlyUnread=q.get("unread")==="1"||kind==="unread";
   const where=audienceClause(user,1)+` AND ($2::uuid IS NULL OR (n.created_at,n.id)<(SELECT created_at,id FROM notifications WHERE id=$2)) AND (NOT $3 OR (r.notification_id IS NULL AND n.resolved_at IS NULL)) AND ($4::text IN ('all','unread') OR n.kind=$4)`;
   const rows=(await query<Parameters<typeof rowToCard>[0]>(`SELECT n.*,r.notification_id IS NOT NULL AS read,n.resolved_at IS NOT NULL AS resolved,EXTRACT(EPOCH FROM now()-n.created_at)::int AS age_seconds,to_char(n.created_at AT TIME ZONE 'America/Chicago','Mon FMDD, HH12:MI AM') AS when_absolute FROM notifications n LEFT JOIN notification_reads r ON r.notification_id=n.id AND r.user_id=$1 WHERE ${where} ORDER BY n.created_at DESC,n.id DESC LIMIT $5`,[user.id,before,onlyUnread,kind,limit+1])).rows;
-  const notifications=rows.slice(0,limit).map(rowToCard).map(n=>({...n,createdAt:new Date(n.createdAt).toISOString(),title:plainNotice(n.title),subline:plainNotice(n.subline),destination:destination(n.href,n.ref)}));
+  const notifications=rows.slice(0,limit).map(rowToCard).map(n=>({...n,createdAt:new Date(n.createdAt).toISOString(),title:plainTitle(n.title),subline:plainNotice(n.subline),destination:destination(n.href,n.ref)}));
   return {total:notifications.length,decisionCount:notifications.filter(n=>n.actionable).length,unread,filters,notifications,hasMore:rows.length>limit,nextBefore:rows.length>limit?notifications.at(-1)?.id??null:null};
  });
 }

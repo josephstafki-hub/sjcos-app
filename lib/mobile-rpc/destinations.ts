@@ -8,26 +8,42 @@ export function destination(href:string,ref?:string|null):MobileDestination {
   if(ref&&/^(decision|work_item|grant):/.test(ref))return {...base,type:"approval",key:ref};
   const records={projects:"project",leads:"lead",subs:"sub",vendors:"vendor"} as const;
   if(parts[0] in records)return {...base,type:records[parts[0] as keyof typeof records],slug:parts[1]??null,id:parts[1]??null};
-  if(parts[0]==="inbox" && ["texts","sms","calls","chat"].includes(u.searchParams.get("tab")??"")) {
-    const tab=u.searchParams.get("tab")!;
-    return {...base,type:tab==="calls"?"call":tab==="chat"?"chat":"sms",id:u.searchParams.get("id")??u.searchParams.get("thread")??u.searchParams.get("threadId")??u.searchParams.get("room"),view:base.view??tab};
+  const tabs:Record<string,"thread"|"sms"|"call"|"chat">={email:"thread",emails:"thread",mail:"thread",thread:"thread",threads:"thread",text:"sms",texts:"sms",sms:"sms",message:"sms",messages:"sms",call:"call",calls:"call",voicemail:"call",voicemails:"call",chat:"chat",chats:"chat",room:"chat",rooms:"chat",channel:"chat",channels:"chat"};
+  const tabName=(v:string|null|undefined)=>tabs[(v??"").toLowerCase().replace(/[^a-z0-9]/g,"")];
+  const area=parts[0];
+  if(["inbox","messages","calls","chat","sms","texts","email","emails","mail"].includes(area)) {
+    const pathTab=area==="inbox"?tabName(parts[1]):undefined;
+    const pathId=area==="inbox"?(pathTab?parts[2]:undefined):parts[1];
+    const tab=pathTab??tabName(u.searchParams.get("tab")??u.searchParams.get("view"))??(area==="inbox"?undefined:tabName(area));
+    const query=(...names:string[])=>names.map(n=>u.searchParams.get(n)?.trim()).find(Boolean)??null;
+    const itemId=pathId??query("id","callId","call","smsId","roomId","room","channelId","channel","conversation");
+    const thread=query("thread","threadId");
+    if(tab && tab!=="thread")return {...base,type:tab,id:itemId??thread};
+    const emailId=thread??(tab==="thread"?(pathId??query("id")):null)??(area==="inbox"&&!pathTab&&/^[0-9a-f]{12,}$/i.test(parts[1]??"")?parts[1]:null);
+    // A generic destination lets the phone retain its own tab and view fallback.
+    if(!emailId)return {...base,type:"web"};
+    const view=base.view&&!tabName(base.view)?base.view:"inbox";
+    return {...base,type:"thread",id:emailId,view};
   }
-  if(parts[0]==="inbox")return {...base,type:"thread",id:u.searchParams.get("thread")??u.searchParams.get("threadId")??parts[1]??null,view:base.view??"inbox"};
-  if(["sms","texts","messages","calls","chat"].includes(parts[0]))return {...base,type:parts[0]==="calls"?"call":parts[0]==="chat"?"chat":"sms",id:parts[1]??u.searchParams.get("thread")??u.searchParams.get("id")??u.searchParams.get("room")??u.searchParams.get("channel"),view:parts[0]};
   return {...base,type:"web"};
 }
 /** Only display copy is changed; no technical details or secrets are echoed. */
 export function plainNotice(text:string):string {
- // Only a real config/secret leak is rewritten: an UPPER_SNAKE env name ending in
- // a secret-ish part (case-sensitive), or an explicit error phrase. Ordinary
+ // Rewrite known configuration names or an explicit diagnostic phrase. Ordinary
  // summaries that happen to contain underscores or the word "text" pass through.
- const envName=/\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*_(?:KEY|TOKEN|SECRET|ID|URL|NUMBER|PROFILE|PROVIDER|PASSWORD)\b/;
+ const envName=/\b(?:AI_PROVIDER|ANTHROPIC_API_KEY|CRON_SECRET|DATABASE_URL|GMAIL_ACCOUNT_EMAIL|GMAIL_CLIENT_ID|GMAIL_CLIENT_SECRET|GMAIL_REDIRECT_URI|GMAIL_REFRESH_TOKEN|GMAIL_RETRY_SCALE|GMAIL_SMTP_FALLBACK|GMAIL_UNITS_PER_MINUTE|HERMES_AGENT_KEY|HERMES_AGENT_SESSION_KEY|HERMES_AGENT_URL|INTUIT_CLIENT_ID|INTUIT_CLIENT_SECRET|NEXT_PUBLIC_APP_URL|QBO_REALM_ID|SESSION_SECRET|SJC_PUBLIC_URL|SMS_API_KEY|SMS_FROM_NUMBER|SMS_HELP_AUTOREPLY|SMS_MESSAGING_PROFILE_ID|TELEGRAM_API_BASE|TELEGRAM_BOT_TOKEN|TELEGRAM_OWNER_CHAT_ID|TELNYX_API_BASE|TELNYX_API_KEY|VOICE_APPLICATION_ID|VOICE_CALL_MAX_S|VOICE_RECORDING_MAX_S|VOICE_RECORDING_NOTICE|VOICE_RING_SECONDS|VOICE_TRANSCRIPTION_ENGINE|VOICE_TTS_VOICE|VOICE_VOICEMAIL_GREETING)\b/;
  const errorPhrase=/\b(?:environment variable|env var|API key|stack trace|configuration (?:error|failed))\b/i;
  if(envName.test(text)||errorPhrase.test(text))
   return /(?:^|[^a-z])(?:sms|texting|telnyx)(?:[^a-z]|$)/i.test(text)?"Texting needs attention. Ask the owner to check the phone service settings.":/(?:^|[^a-z])(?:gmail|smtp|email connection)(?:[^a-z]|$)/i.test(text)?"Email needs attention. Ask the owner to check the email connection.":"A service needs attention. Ask the owner to check its connection in Settings on the web.";
  return text.replace(/\[UNVERIFIED\]\s*/g,"")
   .replace(/Check current status on the project's Subs tab\./gi,"Check the job's Subs section.")
   .replace(/(?:\d+-day\s+)?ack by (\d{4}-\d{2}-\d{2})/gi,(_,day:string)=>`Acknowledge by ${new Date(day+"T12:00:00Z").toLocaleDateString("en-US",{timeZone:"UTC",month:"short",day:"numeric"})}`);
+}
+/** Titles get only the short first sentence of a rewritten notice
+ *  ("Texting needs attention"), never the full instruction. */
+export function plainTitle(text:string):string {
+ const t=plainNotice(text);
+ return t===text?t:t.split(". ")[0].replace(/\.$/,"");
 }
 export function mobileTranscript(text:string|null,callerName:string|null,ownerIsViewer:boolean,direction:"inbound"|"outbound"="inbound"):string|null {
  // Inbound records the caller leg; outbound records the owner leg (voice-flow).

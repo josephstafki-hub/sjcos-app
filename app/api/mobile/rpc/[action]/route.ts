@@ -5,7 +5,7 @@ import { dispatchMobileAction } from "@/lib/mobile-rpc/dispatch";
 
 export async function POST(req: Request, context: { params: Promise<{ action: string }> }) {
   const { action } = await context.params;
-  return dispatchMobileAction(req, action, mobileActions, async (request) => {
+  const response = await dispatchMobileAction(req, action, mobileActions, async (request) => {
     const bearerUser = await getUserFromRequest(request);
     if (!bearerUser) return null;
     // Actions use cookie-first DAL auth. Refuse a conflicting cookie rather
@@ -13,4 +13,9 @@ export async function POST(req: Request, context: { params: Promise<{ action: st
     const actionUser = await getCurrentUser();
     return actionUser?.id === bearerUser.id ? bearerUser : null;
   }, user => [homeFor(user), homeForRole(user.role)]);
+  if(response.ok && ["leads.create","leads.convert"].includes(action)) {
+    const body=await response.json();
+    return Response.json({...body,...(body.result?.redirect ? {redirect:body.result.redirect} : {})});
+  }
+  return response;
 }

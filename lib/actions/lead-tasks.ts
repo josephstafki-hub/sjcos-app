@@ -53,3 +53,14 @@ export async function deleteLeadTask(id: number, slug: string): Promise<{ ok: bo
   revalidatePath(`/leads/${slug}`);
   return { ok: true };
 }
+
+/** Reschedule an existing task, scoped to its lead; no web caller is changed. */
+export async function updateLeadTaskDue(id: number, slug: string, dueDate: string): Promise<{ok:boolean;error?:string}> {
+  await requireAccess("leads");
+  if(dueDate && (!/^\d{4}-\d{2}-\d{2}$/.test(dueDate) || !Number.isFinite(Date.parse(dueDate)) || new Date(dueDate).toISOString().slice(0,10)!==dueDate)) return {ok:false,error:"Choose a valid date."};
+  const result=await query(`UPDATE lead_tasks t SET due_date=NULLIF($3,'')::date FROM leads l WHERE t.id=$1 AND l.slug=$2 AND t.lead_id=l.id`,[id,slug,dueDate]);
+  if(!result.rowCount)return {ok:false,error:"To-do not found on this lead."};
+  await logLeadActivity(slug,"note",dueDate ? `Task rescheduled · ${dueDate}` : "Task due date cleared");
+  revalidatePath(`/leads/${slug}`);
+  return {ok:true};
+}

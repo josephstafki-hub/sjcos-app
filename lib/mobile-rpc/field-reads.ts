@@ -6,7 +6,7 @@ import type { PermissionKey } from "@/lib/permissions";
 import { query } from "@/lib/db";
 import { runDirect } from "@/lib/commands/db";
 import { listOpenDocs, listResolvedDocs, projectChoices } from "@/lib/unsorted-docs";
-import { formatScheduleTime } from "@/lib/schedule-time";
+import { parseScheduleTime, formatScheduleTime } from "@/lib/schedule-time";
 import { getScheduleData, getScheduleConflict, weekBounds } from "@/lib/schedule";
 import { getWarrantyData, getWarrantyProjectOptions } from "@/lib/warranty";
 import { getInsurancePolicies } from "@/lib/insurance";
@@ -57,11 +57,12 @@ export async function scheduleRead(week: string | null) {
   // Stored times are Central wall times. PostgreSQL applies the date's DST offset.
   const days = await Promise.all(data.days.map(async d => ({date: d.iso, label: `${d.dow} ${d.date}`, today: d.today,
     blocks: await Promise.all(d.blocks.map(async (b, i) => {
-      const time = b.rawTime ?? b.time;
+      let time = b.rawTime ?? b.time;
+      try { time=parseScheduleTime(time).label; } catch { /* ambiguous legacy times stay visible, never invent a clock time */ }
       const times = /^(\d{2}:\d{2})(?:\s*[–-]\s*(\d{2}:\d{2}))?$/.exec(time);
       const stamp = times ? (await query<{start:string; end:string|null}>(`SELECT ($1::date + $2::time) AT TIME ZONE 'America/Chicago' AS start, CASE WHEN $3::text IS NULL THEN NULL ELSE ($1::date + $3::time) AT TIME ZONE 'America/Chicago' END AS end`, [d.iso, times[1], times[2] ?? null])).rows[0] : null;
-      return {id: b.id ?? `auto:${d.iso}:${i}`, projectSlug: b.projectSlug ?? null, projectName: b.projectName ?? null, label: b.label,
-        start: stamp ? iso(stamp.start) : null, end: stamp ? iso(stamp.end) : null, timeLabel: formatScheduleTime(b.time), rawTime: time, timeZone: "America/Chicago",
+      return {id: b.id ?? `auto:${d.iso}:${i}`, projectId: b.projectId ?? null, tone: b.tone, originalTimeLabel: b.rawTime ?? b.time, projectSlug: b.projectSlug ?? null, projectName: b.projectName ?? null, label: b.label,
+        start: stamp ? iso(stamp.start) : null, end: stamp ? iso(stamp.end) : null, timeLabel: formatScheduleTime(b.time), rawTime: time, timeZone: "America/Chicago", timeZoneLabel: "Central time",
         kind: b.auto ? "Milestone" : b.projectSlug ? "Job block" : "Meeting", auto: b.auto ?? false,
         allowedActions: b.id && !b.auto ? ["schedule.update", "schedule.delete"] : []};
     }))})));
@@ -69,7 +70,7 @@ export async function scheduleRead(week: string | null) {
 }
 export async function warrantyRead() {
   const [data, projects, rows, coverage] = await Promise.all([getWarrantyData(), getWarrantyProjectOptions(), query<{id:string; slug:string|null; source:string; opened:string|null}>(`SELECT w.id,p.slug,w.source,w.opened_at::text AS opened FROM warranty_claims w LEFT JOIN projects p ON p.id=w.project_id`), query<{project:string; until:string|null}>(`SELECT project,warranty_ends_at::text AS until FROM warranty_projects`)]);
-  return {claims: data.claims.map(c => {const r = rows.rows.find(r => r.id === c.id); return {id:c.id, project:c.project, projectSlug:r?.slug ?? null, issue:c.issue, channel:label(r?.source ?? "Not recorded"), openedAt:iso(r?.opened ?? null), resolved:c.resolved, statusLabel:c.resolved ? "Resolved" : c.acknowledged ? "In progress" : "Awaiting acknowledgment", allowedActions:[] as string[]};}), coverage:data.projects.map(p => ({project:p.project, projectSlug:projects.find(j => j.name === p.project)?.slug ?? null, until:coverage.rows.find(r => r.project === p.project)?.until ?? null, status:p.status, statusLabel:label(p.status), terms:p.warranty})), projects, allowedActions:["warranty.create"]};
+  return {claims: data.claims.map(c => {const r = rows.rows.find(r => r.id === c.id); return {id:c.id, project:c.project, projectSlug:r?.slug ?? null, issue:c.issue, channel:label(r?.source ?? "Not recorded"), openedAt:iso(r?.opened ?? null), resolved:c.resolved, statusLabel:c.resolved ? "Resolved" : c.acknowledged ? "In progress" : "Awaiting acknowledgment", allowedActions:c.resolved ? ["warranty.reopen"] : [...(!c.acknowledged ? ["warranty.acknowledge"] : []),"warranty.resolve"]};}), coverage:data.projects.map(p => ({project:p.project, projectSlug:projects.find(j => j.name === p.project)?.slug ?? null, until:coverage.rows.find(r => r.project === p.project)?.until ?? null, status:p.status, statusLabel:label(p.status), terms:/^Warranty terms not (configured|recorded)$/.test(p.warranty) ? "No warranty terms yet" : p.warranty})), projects, allowedActions:["warranty.create"]};
 }
 export async function complianceRead() {
   const [deadlines, policies] = await Promise.all([query<{id:string; what:string; due:string|null; days:number|null; who:string; step:string}>(`SELECT id,title AS what,due_date::text AS due,(due_date-${CENTRAL_TODAY})::int AS days,who,step FROM (${COMPLIANCE_SOURCE}) c ORDER BY due_date`), getInsurancePolicies(true)]);

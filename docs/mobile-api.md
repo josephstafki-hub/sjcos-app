@@ -205,3 +205,12 @@ routes and revalidation in the production QA preview.
 
 `POST /api/mobile/rpc/today.create` — body `{ title: string; notes?: string; dueDate?: "YYYY-MM-DD"; projectSlug?: string }`.
 Wraps the web Engine "New to-do" action (`createWorkItem`, engine area). Returns the Today queue snapshot.
+
+## Backend r3 additions
+
+See [backend-r3.md](mobile-api/backend-r3.md) for the superseding exact contracts:
+notification cursors/destinations, direct email lookup, portal history, lead create/
+convert results and values, lead photo authorization, schedule edit preservation,
+safety request IDs, MMS file reads, warranty lifecycle actions and sub file metadata.
+Notifications now default to 50 newest-first cards with cursor paging rather than the
+web's 300-card unread-first window. `unread` remains the full scoped count.

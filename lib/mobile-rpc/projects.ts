@@ -1,3 +1,4 @@
+import { safetyOperation } from "./safety-operation";
 import { z } from "zod";
 import { defineAction, MobileInputError } from "./dispatch";
 import { createProject, advanceProjectStatus, addProjectDailyLog, editProjectDailyLog, addPunchItem, setPunchDone, deletePunchItem } from "@/lib/actions/projects";
@@ -40,7 +41,9 @@ export const projectsActions = {
   "projects.punch.add": defineAction({ area:"projects", input:job.extend({item:text,owner:z.string().max(200).default("")}), run:async ({slug,item,owner}) => { await requireMobileProject(slug); return addPunchItem(slug,item,owner); } }),
   "projects.punch.toggle": defineAction({ area:"projects", input:job.extend({id:number,done:z.boolean()}), run:async ({slug,id,done}) => { await punchOnJob(slug,id); return setPunchDone(id,done,slug); } }),
   "projects.punch.remove": defineAction({ area:"projects", input:job.extend({id:number}), run:async ({slug,id}) => { await punchOnJob(slug,id); return deletePunchItem(id,slug); } }),
-  "projects.safety.report": defineAction({ area:"projects", input:job.extend({date,severity:z.enum(["near_miss","minor","recordable","serious"]),notes:text,reporter:z.string().max(200).optional()}), run:({slug,date,...v}) => createIncidentReport(slug,projectForm({...v,occurredAt:date})) }),
+  "projects.safety.report": defineAction({ area:"projects", input:job.extend({requestId:z.uuid().optional(),date,severity:z.enum(["near_miss","minor","recordable","serious"]),notes:text,reporter:z.string().max(200).optional()}), run:async ({requestId,slug,date,...v},user) => requestId
+    ? safetyOperation(user.id,requestId,{slug,date,...v},()=>createIncidentReport(slug,projectForm({...v,occurredAt:date})))
+    : createIncidentReport(slug,projectForm({...v,occurredAt:date})) }),
   "projects.portal.send": defineAction({ area:"projects", ownerOnly:true, input:job.extend({body:text}), run:async ({slug,body}) => { await requireMobileProject(slug); return sendProjectMessage(slug,projectForm({body})); } }),
   "projects.file.publish": defineAction({ area:"projects", ownerOnly:true, input:job.extend({id:z.string().min(1).max(200),visible:z.boolean()}), run:async ({slug,id,visible}) => { if (!await queryOne(`SELECT 1 FROM files f JOIN projects p ON p.slug=$1 WHERE f.id=$2 AND (f.project_key=p.slug OR f.lead_slug=(SELECT slug FROM leads WHERE id=p.lead_id))`,[slug,id])) throw new MobileInputError("File not found on this job."); return setFileClientVisibility(id,visible); } }),
 };

@@ -2,7 +2,7 @@ import "server-only";
 import { getUserFromRequest, hasAccess } from "@/lib/api-auth";
 import type { CurrentUser } from "@/lib/dal";
 import type { PermissionKey } from "@/lib/permissions";
-import { getInboxData, loadMoreInbox, loadLabelInbox, loadSystemView, SMART_VIEWS, type InboxThread } from "@/lib/inbox";
+import { loadContactMaps, mapRawThreads, getInboxData, loadMoreInbox, loadLabelInbox, loadSystemView, SMART_VIEWS, type InboxThread } from "@/lib/inbox";
 import { SYSTEM_VIEWS } from "@/lib/types";
 import { withMailboxFor } from "@/lib/mailbox";
 import { loadInboxContext, withoutMoney } from "@/lib/inbox-context";
@@ -31,14 +31,23 @@ export async function emailPage(user:CurrentUser, view="inbox", cursor?:string) 
   });
 }
 export function emailCard(t:InboxThread,user:CurrentUser) {
-  const actions=["inbox.archive","inbox.done","inbox.undoDone","inbox.reply","inbox.draft","inbox.link"];
+  const actions=["inbox.star","inbox.read","inbox.archive","inbox.done","inbox.undoDone","inbox.reply","inbox.draft","inbox.link"];
   if(hasAccess(user,"engine"))actions.push("inbox.createTodo");if(hasAccess(user,"leads"))actions.push("inbox.createLead");
-  return {id:t.id,from:t.fromName,fromEmail:t.fromEmail??null,subject:t.subject,snippet:t.preview,unread:!!t.unread,time:t.receivedAt?new Date(t.receivedAt).toISOString():null,
+  return {id:t.id,from:t.fromName,fromEmail:t.fromEmail??null,subject:t.subject,snippet:t.preview,unread:!!t.unread,starred:!!t.starred,time:t.receivedAt?new Date(t.receivedAt).toISOString():null,
     status:t.view,label:SMART_VIEWS.find(v=>v.key===t.view)?.label??"Email",record:{type:t.linkedType??(t.projectSlug?"project":null),slug:t.linkedSlug??t.projectSlug??null,label:t.projectLabel??t.tag},todos:t.todos??[],allowedActions:actions};
 }
+export async function emailById(user:CurrentUser,id:string) {
+  if(!/^[-\w]{1,512}$/.test(id))throw new CommsReadError("Invalid email id.");
+  return withMailboxFor(user,async()=> {
+    const {fetchRawThread}=await import("@/lib/gmail");
+    let raw; try { raw=await fetchRawThread(id); } catch(e) { if ((e as {code?:number}).code===404) throw new CommsReadError("Email not found.",404); throw e; }
+    const mapped=mapRawThreads([raw],new Map(),await loadContactMaps());
+    return {threads:mapped.threads,readers:Object.fromEntries(mapped.readerEntries)};
+  });
+}
 export async function emailDetail(user:CurrentUser,id:string,view?:string,cursor?:string){
-  const page=await emailPage(user,view,cursor);const t=page.threads.find(t=>t.channel==="email"&&t.id===id);const reader=page.readers[id];
-  if(!t||!reader)throw new CommsReadError("Email not found in this page. Reopen its view.",404);
+  const page=await emailById(user,id);const t=page.threads.find(t=>t.channel==="email"&&t.id===id);const reader=page.readers[id];
+  if(!t||!reader)throw new CommsReadError("Email not found.",404);
   let context=await loadInboxContext({threadId:id,email:t.fromEmail,contactKey:t.contactKey,projectSlug:t.projectSlug,leadSlug:t.linkedType==="lead"?t.linkedSlug:undefined});
   if(!hasAccess(user,"money"))context=withoutMoney(context);
   const money=context.job?.money;

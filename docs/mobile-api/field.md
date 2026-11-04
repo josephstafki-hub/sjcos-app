@@ -140,3 +140,50 @@ The imported types above are exact existing web contracts (not approximations).
 Both names wrap `fileUnsortedAction(id, {target:{to:"dismiss"}})`, exactly the
 web's “Not a business cost — set it aside”. Undo uses existing `unsorted.undo`.
 The original actions and scan endpoints above remain available.
+
+
+# Backend r3 updates (supersede corresponding definitions above)
+
+Full cross-area contract: [backend-r3.md](backend-r3.md).
+
+## Schedule
+
+GET `/api/mobile/schedule` block fields added:
+```ts
+type ScheduleEditFields = {
+ projectId:string|null;projectSlug:string|null;tone:"accent"|"ai"|"ghost";
+ originalTimeLabel:string;rawTime:string;timeLabel:string;
+ start:string|null;end:string|null;timeZone:"America/Chicago";timeZoneLabel:"Central time";
+};
+```
+`rawTime` now contains the original time normalized by the shared grammar when
+possible (e.g. 9am → 09:00). `originalTimeLabel` retains the original label. Start/end
+are ISO instants for parseable times, null for all-day or ambiguous legacy values.
+POST `/api/mobile/rpc/schedule.update` accepts
+`{id:string;date?:string;time?:string;label?:string;tone?:"accent"|"ai"|"ghost";projectId?:string|null}`.
+Omitted fields are loaded from the existing block before calling the web action.
+Use `projectId:null` to unlink. Do not send blank time for an untouched field.
+Ambiguous legacy times are refused by shared validation until explicitly corrected.
+Result is the existing `{ok:true}|{ok:false;error:string}` (refusals become RPC errors).
+
+## Warranty, subs and plain labels
+
+POST `/api/mobile/rpc/warranty.acknowledge`, `/warranty.resolve`, `/warranty.reopen`
+accept `{id:string}` (UUID), require Warranty, use the corresponding existing web
+actions, and return `{ok:boolean;error?:string}`. GET `/api/mobile/warranty` claim
+allowedActions are `["warranty.reopen"]` if resolved; otherwise resolve plus acknowledge
+when not yet acknowledged. Existing list/log actions are unchanged.
+
+GET `/api/mobile/subs/[slug]` documents add `{mimeType:string|null;fileName:string|null}`;
+missing file metadata yields null. `sub.jobsCount` now matches the returned jobs;
+paperwork display values use plain status labels, and empty dash values become `""`.
+Settings profile meta uses the viewer's role and company (no "all roles"); time zone
+field is "Central time". Schedule retains the machine time zone plus timeZoneLabel.
+Jobs summary says jobs/total; Leads summary says "in the pipeline" and omits zero
+reply counts. Machine IDs, enums and ISO fields remain for clients; use their paired
+labels for presentation.
+
+GET `/api/mobile/time/review` additionally returns `project_name:string|null` on
+both each `intervals` entry and `running` (when non-null), resolved from the project's
+ID even when it is absent from the phone's synced site list. The original interval
+fields and running/totals envelopes are unchanged.

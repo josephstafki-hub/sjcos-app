@@ -180,3 +180,51 @@ Shared web helpers changed: daily add appends and returns id; new explicit
 Coordinator should HTTP-test real bearer owner/staff sessions, PDF/image access,
 append vs edit, upload + linked photo, signed Undo and actual send approval checks
 on the private QA clone. No servers or browsers were started by this slice.
+
+
+# Backend r3 updates (supersede corresponding definitions above)
+
+Full cross-area contract: [backend-r3.md](backend-r3.md).
+
+## Portal history and initials
+
+GET `/api/mobile/projects/[slug]/messages?before=<id>` requires Projects.
+GET `/api/mobile/leads/[slug]/messages?before=<id>` requires Leads.
+Both accept an optional positive decimal message ID, return the latest 20 without
+`before`, and use the exact timestamp + ID boundary of that message within that channel.
+A cursor from another channel cannot expose messages. Response:
+```ts
+type PortalPage = {
+ messages:{id:number;author:"owner"|"ai"|"user";name:string;initials:string;
+           body:string;when:string;createdAt:string}[];
+ hasMore:boolean;nextBefore:string|null;
+};
+```
+Messages are oldest first. Prepend earlier pages, stop when `hasMore` is false.
+Initial job/lead arrays remain available. Initials in both initial arrays and pages are
+computed from the author name (Tom Tierney → TT), rather than stale stored initials.
+
+## Safety retry handling
+
+POST `/api/mobile/rpc/projects.safety.report` retains its existing body and adds
+`requestId?:string` (UUID). Existing body: `{slug:string;date:string;
+severity:"near_miss"|"minor"|"recordable"|"serious";notes:string;reporter?:string}`.
+When requestId is supplied the exact result type is:
+```ts
+type SafetyOperation = {
+ requestId:string;status:"pending"|"completed"|"failed";
+ result:{ok:boolean;error?:string}|null;message:string|null;
+};
+```
+The first request waits for the existing AI/PDF action. Concurrent/retried requests
+return the persisted operation without executing it again. Repeat the SAME payload
+and ID after a timeout; changed payload with the same ID returns 400. Completed or
+failed outcomes are replayed. A failed uncertain outcome requires checking the job;
+do not automatically submit a new ID. Calls without requestId retain `{ok:boolean;
+error?:string}` and have no retry guarantee.
+
+The private journal is `drafts/mobile-safety-operations` (mode 0700, files 0600), under
+the same persistent checkout/storage model as existing drafts. All hosts must share
+this directory. After a process crash an uncertain operation remains pending rather
+than risk duplicate incident/PDF creation; coordinator reconciliation is required.
+No DB schema, services or live data were changed.

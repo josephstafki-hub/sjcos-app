@@ -1545,3 +1545,9 @@ export async function fetchInboxAttachment(threadId: string, messageId: string, 
   if(!data)throw Error('Attachment unavailable.');
   return {bytes:Buffer.from(data,'base64url'),name:part.filename||'attachment',type:part.mimeType||'application/octet-stream'};
 }
+
+/** Mailbox-scoped, cached single-thread read; no list or label quota. */
+export async function fetchRawThread(id: string): Promise<RawGmailThread> {
+  const [data, me] = await Promise.all([cachedThread(id), fetchProfileEmail()]);
+  return rawThreadOf(id, data, me);
+}

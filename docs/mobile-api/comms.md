@@ -203,3 +203,33 @@ Coordinator should HTTP-smoke bearer reads, staff mailbox/DM isolation, missing
 credential write failures, attachment download and recording playback against
 the QA production preview. Email unread counts are page scoped; a mailbox-wide
 unread total would need a separate quota-aware web helper and is not inferred.
+
+
+# Backend r3 updates (supersede corresponding definitions above)
+
+Full cross-area contract: [backend-r3.md](backend-r3.md).
+
+## Email
+
+GET `/api/mobile/inbox/threads/[id]?view=...&cursor=...` now resolves the ID in the
+caller's mailbox directly using the shared cached Gmail loader + web thread mapper.
+The compatible view/cursor parameters are accepted but do not constrain detail lookup.
+No list-page or label-count requests are added. Attachment authorization is unchanged.
+Link/create-to-do/create-lead resolve that same authoritative source, not a list page.
+Thread cards additionally include `starred:boolean`, and advertise inbox.star/inbox.read.
+
+POST `/api/mobile/rpc/inbox.star`: `{threadId:string;starred:boolean}`.
+POST `/api/mobile/rpc/inbox.read`: `{threadId:string;read:boolean}`.
+Both require Inbox, wrap existing mailbox actions and return `{ok:true}` on success.
+
+## Received MMS
+
+GET `/api/mobile/sms/[id]` messages retain `media` and extend each entry:
+```ts
+type SmsMedia = {file_id:string;mime:string;name:string;size:number;
+ mimeType:string;fileName:string;url:string};
+```
+GET `/api/mobile/sms/[id]/media/[fileId]` serves bytes with Comms authorization **and**
+checks that the file belongs to a message in that thread. URLs support the shared file
+handler's thumbnail/download parameters. Projects access is unnecessary. MIME and file
+name come from stored metadata; use the same bearer token to fetch media.

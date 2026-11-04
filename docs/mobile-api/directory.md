@@ -136,3 +136,30 @@ revalidation, or invite logic. Assignment may park a portal invite for Joe, neve
 send it. Restore refusal is returned as `{error:string}` by the dispatcher. A
 missing job on assign/remove has the web's no-op behavior. Existing actions above
 remain available; no client-facing send or grant rules changed.
+
+
+# Backend r3 updates (supersede corresponding definitions above)
+
+Full cross-area contract: [backend-r3.md](backend-r3.md).
+
+## Warranty, subs and plain labels
+
+POST `/api/mobile/rpc/warranty.acknowledge`, `/warranty.resolve`, `/warranty.reopen`
+accept `{id:string}` (UUID), require Warranty, use the corresponding existing web
+actions, and return `{ok:boolean;error?:string}`. GET `/api/mobile/warranty` claim
+allowedActions are `["warranty.reopen"]` if resolved; otherwise resolve plus acknowledge
+when not yet acknowledged. Existing list/log actions are unchanged.
+
+GET `/api/mobile/subs/[slug]` documents add `{mimeType:string|null;fileName:string|null}`;
+missing file metadata yields null. `sub.jobsCount` now matches the returned jobs;
+paperwork display values use plain status labels, and empty dash values become `""`.
+Settings profile meta uses the viewer's role and company (no "all roles"); time zone
+field is "Central time". Schedule retains the machine time zone plus timeZoneLabel.
+Jobs summary says jobs/total; Leads summary says "in the pipeline" and omits zero
+reply counts. Machine IDs, enums and ISO fields remain for clients; use their paired
+labels for presentation.
+
+GET `/api/mobile/time/review` additionally returns `project_name:string|null` on
+both each `intervals` entry and `running` (when non-null), resolved from the project's
+ID even when it is absent from the phone's synced site list. The original interval
+fields and running/totals envelopes are unchanged.

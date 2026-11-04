@@ -43,3 +43,37 @@ test('returned action refusal becomes 400', async () => {
   assert.equal(response.status, 400);
   assert.deepEqual(await response.json(), { error: 'Changed since preview.' });
 });
+
+test('staff-crafted lead portal send is denied before its action runs', async () => {
+  let invoked=false;
+  const actions={post:defineAction({area:'leads',ownerOnly:true,input:z.object({body:z.string()}),run:async()=>{invoked=true;}})};
+  const response=await call('post',{body:'Hello'},{...staff,permissions:['leads','projects']},actions);
+  assert.equal(response.status,403);assert.equal(invoked,false);
+});
+test('lead create navigation result survives the dispatcher',async()=>{
+ const actions={create:defineAction({area:'leads',input:z.object({name:z.string(),phone:z.string().optional(),email:z.string().optional(),address:z.string().optional()}).strict(),run:async()=>({slug:'new-lead',redirect:'/leads/new-lead'})})};
+ const response=await call('create',{name:'Client',phone:'555',email:'client@example.com',address:'Main St'},owner,actions);
+ assert.deepEqual(await response.json(),{ok:true,result:{slug:'new-lead',redirect:'/leads/new-lead'}});
+});
+
+test('durable safety request retries run once, report pending and replay completion',async()=>{
+ const {safetyOperation}=await import('../lib/mobile-rpc/safety-operation.ts');
+ const {randomUUID,createHash}=await import('node:crypto');
+ const {rm}=await import('node:fs/promises');
+ const id=randomUUID(),user='mobile-test';let calls=0,finish;
+ const barrier=new Promise(resolve=>{finish=resolve;});
+ const run=async()=>{calls++;await barrier;return {ok:true};};
+ const file=`drafts/mobile-safety-operations/${createHash('sha256').update(`${user}:${id}`).digest('hex')}.json`;
+ try {
+  // Wait until the first operation has entered its callback, after journaling.
+  let entered;const ready=new Promise(resolve=>{entered=resolve;});
+  const first=safetyOperation(user,id,{slug:'test'},async()=>{entered();return run();});
+  await ready;
+  assert.equal((await safetyOperation(user,id,{slug:'test'},run)).status,'pending');
+  finish();const result=await first;
+  assert.equal(result.status,'completed');
+  assert.deepEqual(await safetyOperation(user,id,{slug:'test'},run),result);
+  await assert.rejects(safetyOperation(user,id,{slug:'different'},run),/different report details/);
+  assert.equal(calls,1);
+ } finally {finish();await rm(file,{force:true});}
+});

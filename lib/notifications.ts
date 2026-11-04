@@ -78,7 +78,7 @@ interface NotificationRow {
   resolved?: boolean;
 }
 
-function rowToCard(r: NotificationRow): NotificationCard {
+export function rowToCard(r: NotificationRow): NotificationCard {
   const resolved = Boolean(r.resolved);
   const ref = r.ref ?? null;
   return {
@@ -112,7 +112,7 @@ function rowToCard(r: NotificationRow): NotificationCard {
  *  shared feed. Their bell starts empty and fills with hand-offs and messages.
  *
  *  Portal roles never reach this module; /notifications is behind the Today area. */
-function audienceClause(viewer: FeedViewer, paramIndex: number, v2 = true): string {
+export function audienceClause(viewer: FeedViewer, paramIndex: number, v2 = true): string {
   // v2 (db/apply-notifications-v2.mjs): a card your own action caused is in
   // your feed too — a team member who moves a lead sees it in their bell.
   const mine = v2 ? ` OR n.actor_user_id = $${paramIndex}` : "";

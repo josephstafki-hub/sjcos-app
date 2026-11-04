@@ -22,13 +22,15 @@ export async function subRead(u: CurrentUser, slug: string) {
     subPaperworkForOwner(runDirect, slug),
     query<{slug:string; name:string; start:string|null; end:string|null; active:boolean}>(`SELECT p.slug,p.name,ps.start_date::text AS start,ps.end_date::text AS end,p.status <> 'warranty' AS active FROM project_subs ps JOIN projects p ON p.id=ps.project_id WHERE ps.sub_slug=$1 ORDER BY ps.assigned_at DESC`,[slug]),
   ]);
+  const fileIds=documents.documents.flatMap(d=>d.fileId ? [d.fileId] : []);
+  const fileRows=fileIds.length ? (await query<{id:string;name:string;mime_type:string|null}>("SELECT id,name,mime_type FROM files WHERE id=ANY($1::text[])",[fileIds])).rows : [];
   const canAssign = hasAccess(u,"projects");
   return {sub: {slug, name:sub.name, initials:sub.initials, trade:sub.rawTrade, archived:sub.archived,
     tradeLine:sub.tradeLine, working:sub.working, coiStatus:sub.coiStatus, coiLabel:sub.coiLabel,
-    jobsCount:sub.jobsCount, rating:sub.rating, reliability:sub.reliability, recentJobs:sub.recentJobs, paperwork:sub.paperwork, taxNote:sub.taxNote,
+    jobsCount:jobs.rows.length, rating:sub.rating, reliability:sub.reliability, recentJobs:sub.recentJobs, paperwork:sub.paperwork.map(p=>({...p,value:p.value === "—" ? "" : label(p.value)})), taxNote:sub.taxNote,
     phone:sub.phone, email:sub.email, contact:sub.contact, coi:{status:sub.coiStatus, statusLabel:label(sub.coiStatus), expires:coi.rows[0]?.expires ?? null},
     rate:hasAccess(u,"money") ? sub.rate : {amount:"", unit:"", note:""}, notes:u.role === "owner" ? sub.notes : null,
-    documents:documents.documents.map(d => ({id:d.id, type:d.docType, typeLabel:d.docType === "coi" ? "Certificate of insurance" : d.docType === "w9" ? "W-9" : label(d.docType), status:d.status, statusLabel:label(d.status), expiry:d.expiresAt, url:d.fileId ? `/api/mobile/subs/${encodeURIComponent(slug)}/documents/${d.id}/file` : null, allowedActions:u.role === "owner" && ["received","under_review"].includes(d.status) ? ["subs.acceptDocument","subs.rejectDocument"] : []})),
+    documents:documents.documents.map(d => ({id:d.id, fileName:fileRows.find(f=>f.id===d.fileId)?.name ?? null, mimeType:fileRows.find(f=>f.id===d.fileId)?.mime_type ?? null, type:d.docType, typeLabel:d.docType === "coi" ? "Certificate of insurance" : d.docType === "w9" ? "W-9" : label(d.docType), status:d.status, statusLabel:label(d.status), expiry:d.expiresAt, url:d.fileId ? `/api/mobile/subs/${encodeURIComponent(slug)}/documents/${d.id}/file` : null, allowedActions:u.role === "owner" && ["received","under_review"].includes(d.status) ? ["subs.acceptDocument","subs.rejectDocument"] : []})),
     jobs:jobs.rows.map(j => ({...j, allowedActions:canAssign ? ["subs.removeAssignment"] : []})), removedJobs:canAssign ? sub.removedJobs.map(j => ({...j, allowedActions:["subs.restoreAssignment"]})) : [],
     allowedActions:[...(sub.email ? ["subs.coiRequestDraft"] : []), ...(u.role === "owner" ? ["subs.notes"] : []), ...(canAssign ? ["subs.assign"] : [])]}};
 }
@@ -51,7 +53,7 @@ export async function vendorRead(u: CurrentUser, slug: string) {
 }
 export async function settingsRead(u: CurrentUser) {
   const d = await getSettingsData();
-  return {profile:{...d.profile, name:u.name, email:u.email}, notifyToggles:d.notifyToggles, allowedActions:["settings.profile","settings.notify"]};
+  return {profile:{...d.profile, name:u.name, email:u.email,meta:`${label(u.role)} · ${d.profile.company}`,fields:d.profile.fields.map(f=>({...f,value:f.value === "America/Chicago" ? "Central time" : f.value}))}, notifyToggles:d.notifyToggles, allowedActions:["settings.profile","settings.notify"]};
 }
 export async function searchRead(u: CurrentUser, raw: string) {
   const hits = await searchPanelForUser(u, raw, true);

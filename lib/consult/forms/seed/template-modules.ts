@@ -20,7 +20,7 @@ export const bath_scope: ModuleDef = {
     }),
     choice('tub_drain_end', 'Tub drain end', ['Left', 'Right'], all(ne('existing_tub_material', 'No tub'), isIn('tub_shower_plan', ['Keep tub', 'New tub-shower', 'Freestanding tub'])), { hint: 'Facing the tub, which end is the drain?', note: 'R? tub kept or replaced' }),
     pair('shower_drain_center', 'Shower drain center from back × side wall', shower),
-    yesno('wet_wall_exterior', 'Wet wall exterior?', true, { flag: { when: eq('wet_wall_exterior', true), issue: 'MN freeze risk — reroute or insulate supplies' } }),
+    yesno('wet_wall_exterior', 'Wet wall exterior?', true, { flag: { when: eq('wet_wall_exterior', true), issue: 'Pipes in an outside wall can freeze in Minnesota — reroute or insulate them' } }),
     choice('wet_wall_framing', 'Wet wall framing', ['2×4', '2×6', 'Unknown'], any(eq('valve_plan', 'Replace'), answered('niche'), eq('toilet_plan', 'Wall-hung')), { note: 'R? new valve, niche or wall-hung toilet' }),
     text('valve_brand', 'Existing valve — brand', true),
     text('valve_cartridge', 'Existing valve — cartridge', true),

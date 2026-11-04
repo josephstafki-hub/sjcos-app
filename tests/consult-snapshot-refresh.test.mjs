@@ -37,7 +37,7 @@ for(const scenario of ['boot','unsent edit','Reload','changed evidence'])test(`s
  };
  const ctl=new VisitController(null,f.consult);ctl.engine=engine;ctl.ensureRequiredInstances=async()=>{};
  Object.assign(ctl.state,{device:f.device,local:engine.read()});
- t.after(()=>{if(ctl.timer)clearTimeout(ctl.timer);engine.lock();});
+ t.after(()=>{if(ctl.timer)clearTimeout(ctl.timer);if(ctl.closeTimer)clearTimeout(ctl.closeTimer);engine.lock();});
  if(scenario==='Reload'){
   await assert.rejects(f.run('evidence',{device:f.device,epoch:1,expected_revision:await f.revision(),generation:2,baseline_hash:original.close_evidence_hash,evidence:{}}),/stale_snapshot/);
   await ctl.abandonClose();

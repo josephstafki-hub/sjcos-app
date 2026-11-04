@@ -108,7 +108,7 @@ test('re-delivery day: limited to start − 60 … start − 7, with the words s
 
 test('certification warning: the one shared copy names Joe, on every surface', () => {
   const rrpOn = { 'house.year_built': 1985, 'era.before_1978': true, 'era.disturbs_paint': true, 'era.renovator_name': 'Dana Kowalski', 'era.renovator_expiry': '2027-03-01', 'era.firm_cert_expiry': '2027-03-01' };
-  for (const w of certificationWarnings(rrpOn, '2027-06-30')) assert.match(w.message, /\. Joe renews it /, w.field_address);
+  for (const w of certificationWarnings(rrpOn, '2027-06-30')) assert.match(w.message, /\. (?:Joe renews it |Dana takes the refresher course )/, w.field_address);
   // Field (under the expiry field, the Renovate Right sheet, Before you wrap) and the office look-over all
   // render CertWarningText / CertWarningList — none writes its own words.
   for (const p of ['components/consult/field/FieldRow.tsx', 'components/consult/field/WrapClose.tsx', 'app/(os)/projects/[slug]/consult/[id]/page.tsx']) {

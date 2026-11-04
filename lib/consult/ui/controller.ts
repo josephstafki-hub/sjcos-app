@@ -567,11 +567,21 @@ export class VisitController {
     if(this.closeTimer)clearTimeout(this.closeTimer);
     const paused=this.engine.read()?.close_intent;
     if(paused?.paused){
-      if (['conflict','stale_snapshot'].includes(paused.paused) && Date.now()-(paused.started_at??Date.now())<30*60_000) { this.closeTimer=setTimeout(()=>{void this.resumeClose();},60_000); return; }
+      const engine=this.engine,epoch=this.memoryEpoch;
+      const owns=()=>{
+        if(this.disposed||this.engine!==engine||this.memoryEpoch!==epoch)return false;
+        try { const intent=engine.read()?.close_intent;return intent?.started_at===paused.started_at&&intent?.paused===paused.paused; }
+        catch { return false; }
+      };
+      if(paused.notified)this.set({closing:{...this.state.closing,step:'error',code:paused.paused,ownerNotified:true}});
+
+      if (['conflict','stale_snapshot','evidence_conflict','owner_required'].includes(paused.paused) && Date.now()-(paused.started_at??Date.now())<30*60_000) { this.closeTimer=setTimeout(()=>{void this.resumeClose();},60_000); return; }
       if(!paused.notified)try{
         await post(this.state.consultId,'report_close_failure',{reason:paused.paused});
-        await this.engine.pauseClose(paused.paused,true);
-      }catch{this.closeTimer=setTimeout(()=>{void this.resumeClose();},60_000);}
+        if(!owns())return;
+        await engine.pauseClose(paused.paused,true);
+        if(owns())this.set({local:engine.read(),closing:{...this.state.closing,step:'error',code:paused.paused,ownerNotified:true}});
+      }catch{if(owns())this.closeTimer=setTimeout(()=>{void this.resumeClose();},60_000);}
       return;
     }
     const engine = this.engine, epoch = this.memoryEpoch, token = {};
@@ -635,7 +645,7 @@ export class VisitController {
       const field = refusalField(e);
       this.set({ local: this.engine?.read() ?? null, closing: { step: code === 'no_signal' ? 'waiting_signal' : 'error', code, ...(field ? { field } : {}) } });
       if (!transientClose(rawCode)) await engine.pauseClose(rawCode);
-      if (!engine.read()?.close_intent?.notified && (!transientClose(rawCode) && !['conflict','stale_snapshot'].includes(rawCode) || Date.now()-(local.close_intent?.started_at??Date.now())>=30*60_000)) {
+      if (!engine.read()?.close_intent?.notified && (!transientClose(rawCode) && !['conflict','stale_snapshot','evidence_conflict','owner_required'].includes(rawCode) || Date.now()-(local.close_intent?.started_at??Date.now())>=30*60_000)) {
         try { await post(this.state.consultId,'report_close_failure',{reason:rawCode});
           if(owns()) { await engine.pauseClose(transientClose(rawCode)?'':rawCode,true); this.set({closing:{step:'error',code,ownerNotified:true,...(field?{field}:{})}}); }
         } catch { /* Keep the intent and retry reporting when connectivity returns. */ }

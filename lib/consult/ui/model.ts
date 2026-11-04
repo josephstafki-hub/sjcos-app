@@ -94,7 +94,7 @@ export function officeFlagText(issue: string, hint?: string | null): string {
   const sentence = /^[a-z]/.test(t) ? `${t.charAt(0).toUpperCase()}${t.slice(1)}${/[.!?]$/.test(t) ? '' : '.'}` : /^[A-Z]/.test(t) && !/[.!?]$/.test(t) ? `${t}.` : t;
   const bare = (x: string) => x.replace(/[.!?]$/, '').toLowerCase();
   const detail = bare(visitorFlagText(t)) !== bare(t) || /\b(?:MDH|counsel|CFR|IRC)\b/.test(t);
-  if (detail || /^[A-Z]/.test(t)) return sentence;
+  if (detail || /Minn\. R\./.test(t) || /[.!?]$/.test(t)) return sentence;
   return hint?.trim() || sentence;
 }
 
@@ -389,6 +389,7 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
       let mark: Mark = answered ? (shotsDone ? 'covered' : 'partial') : counts ? 'not_applicable' : 'open';
       if (f.type === 'length_pair' && answered && Array.isArray(a?.value) && a!.value.some((v) => typeof v !== 'number')) mark = 'partial';
       const flags: FieldView['flags'] = [];
+      if(m.key==='house'&&f.key==='radon_level'&&typeof values[f.key]==='number'&&(values[f.key] as number)>=4)flags.push({kind:'advisory',key:addr,issue:`Radon ${values[f.key]} pCi/L — at or above the Minnesota Department of Health action level (4). Mention mitigation to the client.`,hint:'Mention mitigation to the client.',address:addr,measured:[]});
       for (const flag of evaluatedFlags(f,addr,values)) flags.push({kind:flag.kind,key:flag.key,issue:flag.issue,hint:flag.hint??visitorFlagText(flag.issue),address:addr,measured:[...new Set(flagInputs(flag.when))].map(key=>{const parts=key.split('.'),def=parts.length===1?m.fields.find(f=>f.key===key):byKey.get(parts[0])?.fields.find(f=>f.key===parts[1]);const source=parts.length===1?inst:live.find(i=>i.module_key===parts[0]);return {field:key,value:values[key],unit:def?.unit==='in'?'″':def?.unit,address:source?addrOf(source.id,def?.key??key):addr};})});
       const view: FieldView = { key: f.key, addr, readOnly: m.key==='closing'&&f.key==='summary', ...(prefilled?{prefilledFrom:{field:'house.year_built',value:global['house.year_built'],label:`From Year built (${global['house.year_built']})`}}:{}), def: f.key==='pamphlet_given'&&m.key==='era'&&typeof global['house.year_built']!=='number'&&global['era.before_1978']!==true?{...f,say:PAMPHLET_UNKNOWN_YEAR_LINE}:m.key==='era'&&f.key==='before_1978'?{...f,hint:yearHint(prefilled,a,global['house.year_built'])}:f, required, applicable, mark, answer: a, conflict, returnVisit: a?.status === 'skipped' && a.skip_reason === 'Get on return visit', skipNote: a?.skip_note, skipCounts: counts, shots, flags, initials };
       for (const fl of flags) allFlags.push({ ...fl, section, field: view });

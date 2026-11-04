@@ -286,7 +286,7 @@ export const water: ModuleDef = {
     num('heater_size', 'Water heater size', 'gal', false),
     yesno('stack_cracks', 'Cracks, rust or weeping on the stack?', eq('main_stack', 'Cast iron')),
     choice('main_stack', 'Main drain stack', ['Cast iron', 'PVC-ABS', 'Galvanized', 'Clay', 'Orangeburg'], true, {
-      flag: { when: any(eq('main_stack', 'Orangeburg'), all(eq('main_stack', 'Cast iron'), eq('stack_cracks', true))), issue: 'Orangeburg; Cast iron with cracks' },
+      flag: { when: any(eq('main_stack', 'Orangeburg'), all(eq('main_stack', 'Cast iron'), eq('stack_cracks', true))), issue: 'Drain stack is Orangeburg or cracked cast iron — plan on replacing it' },
     }),
     text('main_cleanout', 'Main cleanout location', false),
     text('backups_roots', 'Backups or roots history', false),

@@ -1059,7 +1059,7 @@ and the breakers."
 | Water heater | choice: Gas tank / Electric tank / Gas tankless / Electric tankless / Off the boiler | R | gas → its venting is a row in `hvac` › How each fuel-burning appliance vents |
 | Water heater year (from label) | year | R | |
 | Water heater size | number gal | O | |
-| Main drain stack | choice: Cast iron / PVC-ABS / Galvanized / Clay / Orangeburg | R | ⚑ Orangeburg; Cast iron with cracks |
+| Main drain stack | choice: Cast iron / PVC-ABS / Galvanized / Clay / Orangeburg | R | ⚑ Drain stack is Orangeburg or cracked cast iron — plan on replacing it |
 | Main cleanout location | text | O | |
 | Backups or roots history | text | O | |
 | Water softener | yesno | O | |
@@ -1188,7 +1188,7 @@ or a no-step shower, now or later?"
 | Existing tub material | Cast iron / Steel / Acrylic-fiberglass / Tile base / No tub | R | ⚑ cast iron: 2-person demo / break-up |
 | Tub drain end | Left / Right | R? tub kept or replaced | |
 | Shower drain center from back × side wall | length_pair | R? shower | |
-| Wet wall exterior? | yesno | R | ⚑ MN freeze risk — reroute or insulate supplies |
+| Wet wall exterior? | yesno | R | ⚑ Pipes in an outside wall can freeze in Minnesota — reroute or insulate them |
 | Wet wall framing | 2×4 / 2×6 / Unknown | R? new valve, niche or wall-hung toilet | |
 | Existing valve | brand + cartridge + Keep/Replace/Unknown | R | |
 | Vent stack route | text + photo | R? fixture moves | |
@@ -1558,13 +1558,13 @@ Maps: `windows.replace` "Window count", `doors.interior` "Door count".
 
 ---
 
-Changed after counsel’s approval — confirm with counsel: client screen and recap, Next with no date: Joe will be in touch to tell you when you’ll have your formal estimate.
 ### Changed since approval — confirm with counsel
 Changed after counsel’s approval — confirm with counsel: staff closing line 2: Next, Joe prices this with our trade partners and suppliers. You'll have the formal estimate by {estimate_date}. It shows each part of the work, the allowances for the things you're still choosing, and what isn't included.
 Changed after counsel’s approval — confirm with counsel: staff closing line 2b: Joe works from everything I measured today, and he may call you with a question or two.
 Changed after counsel’s approval — confirm with counsel: closing line 2, no date — Joe: Next, I price this with our trade partners and suppliers. I’ll call you with the date you’ll have the formal estimate. It shows each part of the work, the allowances for the things you’re still choosing, and what isn’t included.
 Changed after counsel’s approval — confirm with counsel: closing line 2, no date — staff: Next, Joe prices this with our trade partners and suppliers. He’ll be in touch to tell you when you’ll have the formal estimate. It shows each part of the work, the allowances for the things you’re still choosing, and what isn’t included.
 Changed after counsel’s approval — confirm with counsel: unknown-year pamphlet: We’re not sure the house was built in 1978 or later, so we’re giving you this pamphlet about lead-safe work — it’s called Renovate Right. Could you initial here that you got it?
+Changed after counsel’s approval — confirm with counsel: client screen and recap, Next with no date: Joe will be in touch to tell you when you’ll have your formal estimate.
 
 ## 8. Recording consent, privacy and legal
 

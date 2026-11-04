@@ -60,6 +60,7 @@ export function decisionPatches(before: unknown, after: unknown): unknown[] {
  const batches:unknown[]=[];
  let pending:Record<string,unknown>={};
  for(const item of patches as {patch:Record<string,unknown>}[]){
+  if(new TextEncoder().encode(JSON.stringify(item)).length>32000)throw new Error('batch_too_large');
   const candidate={...pending};
   for(const [key,value] of Object.entries(item.patch))candidate[key]=(key==='skips'||key==='flags')?{...(pending[key] as object??{}),...(value as object)}:value;
   if(new TextEncoder().encode(JSON.stringify(candidate)).length>32000 && Object.keys(pending).length){batches.push({patch:pending});pending=item.patch;}

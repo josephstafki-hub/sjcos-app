@@ -94,6 +94,10 @@ export const W = {
   // r8 extra: a skipped field says the skip took — change its reason, or undo it.
   changeReason: 'Change reason…',
   undoSkip: 'Undo skip',
+  /** r16 R16-1: "This room is part of" on a multi-job visit has no Skip; an old saved skip says why it didn't take. */
+  partOfNoSkip: 'Pick at least one — every room has to belong to a job.',
+  /** r16 O1: the control is checkboxes, so the hint says tick — and that one is the usual answer. */
+  partOfHint: 'Tick the job that prices this room’s floor — usually just one. A hall the kitchen floor runs into is Kitchen, or Flooring if that add-on is on the visit. A bath inside a basement finish is Bathroom only.',
   /** r8 domain 3: the mark word for a skip that needs no written assumption. */
   skippedMark: 'Skipped',
   /** r8 domain 3: the date field's hint while it is skipped. */

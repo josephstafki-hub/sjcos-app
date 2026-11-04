@@ -15,11 +15,16 @@ const TONES: Record<Tone, string> = {
   danger: "bg-card text-flag border-2 border-flag hover:bg-flag-soft",
 };
 
+/** r16 O3: a disabled primary button drops the accent fill for a muted one (not dashed: dashed means "tap to measure") whose label stays
+ *  readable (ink-2 on paper-3 ≈ 5.9:1) — white at 45 % opacity was about 2:1 in a bright kitchen. */
+const DISABLED_PRIMARY = "bg-paper-3 text-ink-2 border-2 border-rule";
+
 export function Btn({ tone = "secondary", wide, size = 56, className = "", children, ...rest }: ButtonHTMLAttributes<HTMLButtonElement> & { tone?: Tone; wide?: boolean; size?: 56 | 64 | 48 }) {
   const h = size === 64 ? "min-h-16" : size === 48 ? "min-h-12" : "min-h-14";
+  const look = rest.disabled && tone === "primary" ? DISABLED_PRIMARY : `disabled:opacity-45 ${TONES[tone]}`;
   return (
     <button type="button" {...rest}
-      className={`${h} ${wide ? "w-full" : ""} inline-flex items-center justify-center gap-2 rounded-md px-4 text-[1em] font-semibold leading-tight transition-colors focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-not-allowed disabled:opacity-45 ${TONES[tone]} ${className}`}>
+      className={`${h} ${wide ? "w-full" : ""} inline-flex items-center justify-center gap-2 rounded-md px-4 text-[1em] font-semibold leading-tight transition-colors focus-visible:outline-3 focus-visible:outline-offset-2 focus-visible:outline-focus disabled:cursor-not-allowed ${look} ${className}`}>
       {children}
     </button>
   );

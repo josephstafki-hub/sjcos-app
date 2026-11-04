@@ -307,7 +307,8 @@ export function FieldRow({ f, actions, sectionId, last }: { f: FieldView; action
       {/* r8 domain 3: while the date is skipped its hint says what happens instead. */}
       {d.hint && <p className="text-[0.9em] text-ink-2">{skipped && d.key === "estimate_promised" ? W.dateSkippedHint : d.hint}</p>}
       {/* r7 R7-5 / r8: "Skipped · {reason} · {note}" — the mark on the right says N/A or Skipped once. */}
-      {skipped && <p className="mt-1 text-[0.95em] text-ink-2">{skipLine(f)}</p>}
+      {/* r16 R16-1: a skip saved before Skip was taken away here doesn't count — say so, keep Undo skip. */}
+      {skipped && <p className="mt-1 text-[0.95em] text-ink-2">{f.noSkip ? W.partOfNoSkip : skipLine(f)}</p>}
       {input}
       <Saved f={f} />
       {f.answer?.local === "invalid" && (
@@ -325,7 +326,7 @@ export function FieldRow({ f, actions, sectionId, last }: { f: FieldView; action
       <div className="mt-2 flex flex-wrap gap-3">
         {last !== undefined && !answered && (d.type === "length" || d.type === "length_pair") && <Btn onClick={() => void actions.answer(f, { status: "answered", value: last, unit: d.unit })}>{W.sameAsLast} · {showLength(last, d)}</Btn>}
         {/* r8 extra: once skipped, the button changes the reason and Undo skip takes it back. */}
-        {((!answered && d.type !== "signature") || (d.type === "signature" && !f.initials)) && <Btn tone="quiet" onClick={() => actions.skip({ field: f, sectionId })}>{skipped ? W.changeReason : W.skip}</Btn>}
+        {!f.noSkip && ((!answered && d.type !== "signature") || (d.type === "signature" && !f.initials)) && <Btn tone="quiet" onClick={() => actions.skip({ field: f, sectionId })}>{skipped ? W.changeReason : W.skip}</Btn>}
         {skipped && !(d.type === "signature" && f.initials) && <Btn tone="quiet" onClick={() => void actions.answer(f, { status: "cleared", unit: d.unit })}>{W.undoSkip}</Btn>}
       </div>
     </div>

@@ -2,7 +2,7 @@ import {FLAG_HINTS} from '../forms/seed/flag-hints.ts';
 import {redeliveryWindow} from '../rrp.ts';
 import {touchedTrades} from '../trades.ts';
 import {sameBathroom} from '../flags.ts';
-import {conflictSideLabel} from './words.ts';
+import {conflictSideLabel, W} from './words.ts';
 import {PAMPHLET_UNKNOWN_YEAR_LINE} from '../forms/seed/shared.ts';
 import {flagInputs} from '../flags.ts';
 import {evaluatedFlags} from '../forms/flags.ts';
@@ -57,6 +57,8 @@ export interface FieldView {
   key: string; addr: string; def: FieldDef; required: boolean; applicable: boolean; mark: Mark;
   prefilledFrom?: { field: string; value: unknown; label: string }; readOnly?: boolean;
   answer?: AnswerView; conflict?: ConflictView; returnVisit: boolean; skipNote?: string; skipCounts: boolean;
+  /** r16 R16-1: a skip here never counts (room membership on a multi-job visit), so no Skip is offered. */
+  noSkip?: boolean;
   shots: ShotView[]; flags: { kind?:string; decisionAllowed?:boolean; key: string; issue: string; hint: string; address: string; measured: {field:string;value:unknown;unit?:string;address:string}[] }[]; initials?: LocalBlob;
 }
 export interface SectionView {
@@ -113,6 +115,18 @@ export function templatesOf(s: Snapshot): TemplateDef[] { return s.pins.filter((
 export const isHiddenModule = (m: ModuleDef) => !countedModule(m);
 /** r6 D9: Era hazards' own year answers come first, in seed order. */
 const ERA_FIRST = ['before_1978', 'year_override_reason'];
+/** r16 O2: the fields a Backsplash height choice opens sit right under it, so picking "Full wall at
+ *  range" changes the page where the visitor tapped, not a long scroll later past Pantry. Display
+ *  order only; a key the pinned form doesn't have is skipped. */
+const BACKSPLASH_FOLLOWS = ['backsplash_measured_height', 'range_on_wall', 'range_wall_tile'];
+export function backsplashOrder<T extends { key: string }>(views: T[]): T[] {
+  const follow = BACKSPLASH_FOLLOWS.map((k) => views.find((v) => v.key === k)).filter((v): v is T => !!v);
+  const rest = views.filter((v) => !follow.includes(v));
+  const at = rest.findIndex((v) => v.key === 'backsplash_height');
+  if (at < 0) return views;
+  rest.splice(at + 1, 0, ...follow);
+  return rest;
+}
 /** r6 D9: "Built before 1978?" hint says honestly where its answer stands — filled from the year,
  *  waiting for the year, or the visitor's own answer (no hint). */
 export const YEAR_HINT_WAITING = 'Fills in once Year built is confirmed in House & household.';
@@ -298,6 +312,12 @@ export function instanceLabel(m: ModuleDef, inst: SnapInstance, ordinal: number,
 export interface TradeMap { [module: string]: string }
 
 
+/** r16 R16-1: on a visit with more than one job, every room has to say which job it belongs to —
+ *  a skip there is ignored (protocol.ts drops it too), so the field offers no Skip. One test, used
+ *  by the skip rule, the view flag and the section label, so they can't drift. */
+export const roomMustPickJob = (moduleKey: string, fieldKey: string, templateCount: number): boolean =>
+  moduleKey === 'room' && fieldKey === 'part_of' && templateCount > 1;
+
 export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[], draft: EvidenceDraft, overlayFrom = 0): VisitModel {
   const modules = modulesOf(s), templates = templatesOf(s);
   const byKey = new Map(modules.map((m) => [m.key, m]));
@@ -383,7 +403,8 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
       const required = req(f.required);
       const applicable = !conditional || required || (a !== undefined && a.status !== 'cleared');
       const sk = draft.skips[addr];
-      const skip = a?.status === 'skipped' && !(m.key==='room'&&f.key==='part_of'&&templates.length>1) ? { reason: a.skip_reason as SkipReason, note: a.skip_note, ...(sk?.reason === a.skip_reason ? sk : {}), condition_validated: conditional && !required } : undefined;
+      const mustPick = roomMustPickJob(m.key, f.key, templates.length);
+      const skip = a?.status === 'skipped' && !mustPick ? { reason: a.skip_reason as SkipReason, note: a.skip_note, ...(sk?.reason === a.skip_reason ? sk : {}), condition_validated: conditional && !required } : undefined;
       const item: CompletionItem = { key: addr, tier: f.tier, required, applicable: true, mapped: !!f.maps_to, answered: a?.status === 'answered', valid: a?.status === 'answered' && a.value !== null && a.value !== '' && (!Array.isArray(a.value) || a.value.length > 0), skip };
       const initials = f.type === 'signature' ? blobs.find((b) => b.kind === 'initials' && b.instance_id === inst.id && b.field_key === f.key) : undefined;
       const answered = (item.answered && item.valid) || !!initials;
@@ -395,7 +416,7 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
       if (f.type === 'length_pair' && answered && Array.isArray(a?.value) && a!.value.some((v) => typeof v !== 'number')) mark = 'partial';
       const flags: FieldView['flags'] = [];
       for (const flag of evaluatedFlags(f,addr,values)) flags.push({kind:flag.kind,decisionAllowed:flag.kind!=='advisory',key:flag.key,issue:flag.issue,hint:flag.hint?.replace('{value}',String(values[f.key]))??visitorFlagText(flag.issue),address:addr,measured:[...new Set(flagInputs(flag.when))].map(key=>{const parts=key.split('.'),def=parts.length===1?m.fields.find(f=>f.key===key):byKey.get(parts[0])?.fields.find(f=>f.key===parts[1]);const source=parts.length===1?inst:live.find(i=>i.module_key===parts[0]);return {field:key,value:values[key],unit:def?.unit==='in'?'″':def?.unit,address:source?addrOf(source.id,def?.key??key):addr};})});
-      const view: FieldView = { key: f.key, addr, readOnly: m.key==='closing'&&f.key==='summary', ...(prefilled?{prefilledFrom:{field:'house.year_built',value:global['house.year_built'],label:`From Year built (${global['house.year_built']})`}}:{}), def: f.key==='pamphlet_given'&&m.key==='era'&&typeof global['house.year_built']!=='number'&&global['era.before_1978']!==true?{...f,say:PAMPHLET_UNKNOWN_YEAR_LINE}:m.key==='era'&&f.key==='before_1978'?{...f,hint:yearHint(prefilled,a,global['house.year_built'])}:m.key==='room'&&f.key==='part_of'?{...f,options:templates.map(t=>t.title)}:f, required, applicable, mark, answer: a, conflict, returnVisit: a?.status === 'skipped' && a.skip_reason === 'Get on return visit', skipNote: a?.skip_note, skipCounts: counts, shots, flags, initials };
+      const view: FieldView = { key: f.key, addr, readOnly: m.key==='closing'&&f.key==='summary', ...(prefilled?{prefilledFrom:{field:'house.year_built',value:global['house.year_built'],label:`From Year built (${global['house.year_built']})`}}:{}), def: f.key==='pamphlet_given'&&m.key==='era'&&typeof global['house.year_built']!=='number'&&global['era.before_1978']!==true?{...f,say:PAMPHLET_UNKNOWN_YEAR_LINE}:m.key==='era'&&f.key==='before_1978'?{...f,hint:yearHint(prefilled,a,global['house.year_built'])}:m.key==='room'&&f.key==='part_of'?{...f,options:templates.map(t=>t.title),hint:W.partOfHint}:f, ...(mustPick?{noSkip:true}:{}), required, applicable, mark, answer: a, conflict, returnVisit: a?.status === 'skipped' && a.skip_reason === 'Get on return visit', skipNote: a?.skip_note, skipCounts: counts, shots, flags, initials };
       for (const fl of flags) allFlags.push({ ...fl, section, field: view });
       if (isDerived(f) || !applicable) { hidden.push(view); continue; }
       fieldViews.push(view);
@@ -413,9 +434,10 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
     // r6 D9: the year question leads Era hazards, so its answer stays in view (and changeable) after the
     // RRP rows it opens appear under it.
     if (m.key === 'era') fieldViews.sort((x, y) => Number(!ERA_FIRST.includes(x.key)) - Number(!ERA_FIRST.includes(y.key)));
+    if (m.key === 'kitchen_scope') fieldViews.splice(0, fieldViews.length, ...backsplashOrder(fieldViews));
     section.fields = fieldViews; section.hidden = hidden;
     section.label = instanceLabel(m, inst, n, answers);
-    if(m.key==='room'&&templates.length>1){const parts=answers.get(addrOf(inst.id,'part_of'))?.value;if(Array.isArray(parts))section.label+=' · Part of: '+parts.join(', ');}
+    if(roomMustPickJob(m.key,'part_of',templates.length)){const parts=answers.get(addrOf(inst.id,'part_of'))?.value;if(Array.isArray(parts))section.label+=' · Part of: '+parts.join(', ');}
     const pcDone = section.pc.done, pcTotal = section.pc.total;
     section.mark = pcTotal === 0 ? (section.record.total && section.record.done < section.record.total ? (section.record.done ? 'partial' : 'open') : 'covered') : pcDone === 0 ? 'open' : pcDone < pcTotal ? 'partial' : 'covered';
     sections.push(section);

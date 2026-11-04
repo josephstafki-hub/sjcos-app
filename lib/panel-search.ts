@@ -1,4 +1,5 @@
 import "server-only";
+import type { CurrentUser } from "@/lib/dal";
 import { requireUser } from "@/lib/dal";
 import { staffMayOpen } from "@/lib/permissions";
 import { query } from "@/lib/db";
@@ -28,7 +29,10 @@ const PAGES = [
  * table is selected, including snippets. Staff panel history is restricted to
  * threads whose runs all belong to them; legacy/unattributed threads stay private. */
 export async function searchPanel(raw: string, recordsOnly = false): Promise<PanelSearchResult[]> {
-  const user = await requireUser();
+  return searchPanelForUser(await requireUser(), raw, recordsOnly);
+}
+/** Bearer routes pass their already authenticated principal; keeps palette queries and area fences shared. */
+export async function searchPanelForUser(user: CurrentUser, raw: string, recordsOnly = false): Promise<PanelSearchResult[]> {
   if (user.role !== "owner" && user.role !== "staff") return [];
   const may = (path: string) => user.role === "owner" || staffMayOpen(user.permissions, path);
   const q = raw.trim().slice(0, 120);

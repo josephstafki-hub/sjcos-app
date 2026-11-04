@@ -1,45 +1,15 @@
-import { NextResponse } from "next/server";
+import { getCurrentUser } from "@/lib/dal";
 import { z } from "zod";
-import { getUserFromRequest, hasAccess } from "@/lib/api-auth";
-import { gmailConfigured, sendReply } from "@/lib/gmail";
-
-// POST /api/mobile/inbox/reply — send a reply on a thread (mobile mirror of
-// sendReplyAction). Owner only; errors plainly if Gmail isn't connected.
-const ReplySchema = z.object({
-  threadId: z.string().min(1),
-  toEmail: z.string().min(1),
-  subject: z.string(),
-  body: z.string().min(1, "Reply body is empty."),
-});
-
-export async function POST(req: Request) {
-  const user = await getUserFromRequest(req);
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!hasAccess(user, "inbox")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  if (!gmailConfigured()) return NextResponse.json({ error: "Gmail is not connected yet." }, { status: 400 });
-
-  let parsed;
-  try {
-    parsed = ReplySchema.safeParse(await req.json());
-  } catch {
-    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
-  }
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: parsed.error.issues[0]?.message ?? "Invalid input." },
-      { status: 400 },
-    );
-  }
-
-  try {
-    await sendReply({
-      threadId: parsed.data.threadId,
-      toEmail: parsed.data.toEmail,
-      subject: parsed.data.subject,
-      bodyText: parsed.data.body,
-    });
-    return NextResponse.json({ ok: true });
-  } catch (err) {
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 });
-  }
+import { commsRead, CommsReadError } from "@/lib/mobile-rpc/comms-reads";
+import { sendReplyAction } from "@/lib/actions/inbox";
+const schema=z.object({threadId:z.string().min(1),toEmail:z.string().min(1),subject:z.string(),body:z.string().min(1),replyAll:z.boolean().optional()});
+// Compatibility endpoint; writes use the same mailbox-scoped action as web/RPC.
+export async function POST(req:Request){
+ return commsRead(req,"inbox",async user=>{
+  if((await getCurrentUser())?.id!==user.id)throw new CommsReadError("Unauthorized",401);
+  let body:unknown;try{body=await req.json();}catch{throw new CommsReadError("Invalid request body.");}
+  const parsed=schema.safeParse(body);if(!parsed.success)throw new CommsReadError(parsed.error.issues[0]?.message??"Invalid input.");
+  const result=await sendReplyAction(parsed.data);if(!result.ok)throw new CommsReadError(result.error??"Could not complete this request.");
+  return Response.json({ok:true});
+ });
 }

@@ -15,6 +15,13 @@ export function parseScheduleTime(value: string): {
   minutes: number;
 } {
   const v = value.trim();
+  const range = /^(\d{2}:\d{2})\s*[–-]\s*(\d{2}:\d{2})$/.exec(v);
+  if (range) {
+    const start = parseScheduleTime(range[1]);
+    const end = parseScheduleTime(range[2]);
+    if (end.minutes <= start.minutes) throw new Error("End time must be after start time.");
+    return { label: `${start.label} – ${end.label}`, minutes: start.minutes };
+  }
   if (!v || /^(all|all day)$/i.test(v)) return { label: "All day", minutes: 0 };
   const m = /^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/i.exec(v);
   if (!m || (!m[2] && !m[3]))
@@ -42,6 +49,14 @@ export function scheduleFields(fd: FormData) {
   )
     throw new Error("Choose a valid date.");
   const time = parseScheduleTime(String(fd.get("time") ?? ""));
+  const endInput = String(fd.get("end_time") ?? "").trim();
+  if (endInput) {
+    if (time.label === "All day") throw new Error("Choose a start time before an end time.");
+    const end = parseScheduleTime(endInput);
+    if (end.label === "All day" || end.minutes <= time.minutes) throw new Error("End time must be after start time.");
+    time.label = `${time.label} – ${end.label}`;
+  }
+
   const toneInput = String(fd.get("tone") ?? "accent");
   const tone = ["accent", "ai", "ghost"].includes(toneInput)
     ? toneInput

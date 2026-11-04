@@ -1,52 +1,17 @@
-import { NextResponse } from "next/server";
-import { z } from "zod";
-import { getUserFromRequest, hasAccess } from "@/lib/api-auth";
-import { query, queryOne } from "@/lib/db";
+import { dispatchMobileAction } from "@/lib/mobile-rpc/dispatch";
+import { projectsActions } from "@/lib/mobile-rpc/projects";
+import { getCurrentUser, homeFor, homeForRole } from "@/lib/dal";
+import { getUserFromRequest } from "@/lib/api-auth";
 
-// POST /api/mobile/projects/[slug]/daily-log — add/update today's field log from
-// the phone (owner only). Mirrors lib/actions/projects addProjectDailyLog, but
-// reads JSON + Bearer auth instead of a FormData server action.
-
-const LogSchema = z.object({
-  body: z.string().min(1, "Log can't be empty."),
-  date: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional(),
-});
-
-export async function POST(
-  req: Request,
-  { params }: { params: Promise<{ slug: string }> },
-) {
-  const user = await getUserFromRequest(req);
-  if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  if (!hasAccess(user, "projects")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-
-  let parsed;
-  try {
-    parsed = LogSchema.safeParse(await req.json());
-  } catch {
-    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
-  }
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: parsed.error.issues[0]?.message ?? "Invalid input." },
-      { status: 400 },
-    );
-  }
-
-  const { slug } = await params;
-  const proj = await queryOne<{ id: string }>(`SELECT id FROM projects WHERE slug = $1`, [slug]);
-  if (!proj) return NextResponse.json({ error: "Not found" }, { status: 404 });
-
-  await query(
-    `INSERT INTO daily_logs (project_id, log_date, body)
-     VALUES ($1, COALESCE($2::date, CURRENT_DATE), $3)
-     ON CONFLICT (project_id, log_date) WHERE project_id IS NOT NULL
-     DO UPDATE SET body = EXCLUDED.body, updated_at = now()`,
-    [proj.id, parsed.data.date ?? null, parsed.data.body],
-  );
-
-  return NextResponse.json({ ok: true });
+// Compatibility endpoint: always append. Explicit replacement uses the edit RPC.
+export async function POST(req: Request, { params }: { params: Promise<{slug:string}> }) {
+  let body: unknown;
+  try { body=await req.json(); } catch { return Response.json({error:"Invalid request body."},{status:400}); }
+  if (!body || typeof body!=="object" || Array.isArray(body)) return Response.json({error:"Expected an object."},{status:400});
+  const {slug}=await params;
+  const rpc = new Request(req.url,{method:"POST",headers:req.headers,body:JSON.stringify({...body,slug})});
+  const result=await dispatchMobileAction(rpc,"projects.dailyLog.add",projectsActions,async r=>{const user=await getUserFromRequest(r);return user&&(await getCurrentUser())?.id===user.id?user:null;},user=>[homeFor(user),homeForRole(user.role)]);
+  if (!result.ok) return result;
+  const value=await result.json();
+  return Response.json({ok:true,...(value.result ?? {})});
 }

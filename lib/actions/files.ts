@@ -132,7 +132,7 @@ export async function uploadLeadPhoto(
 export async function uploadProjectFile(
   slug: string,
   formData: FormData,
-): Promise<UploadResult> {
+): Promise<UploadResult & { id?: string }> {
   await requireAccess("projects");
   const res = await storeUpload(formData.get("file"), {
     idPrefix: "proj",
@@ -141,7 +141,7 @@ export async function uploadProjectFile(
   });
   if (!res.ok) return res;
   revalidatePath(`/projects/${slug}`);
-  return { ok: true };
+  return { ok: true, id: res.id };
 }
 
 /** Upload a real file scoped to a lead (files.lead_slug = slug), shown on the
@@ -248,4 +248,20 @@ export async function summarizeFile(id: string): Promise<string> {
 
   const { summary } = await ai.summarize({ text, focus: "file" });
   return summary;
+}
+
+/** Project log photos share the normal upload store. The tag links a photo to
+ * an existing day without requiring a second file store or guessing by date. */
+export async function uploadProjectDailyLogPhoto(slug: string, logId: string, formData: FormData) {
+  await requireAccess("projects");
+  const log = await queryOne(`SELECT 1 FROM daily_logs d JOIN projects p ON p.id=d.project_id WHERE d.id=$1 AND p.slug=$2`, [logId, slug]);
+  if (!log) return { ok: false as const, error: "Log not found on this job." };
+  const res = await storeUpload(formData.get("file"), { idPrefix: "proj", projectKey: slug, imagesOnly: true, subtitle: `Daily log photo · ${slug}` });
+  if (!res.ok) return res;
+  await withTransaction(async run => {
+    await run(`UPDATE files SET ai_tags=array_append(ai_tags,$2) WHERE id=$1`, [res.id, `daily-log:${logId}`]);
+    await run(`UPDATE daily_logs SET photos=photos+1, updated_at=now() WHERE id=$1`, [logId]);
+  });
+  revalidatePath(`/projects/${slug}`);
+  return res;
 }

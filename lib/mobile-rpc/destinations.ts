@@ -4,7 +4,7 @@ export interface MobileDestination {
 }
 export function destination(href:string,ref?:string|null):MobileDestination {
   const u=new URL(href,"http://mobile.local"); const parts=u.pathname.split("/").filter(Boolean).map(decodeURIComponent);
-  const base={id:null,slug:null,focus:u.searchParams.get("focus"),section:u.searchParams.get("section")??u.searchParams.get("tab"),view:u.searchParams.get("view"),key:null,href};
+  const base={id:null,slug:null,focus:u.searchParams.get("focus"),section:u.searchParams.get("tab")??u.searchParams.get("section"),view:u.searchParams.get("view"),key:null,href};
   if(ref&&/^(decision|work_item|grant):/.test(ref))return {...base,type:"approval",key:ref};
   const records={projects:"project",leads:"lead",subs:"sub",vendors:"vendor"} as const;
   if(parts[0] in records)return {...base,type:records[parts[0] as keyof typeof records],slug:parts[1]??null,id:parts[1]??null};

@@ -1,9 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { Bot, Building2, Camera, Download, FileText, Loader2, Mail, MessageSquareText, MoreHorizontal, PenLine, RefreshCw, Search, Send, Sparkles, Undo2, X } from "lucide-react";
+import { Bot, Building2, Camera, Download, FileText, Loader2, Mail, MessageSquareText, PenLine, RefreshCw, Search, Send, Sparkles, Trash2, Undo2, X } from "lucide-react";
 import { Button, EmptyState, PageHeader, Segmented, Card, Chip, Lightbox, type ChipKind, type LightboxPhoto } from "@/components/ui";
 import { runAction } from "@/lib/run-action";
 import { fileUnsortedAction, noteUnsortedAction, rereadUnsortedAction, undoUnsortedAction, type FileUnsortedInput } from "@/lib/actions/unsorted";
@@ -33,6 +33,15 @@ const STUCK_MS = 3 * 60_000;
 const readingNow = (d: UnsortedDocRow) =>
   d.extract_state === "reading" && Date.now() - Date.parse(d.extract_started_at ?? d.created_at) < STUCK_MS;
 const isTyping = (el: EventTarget | null) => el instanceof HTMLElement && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
+
+/** A keyboard shortcut shown on its button. */
+function Key({ children }: { children: ReactNode }) {
+  return (
+    <kbd aria-hidden className="grid h-5 min-w-5 flex-none place-items-center rounded border border-rule bg-paper-2 px-1 font-sans tabular-nums text-meta font-normal text-ink-3 max-sm:hidden">
+      {children}
+    </kbd>
+  );
+}
 
 export function UnsortedClient({
   docs,
@@ -122,24 +131,28 @@ export function UnsortedClient({
     });
   }
 
-  // j / k (or arrows) move through the list when no field has focus.
+  const at = selected ? open.findIndex((d) => d.id === selected.id) : -1;
+  function step(by: 1 | -1) {
+    const d = open[at + by];
+    if (d) setSelectedId(d.id);
+  }
+
+  // → / j / ↓ next, ← / k / ↑ previous — when no field has focus and the
+  // photo viewer (which has its own arrow keys) is closed.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (tab !== "sort" || isTyping(e.target) || e.metaKey || e.ctrlKey || e.altKey || !selected) return;
-      const i = open.findIndex((d) => d.id === selected.id);
-      if (e.key === "j" || e.key === "ArrowDown") {
-        const n = open[i + 1];
-        if (n) setSelectedId(n.id);
+      if (tab !== "sort" || viewer || isTyping(e.target) || e.metaKey || e.ctrlKey || e.altKey || !selected) return;
+      if (e.key === "j" || e.key === "ArrowDown" || e.key === "ArrowRight") {
         e.preventDefault();
-      } else if (e.key === "k" || e.key === "ArrowUp") {
-        const p = open[i - 1];
-        if (p) setSelectedId(p.id);
+        step(1);
+      } else if (e.key === "k" || e.key === "ArrowUp" || e.key === "ArrowLeft") {
         e.preventDefault();
+        step(-1);
       }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [tab, open, selected]);
+  });
 
   return (
     <div className="[&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-focus [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-focus [&_input]:focus-visible:outline-2 [&_input]:focus-visible:outline-focus [&_select]:focus-visible:outline-2 [&_select]:focus-visible:outline-focus mx-auto flex min-h-full max-w-[1240px] min-w-0 flex-col gap-6 px-4 py-6 @2xl/page:px-5 @5xl/page:px-8">
@@ -167,8 +180,8 @@ export function UnsortedClient({
               {open.map((d, i) => <option key={d.id} value={d.id}>{i + 1} of {open.length} · {vendorOf(d)} · {money(d.amount_cents)}</option>)}
             </select>
           </label>
-          <Button variant="secondary" disabled={busy || open.findIndex((d) => d.id === selected.id) === 0} onClick={() => setSelectedId(open[open.findIndex((d) => d.id === selected.id) - 1].id)}>Previous</Button>
-          <Button variant="secondary" disabled={busy || open.findIndex((d) => d.id === selected.id) === open.length - 1} onClick={() => setSelectedId(open[open.findIndex((d) => d.id === selected.id) + 1].id)}>Next</Button>
+          <Button variant="secondary" disabled={busy || at === 0} onClick={() => step(-1)} title="Previous receipt (← or K)" aria-keyshortcuts="ArrowLeft K"><Key>←</Key>Previous</Button>
+          <Button variant="secondary" disabled={busy || at === open.length - 1} onClick={() => step(1)} title="Next receipt (→ or J)" aria-keyshortcuts="ArrowRight J">Next<Key>→</Key></Button>
         </div>
         <div className="mb-3 flex min-w-0 flex-wrap items-center gap-3">
           <p className="min-w-0 flex-1 break-words text-body font-semibold">{vendorOf(selected)} · {money(selected.amount_cents)}</p>
@@ -214,7 +227,7 @@ export function UnsortedClient({
             ))}
           </Card>
 
-          <SortPanel key={`s${selected.id}`} doc={selected} projects={projects} byslug={byslug} busy={busy} onFile={file} onNote={note} />
+          <SortPanel key={`s${selected.id}`} doc={selected} projects={projects} byslug={byslug} busy={busy} keysOff={viewer !== null} onFile={file} onNote={note} />
           <details className="min-w-0 @5xl/page:col-start-2">
             <summary className="cursor-pointer py-3 text-label text-accent-2">Document facts & preview</summary>
             <div className="space-y-3">
@@ -519,6 +532,7 @@ function SortPanel({
   projects,
   byslug,
   busy,
+  keysOff,
   onFile,
   onNote,
 }: {
@@ -526,6 +540,8 @@ function SortPanel({
   projects: ProjectChoice[];
   byslug: Map<string, ProjectChoice>;
   busy: boolean;
+  /** The photo viewer is open: its keys, not ours. */
+  keysOff: boolean;
   onFile: (doc: UnsortedDocRow, input: FileUnsortedInput, label: string) => void;
   onNote: (doc: UnsortedDocRow, text: string) => void;
 }) {
@@ -552,18 +568,19 @@ function SortPanel({
   function toOverhead() {
     onFile(doc, { target: { to: "overhead" }, kind, amountCents: amountOk ? amountCents : undefined, vendorLabel: vendor }, `${vendor} → Overhead.`);
   }
-  function dismiss() {
-    onFile(doc, { target: { to: "dismiss" }, kind, vendorLabel: vendor }, `${vendor} set aside — not a business cost.`);
+  function remove() {
+    onFile(doc, { target: { to: "dismiss" }, kind, vendorLabel: vendor }, `${vendor} removed — set aside, not a business cost. It stays under Filed lately.`);
   }
   function sendNote() {
     const text = q.trim();
     if (text) onNote(doc, text);
   }
 
-  // 1–5 picks a guess, o = overhead, / = search — when no field has focus.
+  // 1–5 picks a guess, o = overhead, / = type a project or note, x / Delete =
+  // remove — when no field has focus.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (busy || isTyping(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (busy || keysOff || isTyping(e.target) || e.metaKey || e.ctrlKey || e.altKey) return;
       const n = Number(e.key);
       if (n >= 1 && n <= suggestions.length) {
         e.preventDefault();
@@ -574,6 +591,9 @@ function SortPanel({
       } else if (e.key === "/") {
         e.preventDefault();
         searchRef.current?.focus();
+      } else if (e.key === "x" || e.key === "Delete") {
+        e.preventDefault();
+        remove();
       }
     }
     window.addEventListener("keydown", onKey);
@@ -590,7 +610,7 @@ function SortPanel({
           onClick={toOverhead}
           className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 text-left disabled:opacity-50 ${doc.overhead_likely ? "border-accent bg-accent-soft" : "border-rule bg-card hover:border-accent hover:bg-accent-soft"}`}
         >
-          <kbd className="grid size-5 flex-none place-items-center rounded border border-rule bg-paper-2 tabular-nums text-meta text-ink-3">O</kbd>
+          <Key>O</Key>
           <Building2 className="size-3.5 flex-none text-ink-3" />
           <span className="flex-1 text-body font-semibold text-ink">File as overhead</span>
           <span className="hidden text-meta text-ink-3 @xl/page:inline">company, not a job</span>
@@ -623,8 +643,14 @@ function SortPanel({
               }
             }}
             placeholder="Another project, or tell the agent…"
-            className="w-full rounded-lg border border-rule bg-paper py-2 pl-8 pr-2 text-body text-ink placeholder:text-ink-3"
+            aria-keyshortcuts="/"
+            className="w-full rounded-lg border border-rule bg-paper py-2 pl-8 pr-9 text-body text-ink placeholder:text-ink-3"
           />
+          {!q && (
+            <span className="pointer-events-none absolute right-2 top-2">
+              <Key>/</Key>
+            </span>
+          )}
           {q.trim() && (
             <div className="mt-1 overflow-hidden rounded-lg border border-rule bg-card">
               {hits.map((p, i) => (
@@ -646,8 +672,14 @@ function SortPanel({
               >
                 <Send className="size-3.5 flex-none" />
                 <span className="min-w-0 flex-1 truncate">Tell the agent: “{q.trim()}”</span>
+                {hits.length === 0 && <Key>Enter</Key>}
               </button>
             </div>
+          )}
+          {q.trim() && (
+            <p className="mt-1 text-meta text-ink-3 max-sm:hidden">
+              {hits.length ? "↑ ↓ pick a project · Enter files it" : "No project matches · Enter tells the agent"} · Esc clears
+            </p>
           )}
         </div>
         {suggestions.map((s, i) => (
@@ -664,6 +696,19 @@ function SortPanel({
             </span>
           </button>
         ))}
+
+        <button
+          disabled={busy}
+          onClick={remove}
+          title="Remove receipt (X or Delete)"
+          aria-keyshortcuts="X Delete"
+          className="mt-1 flex items-center gap-2.5 rounded-lg border border-flag/30 bg-card px-3 py-2 text-left hover:bg-flag-soft disabled:opacity-50"
+        >
+          <Key>X</Key>
+          <Trash2 className="size-3.5 flex-none text-flag" />
+          <span className="flex-1 text-body font-semibold text-flag">Remove receipt</span>
+          <span className="hidden text-meta text-ink-3 @xl/page:inline">not a business cost · Undo stays</span>
+        </button>
       </Card>
 
 
@@ -748,12 +793,6 @@ function SortPanel({
             </span>
           </label>
         )}
-        <details className="relative mt-1 self-start">
-          <summary className="flex min-h-9 max-sm:min-h-11 cursor-pointer list-none items-center gap-1.5 rounded-md px-2 text-label font-semibold text-ink-2 hover:bg-hover focus-visible:outline-2 focus-visible:outline-focus"><MoreHorizontal className="size-4" /> More actions</summary>
-          <div className="absolute bottom-full left-0 z-10 mb-1 w-64 rounded-lg border border-rule-soft bg-card p-1 shadow-pop">
-            <Button variant="ghost" onClick={dismiss} disabled={busy} className="h-auto min-h-9 w-full justify-start whitespace-normal py-2 text-left text-flag">Not a business cost — set it aside</Button>
-          </div>
-        </details>
       </details>
     </div>
   );

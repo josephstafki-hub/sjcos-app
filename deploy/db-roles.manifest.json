@@ -1,5 +1,7 @@
 {
   "about": [
+    "0088 adds RRP delivery method and preserves work_items grants; rechecks mailed delivery margin. 0087 preserves narrow-role work_items grants and makes reopen owner-only. 0086 preserves narrow-role work_items grants while reopening expired RRP deliveries.",
+    "0085 preserves the consult RRP work_items grants while bounding re-delivery dates.",
     "Which narrow database login may SELECT / INSERT / UPDATE / DELETE each public table or view (deploy/db-roles.md).",
     "Every table must be listed, even with no grants (then say why in note). The owner login (sjcos: the website, Joe's own panel runs, migrations) owns everything and is not listed.",
     "A change here needs the matching sjcos_grant(...) line in the same migration: node scripts/db-roles-sql.mjs <table> prints it. tests/db-roles-manifest-db.test.mjs compares this file with the database.",
@@ -2894,7 +2896,7 @@
       "note": "staff Gmail refresh tokens; only the website's own mailbox code reads them"
     },
     "users": {
-      "note": "logins and passwords: Joe's Settings › Team (website) or his own panel run only",
+      "note": "logins and passwords: Joe's Settings \u203a Team (website) or his own panel run only",
       "sjcos_agent": [
         "SELECT(id,email,name,role,initials,link_slug,active,permissions,created_at,portal_claimed_at,ai_scope,last_permission_change_at)"
       ],
@@ -3001,7 +3003,8 @@
       ],
       "sjcos_readonly": [
         "SELECT"
-      ]
+      ],
+      "note": " 0083 reconciles at close and preserves open tasks with unknown starts. Consultation RRP delivery and 60-day redelivery due dates follow project start changes via SECURITY DEFINER consult_redate_rrp_delivery; existing work-item scheduling trigger applies."
     },
     "workers": {
       "sjcos_agent": [
@@ -3029,6 +3032,81 @@
       "sjcos_readonly": [
         "SELECT"
       ]
+    },
+    "consult_context_keys": {
+      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consult_form_versions": {
+      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consults": {
+      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consult_form_pins": {
+      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consult_assignments": {
+      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consult_devices": {
+      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consult_instances": {
+      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consult_events": {
+      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consult_answers": {
+      "note": "0089 restores indexed component validation without expanding grants. Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consult_field_heads": {
+      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consult_conflicts": {
+      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consult_media": {
+      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consult_operation_receipts": {
+      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consult_uploads": {
+      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consult_finding_applications": {
+      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+    },
+    "consult_batches": {
+      "note": "Website person commands only; no narrow raw access."
+    },
+    "consult_sync_receipts": {
+      "note": "Website person commands only; no narrow raw access."
+    },
+    "consult_close_evidence": {
+      "note": "Website person commands only; no narrow raw access."
+    },
+    "consult_mapping_registries": {
+      "note": "Owner-only immutable publication validation; no narrow raw access."
+    },
+    "consult_publication_validations": {
+      "note": "Owner-only immutable publication validation; no narrow raw access."
+    },
+    "consult_upload_parts": {
+      "note": "Website person upload command only; no narrow raw access."
+    },
+    "consult_quantity_contributions": {
+      "note": "Website reconciliation command only; no narrow raw access."
+    },
+    "consult_agent_proposals": {
+      "note": "Website proposal command only; agents call authenticated bridge, no raw access."
+    },
+    "consult_agent_requests": {
+      "note": "Authenticated bridge operation receipts; no narrow raw access."
+    },
+    "consult_findings_jobs": {
+      "note": "Website-only fenced job executor via authenticated cron; no raw narrow access."
     }
   }
 }

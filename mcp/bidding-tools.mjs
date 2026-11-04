@@ -306,8 +306,8 @@ export function registerBiddingTools(server, { rows, json, biddingCall, uploadDi
                                 WHEN ai_origin THEN 'app'
                                 ELSE 'user' END) AS created_by,
                   created_at, COALESCE(updated_at, created_at) AS updated_at
-             FROM files
-            WHERE project_key = $1 AND storage_path IS NOT NULL
+             FROM (SELECT * FROM files WHERE classification = 'attachment') AS files
+            WHERE classification = 'attachment' AND project_key = $1 AND storage_path IS NOT NULL
             ORDER BY created_at DESC`,
           [project.slug],
         );
@@ -349,7 +349,7 @@ export function registerBiddingTools(server, { rows, json, biddingCall, uploadDi
       try {
         const project = await projectBySlug(project_slug);
         const found = await rows(
-          `SELECT id, name, mime_type, storage_path FROM files
+          `SELECT id, name, mime_type, storage_path FROM (SELECT * FROM files WHERE classification = 'attachment') AS files
             WHERE id = $1 AND project_key = $2 AND storage_path IS NOT NULL`,
           [t(file_id, 80), project.slug],
         );
@@ -403,8 +403,8 @@ export function registerBiddingTools(server, { rows, json, biddingCall, uploadDi
     async ({ file_id, format, expires_minutes, width, page_from, page_to }) => {
       try {
         const found = await rows(
-          `SELECT id, name, mime_type, size_label, project_key, storage_path FROM files
-            WHERE id = $1 AND storage_path IS NOT NULL`,
+          `SELECT id, name, mime_type, size_label, project_key, storage_path FROM (SELECT * FROM files WHERE classification = 'attachment') AS files
+            WHERE classification = 'attachment' AND id = $1 AND storage_path IS NOT NULL`,
           [t(file_id, 80)],
         );
         if (!found.length)
@@ -527,7 +527,7 @@ export function registerBiddingTools(server, { rows, json, biddingCall, uploadDi
 
         await mkdir(uploadDir, { recursive: true });
         const existing = await rows(
-          `SELECT id, storage_path FROM files WHERE project_key = $1 AND name = $2 AND storage_path IS NOT NULL
+          `SELECT id, storage_path FROM (SELECT * FROM files WHERE classification = 'attachment') AS files WHERE project_key = $1 AND name = $2 AND storage_path IS NOT NULL
             ORDER BY created_at DESC LIMIT 1`,
           [project.slug, name],
         );
@@ -648,7 +648,7 @@ export function registerBiddingTools(server, { rows, json, biddingCall, uploadDi
       try {
         const pkg = await packageById(package_id);
         const ok = await rows(
-          `SELECT id FROM files WHERE id = $1 AND project_key = $2 AND storage_path IS NOT NULL`,
+          `SELECT id FROM (SELECT * FROM files WHERE classification = 'attachment') AS files WHERE id = $1 AND project_key = $2 AND storage_path IS NOT NULL`,
           [t(file_id, 80), pkg.project_slug],
         );
         if (!ok.length) throw new Error("That file doesn't belong to this package's project.");

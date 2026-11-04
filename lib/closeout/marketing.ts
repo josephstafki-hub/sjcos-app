@@ -286,7 +286,7 @@ export async function checkPublicationRun(
   if (why) return { ok: false, reason: why };
   if (pl.body !== d.body || JSON.stringify(pl.media ?? []) !== JSON.stringify(d.media)) return { ok: false, reason: "The send doesn't match the draft." };
   const files = d.media.length
-    ? await run<{ id: string; name: string; storage_path: string | null }>(`SELECT id, name, storage_path FROM files WHERE id = ANY($1::text[]) AND type = 'img'`, [d.media])
+    ? await run<{ id: string; name: string; storage_path: string | null }>(`SELECT id, name, storage_path FROM (SELECT * FROM files WHERE classification = 'attachment') AS files WHERE id = ANY($1::text[]) AND type = 'img'`, [d.media])
     : [];
   const photos: { fileId: string; name: string; storagePath: string }[] = [];
   for (const id of d.media) {

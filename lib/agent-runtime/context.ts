@@ -501,7 +501,7 @@ async function evidenceSection(run: Run, scope: ContextScope, refs: ContextRef[]
   const lines: string[] = [];
   const pid = scope.projectId ?? null;
   if (pid) {
-    const files = await safe<{ id: string; name: string; type: string; tag: string | null; created_at: string }>(run, `SELECT f.id, f.name, f.type, f.tag, f.created_at::text AS created_at FROM files f JOIN projects p ON p.slug = f.project_key WHERE p.id = $1 ORDER BY f.created_at DESC LIMIT 10`, [pid]);
+    const files = await safe<{ id: string; name: string; type: string; tag: string | null; created_at: string }>(run, `SELECT f.id, f.name, f.type, f.tag, f.created_at::text AS created_at FROM (SELECT * FROM files WHERE classification = 'attachment') f JOIN projects p ON p.slug = f.project_key WHERE p.id = $1 ORDER BY f.created_at DESC LIMIT 10`, [pid]);
     if (files?.length) {
       lines.push(`- Files on the project (${files.length} most recent; photos already supplied count as evidence): ${files.map((f) => `${f.name} (${f.type}${f.tag ? `, ${f.tag}` : ""}, ${f.created_at.slice(0, 10)})`).join("; ")}`);
       for (const f of files) refs.push({ section: "evidence", kind: "file", id: f.id });

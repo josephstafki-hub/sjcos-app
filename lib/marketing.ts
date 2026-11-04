@@ -78,7 +78,7 @@ export async function getMarketingDrafts(): Promise<MarketingDraft[]> {
     const { rows: pics } = await query<{ id: string; name: string; project_key: string; shareable: boolean }>(
       `SELECT f.id, f.name, f.project_key,
               EXISTS (SELECT 1 FROM publication_rights r WHERE r.file_id = f.id AND r.withdrawn_at IS NULL) AS shareable
-         FROM files f WHERE f.type = 'img' AND f.storage_path IS NOT NULL AND f.project_key = ANY($1::text[])
+         FROM (SELECT * FROM files WHERE classification = 'attachment') f WHERE f.type = 'img' AND f.storage_path IS NOT NULL AND f.project_key = ANY($1::text[])
         ORDER BY f.created_at DESC`,
       [slugs],
     );

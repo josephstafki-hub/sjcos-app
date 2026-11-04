@@ -632,3 +632,43 @@ test("Recompute on a sent estimate that was never frozen takes the freeze from i
     assert.equal(rc.total_cents, 100000);
   });
 });
+
+
+test("record_site_findings: canonical kinds and legacy aliases pass MCP validation and answer only matching plan items", { skip }, async () => {
+  const { registerEstimatingTools, siteFindingKind } = await import("../mcp/estimating-tools.mjs");
+  const { z } = await import("zod");
+  const kinds = ["observation", "measurement", "photo", "client_answer", "decision", "issue", "new_work", "price_instruction"];
+  for (const kind of kinds) assert.equal(siteFindingKind.parse(kind), kind);
+  for (const [alias, canonical] of Object.entries({ condition: "observation", preference: "client_answer", question: "client_answer" })) {
+    assert.equal(siteFindingKind.parse(alias), canonical);
+  }
+  for (const invalid of ["bogus", "constructor", null, 1]) assert.equal(siteFindingKind.safeParse(invalid).success, false);
+  await withTestDb(async (url, client) => {
+    const run = await seed(client);
+    const { projectId } = await mkProject(run, "zz-est-kinds");
+    await prepareScopeRegisterFromLead(run, projectId, await loadLeadFacts(run, projectId));
+    const plan = await getScopeRegister(run, projectId);
+    const scopeKey = "kitchen.countertops";
+    const items = ["inspect", "measure", "photo", "question"].map((kind, i) => ({ id: `kind-${i}`, scope_key: scopeKey, kind, prompt: kind, status: "open" }));
+    items.push({ id: "unrelated", scope_key: "kitchen.plumbing", kind: "photo", prompt: "unrelated", status: "open" });
+    await run(`UPDATE site_visit_plans SET items = $2::jsonb WHERE id = $1`, [plan.plan.id, JSON.stringify(items)]);
+    let tool;
+    registerEstimatingTools({ registerTool(name, spec, handler) { if (name === "record_site_findings") tool = { spec, handler }; } }, {
+      rows: run, json: (v) => v, pool: { query: (...a) => client.query(...a), connect: async () => ({ query: (...a) => client.query(...a), release() {} }) },
+      slugToId: async () => projectId, currentPrincipal: async () => owner,
+    });
+    const submitted = [...kinds, "condition", "preference", "question"].map((kind, i) => ({
+      kind, fact_key: `kinds#${i}`, scope_key: scopeKey, statement: `${kind} evidence`, source_note: "test:kind",
+      ...(kind === "measurement" ? { measurement: 48, unit: "sf", quantity_label: "Countertop area" } : {}),
+    }));
+    const args = z.object(tool.spec.inputSchema).parse({ project_slug: "zz-est-kinds", findings: submitted });
+    const result = await tool.handler(args);
+    assert.equal(result.recorded, submitted.length);
+    const stored = await run(`SELECT kind FROM site_visit_findings WHERE project_id = $1 ORDER BY fact_key`, [projectId]);
+    assert.equal(stored.length, submitted.length);
+    assert.ok(stored.every(({ kind }) => kinds.includes(kind)));
+    const after = await getScopeRegister(run, projectId);
+    assert.ok(after.plan.items.filter((i) => i.id !== "unrelated").every((i) => i.status === "answered"));
+    assert.equal(after.plan.items.find((i) => i.id === "unrelated").status, "open");
+  });
+});

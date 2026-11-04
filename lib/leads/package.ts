@@ -38,7 +38,7 @@ export async function prepareEstimateInputPackage(
   if (!lead) return { ok: false, reason: "lead not found" };
   const checklist = await qualificationChecklist(run, lead.id);
   const facts = Object.fromEntries(Object.entries(checklist.facts).map(([k, f]) => [k, { value: f.value, status: f.status, source: f.source_ref }]));
-  const photos = await run<{ id: string }>(`SELECT id FROM files WHERE lead_slug = $1 AND storage_path IS NOT NULL AND type = 'img' ORDER BY created_at`, [lead.slug]);
+  const photos = await run<{ id: string }>(`SELECT id FROM (SELECT * FROM files WHERE classification = 'attachment') AS files WHERE lead_slug = $1 AND storage_path IS NOT NULL AND type = 'img' ORDER BY created_at`, [lead.slug]);
   const measurements = checklist.facts.measurements.status === "known" ? [checklist.facts.measurements.value] : [];
   const openQuestions = [...checklist.missing.map((k) => `${k} not known`), ...(input.extraQuestions ?? [])];
   const snapshotHash = hashInput({ facts, photos: photos.map((p) => p.id), measurements, openQuestions });

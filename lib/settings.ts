@@ -113,6 +113,10 @@ export interface SettingsData {
     autoOutreach: boolean;
     /** Auto-draft a social post when a job reaches completion (P6-2). */
     autoDraftSocial: boolean;
+    /** Lead-safe firm certification, prefilled into each in-home consultation's Era section. */
+    rrpCertNumber: string;
+    /** YYYY-MM-DD; the consultation's close check reads it against the visit day. */
+    rrpCertExpiry: string;
   };
   /** Precon billing rates + third-party markup (doc-templates plan). Powers the
    *  Pre-Construction Agreement's rates table. */
@@ -285,6 +289,8 @@ export async function getSettingsData(): Promise<SettingsData> {
     })),
     companyDocs: {
       license: get("company.license", ""),
+      rrpCertNumber: get("rrp_firm_cert_number", ""),
+      rrpCertExpiry: get("rrp_firm_cert_expiry", ""),
       address: get("company.address", ""),
       depositPct: get("contract.deposit_pct", "50"),
       terms: get("contract.terms", ""),

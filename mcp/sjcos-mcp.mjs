@@ -87,6 +87,7 @@ import { registerObligationTools } from "./obligation-tools.mjs";
 import { registerDecisionTools } from "./decision-tools.mjs";
 import { registerMeasureTools } from "./measure-tools.mjs";
 import { registerWorkflowTools } from "./workflow-tools.mjs";
+import { registerConsultTools } from "./consult-tools.mjs";
 import { registerEstimatingTools } from "./estimating-tools.mjs";
 import { registerProcurementTools } from "./procurement-tools.mjs";
 import { registerBillingTools } from "./billing-tools.mjs";
@@ -224,7 +225,7 @@ async function internalCall(route, action, payload, unreachable) {
     const res = await fetch(`${base}/api/internal/${route}`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${secret}` },
-      body: JSON.stringify({ action, ...identity, ...payload }),
+      body: JSON.stringify({ action, ...identity, ...payload, principal_started_s: principalRef().startedS }),
     });
     return await res.json();
   } catch (e) {
@@ -2964,6 +2965,7 @@ server.registerTool(
   // Estimating (A15, W02–W07), procurement + cash (A13, W05–W09), billing
   // (A07), field/schedule/closeout (A16/A17, W09–W12) and the operating-agent
   // context (A24). Every money/send-facing effect below is a decision.
+  registerConsultTools(server, {json, consultCall:(action,payload)=>internalCall("consult",action,payload,"Is the sjcos service running?")});
   registerEstimatingTools(server, { rows, json, pool, slugToId, currentPrincipal, estimatingCall });
   registerProcurementTools(server, { rows, json, pool, slugToId, currentPrincipal });
   registerBillingTools(server, { rows, json, pool, slugToId, currentPrincipal });

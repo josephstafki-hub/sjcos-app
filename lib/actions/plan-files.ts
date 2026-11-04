@@ -104,7 +104,7 @@ export async function listUnderlayCandidates(
   // generated documents, selection / mood / catalog images, signatures…
   // Plan-looking files sort first.
   const { rows } = await query<{ id: string; name: string; type: "img" | "doc"; mime_type: string | null; uploaded: string }>(
-    `SELECT f.id, f.name, f.type, f.mime_type, to_char(f.created_at, 'Mon FMDD') AS uploaded FROM files f
+    `SELECT f.id, f.name, f.type, f.mime_type, to_char(f.created_at, 'Mon FMDD') AS uploaded FROM (SELECT * FROM files WHERE classification = 'attachment') f
       WHERE f.storage_path IS NOT NULL
         AND split_part(f.id, '-', 1) <> ALL (ARRAY['cap','und','bid','doc','sel','prodsel','mood','cat','nl','sig','subdoc','call','ai'])
         AND (f.type = 'img' OR f.mime_type ILIKE '%pdf%' OR f.name ILIKE '%.pdf')
@@ -216,7 +216,7 @@ export async function importPlanUnderlay(designId: number, sourceFileId: string,
   const scope = await designScope(designId);
   if (!scope) return { ok: false, error: "Design not found." };
   const f = await queryOne<{ storage_path: string | null; mime_type: string | null; name: string }>(
-    `SELECT storage_path, mime_type, name FROM files WHERE id = $1`,
+    `SELECT storage_path, mime_type, name FROM (SELECT * FROM files WHERE classification = 'attachment') AS files WHERE id = $1`,
     [sourceFileId],
   );
   if (!f?.storage_path) return { ok: false, error: "That file isn't on disk." };

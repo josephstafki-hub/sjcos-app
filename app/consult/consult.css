@@ -1,0 +1,36 @@
+/*
+ * In-home consultation field app (plan §6.1). Scoped to .consult-root so it never
+ * leaks into other routes. Design tokens only — Sun mode re-points the existing
+ * paper/ink tokens; it adds no colour.
+ */
+.consult-root { font-size: 17px; line-height: 1.45; -webkit-tap-highlight-color: transparent; }
+@media (min-width: 768px) { .consult-root { font-size: 18px; } }
+.consult-root input, .consult-root textarea, .consult-root select { font-size: max(16px, 1em); }
+.consult-root button, .consult-root a { touch-action: manipulation; }
+
+/* r5 R5-1: the visitor screen and the client view are pinned to the viewport. The document itself
+   can't scroll, so a focus jump (Go back, Pick the date, the keypad) moves only the section pane —
+   never the status bar or the ‹ Sections / Next › bar. */
+.consult-fixed { position: fixed; inset: 0; }
+html:has(.consult-fixed), html:has(.consult-fixed) body { overflow: clip; overscroll-behavior: none; height: 100%; }
+
+/* r5 R5-1: Go back (and every jump to a field) rings the target field for 1.5 s. */
+@keyframes consult-ring { 0%, 70% { outline-color: var(--focus); } 100% { outline-color: transparent; } }
+.consult-ring { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 0.375rem; animation: consult-ring 1.5s ease-out forwards; }
+
+/* Sun mode (⋯ menu, remembered per device): pure card background, ink text, 19 px
+   base, 2 px borders, no soft tints for state — every state keeps its icon + word. */
+.consult-root[data-sun="1"] {
+  --paper: var(--card); --paper-2: var(--card); --paper-3: var(--card); --paper-4: var(--card);
+  --accent-soft: var(--card); --ai-soft: var(--card); --flag-soft: var(--card); --info-soft: var(--card);
+  --ok-soft: var(--card); --money-soft: var(--card); --warn-soft: var(--card); --neutral-soft: var(--card);
+  --selected: var(--card); --hover: var(--card);
+  --ink-2: var(--ink); --ink-3: var(--ink); --ink-4: var(--ink);
+  --rule: var(--ink); --rule-soft: var(--ink); --focus: var(--ink);
+  font-size: 19px;
+}
+.consult-root[data-sun="1"] [aria-checked="true"], .consult-root[data-sun="1"] [aria-pressed="true"], .consult-root[data-sun="1"] [aria-current="true"] { outline: 3px solid var(--ink); outline-offset: -3px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .consult-root *, .consult-root *::before, .consult-root *::after { transition: none !important; animation: none !important; scroll-behavior: auto !important; }
+}

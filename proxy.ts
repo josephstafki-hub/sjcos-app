@@ -147,6 +147,12 @@ function isOauthDiscoveryProbe(path: string): boolean {
 
 export default async function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname;
+  // These files contain no customer/session data; precache fetches omit cookies.
+  if(path==='/sw.js'||path==='/consult/offline.html'||path==='/consult/precache.json'||path.startsWith('/consult/assets/'))return NextResponse.next();
+  if(path==='/consult'){const url=req.nextUrl.clone();url.pathname='/consult/';return NextResponse.redirect(url);}
+  // Keep the prior no-trailing-slash convention everywhere else.
+  if(path!=='/'&&!path.startsWith('/consult/')&&path.endsWith('/')){const url=req.nextUrl.clone();url.pathname=path.replace(/\/+$/,'');return NextResponse.redirect(url,308);}
+
   if (isOauthDiscoveryProbe(path)) return new NextResponse(null, { status: 404 });
   const session = await readSession(req);
   // One re-sign per request at most, reused across whichever exit path we take.

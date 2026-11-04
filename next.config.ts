@@ -1,6 +1,11 @@
 import type { NextConfig } from "next";
+import path from "node:path";
+import { execFileSync } from "node:child_process";
+import { PHASE_PRODUCTION_BUILD } from "next/constants";
 
 const nextConfig: NextConfig = {
+  skipTrailingSlashRedirect: true, // proxy preserves /consult/ for its scoped offline worker
+  async headers(){return [{source:'/sw.js',headers:[{key:'Cache-Control',value:'no-cache, no-store, must-revalidate'},{key:'Service-Worker-Allowed',value:'/consult/'}]},{source:'/api/consult/:path*',headers:[{key:'Cache-Control',value:'no-store'}]}];},
   // The live server (systemd `sjcos.service`) serves the prebuilt `.next`, and
   // a dev/build run that shares that directory clobbers it mid-flight — the
   // classic "half-built .next → dead hydration" failure. Setting SJC_DIST_DIR
@@ -52,4 +57,19 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["pdfkit", "sharp"],
 };
 
-export default nextConfig;
+/**
+ * The in-home consultation offline shell (public/consult/assets/capture.{js,css} +
+ * public/consult/precache.json) is generated at the start of every production build,
+ * so "Ready offline" always matches the code being deployed. Once per build (Next
+ * re-evaluates this file in worker processes); SJC_SKIP_CONSULT_CAPTURE=1 skips it.
+ * Details: scripts/build-consult-capture.mjs.
+ */
+export default async function config(phase: string): Promise<NextConfig> {
+  if (phase === PHASE_PRODUCTION_BUILD && !process.env.SJC_SKIP_CONSULT_CAPTURE && !process.env.__SJC_CONSULT_CAPTURE_BUILT) {
+    // Run as its own Node process: Next compiles this file to CommonJS, where a
+    // dynamic import() of an .mjs file URL becomes a failing require().
+    execFileSync(process.execPath, [path.join(process.cwd(), "scripts/build-consult-capture.mjs")], { stdio: "inherit" });
+    process.env.__SJC_CONSULT_CAPTURE_BUILT = "1";
+  }
+  return nextConfig;
+}

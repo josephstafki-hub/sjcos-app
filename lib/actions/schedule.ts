@@ -175,7 +175,7 @@ export async function autoLogTodayFromPhotos(): Promise<
     photos: string[];
   }>(
     `SELECT p.id, p.slug, p.name, array_agg(f.name ORDER BY f.created_at) AS photos
-       FROM files f JOIN projects p ON p.slug = f.project_key
+       FROM (SELECT * FROM files WHERE classification = 'attachment') f JOIN projects p ON p.slug = f.project_key
       WHERE f.type = 'img' AND f.created_at::date = CURRENT_DATE
         AND NOT EXISTS (
           SELECT 1 FROM daily_logs d

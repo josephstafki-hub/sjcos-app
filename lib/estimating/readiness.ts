@@ -3,6 +3,8 @@
 // and date, sub quotes, exclusions, unverified assumptions and margin — never
 // a model's self-confidence. Stored on estimates.readiness for the UI.
 
+import {consultScopeFacts} from "../consult/findings.ts";
+import {consultReadinessGaps} from "../consult/readiness-gaps.ts";
 import type { Run } from "../commands/core.ts";
 import { loadLines } from "./assembly.ts";
 import { estimateReadinessScore, type Readiness } from "./rules.ts";
@@ -27,6 +29,12 @@ export async function estimateReadiness(run: Run, estimateId: number, opts: { pe
         [e.project_id],
       )
     : [];
+  const consultGaps:Gap[]=[];
+  if(e.project_id)for(const item of scope)consultGaps.push(...consultReadinessGaps(await consultScopeFacts(run,e.project_id,item.key)));
+  if(opts.persist!==false){
+   await run("UPDATE estimate_gaps SET status='resolved',resolved_at=now() WHERE estimate_id=$1 AND kind=ANY($2::text[])",[estimateId,['consult_not_complete','consult_conflict','trade_walk_pending','flag_sub_must_look','assumption_to_verify','rrp_cert_missing']]);
+   for(const g of consultGaps)await run(`INSERT INTO estimate_gaps(estimate_id,project_id,kind,ref,severity,detail) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(estimate_id,kind,ref) DO UPDATE SET severity=excluded.severity,detail=excluded.detail,status='open',resolved_at=NULL`,[estimateId,e.project_id,g.kind,g.ref,g.severity,g.detail]);
+  }
   const gapRows = await run<{ kind: Gap["kind"]; ref: string; severity: Gap["severity"]; detail: string; status: string }>(`SELECT kind, ref, severity, detail, status FROM estimate_gaps WHERE estimate_id = $1 AND status <> 'resolved'`, [estimateId]);
   const strip = (g: (typeof gapRows)[number]): Gap => ({ kind: g.kind, ref: g.ref, severity: g.severity, detail: g.detail });
   const open = gapRows.filter((g) => g.status === "open").map(strip);
@@ -45,7 +53,7 @@ export async function estimateReadiness(run: Run, estimateId: number, opts: { pe
   const r = estimateReadinessScore({
     scope_items: scope.filter((s) => s.status !== "superseded").map((s) => ({ ...s, quantities: s.quantities ?? [], exclusions: s.exclusions ?? [] })),
     lines,
-    gaps: open,
+    gaps: [...open,...(opts.persist===false?consultGaps:[])],
     sub_trades_needed: subTrades,
     sub_quotes_present: quoted.map((q) => q.trade),
     markup_pct: markup == null ? null : Number(markup),

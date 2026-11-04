@@ -54,7 +54,7 @@ function statusChip(status: WorkItemStatus): ChipKind {
 
 /** The Open Engine + Brain panel for a single lead/project: stage-gate guidance,
  *  the record's own work queue, its knowledge, and its proof-of-work receipts. */
-export function RecordOps({ ops }: { ops: RecordOps }) {
+export function RecordOps({ ops, consultHref }: { ops: RecordOps; consultHref?: string }) {
   const { kind, slug } = ops;
   return (
     <div className="grid min-w-0 gap-6 @4xl/page:grid-cols-[minmax(0,1fr)_300px]">
@@ -63,7 +63,7 @@ export function RecordOps({ ops }: { ops: RecordOps }) {
         <Knowledge ops={ops} />
       </div>
       <div className="min-w-0 space-y-4">
-        <StageGateCard ops={ops} />
+        <StageGateCard ops={ops} consultHref={consultHref} />
         <Receipts ops={ops} />
         <AddNote kind={kind} slug={slug} recordId={ops.recordId} />
       </div>
@@ -73,7 +73,7 @@ export function RecordOps({ ops }: { ops: RecordOps }) {
 
 // ─── Stage-gate guidance (Phase 8) ───────────────────────────────────────────
 
-function StageGateCard({ ops }: { ops: RecordOps }) {
+function StageGateCard({ ops, consultHref }: { ops: RecordOps; consultHref?: string }) {
   const g = ops.stageGate;
   return (
     <Card kind="ai" className="p-3.5">
@@ -98,6 +98,11 @@ function StageGateCard({ ops }: { ops: RecordOps }) {
             </li>
           ))}
         </ol>
+      )}
+      {consultHref && (
+        <a href={consultHref} className="mt-2.5 inline-flex min-h-11 items-center text-label font-semibold text-accent-2 hover:underline">
+          Open the in-home consultation →
+        </a>
       )}
       <p className="mt-2.5 text-meta italic text-ink-3">
         Guidance only — advancing isn&apos;t blocked. Use the header controls to move stage.

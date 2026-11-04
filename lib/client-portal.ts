@@ -63,7 +63,7 @@ export async function getClientUploads(slug: string): Promise<ClientUpload[]> {
   const originLead = slug.startsWith("lead:") ? null : await originLeadSlug(slug);
   const { rows } = await query<{ id: string; name: string; type: string; when_label: string }>(
     `SELECT id, name, type, to_char(created_at, 'Mon FMDD') AS when_label
-       FROM files
+       FROM (SELECT * FROM files WHERE classification = 'attachment') AS files
       WHERE storage_path IS NOT NULL
         AND (client_slug = $1 OR ($2::text IS NOT NULL AND client_slug = 'lead:' || $2))
       ORDER BY created_at DESC LIMIT 60`,
@@ -203,7 +203,7 @@ export async function getSharedFiles(scope: PortalScope): Promise<SharedFile[]> 
     when_label: string;
   }>(
     `SELECT id, name, type, size_label, to_char(created_at, 'Mon FMDD, YYYY') AS when_label
-       FROM files
+       FROM (SELECT * FROM files WHERE classification = 'attachment') AS files
       WHERE ${where} AND client_visible = true AND storage_path IS NOT NULL
       ORDER BY created_at DESC`,
     params,

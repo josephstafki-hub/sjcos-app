@@ -461,7 +461,7 @@ export async function getProjectFiles(slug: string): Promise<ProjectFile[]> {
   const { rows } = await query<FileRow>(
     `SELECT ${FILE_ROW_SELECT},
             (f.project_key IS DISTINCT FROM $1) AS from_lead
-       FROM files f
+       FROM (SELECT * FROM files WHERE classification = 'attachment') f
       WHERE f.storage_path IS NOT NULL
         AND (f.project_key = $1
              OR f.lead_slug IN (SELECT l.slug FROM leads l JOIN projects p ON p.lead_id = l.id WHERE p.slug = $1))
@@ -485,7 +485,7 @@ export async function getProjectFileTrash(slug: string): Promise<TrashedFile[]> 
 export async function getLeadFiles(slug: string): Promise<ProjectFile[]> {
   const { rows } = await query<FileRow>(
     `SELECT ${FILE_ROW_SELECT}
-       FROM files f
+       FROM (SELECT * FROM files WHERE classification = 'attachment') f
       WHERE f.lead_slug = $1 AND f.storage_path IS NOT NULL
       ORDER BY f.created_at DESC`,
     [slug],

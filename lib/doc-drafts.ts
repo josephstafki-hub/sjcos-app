@@ -904,7 +904,7 @@ async function emailDocForSignature(o: {
     const first = o.signerName.split(/\s+/)[0] || "there";
 
     const file = await queryOne<{ storage_path: string | null; name: string }>(
-      `SELECT storage_path, name FROM files WHERE id = $1`,
+      `SELECT storage_path, name FROM (SELECT * FROM files WHERE classification = 'attachment') AS files WHERE id = $1`,
       [o.pdfFileId],
     );
     let attachments: MailAttachment[] | undefined;

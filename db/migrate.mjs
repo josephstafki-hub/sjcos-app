@@ -95,6 +95,10 @@ export async function migrate({ url, dryRun = false, status = false, quiet = fal
         throw new Error(`${f.name} failed: ${err.message}`);
       }
     }
+    if(files.some(f=>f.id===79&&!applied.has(f.id))){
+      const {seedConsult}=await import('./seed-consult.mjs');
+      await seedConsult(client);
+    }
     await client.query(`SELECT pg_advisory_unlock(7263054)`);
     return out;
   } finally {

@@ -121,7 +121,7 @@ export function dedupePhotos(photos: PhotoRef[]): PhotoRef[] {
 async function verifiedFileIds(run: Run, projectId: string, refs: PhotoRef[]): Promise<PhotoRef[]> {
   if (!refs.length) return [];
   const rows = await run<{ id: string }>(
-    `SELECT f.id FROM files f WHERE f.id = ANY($1::text[])
+    `SELECT f.id FROM (SELECT * FROM files WHERE classification = 'attachment') f WHERE f.id = ANY($1::text[])
         AND f.project_key = (SELECT slug FROM projects WHERE id = $2)`,
     [refs.map((r) => r.fileId), projectId],
   );

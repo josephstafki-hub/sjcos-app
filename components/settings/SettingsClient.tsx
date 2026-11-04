@@ -259,6 +259,13 @@ export function SettingsClient({ data, initialSection = "profile" }: { data: Set
               <div className="grid grid-cols-1 gap-5 @3xl/page:grid-cols-2">
                 <TextInput name="googleReviewUrl" label="Google review link" defaultValue={data.companyDocs.googleReviewUrl} placeholder="https://g.page/r/…/review" />
               </div>
+              <div className="my-4 border-t border-rule-soft" />
+              <p className="text-body font-semibold text-ink">Lead-safe work (Renovate Right)</p>
+              <p className="mt-1 text-meta text-ink-3">Filled into every in-home consultation, so the visitor doesn’t type it. The close check needs the expiry on or after the visit day.</p>
+              <div className="mt-3 grid grid-cols-1 gap-5 @3xl/page:grid-cols-2">
+                <TextInput name="rrpCertNumber" label="Firm certification #" defaultValue={data.companyDocs.rrpCertNumber} placeholder="As printed on the certificate" />
+                <TextInput name="rrpCertExpiry" label="Firm certification expires" type="date" defaultValue={data.companyDocs.rrpCertExpiry} />
+              </div>
               <label className="mt-5 flex flex-col gap-1">
                 <span className="text-meta text-ink-3">Warranty terms (sent at completion)</span>
                 <textarea

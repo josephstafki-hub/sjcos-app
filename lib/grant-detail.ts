@@ -47,7 +47,7 @@ async function whoIsPhone(phone: string): Promise<string | null> {
 
 async function fileNames(ids: string[]): Promise<{ id: string; name: string }[]> {
   if (!ids.length) return [];
-  const { rows } = await query<{ id: string; name: string }>(`SELECT id, name FROM files WHERE id = ANY($1::text[])`, [ids]).catch(() => ({ rows: [] as { id: string; name: string }[] }));
+  const { rows } = await query<{ id: string; name: string }>(`SELECT id, name FROM (SELECT * FROM files WHERE classification = 'attachment') AS files WHERE id = ANY($1::text[])`, [ids]).catch(() => ({ rows: [] as { id: string; name: string }[] }));
   return ids.map((id) => ({ id, name: rows.find((r) => r.id === id)?.name ?? id }));
 }
 

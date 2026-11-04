@@ -295,7 +295,7 @@ export async function getLead(slug: string): Promise<LeadDetail | null> {
   // Real uploaded photos for this lead (if any). Fall back to the showcase
   // placeholder count only when none have been uploaded.
   const photoRes = await query<{ id: string; name: string }>(
-    `SELECT id, name FROM files
+    `SELECT id, name FROM (SELECT * FROM files WHERE classification = 'attachment') AS files
        WHERE lead_slug = $1 AND storage_path IS NOT NULL AND type = 'img'
        ORDER BY created_at DESC`,
     [slug],

@@ -160,7 +160,7 @@ export async function attachBidFiles(packageId: number, formData: FormData): Pro
   if (fileIds.length === 0) return { ok: false, error: "Pick at least one file." };
 
   const { rows: valid } = await query<{ id: string }>(
-    `SELECT f.id FROM files f
+    `SELECT f.id FROM (SELECT * FROM files WHERE classification = 'attachment') f
       WHERE f.id = ANY($1) AND f.storage_path IS NOT NULL
         AND f.project_key = (SELECT slug FROM projects WHERE id = $2)`,
     [fileIds, pkg.project_id],

@@ -182,6 +182,7 @@ export interface OfferedSnapshot {
 }
 
 export type GapKind =
+  | "consult_not_complete" | "consult_conflict" | "trade_walk_pending" | "flag_sub_must_look" | "assumption_to_verify" | "rrp_cert_missing"
   | "unknown_cost"
   | "missing_quantity"
   | "missing_unit"

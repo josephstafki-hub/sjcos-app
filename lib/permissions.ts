@@ -76,7 +76,7 @@ export const PERMISSIONS: readonly PermissionDef[] = [
   { key: "comms", label: "Messages & calls", description: "Client/sub SMS threads and the call log.", paths: ["/messages", "/calls"] },
   { key: "chat", label: "Team chat", description: "Team channels, DMs, and the job rooms you add them to. Managing channels stays yours.", paths: ["/chat"] },
   { key: "leads", label: "Leads", description: "Lead pipeline, intake, follow-ups and lead tasks.", paths: ["/leads"] },
-  { key: "projects", label: "Projects", description: "Project records, schedule, files, selections, mood/floor boards, documents, daily log, closeout, safety.", paths: ["/projects", "/schedule", "/files", "/floor"] },
+  { key: "projects", label: "Projects", description: "Project records, schedule, files, selections, mood/floor boards, documents, daily log, closeout, safety.", paths: ["/projects", "/schedule", "/files", "/floor", "/consult"] },
   { key: "subs", label: "Subs", description: "Subcontractor roster and sub portal admin.", paths: ["/subs"] },
   { key: "vendors", label: "Vendors", description: "Vendor roster.", paths: ["/vendors"] },
   { key: "site", label: "Website", description: "Marketing site content.", paths: ["/site"] },

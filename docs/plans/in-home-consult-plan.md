@@ -184,7 +184,7 @@ words are discovery §1.1/§5 verbatim; the consult changes only "call" to "visi
 | Leave the tool | **Back to SJC OS** | exit app |
 | Prefill check | **Still right ✓** · **Correct** | prior record, prefilled |
 | Unsynced work after sign-out | **Lock notes on this device** | discard, wipe |
-| Visit page, after close (Joe or the visitor; optional, nothing waits on it) | **Reopen** · **Apply findings** (only while automatic apply is switched off, §17) · **Draft floor plan from consult** | approve, certify, mark reviewed |
+| Visit page, after close (Joe or the visitor; optional, nothing waits on it) | **Reopen** (Joe) · **Apply findings** (only while automatic apply is switched off, §17) · **Draft floor plan from consult** | approve, certify, mark reviewed |
 | Conflict picker | **Pick** (on each value) · **Enter another** | resolve, merge |
 | AI note line (visit page) | **Keep** · **Edit** · **Dismiss** | ✕, accept |
 | Owner deletion (client asked) | **Delete transcript** — sheet: "Deletes the transcript and any audio still waiting to be turned into text. Measurements you confirmed stay." | trash audio, delete recording |
@@ -362,7 +362,7 @@ with the §10.3 test — the same test whether Joe or a staff member did the vis
 files the finish, return-visit and trade-walk to-dos once each. **There is no review
 step and no to-do for Joe to look it over** (Joe, 2026-11-02). A complete visit's findings
 update scope quantities and the exact site-visit plan items (§10.5) automatically; during
-the pilot that switch starts off and the visitor or Joe taps **Apply findings** instead
+the pilot that switch starts off and the assigned visitor or Joe taps **Apply findings** instead
 (§17). The visit page (§6.8) is there if Joe wants to look; nothing waits on it. Notes a
 person kept may enter Open Brain; audio never appears as project Files and is deleted
 part by part once it is text (§9.1).
@@ -375,7 +375,11 @@ anything that needs action, `--info` / `#D9E1ED` for status only; never colour a
 | Failure | Visitor sees (exact copy, buttons in brackets) | What the app does / limit |
 |---|---|---|
 | Get ready: no signal | **Open once with signal before the visit.** Or use paper and enter the answers here after the visit. [Try again] | Nothing promised offline without a prepared device (§5.2 state 4) |
-| Get ready: a check fails | **Not ready** · ! Problem {check} — {reason}. [Try again] | Reasons: "this browser won't save here (private mode or storage off)", "not enough space — free up {n} MB", "couldn't download the forms", "couldn't download the offline pages", "sign-in for offline use failed — sign in again" |
+| Get ready: a check fails | **Not ready** · ! Problem {check} — {reason}. [Try again] | Reasons: "this browser won't save here (private mode or storage off)", "not enough space — free up {n} MB", "couldn't download the forms", "couldn't download the offline pages", "sign-in for offline use failed — sign in again" (only for a real sign-in failure), "this visit is set up on another device — use that one, or ask Joe to move it here". Any other code reads the plain default: "Something went wrong. Your answers are still saved on this device. Try again." |
+| Get ready: PIN too short or too long | ! **Use 6 to 12 digits.** under the PIN field; checks stay ○ Not yet | Checked before anything is sent or reserved; the PIN field stays so it can be corrected (the same rule as offline unlock) |
+| Get ready: visit set up on another device | **Not ready** · ! Problem Works without signal — this visit is set up on another device — use that one, or ask Joe to move it here. [Try again] | One capture device per visit (§5.4). Joe moves it on the visit page (same visitor, a written reason); the old device's unsent answers can be recovered from it |
+| Another device holds the visit mid-visit | **This visit is being filled in on another device. Use that device, or ask Joe to move it here.** | Nothing more is sent from this device; its answers stay locked on it for Joe's recovery. Never worded as "access removed" or "sign in" |
+| Sending keeps failing with signal | After a minute: ⚠ **Not sent since {time}.** {plain words for the code} [Try again]. Sending sheet: **Last try** {time} — {plain words} | Answers stay on the device; every code has plain words, unknown ones read the plain default |
 | Signal absent or drops | Status bar second line: **No signal · saved on this device** · ⇅ {n} | Every tap writes to the device first; AI chips wait for signal |
 | Weak signal while sending | Sync sheet: **Sending answers and photos first. Recordings wait for a better signal.** | Answers/photos sent before audio; nothing waits on a save |
 | Tab or phone dies, then reopened | **Back where you were. Recording stopped for {m:ss} — the app was closed. Gap marked.** | Durable answers resume; up to 30 s of audio may be lost and is shown as a gap |
@@ -698,7 +702,7 @@ consultation to-do already exists); **conflict** (`--flag` / `#EFD9CF` row readi
 "! Conflict · phone 36″ / iPad 36½″" with **Pick** on each value and **Enter another**;
 the visit shows Needs finishing until it is picked — whoever gets there first, the
 visitor or Joe, picks); **Complete** (header chip `Complete · Nov 6 4:12 pm`; answers are
-locked, and a fix needs **Reopen** with a reason by Joe or the assigned visitor, §10.1);
+locked, and a fix needs **Reopen** with a reason by Joe, §10.1);
 **findings apply failed** (row "Couldn't apply findings to the scope — [Try again]"); while
 automatic apply is switched off (pilot, §17) the FEEDS block shows **[Apply findings]**
 instead of "Findings applied ✓". AI note lines never block anything; undecided lines
@@ -755,7 +759,9 @@ Who goes [Joe ▾]   Date [Nov 6] Time [9:00]
 Templates [✓ Kitchen] [✓ Bath] [□ Deck] [□ Addition] [□ Basement] [□ Whole home] [□ General]
 Add-ons [□ Garage] [□ Openings] [□ Flooring]
 Visitor notes [________________]
-Estimated visit: 3–4 hours; offer separate visits
+Estimated visit: about 3½–4 hours (Kitchen 2 h + Bath 1½–2 h); offer separate visits
+(no line until a template is ticked; the office hint is never read aloud — opening line 3 says
+"about three and a half to four hours")
 [Cancel] [Schedule]
 ```
 **Before you wrap** (phone bottom sheet; tablet right sheet):
@@ -928,7 +934,7 @@ from the Selections module (status ≠ exact product).
 | HOA or condo association? | yesno | R | |
 | HOA rules / approval needed / contact | text | R? HOA yes | ⚑ "HOA approval may be needed before permit" |
 | Past remodels or known problems (leaks, settling, open permits) | text | R | |
-| Radon tested? | choice: Yes — level / No / Unknown | R? template ∈ basement, addition, whole | level pCi/L number O |
+| Radon tested? | choice: Yes — level / No / Unknown | R? template ∈ basement, addition, whole | level pCi/L number O; ⚑ ≥ 4 pCi/L: advisory — mention mitigation (MDH) |
 | **Shots** | front of house **R**; house number O | | |
 
 Coverage items: *asked about the household during the work* (satisfied by "Living in
@@ -956,10 +962,18 @@ past problems* (by "Past remodels").
 | Winter: who clears snow on the path | choice: Client / SJC / N/A | O | |
 | **Shots** | street/driveway **R**; path to work area **R**; dumpster spot **R?** spot ≠ Not possible | | |
 
+**Visit module (server context)**
+
+| Field | Type | Requirement |
+|---|---|---|
+| Number of templates | number | server-filled, never asked |
+
+
 #### `room` — Room dimensions (repeatable; "Room {n} — {name}")
 | Field | Type / unit | Req | Notes |
 |---|---|---|---|
 | Room name | text | R | |
+| This room is part of | multi: the visit's templates | R when the visit has more than one template; hidden otherwise | Each template uses the rooms marked part of this job; answer before closing or remove the room. |
 | Level | choice: Basement / Main / Upper / Attic / Garage | R | |
 | Wall used as "Ahead" (facing from the entry door) | text | R | orients windows/doors for the floor plan |
 | Length (wall to wall, longest) | length 24–600 in, 1/8″ | R | |
@@ -1053,7 +1067,7 @@ and the breakers."
 | Water heater | choice: Gas tank / Electric tank / Gas tankless / Electric tankless / Off the boiler | R | gas → its venting is a row in `hvac` › How each fuel-burning appliance vents |
 | Water heater year (from label) | year | R | |
 | Water heater size | number gal | O | |
-| Main drain stack | choice: Cast iron / PVC-ABS / Galvanized / Clay / Orangeburg | R | ⚑ Orangeburg; Cast iron with cracks |
+| Main drain stack | choice: Cast iron / PVC-ABS / Galvanized / Clay / Orangeburg | R | ⚑ Drain stack is Orangeburg or cracked cast iron — plan on replacing it |
 | Main cleanout location | text | O | |
 | Backups or roots history | text | O | |
 | Water softener | yesno | O | |
@@ -1110,7 +1124,8 @@ and the breakers."
 | Built before 1978? | yesno (filled from Year built, editable) | R | |
 | Will the work disturb more than 6 sq ft of painted surface in a room, or 20 sq ft outside? | yesno | R? before 1978 | EPA RRP rule (40 CFR 745 Subpart E) |
 | *Renovate Right* pamphlet given + client initials | yesno + initials | R? RRP applies (including window replacement) | Pamphlet must reach the client within 60 days before work starts; if the start is later, the app files a to-do to re-deliver it before start |
-| Lead: plan | choice: Assume lead present / Test kit / Lab test / Not needed | R? before 1978 | |
+| Lead: plan | choice: Assume lead present / Test kit / Lab test / Not needed | R? before 1978 | Test kit or Lab test means we still have to test: price lead-safe work until the result is in. Tested today and no lead on every surface? Pick Not needed. Lead found? Pick Assume lead present. Advisory if RRP applies and no recorded negative test. |
+| Has a lead test already shown no lead where we’ll work? | yesno | R? before 1978 and Lead: plan = Not needed | Yes only if SJC has a copy covering every painted surface we’ll disturb: a licensed lead inspector’s or risk assessor’s report (not a home inspection); an EPA-recognized kit used by a certified renovator; or an EPA-recognized lab test of paint chips a certified renovator took. A test the homeowner did doesn’t count. |
 | Possible asbestos seen | multi: None / 9×9 floor tile / Popcorn ceiling / Pipe or boiler wrap / Old duct tape / Vermiculite / Transite siding | R? built before 1981 | ⚑ anything but None "test before demo; abatement by an MDH-licensed contractor — confirm residential rules with MDH/counsel" |
 | Knob & tube seen | yesno | R? built before 1950 | ⚑ yes |
 | **Shots** | each suspect material **R?** suspects ≠ None | | |
@@ -1182,7 +1197,7 @@ or a no-step shower, now or later?"
 | Existing tub material | Cast iron / Steel / Acrylic-fiberglass / Tile base / No tub | R | ⚑ cast iron: 2-person demo / break-up |
 | Tub drain end | Left / Right | R? tub kept or replaced | |
 | Shower drain center from back × side wall | length_pair | R? shower | |
-| Wet wall exterior? | yesno | R | ⚑ MN freeze risk — reroute or insulate supplies |
+| Wet wall exterior? | yesno | R | ⚑ Pipes in an outside wall can freeze in Minnesota — reroute or insulate them |
 | Wet wall framing | 2×4 / 2×6 / Unknown | R? new valve, niche or wall-hung toilet | |
 | Existing valve | brand + cartridge + Keep/Replace/Unknown | R | |
 | Vent stack route | text + photo | R? fixture moves | |
@@ -1217,8 +1232,8 @@ or a no-step shower, now or later?"
 **Derived quantities**
 | Quantity | Formula | Maps to |
 |---|---|---|
-| Room floor area | room.length × room.width ÷ 144 | (context) |
-| Floor tile area | floor area − (tub footprint if the tub stays) − vanity width × 21″ ÷ 144 | `bath.tile` "Floor tile area" (sf) |
+| Room floor area | Σ length × width ÷ 144 of the rooms marked part of this job (every room on a one-template visit) | (context) |
+| Floor tile area | floor area of the rooms marked part of this job − (tub footprint if the tub stays) − vanity width × 21″ ÷ 144 | `bath.tile` "Floor tile area" (sf) |
 | Wall tile area | shower: (2 × depth + width) × wall tile height ÷ 144; tub: (2 × 30″ + length) × height ÷ 144; wainscot: perimeter × 36″ ÷ 144 | `bath.tile` "Wall tile area" (sf) |
 
 **Shots** (bath-specific, on top of module shots): room from the door **R** · toilet and
@@ -1256,12 +1271,15 @@ small appliances live now?" · "Does the floor in here run into other rooms?"
 | Layout | choice: Same footprint / Some changes / New layout | R | |
 | Walls to open | text | R? Some changes / New layout | → `structure` required |
 | Island | choice: Keep / New / None | R | |
-| Island size | length_pair 24–144 × 24–72 in | R? New | |
+| Island size | length_pair 24–144 × 24–72 in | R? Keep or New | |
+| Kept island gets the new countertop? | yesno | R? Keep | |
 | Island seats | count | O | |
 | Cabinets | choice: Replace all / Reface / Paint / Some new | R | |
 | Upper cabinet height | choice: 30″ / 36″ / 42″ / To ceiling / Stacked | R | |
 | Soffits (and what's in them) | choice: None / Empty / Duct / Plumbing vent / Unknown | R | Duct/vent ⚑ "can't remove soffit freely" |
-| Backsplash height | choice: 4″ / To the uppers / Full wall at range | R | |
+| Backsplash height / Backsplash height along the counters (to the uppers) | choice: 4″ / To the uppers / Full wall at range; measured height: length (in) | R; measured height R? to uppers or full wall | |
+| Range or cooktop on a wall (not in the island)? | yesno | R for To the uppers and Full wall at range | No: count the counter run only. |
+| Tile behind the range — width × height from the counter up | length pair, 12–96″ | R for To the uppers and Full wall at range, with range on wall Yes | Measure counter to hood (or ceiling). |
 | Sink stays where it is? | yesno | R | no → plumb_fixture Move |
 | Sink base width now | length | R | |
 | Disposal / pot filler / filtered water | multi | O | |
@@ -1280,18 +1298,19 @@ small appliances live now?" · "Does the floor in here run into other rooms?"
 | Length corner to corner at counter height (36″) | length, 1/16″ | R | |
 | Length at the ceiling | length, 1/16″ | O | out of plumb if different by > 1/4″ ⚑ |
 | Ceiling height at this wall | length | R | |
-| Base cabinet run (new) | length | R | |
-| Upper cabinet run (new) | length | O | |
+| Base cabinet run — whole wall, kept or new | length | R | |
+| Base cabinet run — new cabinets only | length | R? cabinets = Some new | Only the new boxes; none = 0. |
+| Upper cabinet run on this wall | length | O | |
 | Outlets, switches, vents, radiator on this wall (offset from left corner) | text | R | |
 | Corner square? (3-4-5 or diagonals) | choice: Square / Out ¼″+ / Didn't check | O | |
 
 **Derived quantities**
 | Quantity | Formula | Maps to |
 |---|---|---|
-| Room floor area | room.length × room.width ÷ 144 | `kitchen.demo` "Room floor area"; `kitchen.flooring` "Floor area" (sf) |
-| Cabinet run | Σ kitchen_wall.base run ÷ 12 (+ island length ÷ 12) | `kitchen.cabinetry` "Cabinet run" (lf) |
-| Countertop area | Σ base run × 25.5″ ÷ 144 + island W × D ÷ 144 | `kitchen.countertops` "Countertop area" (sf) — the fabricator templates after install; this is for pricing |
-| Backsplash area | Σ base run × backsplash height ÷ 144 − windows over counters | `kitchen.backsplash` "Backsplash area" (sf) |
+| Room floor area | Σ length × width ÷ 144 of the rooms marked part of this job (every room on a one-template visit) | `kitchen.demo` "Room floor area"; `kitchen.flooring` "Floor area" (sf) |
+| Cabinet run | Σ base run ÷ 12, or Σ new base cabinets ÷ 12 when Some new (+ island length ÷ 12; New, or Keep with Replace all / Reface / Paint) | `kitchen.cabinetry` "Cabinet run" (lf) |
+| Countertop area | Σ base run × 25.5″ ÷ 144 + island (New, or Keep with a new top) W × D ÷ 144 | `kitchen.countertops` "Countertop area" (sf) — the fabricator templates after install; this is for pricing |
+| Backsplash area | Σ base run × counter height ÷ 144 + range wall W × H ÷ 144 when range on wall is Yes | `kitchen.backsplash` "Backsplash area" (sf) |
 
 **Shots**: each wall straight on **R** · sink base open **R** · range/hood and the
 appliance labels **R** · fridge space **R** · ceiling and soffits **R** · floor
@@ -1551,6 +1570,15 @@ Maps: `windows.replace` "Window count", `doors.interior` "Door count".
 | **Shots** | each room's floor **R**; each transition **R**; stairs **R?** | | |
 
 ---
+
+### Changed since approval — Joe approved 2026-11-03
+Changed after counsel’s approval — Joe approved 2026-11-03: staff closing line 2: Next, Joe prices this with our trade partners and suppliers. You'll have the formal estimate by {estimate_date}. It shows each part of the work, the allowances for the things you're still choosing, and what isn't included.
+Changed after counsel’s approval — Joe approved 2026-11-03: staff closing line 2b: Joe works from everything I measured today, and he may call you with a question or two.
+Changed after counsel’s approval — Joe approved 2026-11-03: closing line 2, no date — Joe: Next, I price this with our trade partners and suppliers. I’ll call you with the date you’ll have the formal estimate. It shows each part of the work, the allowances for the things you’re still choosing, and what isn’t included.
+Changed after counsel’s approval — Joe approved 2026-11-03: closing line 2, no date — staff: Next, Joe prices this with our trade partners and suppliers. He’ll be in touch to tell you when you’ll have the formal estimate. It shows each part of the work, the allowances for the things you’re still choosing, and what isn’t included.
+Changed after counsel’s approval — Joe approved 2026-11-03: unknown-year pamphlet: We’re not sure the house was built in 1978 or later, so we’re giving you this pamphlet about lead-safe work — it’s called Renovate Right. Could you initial here that you got it?
+Changed after counsel’s approval — Joe approved 2026-11-03: client screen and recap, Next with no date: Joe will be in touch to tell you when you’ll have your formal estimate.
+
 ## 8. Recording consent, privacy and legal
 
 ### 8.1 Exact words and evidence
@@ -2077,8 +2105,7 @@ These labels extend §3; database values never appear raw on cards.
 There is **no `reviewed` status** (Joe, 2026-11-02). No idle timer declares a visit
 closed/complete. Server may show “Visit interrupted.” Complete locks the answers and
 evidence of that **completion generation** (`consults.completion_generation`), which is
-what findings, the floor draft and the sub/estimate export read. **Reopen** — by Joe or the
-assigned visitor, with a reason and the expected revision — starts generation n+1,
+what findings, the floor draft and the sub/estimate export read. **Reopen** — by Joe, with a reason and the expected revision — starts generation n+1,
 returns the visit to in_progress, keeps the old generation's history, and the visit must
 close and pass §10.3 again; findings from generation n stay applied until generation n+1
 is complete and supersedes them (§10.5). Old queued events remain conflicts until
@@ -2151,7 +2178,7 @@ one arbitrary measurement per room into the same label.
 Input `reconcileConsultFindings({consult_id, expected_generation, operation_id})`.
 **Trigger:** the server enqueues it (worker job, key `consult-apply:<id>:<generation>`) the
 moment a generation becomes Complete; while the pilot switch `consult_auto_apply_findings`
-is off, the visitor or Joe taps **Apply findings** instead (§17). No review precedes either.
+is off, the assigned visitor or Joe taps **Apply findings** instead (§17). No review precedes either.
 Lock order project → consult → scope items ordered by key → site plan → application
 rows; reject not complete/stale/conflicted. Derive from **the current complete
 generation's answers**, not historical event order. Group by `(project,scope_key,quantity_label,unit)` with
@@ -2460,7 +2487,7 @@ DAL authorization; DB owner privileges cannot replace that application check.
 | consult_propose_form(context,definition) | agent | INSERT validated draft only; status/author/checksum server-set |
 | consult_claim_audio / heartbeat / finish_audio | worker | lease/fencing, shared segment INSERT/revisions, consent-pick bind through `checklist_set_consent_evidence`'s worker branch (text from the committed segment only; never creates an attestation), due-target registration for deletion (§9.1), pending suggestions; cannot human-confirm, complete, reopen, assign or alter an attestation |
 | consult_reconcile(context,id,generation) | agent/worker | only a complete immutable generation, exact effects §10.5; never price or estimate lock bypass |
-| person website commands | owner or the assigned visitor (fresh DAL + assignment) | recorded-consent report, conflict pick, Reopen, AI note keep/edit/dismiss, Apply findings while auto-apply is off, floor draft |
+| person website commands | owner or the assigned visitor (fresh DAL + assignment) | recorded-consent report, conflict pick, AI note keep/edit/dismiss, floor draft; Reopen requires Joe; Apply findings while auto-apply is off requires Joe or the assigned visitor |
 | owner website commands | owner connection only | assignment/schedule, publish/retire, purge/hold (incl. **Delete transcript**), missing-device exception |
 
 Contexts must be server-minted signed short-lived run/session claims verified by command
@@ -2485,8 +2512,7 @@ status, complete/reopen actor, timestamps and generation; all client acknowledge
 actor/time; event actor/source and receipt hashes. No updates/deletes of event/answer
 history except dedicated purge redaction, which leaves tombstones. Published definitions
 cannot change bytes even if status stays published or is retired. A complete generation
-cannot be changed or its evidence replaced except by a deliberate Reopen (Joe or the
-assigned visitor), which starts a new generation. Completeness/status caches
+cannot be changed or its evidence replaced except by a deliberate Reopen (Joe), which starts a new generation. Completeness/status caches
 are reducer outputs, never tool fields. Each permitted transition verifies old revision.
 
 Manifest records commands + table grants (none where command-only), sequence requirements,
@@ -2542,7 +2568,7 @@ revisioned tombstone, not missing value. Server time orders audit only; no clock
 
 Stale base: preserve proposed/current values, return 409 `conflict` with both revisions;
 never silently overwrite. Resolve is new op referencing both, with chosen value/reason.
-Complete→423 `complete_locked`; only Reopen (Joe or the assigned visitor) starts a new
+Complete→423 `complete_locked`; only Reopen (Joe) starts a new
 generation, then old queued ops require conscious rebase. No “office source always wins”
 sort rule.
 Close manifest `{device,epoch,last_seq,required_blob_hashes,initials_hash,local_pending}`
@@ -2573,7 +2599,7 @@ Origin/Host + CSRF token for mutations; no wildcard CORS or session-derived targ
 | PUT /api/consult/[id]/uploads/[upload]/parts/[n] | raw bytes + part hash → `{n,sha256}`; exact retry no-op, changed hash 409 |
 | GET /api/consult/[id]/uploads/[upload] | → received parts/status; same actor/device only |
 | POST /api/consult/[id]/uploads/[upload]/commit | `{event_id,sha256}` → stable `{file_id,media_id?,chunk_id?,job_id?}`; for an audio part this acknowledgement is the device's signal to delete its local copy |
-| POST /api/consult/[id]/actions | `{action:reopen|apply|delete_transcript|draft_plan|note_line,expected_revision,operation_id,reason?,line_id?,decision?}` → new revision/result or named 409; Joe or the assigned visitor, except `delete_transcript` (owner only); `apply` only while auto-apply is off |
+| POST /api/consult/[id]/actions | `{action:reopen|apply|delete_transcript|draft_plan|note_line,expected_revision,operation_id,reason?,line_id?,decision?}` → new revision/result or named 409; Joe or the assigned visitor, except `reopen` and `delete_transcript` (owner only); `apply` only while auto-apply is off |
 | POST /api/consult/[id]/suggestions/[sid] | `{action:use|edit|reject,value?,base_revision,event_id}` → answer receipt; same offline op semantics |
 
 Upload validates UUID/part index and bounded streams, size ≤25 MB photo/initials and
@@ -2650,7 +2676,7 @@ Owner assigns/schedules, publishes forms, deletes transcripts on a client's requ
 places holds and records missing-device exceptions — owner-only because each protects
 something other than a review (assignment, form versions, client privacy, another
 person's unsent work). There is **no review power** (Joe, 2026-11-02). Assigned active
-staff with projects capture/read their visit, pick its conflicts, Reopen it with a reason,
+staff with projects capture/read their visit, pick its conflicts, tap Apply findings while automatic apply is off (Reopen is Joe’s),
 keep/dismiss its AI note lines and start its floor draft — the same as Joe on that visit;
 estimates area additionally needed for amounts in office snapshot. Staff can report
 consent through their authenticated website session; agents/worker cannot. Staff cannot
@@ -2679,8 +2705,8 @@ future capped visual checks under AGENTS rules; this plan is not authorization t
 | Phase | Ships / migration | Required named tests and acceptance |
 |---|---|---|
 | 0 standalone | record_site_findings aliases/canonical kinds only | `tests/estimating-db.test.mjs`: each canonical kind, aliases pre-validation, photo/client_answer/observation close correct item; do not bundle unrelated designer-doc edits |
-| 1 forms/offline (about 2–3 weeks) | 0075 forms, permissions, capture, completion, reconcile; no AI/audio/shared transcript dependency | `consult-length.test.mjs`, `consult-forms.test.mjs`, `consult-completeness.test.mjs`: unit/fraction/bare input, every seed tier, conditional field and mapping, 11 close checks; the **same** inputs give the same Complete/Needs finishing result for a Joe visit and a staff visit; Record rows answered-or-skipped for both; no `reviewed` status value is accepted; an unresolved conflict keeps Needs finishing; pending chips/AI lines never block; `consult-access-db.test.mjs`: direct INSERT/UPDATE assignment, publication bytes, helpers, complete-generation downgrade/actor spoof, staff Reopen of a visit not assigned to them, staff Delete transcript refused, other-consult parent/field/file, revoked staff, generic signed file/thumbnail/range and upload bypass denied; `consult-sync-db.test.mjs` + `consult-queue.test.mjs`: duplicate hash mismatch, stale clear/remove, crash/ack loss, close manifest, reopened-generation conflict |
-| 1 office output | current complete generation only | `consult-findings-db.test.mjs`: Complete enqueues apply exactly once with no owner action (flag on); flag off → **Apply findings** by visitor or Joe, same key; incomplete/stale/conflicted refused; Reopen → new generation supersedes the old contributions; two rooms same label sum once, correction/clear/remove/cancel/reapply, other-source preservation, exact plan photo/question mapping, locked sent/signed formal, dedicated price preserved, failed apply retry; `consult-todos-db.test.mjs`: no review to-do or push is ever filed, finish/conflict to-dos go to the visitor; existing estimating readiness tests |
+| 1 forms/offline (about 2–3 weeks) | 0075 forms, permissions, capture, completion, reconcile; no AI/audio/shared transcript dependency | `consult-length.test.mjs`, `consult-forms.test.mjs`, `consult-completeness.test.mjs`: unit/fraction/bare input, every seed tier, conditional field and mapping, 11 close checks; the **same** inputs give the same Complete/Needs finishing result for a Joe visit and a staff visit; Record rows answered-or-skipped for both; no `reviewed` status value is accepted; an unresolved conflict keeps Needs finishing; pending chips/AI lines never block; `consult-access-db.test.mjs`: direct INSERT/UPDATE assignment, publication bytes, helpers, complete-generation downgrade/actor spoof, staff Reopen refused, assigned or otherwise, staff Delete transcript refused, other-consult parent/field/file, revoked staff, generic signed file/thumbnail/range and upload bypass denied; `consult-sync-db.test.mjs` + `consult-queue.test.mjs`: duplicate hash mismatch, stale clear/remove, crash/ack loss, close manifest, reopened-generation conflict |
+| 1 office output | current complete generation only | `consult-findings-db.test.mjs`: Complete enqueues apply exactly once with no owner action (flag on); flag off → **Apply findings** by the assigned visitor or Joe, same key; incomplete/stale/conflicted refused; Reopen → new generation supersedes the old contributions; two rooms same label sum once, correction/clear/remove/cancel/reapply, other-source preservation, exact plan photo/question mapping, locked sent/signed formal, dedicated price preserved, failed apply retry; `consult-todos-db.test.mjs`: no review to-do or push is ever filed, finish/conflict to-dos go to the visitor; existing estimating readiness tests |
 | 1.5 editor (3–4 days) | owner form editor | `consult-form-editor.test.mjs`: immutable published/retired bytes, new version/pinned old rendering; owner-only publish; one published per key |
 | 2 audio (about 1–2 weeks) | 0076 if split; approved consent/policy before enable | `consult-audio-db.test.mjs`: two-process global lock incl dictation, expired leased recovery, fencing, crash each checkpoint, retry cap, shutdown and no open browser; **delete after commit**: a part's bytes, temp files and staging are gone after its segments commit; a crash between commit and delete is finished by the next wake/daily sweep; a crash before commit never deletes (bytes kept, job retried); repeated delete is a no-op; a legal hold pauses deletion; a part failing three times shows the "Couldn't transcribe" gap and is deleted at 7 days, not before (unless purged); a retried audio commit after deletion returns the old receipt without re-creating bytes; **consent pick**: the consent part is claimed first, later parts stay `waiting_consent` and untranscribed until the bind, the bind writes text with `clip_file_id` NULL, a failed consent part holds the waiting parts untranscribed with notes off, a successful retry within 7 days releases them, and an empty picked span or the 7-day cap marks `unprovable`, deletes the failed and waiting parts untranscribed and produces no chips or notes; no route serves audio bytes to any person/agent; `transcribe-segments.test.mjs`, `consult-overlap.test.mjs`: decode/timestamps/dedupe; `consult-retention-db.test.mjs`: discovery §14 values from the shared retention fixture (no consult numbers), consult audio deleted per part on verified commit with the 7-day cap, consent evidence kept as verified yes text with `clip_file_id` NULL (the CHECK refuses a clip on a consult session), capture-end clock on cancelled/never-contracted/abandoned visits, every §8.3 target registered and purged by the shared job, **Delete transcript** removes transcript plus any undeleted audio, shared `checklist_legal_holds` blocking purge, stale upload resurrection, backup restore/purge and unassigned audio ID/signed URL refusal; `consult-offline.test.mjs` adds: device deletes its audio part on commit ack and keeps no playable audio after the consent pick |
 | 3 shared coverage/notes (about 1 week after discovery's 0074 contract v3) | §9 shared schema/engine only | `consult-coverage-contract.test.mjs`: discovery's contract-v3 `late-instances.json` unchanged plus the §9.2 two-window/two-bath case, device-qualified `source_event_id`, every Evidence field, unknown-speaker confirm-only, manual/prior locks, corrected/deleted segment, cross-consult instance and same-session evidence rejects; `consult-access-db.test.mjs` adds direct narrow-login reads of shared tables denied and cross-assignment `checklist_read` refused; `consult-extract.test.mjs` (two independent measurement proposals on one field with no coverage item each keep their own refs; a measurement chip and a coverage suggestion from the same segment stay in separate tables; cross-session/cross-consult evidence refused by FK; corrected source expires pending chips and flags used answers; purge redacts suggestion and derived answer quotes and the actual redaction UPDATE passes the CHECK while an unredacted NULL offset fails; forged worker context, another session's job, a stale lease, a stale revision and a changed capture/deletion epoch are each refused by `consult_suggestion_create` with nothing written), `consult-sanity.test.mjs`, `consult-mapper.test.mjs`, `consult-coverage-gating.test.mjs`: no early room prompt, lumber/money excludes, ambiguous units, no auto-tick/write, process timeout/usage caps |
@@ -2694,7 +2720,7 @@ runs manifest/path DB checks and db-roles scan for its changed command/table pat
 Pilot: feature flags `consult_capture`, `consult_audio`, `consult_ai`,
 `consult_auto_apply_findings`, all default off. `consult_auto_apply_findings` is a
 rollout switch, not a per-visit review: it stays off until the reconciliation fixtures
-pass and Joe turns it on once; while off, the visitor or Joe taps **Apply findings** on a
+pass and Joe turns it on once; while off, the assigned visitor or Joe taps **Apply findings** on a
 complete generation (no review before it). Practice project: Joe completes bath/kitchen
 offline and checks the quantities as one-time rollout acceptance, then one real opted-in
 visit, then a staff visit that reaches Complete on its own. After rollout nothing waits on
@@ -2875,12 +2901,12 @@ to review." Discovery §14 was already updated for (1); this plan now matches it
 | No review | D5/D9: Joe's review removed; Complete is the fixed test alone, whoever did the visit | §0 |
 | No review | Who/where table, §2 owner-push row ("Staff consult ready for review" push removed), gap list | §1, §2 |
 | No review | Status labels drop "Complete — waiting for Joe" and "Reviewed"; visit-page controls replace **Mark reviewed**; AI line words moved to the visit page | §3, §10.1 |
-| No review | After the visit: no review step or to-do; findings apply automatically on Complete (pilot: **Apply findings** by visitor or Joe) | §5.6 |
+| No review | After the visit: no review step or to-do; findings apply automatically on Complete (pilot: **Apply findings** by the assigned visitor or Joe) | §5.6 |
 | No review | Close success says "Complete" for everyone; section N/A no longer "owner-reviewed" | §6.1, §6.3 |
 | No review | §6.8 kept as an **optional look-over visit page** (justified: the one office place for post-close conflicts, AI note lines, Reopen, Delete transcript, floor draft) — nothing waits on it; no Mark reviewed, no sticky approval bar, no reviewed state; conflicts picked by the visitor at close or by the visitor/Joe afterwards; Before you wrap lists conflicts | §5.5, §6.8, §6.9 |
 | No review | Record tier: one rule for Joe and staff (answer or reason-skip); flags decided by the visitor; staff scripts no longer say Joe reviews; deck footing count confirmed by the visitor | §7.1, §7.2, §7.8 |
 | No review | AI note lines optional, never block; only person-kept notes reach Open Brain | §9.3, §8.3 |
-| No review | Statuses: no `reviewed`; Complete locks a `completion_generation`; Reopen by Joe or the assigned visitor; skip rules lose "Joe review"; §10.3 test is the same for everyone, conflicts via check 7, chips/AI lines don't block; stage line "In-home consultation complete"; no push to Joe | §10.1–10.4 |
+| No review | Statuses: no `reviewed`; Complete locks a `completion_generation`; Reopen by Joe only; skip rules lose "Joe review"; §10.3 test is the same for everyone, conflicts via check 7, chips/AI lines don't block; stage line "In-home consultation complete"; no push to Joe | §10.1–10.4 |
 | No review | Reconcile/floor draft keyed on complete generation; apply triggered on Complete; "No scope item" goes to the scope register, not a review | §10.5, §10.7, §10.8 |
 | No review | `consultScopeFacts()` shape unchanged (v1 literals kept; `'reviewed'` = complete generation, `review_revision` = completion generation); precondition now Complete; `readConsultPhotoForExport` needs a complete generation (stays owner-only: it shares photos with a third party); gap `consult_not_reviewed` → `consult_not_complete`; sub-plan display-word follow-up noted | §10.9 |
 | No review | To-dos: review to-do removed; finish/conflict to-dos go to the visitor | §10.10 |
@@ -2896,3 +2922,12 @@ Planning only: no code, migrations, database, tests, builds or model calls were 
 Other plans were not edited; two follow-ups for their owners are noted above (discovery
 §8.4 worker consent-bind branch and its §5.1 "store the clip" sentence for consult; sub
 plan display words "Reviewed visit" → "Completed visit").
+
+
+Round 13–14: Reopen requires Joe; Apply findings (while automatic apply is off) is the assigned visitor or Joe; other staff are refused.
+RRP delivery reminders default to 14 days before the start (inside the 60-day window);
+a picked legal delivery day wins. Reopened delivery tasks retain the previous delivery date.
+Kitchen backsplash height to the uppers/full wall is measured explicitly in inches and feeds
+the derived backsplash height. The QA kitchen uses 18 inches and about 22 lf of base cabinets.
+
+Round 14: Room ‘This room is part of’ is required on multi-template visits and feeds only the selected template(s); a single template uses every room. Backsplash counter height is 4–36″; tile behind the range adds width × height / 144 for both tiled choices.

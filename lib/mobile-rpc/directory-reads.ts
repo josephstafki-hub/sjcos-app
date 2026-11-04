@@ -53,7 +53,7 @@ export async function vendorRead(u: CurrentUser, slug: string) {
 }
 export async function settingsRead(u: CurrentUser) {
   const d = await getSettingsData();
-  return {profile:{...d.profile, name:u.name, email:u.email,meta:`${label(u.role)} · ${d.profile.company}`,fields:d.profile.fields.map(f=>({...f,value:f.value === "America/Chicago" ? "Central time" : f.value}))}, notifyToggles:d.notifyToggles, allowedActions:["settings.profile","settings.notify"]};
+  return {profile:{...d.profile, name:u.name, email:u.email,meta:`${label(u.role)} · ${d.profile.company}`,fields:d.profile.fields.map(f=>({...f,value:f.value === "America/Chicago" ? "Central time" : f.value}))}, notifyToggles:d.notifyToggles.map(t=>({...t,label:({"notify.money":"Money: draws, invoices, payments","notify.compliance":"Deadlines: insurance, licenses, taxes","notify.mentions":"Mentions in team chat","notify.emailDigest":"Daily email at 7 am"} as Record<string,string>)[t.key]??t.label})), allowedActions:["settings.profile","settings.notify"]};
 }
 export async function searchRead(u: CurrentUser, raw: string) {
   const hits = await searchPanelForUser(u, raw, true);

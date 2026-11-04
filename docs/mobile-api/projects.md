@@ -228,3 +228,62 @@ the same persistent checkout/storage model as existing drafts. All hosts must sh
 this directory. After a process crash an uncertain operation remains pending rather
 than risk duplicate incident/PDF creation; coordinator reconciliation is required.
 No DB schema, services or live data were changed.
+
+## Round 4 safety receipts and reconciliation (supersedes retry notes above)
+
+POST `/api/mobile/rpc/projects.safety.report` keeps the body above. Supply and persist
+`requestId` before dispatch. The result with requestId is:
+
+```ts
+type SafetyResult = {
+ ok:boolean; error?:string; incidentId?:string; fileId?:string|null; pdfSaved?:boolean;
+};
+type SafetyOperation = {
+ requestId:string; status:"pending"|"completed"|"failed";
+ result:SafetyResult|null; message:string|null;
+ reconciliation?:"running"|"not_started"|"saved"|"needs_review";
+};
+```
+
+GET `/api/mobile/projects/{slug}/safety/operations/{requestId}` (no body) returns
+`SafetyOperation` directly. Requires bearer Projects access, the originating user,
+and the originating job. Invalid UUID: 400; absent/wrong user/job: 404;
+anonymous: 401; no Projects access: 403. Private, no-store. Uses no RPC action.
+
+The journal reserves a database incident ID **before** calling the shared action.
+The status read looks up that exact ID on that job, even if the worker crashed
+between INSERT and notification/journal completion. `saved` returns incidentId,
+fileId and pdfSaved. Only promise a PDF when pdfSaved is true. A missing/deleted
+file returns pdfSaved:false and an explicit "incident saved, PDF unavailable"
+message; never create another incident to recover its PDF.
+
+Mobile PDF storage refusal returns a known failed result before incident INSERT.
+It permits a corrected/new request; same-ID retries always replay the refusal.
+A thrown storage/DB/notification error yields result:null until reconciliation.
+Keep the same ID and payload locked; do not infer "not filed" from status:failed.
+
+A stopped local worker with no reserved identity returns `not_started` and a
+known failed result. A reserved ID without a database row, an unreadable journal,
+legacy journal without identity, or an unverifiable remote worker returns
+`needs_review` (result:null). A live local pending worker returns `running`.
+No status read replays a write or expires a journal. A reused PID can conservatively
+remain running; it never authorizes a replay.
+
+Owner repair for needs_review: record the requestId/user/job, inspect its private
+journal, verify the originating worker has stopped, and query the reserved incident
+ID on the QA/production database as appropriate. If present, restore its existing
+PDF/file instead of reporting again; if definitely absent and no worker can still
+write, authorize a fresh request. Corrupt/legacy journals require checking the job's
+incident list and original intent manually. Do not delete a journal to retry it.
+All worker hosts must share persistent journal storage; PID checks are local only.
+
+Calls without requestId preserve their direct SafetyResult response but have no
+client retry identity; modern clients must supply requestId. No schema or new
+write authority is introduced. The minimal shared export is
+`createMobileIncidentReport` in `lib/actions/safety.ts`; it reuses the existing
+implementation, permission check, PDF builder and notifications. The original web
+entrypoint retains its behavior.
+
+GET `/api/mobile/files/{id}` additionally permits Projects-only viewers to open
+an origin-lead file when `projects.lead_id` joins that lead. Leads-only lead file
+access remains. Restricted sub documents still require Subs permission.

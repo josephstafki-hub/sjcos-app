@@ -4,7 +4,7 @@ import { defineAction, MobileInputError } from "./dispatch";
 import { createProject, advanceProjectStatus, addProjectDailyLog, editProjectDailyLog, addPunchItem, setPunchDone, deletePunchItem } from "@/lib/actions/projects";
 import { createProjectScheduleBlock, deleteScheduleBlock, restoreScheduleBlock } from "@/lib/actions/schedule";
 import { recordManualPayment, sendInvoice } from "@/lib/actions/money";
-import { createIncidentReport } from "@/lib/actions/safety";
+import { createMobileIncidentReport } from "@/lib/actions/safety";
 import { sendProjectMessage } from "@/lib/actions/portal";
 import { setFileClientVisibility } from "@/lib/actions/files";
 import { queryOne } from "@/lib/db";
@@ -41,9 +41,17 @@ export const projectsActions = {
   "projects.punch.add": defineAction({ area:"projects", input:job.extend({item:text,owner:z.string().max(200).default("")}), run:async ({slug,item,owner}) => { await requireMobileProject(slug); return addPunchItem(slug,item,owner); } }),
   "projects.punch.toggle": defineAction({ area:"projects", input:job.extend({id:number,done:z.boolean()}), run:async ({slug,id,done}) => { await punchOnJob(slug,id); return setPunchDone(id,done,slug); } }),
   "projects.punch.remove": defineAction({ area:"projects", input:job.extend({id:number}), run:async ({slug,id}) => { await punchOnJob(slug,id); return deletePunchItem(id,slug); } }),
-  "projects.safety.report": defineAction({ area:"projects", input:job.extend({requestId:z.uuid().optional(),date,severity:z.enum(["near_miss","minor","recordable","serious"]),notes:text,reporter:z.string().max(200).optional()}), run:async ({requestId,slug,date,...v},user) => requestId
-    ? safetyOperation(user.id,requestId,{slug,date,...v},()=>createIncidentReport(slug,projectForm({...v,occurredAt:date})))
-    : createIncidentReport(slug,projectForm({...v,occurredAt:date})) }),
+  "projects.safety.report": defineAction({ area:"projects", input:job.extend({requestId:z.uuid().optional(),date,severity:z.enum(["near_miss","minor","recordable","serious"]),notes:text,reporter:z.string().max(200).optional()}), run:async ({requestId,slug,date,...v},user) => { const operation=await safetyOperation(user.id,requestId??crypto.randomUUID(),{slug,date,...v},async reserve=>{
+      await requireMobileProject(slug);
+      const reserved=await queryOne<{id:string}>(`SELECT nextval('incident_reports_id_seq')::text AS id`);
+      if(!reserved) throw new Error("Unable to reserve incident identity");
+      await reserve(reserved.id);
+      const result=await createMobileIncidentReport(slug,projectForm({...v,occurredAt:date}),reserved.id);
+      if(!result.ok)return result;
+      const report=await queryOne<{fileId:string|null}>(`SELECT file_id AS "fileId" FROM incident_reports WHERE id=$1`,[reserved.id]);
+      if(!report)throw new Error("Incident receipt unavailable");
+      return {ok:true,incidentId:reserved.id,fileId:report.fileId,pdfSaved:!!report.fileId};
+    }); return requestId?operation:operation.result??{ok:false,error:operation.message??"Report could not be confirmed."}; } }),
   "projects.portal.send": defineAction({ area:"projects", ownerOnly:true, input:job.extend({body:text}), run:async ({slug,body}) => { await requireMobileProject(slug); return sendProjectMessage(slug,projectForm({body})); } }),
   "projects.file.publish": defineAction({ area:"projects", ownerOnly:true, input:job.extend({id:z.string().min(1).max(200),visible:z.boolean()}), run:async ({slug,id,visible}) => { if (!await queryOne(`SELECT 1 FROM files f JOIN projects p ON p.slug=$1 WHERE f.id=$2 AND (f.project_key=p.slug OR f.lead_slug=(SELECT slug FROM leads WHERE id=p.lead_id))`,[slug,id])) throw new MobileInputError("File not found on this job."); return setFileClientVisibility(id,visible); } }),
 };

@@ -214,3 +214,6 @@ convert results and values, lead photo authorization, schedule edit preservation
 safety request IDs, MMS file reads, warranty lifecycle actions and sub file metadata.
 Notifications now default to 50 newest-first cards with cursor paging rather than the
 web's 300-card unread-first window. `unread` remains the full scoped count.
+
+Round 4 additions: [mobile response shaping and destinations](mobile-api/r4.md),
+[safety operation receipts and reconciliation](mobile-api/projects.md#round-4-safety-receipts-and-reconciliation-supersedes-retry-notes-above).

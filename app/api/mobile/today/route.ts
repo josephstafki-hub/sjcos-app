@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { getUserFromRequest, hasAccess } from "@/lib/api-auth";
+import { queryOne } from "@/lib/db";
+import { plainNotice } from "@/lib/mobile-rpc/destinations";
 import { getTodayData } from "@/lib/today";
 
 export const dynamic = "force-dynamic";
@@ -13,5 +15,6 @@ export async function GET(req: Request) {
   if (!hasAccess(user, "today")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   const data = await getTodayData(user);
-  return NextResponse.json(data);
+  const count=user.role==="owner"?await queryOne<{count:number}>(`SELECT count(*)::int AS count FROM projects WHERE status IN ('construction','closeout')`):null;
+  return NextResponse.json({...data,headerChips:data.headerChips.map(c=>({...c,label:c.label.replace(/ · on-site \+ closeout jobs, including unbilled work/,` on ${count?.count??0} open job${count?.count===1?"":"s"}`)})),priorities:data.priorities.map(p=>({...p,sub:plainNotice(p.sub)}))});
 }

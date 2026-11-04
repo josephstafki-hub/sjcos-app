@@ -65,7 +65,7 @@ test('R11-1: the close screen wires each fix to its place, and Keep working stan
   assert.match(app, /fix === "trade_walks"\) setAfter\("trade_walks_day"\)/);
   const visit = src('components/consult/field/VisitScreen.tsx');
   assert.match(visit, /case "before_you_wrap": setSheet\("wrap"\)/);
-  assert.match(visit, /refusalFocus\(action\.slice\(6\)\)/);
+  assert.match(visit, /closeRefusalFocus\(action\.slice\(6\)\)/, "r13 R13-2: refusalFocus plus the closing.* path");
   const dflt = visit.slice(visit.indexOf('default: {\n        // r11 R11-1'));
   assert.doesNotMatch(dflt.slice(0, dflt.indexOf('const ranAction')), /\bcase "/, 'the field-focus default is last, so nothing falls through into it');
   const ctl = src('lib/consult/ui/controller.ts');
@@ -122,7 +122,7 @@ test('certification warning: the one shared copy names Joe, on every surface', (
 test('extra: the own ✓ Complete reads like the opened Complete screen', () => {
   const wrap = src('components/consult/field/WrapClose.tsx');
   const done = wrap.slice(wrap.indexOf('closing.step === "done" && r'));
-  assert.match(done, /✓ \{W\.complete\}.*closedWhen.*whitespace-nowrap.*closedWhen/, 'the close time stays together in the heading');
+  assert.match(done, /✓ \{W\.complete\}<\/h1>\s*\{closedWhen && .*whitespace-nowrap">\{closedWhen\}/, 'r13 R13-1: the close time is its own line under the heading, kept together');
   // r12 extra: both close results (◐ Needs finishing too) go back with ‹ Back to visits.
   assert.match(done, /<LinkBtn href="\/consult\/">\{W\.backToVisits\}<\/LinkBtn>/);
   assert.equal(W.backToVisits, '‹ Back to visits');

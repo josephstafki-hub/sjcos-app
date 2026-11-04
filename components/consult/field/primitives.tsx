@@ -4,7 +4,7 @@
  * icon + word for every state, focus kept inside open sheets, Escape closes.
  * No next/* imports: this file is also bundled into the offline capture shell.
  */
-import { useEffect, useId, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { Fragment, useEffect, useId, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 
 type Tone = "primary" | "secondary" | "quiet" | "danger" | "accent";
 const TONES: Record<Tone, string> = {
@@ -108,6 +108,17 @@ export function scrollInPane(el: HTMLElement | null | undefined, where: "center"
   const offset = where === "center" ? Math.max(0, (pane.clientHeight - r.height) / 2) : 16;
   const reduce = typeof matchMedia === "function" && matchMedia("(prefers-reduced-motion: reduce)").matches;
   pane.scrollTo({ top: Math.max(0, pane.scrollTop + (r.top - p.top) - offset), behavior: reduce ? "auto" : "smooth" });
+}
+
+/** r13 R13-1: an "a · b · c" line whose pieces never split, each ending with its own "·", so a narrow
+ *  screen breaks the line only after a dot (the way it would after a comma), never before one. */
+export function DotLine({ line, className = "" }: { line: string; className?: string }) {
+  const parts = line.split(" · ");
+  return (
+    <p className={className}>
+      {parts.map((p, i) => <Fragment key={i}>{i > 0 && " "}<span className="whitespace-nowrap">{p}{i < parts.length - 1 && " ·"}</span></Fragment>)}
+    </p>
+  );
 }
 
 export function Eyebrow({ children, className = "" }: { children: ReactNode; className?: string }) {

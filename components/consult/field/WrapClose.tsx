@@ -17,7 +17,7 @@ import { MeasureText } from "../MeasureText";
 import { centralTime } from "./GetReady";
 import { CertWarningList } from "../CertWarning";
 import { certDate, clampDay, type CertificationWarning } from "@/lib/consult/rrp";
-import { Banner, Box, Btn, Choice, LinkBtn, Sheet, TextInput } from "./primitives";
+import { Banner, Box, Btn, Choice, DotLine, LinkBtn, Sheet, TextInput } from "./primitives";
 
 const itemLabel = (o: VisitModel["open"][number]) => (o.kind === "field" ? (o.item as FieldView).def.label : `Photo · ${(o.item as ShotView).def.label}`);
 const itemAddr = (o: VisitModel["open"][number]) => (o.kind === "field" ? (o.item as FieldView).addr : (o.item as ShotView).addr);
@@ -92,7 +92,7 @@ export function WrapSheet({ open, onClose, model, draft, hasInitials, refused, o
         {/* r5: the same row shape as every other card — words left, the two buttons stacked on the right. */}
         <Line text={hasInitials ? "Client initials ✓" : draft.ack_reason ? `No initials · ${draft.ack_reason}` : "Client initials — not yet"} note={!hasInitials && needDate ? `→ ${W.pickDateBeforeClient}` : undefined}
           action={hasInitials ? undefined : <span className="grid justify-items-stretch gap-2"><Btn onClick={onClient} disabled={needDate}>{W.showToClient}</Btn><Btn tone="quiet" onClick={onAck}>{W.noInitialsSay}</Btn></span>} done={!ackOpen} />
-        <Line text={trades.length ? (undecidedTrades.length ? fill(W.tradeWalksLine, { trade: undecidedTrades.join(", ") }) : "Trade walks: all decided ✓") : draft.no_trades_confirmed ? "Trade walks: none — no trade is touched ✓" : "Trade walks: confirm none is needed"} action={<Btn onClick={onTrades}>{W.decide}</Btn>} done={!tradesOpen} />
+        <Line text={trades.length ? (undecidedTrades.length ? fill(W.tradeWalksLine, { trade: undecidedTrades.join(", ") }) : "Trade walks: all decided ✓") : draft.no_trades_confirmed ? "Trade walks: none — no trade is touched ✓" : "Trade walks: confirm none is needed"} action={<Btn onClick={onTrades}>{tradesOpen ? W.decide : W.review}</Btn>} done={!tradesOpen} />
         {model.sections.filter(s=>s.module.key==='footing').map(s=>{const zone=s.fields.find(f=>f.key==='frost_zone')?.answer;return zone?.status==='answered' ? <Line key={s.instance.id} text={`County frost zone: ${String(zone.value)}`} info /> : null;})}
         {model.rrpApplies && <Line text={rrpOpen ? fill(W.rrpNeeds, { list: [!model.rrp.receipt && W.rrpShortReceipt, !model.rrp.firm_current && (model.values["era.firm_cert_expiry"] ? W.rrpShortFirm : W.rrpShortFirmMissing), !model.rrp.renovator_current && (model.values["era.renovator_expiry"] ? W.rrpShortRenovator : W.rrpShortRenovatorMissing)].filter(Boolean).join(" · ") }) : W.rrpRecorded} action={<Btn onClick={onRrp}>{W.rrpReview}</Btn>} done={!rrpOpen} />}
         <CertWarnings list={model.certificationWarnings ?? []} />
@@ -334,16 +334,19 @@ export function ClosingScreen({ closing, unsent, online, autoApply, findings, fi
       {closing.step === "done" && r && <>
         {r.complete ? <>
           {/* r11 extra: the same heading as the opened Complete screen (CompleteCard) — with the close time. */}
-          {/* r12 extra: "Nov 3, 7:01 pm" stays on one line — never "7:01 / pm". */}
-          <h1 className="font-serif text-[1.8em] font-semibold text-accent-2">✓ {W.complete}{closedWhen ? <> · <span className="whitespace-nowrap">{closedWhen}</span></> : null}</h1>
+          {/* r12 extra: "Nov 3, 7:01 pm" stays on one line — never "7:01 / pm".
+              r13 R13-1: "✓ Complete" alone; the close time is a plain line under it, so no "·" is stranded. */}
+          <h1 className="font-serif text-[1.8em] font-semibold text-accent-2">✓ {W.complete}</h1>
+          {closedWhen && <p className="mt-1 text-ink-2">{W.closedOn} <span className="whitespace-nowrap">{closedWhen}</span></p>}
           {unmeasured > 0 && <p className="mt-1 font-semibold text-ink">{quantitiesLine(unmeasured)}</p>}
-          <p className="mt-2 font-mono text-ink">{completeCountsLine(r)}</p>
+          <DotLine className="mt-2 font-mono text-ink" line={completeCountsLine(r)} />
           <p className="mt-1 text-ink-2">Answers and photos sent ✓</p>
           {/* r12 R12-3: the opened Complete screen's lock line, from the same role check — a staff visitor
               is told Joe reopens it from the office look-over; Joe gets Reopen below. */}
           <p className="mt-3 text-ink">{staff ? W.completeLocked : W.answersLocked}</p>
           {!autoApply && (
-            <div className="mt-4 rounded-lg border-2 border-rule p-3">
+            // r13 extra: a staff visitor's "Joe applies the findings" is a plain line, not a box shaped like a button.
+            <div className={staff && !findings && !findingsCode ? "mt-3" : "mt-4 rounded-lg border-2 border-rule p-3"}>
               {findings?.status === "applied" || findings?.status === "done" ? <p className="font-semibold text-accent-2">Findings applied ✓</p>
                 : findings?.status === "failed" || findingsCode ? <Banner kind="action" actions={<Btn onClick={onApply}>{W.tryAgain}</Btn>}>{"Couldn’t apply findings to the scope"}</Banner>
                 : findings ? <p className="text-ink-2">{W.findingsWaiting}</p>

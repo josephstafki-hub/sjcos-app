@@ -7,7 +7,7 @@
  */
 import type { ReadyCheck } from '../readiness.ts';
 import type { SkipReason } from '../completeness.ts';
-import { CLOSE_ERROR_ACTIONS, type CloseErrorCode } from '../close-errors.ts';
+import { CLOSE_ERROR_ACTIONS, refusalFocus, type CloseErrorCode, type RefusalFocus } from '../close-errors.ts';
 
 export function fill(template: string, values: Record<string, string | number>): string {
   return template.replace(/\{([a-z_:]+)\}/g, (all, key: string) => (key in values ? String(values[key]) : all));
@@ -199,6 +199,8 @@ export const W = {
   setupAgain: 'Set up sections',
   closeWaiting: 'Close visit is saved on this device and finishes by itself when it can send.',
   complete: 'Complete',
+  // r13 R13-1: the close time on its own line under ✓ Complete — words beside the time, no separator.
+  closedOn: 'Closed',
   // r7 R7-1: a Complete visit opened on a device.
   completeLocked: 'Answers are locked. Joe can reopen it from the office look-over.',
   // r12 R12-3: Joe's own device — the same lock line, and Reopen beside it.
@@ -251,7 +253,7 @@ export const W = {
   rrpTitle: 'Renovate Right',
   rrpReceipt: 'Renovate Right pamphlet given and receipt initialed',
   rrpFirm: 'SJC firm certification is current',
-  rrpRenovator: 'Certified renovator certification is current',
+  rrpRenovator: 'Certified renovator certification is current on the visit day',
   rrpRedelivery: 'Work starts more than 60 days from today — re-deliver before start',
   rrpRedeliveryDay: 'Re-deliver on',
   rrpWhy: 'Built before 1978 (or the year isn’t known), and this job disturbs paint or replaces windows or doors.',
@@ -706,4 +708,14 @@ export function reopenedHead(r: {who?: string|null; when?: string|Date|null}): s
  const d = r.when ? new Date(r.when) : null;
  const when = d && Number.isFinite(d.getTime()) ? new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}).format(d).replace(/[\s\u202f]?AM$/,' am').replace(/[\s\u202f]?PM$/,' pm') : '';
  return `Reopened by ${first}${when ? ` · ${when}` : ''}`;
+}
+
+/** r13 R13-2: where a refused close's named field goes on the visit. The office names the promised date
+ *  as `closing.estimate_promised` (the Closing module's own path) as well as `promised_date`; both go to
+ *  the date field. Any other closing path is unknown (null = Before you wrap, with the note). */
+export function closeRefusalFocus(field: string | null | undefined): RefusalFocus | null {
+  const parts = (field ?? '').split('.');
+  if (parts[0] === 'evidence' || parts[0] === 'input') parts.shift();
+  if (parts[0] === 'closing') return parts[1] === 'estimate_promised' ? { closing: 'estimate_promised' } : null;
+  return refusalFocus(field);
 }

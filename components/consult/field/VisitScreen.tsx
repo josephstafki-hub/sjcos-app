@@ -1,7 +1,6 @@
 "use client";
 import {closingScriptLine} from "@/lib/consult/forms/seed/scripts";
 import {sectionCounts} from "@/lib/consult/completeness";
-import {refusalFocus} from "@/lib/consult/close-errors";
 /**
  * The visitor's screens (plan §6.3 phone portrait, §6.4 tablet landscape):
  * opening script → section list → section fields. Phone/tablet portrait: one column,
@@ -13,7 +12,7 @@ import { CoverageMark } from "@/components/ui/CoverageMark";
 import type { FieldView, SectionView, ShotView, VisitModel, EvidenceDraft, Display } from "@/lib/consult/ui/model";
 import { leaveLine, leaveList, moduleNoun, nextOpen, resumeSection, selectionHint, spokenSelections } from "@/lib/consult/ui/model";
 import type { AnswerPayload } from "@/lib/consult/ui/ops";
-import { W, fill, plainWords, spokenDuration, visitDuration } from "@/lib/consult/ui/words";
+import { W, closeRefusalFocus, fill, plainWords, spokenDuration, visitDuration } from "@/lib/consult/ui/words";
 import { Banner, Btn, Eyebrow, Sheet, scrollInPane } from "./primitives";
 import { FieldRow, MarkCell, PhotoRow, type FieldActions } from "./FieldRow";
 import { Keypad } from "./Keypad";
@@ -207,6 +206,7 @@ export function VisitScreen({ device, model, display, api, thumbs, online, draft
 
   // r5: the close result's row buttons land here — the same ways forward Before you wrap has.
   const pickDate = () => { void api.ensureClosing().then((id) => { setSheet(null); openSection(id, `${id}:estimate_promised`); }); };
+  const wrapRefused = () => { setSheet("wrap"); setWrapWhy(true); };
   const runAction = (action: string) => {
     const field = model.open.find((o) => o.kind === "field" && !o.partly) ?? model.open.find((o) => o.kind === "field");
     const shot = model.open.find((o) => o.kind === "shot");
@@ -229,12 +229,16 @@ export function VisitScreen({ device, model, display, api, thumbs, online, draft
       case "review_permissions": { const f = houseInst?.fields.find((x) => x.key === "photos_ok"); if (houseInst && f) openSection(houseInst.instance.id, f.addr); else setSheet("wrap"); break; }
       default: {
         // r11 R11-1: the office named a field (details[].field) — focus it, in its wrap sheet or on the visit.
-        const target = action.startsWith("focus:") ? refusalFocus(action.slice(6)) : null;
-        if (!target) { setSheet("wrap"); break; }
+        // r13 R13-2: every way this lands on Before you wrap says why it opened (a field the app can't
+        // place, a skip with no field address, a field not on this visit); a closing field is the date.
+        // A plain row action with no place of its own (Needs finishing's Send now) opens it without the note.
+        const refusal = action.startsWith("focus:");
+        const target = refusal ? closeRefusalFocus(action.slice(6)) : null;
+        if (!target || ("sheet" in target && target.sheet === "wrap")) { if (refusal) wrapRefused(); else setSheet("wrap"); break; }
         if ("sheet" in target) setSheet(target.sheet);
         else if ("closing" in target) pickDate();
-        else if ("house" in target) runAction("review_permissions");
-        else { const inst = target.addr.split(":")[0]; if (model.sections.some((x) => x.instance.id === inst)) openSection(inst, target.addr); else setSheet("wrap"); }
+        else if ("house" in target) { if (houseInst?.fields.some((x) => x.key === "photos_ok")) runAction("review_permissions"); else wrapRefused(); }
+        else { const inst = target.addr.split(":")[0]; if (model.sections.some((x) => x.instance.id === inst)) openSection(inst, target.addr); else wrapRefused(); }
         break;
       }
     }

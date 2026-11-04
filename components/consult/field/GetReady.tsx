@@ -11,7 +11,7 @@ import { CoverageMark } from "@/components/ui/CoverageMark";
 import type { ReadyCheck, CheckResult } from "@/lib/consult/readiness";
 import type { ReadyResult } from "@/lib/consult/ui/controller";
 import { READY_LABEL, READY_ROWS, W, fill, plainWords, quantitiesLine, readyReason } from "@/lib/consult/ui/words";
-import { Banner, Btn, LinkBtn, TextInput } from "./primitives";
+import { Banner, Btn, DotLine, LinkBtn, TextInput } from "./primitives";
 import { completeCountsLine } from "@/lib/consult/completeness";
 
 export function centralTime(iso: string | number | null | undefined, opts: Intl.DateTimeFormatOptions = { weekday: "short", hour: "numeric", minute: "2-digit" }) {
@@ -172,9 +172,11 @@ export function CompleteCard({ title, closedAt, completeness, unmeasured = 0, lo
     <div className="mx-auto w-full max-w-[560px]">
       <ScreenHead title={title} right={more} />
       <section className="px-4 pb-8 pt-4" aria-live="polite">
-        <h1 className="font-serif text-[1.8em] font-semibold text-accent-2">✓ {W.complete}{when ? <> · <span className="whitespace-nowrap">{when}</span></> : null}</h1>
+        {/* r13 R13-1: "✓ Complete" alone; the close time is a plain line under it, so no "·" is stranded. */}
+        <h1 className="font-serif text-[1.8em] font-semibold text-accent-2">✓ {W.complete}</h1>
+        {when && <p className="mt-1 text-ink-2">{W.closedOn} <span className="whitespace-nowrap">{when}</span></p>}
         {unmeasured > 0 && <p className="mt-1 font-semibold text-ink">{quantitiesLine(unmeasured)}</p>}
-        {c?.price_critical && c.record && <p className="mt-2 font-mono text-ink">{completeCountsLine({ price_critical: c.price_critical, record: c.record })}</p>}
+        {c?.price_critical && c.record && <DotLine className="mt-2 font-mono text-ink" line={completeCountsLine({ price_critical: c.price_critical, record: c.record })} />}
         <p className="mt-3 text-ink">{staff ? W.completeLocked : W.answersLocked}</p>
         <div className="mt-5 grid gap-3">
           <LinkBtn tone="primary" wide href={lookOver}>{W.lookOver}</LinkBtn>

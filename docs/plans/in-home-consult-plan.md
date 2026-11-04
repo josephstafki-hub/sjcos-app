@@ -962,10 +962,18 @@ past problems* (by "Past remodels").
 | Winter: who clears snow on the path | choice: Client / SJC / N/A | O | |
 | **Shots** | street/driveway **R**; path to work area **R**; dumpster spot **R?** spot ≠ Not possible | | |
 
+**Visit module (server context)**
+
+| Field | Type | Requirement |
+|---|---|---|
+| Number of templates | number | server-filled, never asked |
+
+
 #### `room` — Room dimensions (repeatable; "Room {n} — {name}")
 | Field | Type / unit | Req | Notes |
 |---|---|---|---|
 | Room name | text | R | |
+| This room is part of | multi: the visit's templates | R when the visit has more than one template; hidden otherwise | Each template uses the rooms marked part of this job; answer before closing or remove the room. |
 | Level | choice: Basement / Main / Upper / Attic / Garage | R | |
 | Wall used as "Ahead" (facing from the entry door) | text | R | orients windows/doors for the floor plan |
 | Length (wall to wall, longest) | length 24–600 in, 1/8″ | R | |
@@ -1223,8 +1231,8 @@ or a no-step shower, now or later?"
 **Derived quantities**
 | Quantity | Formula | Maps to |
 |---|---|---|
-| Room floor area | room.length × room.width ÷ 144 | (context) |
-| Floor tile area | floor area − (tub footprint if the tub stays) − vanity width × 21″ ÷ 144 | `bath.tile` "Floor tile area" (sf) |
+| Room floor area | Σ length × width ÷ 144 of the rooms marked part of this job (every room on a one-template visit) | (context) |
+| Floor tile area | floor area of the rooms marked part of this job − (tub footprint if the tub stays) − vanity width × 21″ ÷ 144 | `bath.tile` "Floor tile area" (sf) |
 | Wall tile area | shower: (2 × depth + width) × wall tile height ÷ 144; tub: (2 × 30″ + length) × height ÷ 144; wainscot: perimeter × 36″ ÷ 144 | `bath.tile` "Wall tile area" (sf) |
 
 **Shots** (bath-specific, on top of module shots): room from the door **R** · toilet and
@@ -1268,6 +1276,7 @@ small appliances live now?" · "Does the floor in here run into other rooms?"
 | Upper cabinet height | choice: 30″ / 36″ / 42″ / To ceiling / Stacked | R | |
 | Soffits (and what's in them) | choice: None / Empty / Duct / Plumbing vent / Unknown | R | Duct/vent ⚑ "can't remove soffit freely" |
 | Backsplash height / Backsplash height along the counters (to the uppers) | choice: 4″ / To the uppers / Full wall at range; measured height: length (in) | R; measured height R? to uppers or full wall | |
+| Tile behind the range — width × height from the counter up | length pair, 12–96″ | R for To the uppers and Full wall at range | Cooktop in the island? Skip — Not applicable. |
 | Sink stays where it is? | yesno | R | no → plumb_fixture Move |
 | Sink base width now | length | R | |
 | Disposal / pot filler / filtered water | multi | O | |
@@ -1294,10 +1303,10 @@ small appliances live now?" · "Does the floor in here run into other rooms?"
 **Derived quantities**
 | Quantity | Formula | Maps to |
 |---|---|---|
-| Room floor area | room.length × room.width ÷ 144 | `kitchen.demo` "Room floor area"; `kitchen.flooring` "Floor area" (sf) |
+| Room floor area | Σ length × width ÷ 144 of the rooms marked part of this job (every room on a one-template visit) | `kitchen.demo` "Room floor area"; `kitchen.flooring` "Floor area" (sf) |
 | Cabinet run | Σ kitchen_wall.base run ÷ 12 (+ island length ÷ 12) | `kitchen.cabinetry` "Cabinet run" (lf) |
 | Countertop area | Σ base run × 25.5″ ÷ 144 + island W × D ÷ 144 | `kitchen.countertops` "Countertop area" (sf) — the fabricator templates after install; this is for pricing |
-| Backsplash area | Σ base run × counter height ÷ 144 + range width × (range height − counter height) ÷ 144 (Full wall at range only) | `kitchen.backsplash` "Backsplash area" (sf) |
+| Backsplash area | Σ base run × counter height ÷ 144 + range wall W × H ÷ 144 | `kitchen.backsplash` "Backsplash area" (sf) |
 
 **Shots**: each wall straight on **R** · sink base open **R** · range/hood and the
 appliance labels **R** · fridge space **R** · ceiling and soffits **R** · floor
@@ -2092,8 +2101,7 @@ These labels extend §3; database values never appear raw on cards.
 There is **no `reviewed` status** (Joe, 2026-11-02). No idle timer declares a visit
 closed/complete. Server may show “Visit interrupted.” Complete locks the answers and
 evidence of that **completion generation** (`consults.completion_generation`), which is
-what findings, the floor draft and the sub/estimate export read. **Reopen** — by Joe or the
-assigned visitor, with a reason and the expected revision — starts generation n+1,
+what findings, the floor draft and the sub/estimate export read. **Reopen** — by Joe, with a reason and the expected revision — starts generation n+1,
 returns the visit to in_progress, keeps the old generation's history, and the visit must
 close and pass §10.3 again; findings from generation n stay applied until generation n+1
 is complete and supersedes them (§10.5). Old queued events remain conflicts until
@@ -2500,8 +2508,7 @@ status, complete/reopen actor, timestamps and generation; all client acknowledge
 actor/time; event actor/source and receipt hashes. No updates/deletes of event/answer
 history except dedicated purge redaction, which leaves tombstones. Published definitions
 cannot change bytes even if status stays published or is retired. A complete generation
-cannot be changed or its evidence replaced except by a deliberate Reopen (Joe or the
-assigned visitor), which starts a new generation. Completeness/status caches
+cannot be changed or its evidence replaced except by a deliberate Reopen (Joe), which starts a new generation. Completeness/status caches
 are reducer outputs, never tool fields. Each permitted transition verifies old revision.
 
 Manifest records commands + table grants (none where command-only), sequence requirements,
@@ -2588,7 +2595,7 @@ Origin/Host + CSRF token for mutations; no wildcard CORS or session-derived targ
 | PUT /api/consult/[id]/uploads/[upload]/parts/[n] | raw bytes + part hash → `{n,sha256}`; exact retry no-op, changed hash 409 |
 | GET /api/consult/[id]/uploads/[upload] | → received parts/status; same actor/device only |
 | POST /api/consult/[id]/uploads/[upload]/commit | `{event_id,sha256}` → stable `{file_id,media_id?,chunk_id?,job_id?}`; for an audio part this acknowledgement is the device's signal to delete its local copy |
-| POST /api/consult/[id]/actions | `{action:reopen|apply|delete_transcript|draft_plan|note_line,expected_revision,operation_id,reason?,line_id?,decision?}` → new revision/result or named 409; Joe or the assigned visitor, except `delete_transcript` (owner only); `apply` only while auto-apply is off |
+| POST /api/consult/[id]/actions | `{action:reopen|apply|delete_transcript|draft_plan|note_line,expected_revision,operation_id,reason?,line_id?,decision?}` → new revision/result or named 409; Joe or the assigned visitor, except `reopen` and `delete_transcript` (owner only); `apply` only while auto-apply is off |
 | POST /api/consult/[id]/suggestions/[sid] | `{action:use|edit|reject,value?,base_revision,event_id}` → answer receipt; same offline op semantics |
 
 Upload validates UUID/part index and bounded streams, size ≤25 MB photo/initials and
@@ -2665,7 +2672,7 @@ Owner assigns/schedules, publishes forms, deletes transcripts on a client's requ
 places holds and records missing-device exceptions — owner-only because each protects
 something other than a review (assignment, form versions, client privacy, another
 person's unsent work). There is **no review power** (Joe, 2026-11-02). Assigned active
-staff with projects capture/read their visit, pick its conflicts, Reopen it with a reason,
+staff with projects capture/read their visit, pick its conflicts, tap Apply findings while automatic apply is off (Reopen is Joe’s),
 keep/dismiss its AI note lines and start its floor draft — the same as Joe on that visit;
 estimates area additionally needed for amounts in office snapshot. Staff can report
 consent through their authenticated website session; agents/worker cannot. Staff cannot
@@ -2913,12 +2920,10 @@ Other plans were not edited; two follow-ups for their owners are noted above (di
 plan display words "Reviewed visit" → "Completed visit").
 
 
-Round 13 implementation: reopening and applying findings require Joe's owner authorization.
+Round 13–14: Reopen requires Joe; Apply findings (while automatic apply is off) is the assigned visitor or Joe; other staff are refused.
 RRP delivery reminders default to 14 days before the start (inside the 60-day window);
 a picked legal delivery day wins. Reopened delivery tasks retain the previous delivery date.
 Kitchen backsplash height to the uppers/full wall is measured explicitly in inches and feeds
 the derived backsplash height. The QA kitchen uses 18 inches and about 22 lf of base cabinets.
 
-Round 14: Room ‘This room is part of’ is required on multi-template visits and feeds only the selected template(s); a single template uses every room. Backsplash counter height is 4–36″; full range wall adds width × (range height − counter height) / 144.
-
-Server context: Number of templates. Range wall tile — width × height above the counter (12–96″), required for Full wall at range.
+Round 14: Room ‘This room is part of’ is required on multi-template visits and feeds only the selected template(s); a single template uses every room. Backsplash counter height is 4–36″; tile behind the range adds width × height / 144 for both tiled choices.

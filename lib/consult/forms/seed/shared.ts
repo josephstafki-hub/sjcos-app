@@ -108,7 +108,7 @@ export const room: ModuleDef = {
   key: 'room', version: 1, title: 'Room dimensions', repeatable: true, instance_label: 'Room {n} — {name}', say: [],
   fields: [
     text('name', 'Room name', true),
-    multi('part_of', 'This room is part of', ['Bathroom','Kitchen','Addition','Basement finish','Deck','Whole-home','General / other','Garage','Windows & doors','Flooring'], gt('visit.template_count',1), {hint: 'Pick every job this room’s floor or walls belong to — e.g. a hall the kitchen floor runs into is Kitchen.'}),
+    multi('part_of', 'This room is part of', ['Bathroom','Kitchen','Addition','Basement finish','Deck','Whole-home','General / other','Garage','Windows & doors','Flooring'], gt('visit.template_count',1), {hint: 'Pick the job that prices this room’s floor. A hall the kitchen floor runs into is Kitchen, or Flooring if that add-on is on the visit. A bath inside a basement finish is Bathroom only.'}),
     choice('level', 'Level', ['Basement', 'Main', 'Upper', 'Attic', 'Garage'], true),
     text('ahead_wall', 'Wall used as “Ahead” (facing from the entry door)', true, { hint: 'Facing the room from the main door, which wall is ahead?', note: 'orients windows/doors for the floor plan' }),
     len('length', 'Length (wall to wall, longest)', true, { range: [24, 600], precision: 0.125 }),

@@ -114,7 +114,7 @@ export const kitchen: TemplateDef = {
     { key: 'floor_area', label: 'Floor area', formula: 'room.floor_area', maps_to: m('kitchen.flooring', 'Floor area') },
     { key: 'cabinet_run', label: 'Cabinet run', formula: 'kitchen_wall.base_run / 12 + kitchen_scope.island_run / 12', maps_to: m('kitchen.cabinetry', 'Cabinet run') },
     { key: 'countertop_area', label: 'Countertop area — the fabricator templates after install; this is for pricing', formula: 'kitchen_wall.base_run * 25.5 / 144 + kitchen_scope.island_top_area', maps_to: m('kitchen.countertops', 'Countertop area') },
-    { key: 'backsplash_area', label: 'Backsplash area', formula: 'kitchen_wall.base_run * kitchen_scope.backsplash_height_in / 144 + kitchen_scope.range_wall_tile.w * (kitchen_scope.range_wall_tile.h - kitchen_scope.backsplash_height_in) / 144', maps_to: m('kitchen.backsplash', 'Backsplash area') },
+    { key: 'backsplash_area', label: 'Backsplash area', formula: 'kitchen_wall.base_run * kitchen_scope.backsplash_height_in / 144 + kitchen_scope.range_wall_tile.w * kitchen_scope.range_wall_tile.h / 144', maps_to: m('kitchen.backsplash', 'Backsplash area') },
   ],
 };
 
@@ -236,14 +236,14 @@ export const moduleParents: Record<string, string> = {
 
 /** The plan's own formula text for every template/add-on derived quantity (§7.4–§7.11), beside the executable one. */
 export const planFormulas: Record<string, string> = {
-  'bath.room_floor_area': 'room.length × room.width ÷ 144',
-  'bath.floor_tile_area': 'floor area − (tub footprint if the tub stays) − vanity width × 21″ ÷ 144',
+  'bath.room_floor_area': 'Σ length × width ÷ 144 of the rooms marked part of this job (every room on a one-template visit)',
+  'bath.floor_tile_area': 'floor area of the rooms marked part of this job − (tub footprint if the tub stays) − vanity width × 21″ ÷ 144',
   'bath.wall_tile_area': 'shower: (2 × depth + width) × wall tile height ÷ 144; tub: (2 × 30″ + length) × height ÷ 144; wainscot: perimeter × 36″ ÷ 144',
-  'kitchen.room_floor_area': 'room.length × room.width ÷ 144',
-  'kitchen.floor_area': 'room.length × room.width ÷ 144',
+  'kitchen.room_floor_area': 'Σ length × width ÷ 144 of the rooms marked part of this job (every room on a one-template visit)',
+  'kitchen.floor_area': 'Σ length × width ÷ 144 of the rooms marked part of this job (every room on a one-template visit)',
   'kitchen.cabinet_run': 'Σ kitchen_wall.base run ÷ 12 (+ island length ÷ 12)',
   'kitchen.countertop_area': 'Σ base run × 25.5″ ÷ 144 + island W × D ÷ 144',
-  'kitchen.backsplash_area': 'Σ base run × backsplash height ÷ 144 − windows over counters',
+  'kitchen.backsplash_area': 'Σ base run × counter height ÷ 144 + range wall W × H ÷ 144',
   'addition.footprint_foundation': 'footprint W × L ÷ 144',
   'addition.footprint_framing': 'footprint W × L ÷ 144',
   'addition.roof_area': 'footprint × pitch factor (√(1 + (pitch/12)²)) + 12″ overhang on the eaves',

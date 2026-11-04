@@ -6,13 +6,13 @@ import {pinnedDerivations} from '../lib/consult/derive.ts';
 import {withTestDb} from './_harness/testdb.mjs';
 import {findingsFixture} from './_harness/consult-findings.mjs';
 import {reconcileConsultFindings} from '../lib/consult/findings.ts';
-test('combined rooms stay in their template; single kitchen counts adjoining hall; range wall adds only extra height',()=>{
+test('combined rooms stay in their template; single kitchen counts adjoining hall; range wall adds its full measured area',()=>{
  const instances=[{id:'bath',module_key:'room'},{id:'kitchen',module_key:'room'},{id:'scope',module_key:'kitchen_scope'},{id:'wall',module_key:'kitchen_wall'},{id:'bs',module_key:'bath_scope'}];
  const values={bs:{tub_shower_plan:'Keep tub',existing_length:54,existing_width:24,vanity_width:36,wall_tile_height:'Wainscot'},bath:{length:60,width:96,shape:'Rectangle',part_of:['Bathroom']},kitchen:{length:144,width:168,shape:'Rectangle',part_of:['Kitchen']},scope:{backsplash_height:'Full wall at range',backsplash_measured_height:18,range_wall_tile:[36,60]},wall:{base_run:264}};
  const answers=Object.entries(values).flatMap(([instance_id,v])=>Object.entries(v).map(([field_key,value])=>({id:randomUUID(),instance_id,field_key,value,status:'answered',server_revision:'1'})));
  const selected=templates.filter(t=>['bath','kitchen'].includes(t.key)).map(t=>({...t,derived:[{key:'area',label:'area',formula:'room.floor_area'},...(t.key==='kitchen'?t.derived.filter(d=>d.key==='backsplash_area'):[])]}));
  const result=pinnedDerivations(seedModules,selected,instances,answers);
- assert.equal(result.derived[0].result.value,40);assert.equal(result.derived[1].result.value,168);assert.equal(result.derived[2].result.value,43.5);
+ assert.equal(result.derived[0].result.value,40);assert.equal(result.derived[1].result.value,168);assert.equal(result.derived[2].result.value,48);
  const full=pinnedDerivations(seedModules,templates.filter(t=>['bath','kitchen'].includes(t.key)),instances,answers);assert.equal(full.derived.find(d=>d.definition.key==='floor_tile_area').result.value,25.75);assert.equal(full.field(instances.find(i=>i.id==='bs'),'wall_tile_area').value,78);
  assert.equal(pinnedDerivations(seedModules,[selected[1]],instances,answers).derived[0].result.value,208);
 });
@@ -44,5 +44,6 @@ test('multi-template rooms need membership; a single template hides it; advisori
  const s={consult:{id:'visit',status:'in_progress',revision:1,completion_generation:1},pins:[...seedModules.map(definition=>({kind:'module',definition})),...selected.map(definition=>({kind:'template',definition}))],instances:[{id:'room',module_key:'room',parent_id:null},{id:'house',module_key:'house',parent_id:null}],heads:[{instance_id:'house',field_key:'radon_level',status:'answered',value:5.2,server_revision:1}],conflicts:[]};
  let model=buildModel(s,[],[],emptyDraft());const room=model.sections.find(s=>s.module.key==='room');const part=room.fields.find(f=>f.key==='part_of');
  assert.equal(part.required,true);assert.equal(part.mark,'open');assert.deepEqual(part.def.options,['Bathroom','Kitchen']);assert.ok(model.open.some(r=>r.item.key==='part_of'));assert.equal(model.flags[0].decisionAllowed,false);
- s.pins=s.pins.filter(p=>!(p.kind==='template'&&p.definition.key==='bath'));model=buildModel(s,[],[],emptyDraft());assert.equal(model.sections.find(s=>s.module.key==='room').fields.some(f=>f.key==='part_of'),false);
+ s.heads.push({instance_id:'room',field_key:'part_of',status:'skipped',skip_reason:'Not applicable',server_revision:2});model=buildModel(s,[],[],emptyDraft());assert.ok(model.open.some(r=>r.item.key==='part_of'));
+ s.heads=s.heads.filter(h=>h.field_key!=='part_of');s.pins=s.pins.filter(p=>!(p.kind==='template'&&p.definition.key==='bath'));model=buildModel(s,[],[],emptyDraft());assert.equal(model.sections.find(s=>s.module.key==='room').fields.some(f=>f.key==='part_of'),false);
 });

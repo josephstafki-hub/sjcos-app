@@ -3058,7 +3058,7 @@
       "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
     },
     "consult_answers": {
-      "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
+      "note": "0089 restores indexed component validation without expanding grants. Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."
     },
     "consult_field_heads": {
       "note": "Consult command-only storage: no raw content SELECT/DML for narrow logins. Signing keys and human publication/capture are website-owner only."

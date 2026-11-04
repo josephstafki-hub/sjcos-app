@@ -159,7 +159,7 @@ export const kitchen_scope: ModuleDef = {
     text('floor_continues', 'Floor continues into', true, { hint: 'Which rooms the kitchen floor runs into.', note: '→ flooring add-on suggestion' }),
     text('pantry', 'Pantry', false),
     len('backsplash_measured_height', 'Backsplash height along the counters (to the uppers)', isIn('backsplash_height', ['To the uppers','Full wall at range']), {range:[4,36]}),
-    pair('range_wall_tile', 'Range wall tile — width × height above the counter', eq('backsplash_height','Full wall at range'), {range:[12,96], hint:'Measure the tiled area behind the range, counter to hood or ceiling.'}),
+    pair('range_wall_tile', 'Tile behind the range — width × height from the counter up', isIn('backsplash_height',['To the uppers','Full wall at range']), {range:[12,96], hint:'The range isn’t in the cabinet run. Measure the tile behind it, counter to the hood (or ceiling for a full wall). Cooktop in the island? Skip — Not applicable.'}),
     caseField('backsplash_height_in', 'Backsplash height in inches', 'length', { unit: 'in' }),
     caseField('island_run', 'Island length for the cabinet run', 'length', { unit: 'in' }),
     caseField('island_top_area', 'Island top area', 'number', { unit: 'sf' }),

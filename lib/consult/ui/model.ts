@@ -383,7 +383,7 @@ export function buildModel(s: Snapshot, entries: QueueEntry[], blobs: LocalBlob[
       const required = req(f.required);
       const applicable = !conditional || required || (a !== undefined && a.status !== 'cleared');
       const sk = draft.skips[addr];
-      const skip = a?.status === 'skipped' ? { reason: a.skip_reason as SkipReason, note: a.skip_note, ...(sk?.reason === a.skip_reason ? sk : {}), condition_validated: conditional && !required } : undefined;
+      const skip = a?.status === 'skipped' && !(m.key==='room'&&f.key==='part_of'&&templates.length>1) ? { reason: a.skip_reason as SkipReason, note: a.skip_note, ...(sk?.reason === a.skip_reason ? sk : {}), condition_validated: conditional && !required } : undefined;
       const item: CompletionItem = { key: addr, tier: f.tier, required, applicable: true, mapped: !!f.maps_to, answered: a?.status === 'answered', valid: a?.status === 'answered' && a.value !== null && a.value !== '' && (!Array.isArray(a.value) || a.value.length > 0), skip };
       const initials = f.type === 'signature' ? blobs.find((b) => b.kind === 'initials' && b.instance_id === inst.id && b.field_key === f.key) : undefined;
       const answered = (item.answered && item.valid) || !!initials;

@@ -71,7 +71,7 @@ export async function seedQaConsult(c,slug,{uploadRoot,fixtureKey='consult-r7',s
    else if(f.key==='estimate_promised'&&skipEstimateDate){draft.skips[f.addr]={reason:'Joe sets the date'};await send('answer',target,{status:'skipped',skip_reason:'Joe sets the date'});}
    else if(f.def.type==='date')await send('answer',target,{status:'answered',value:'2026-12-10'});
    else if(['length','count','number','year','yesno','choice','multi','text','length_pair'].includes(f.def.type)) {
-    const numbers={length:144,width:120,height:96,toilet_front_clearance:30,rough_in:12,side_clearance:16,vanity_wall:48,vanity_width:36,radon_level:5.2,water_pressure:60,backsplash_measured_height:18,base_run:132,upper_run:132,amp:200};
+    const numbers={length:144,width:120,height:96,toilet_front_clearance:30,rough_in:12,side_clearance:16,vanity_wall:48,vanity_width:36,radon_level:5.2,water_pressure:60,existing_length:60,existing_width:30,backsplash_measured_height:18,base_run:132,upper_run:132,amp:200};
     let value=f.def.type==='yesno'?true:f.def.type==='choice'?(f.def.options.includes('Keep')?'Keep':f.def.options[0]):f.def.type==='multi'?[f.def.options[0]]:f.def.type==='text'?({name:s.module.key==='room'?(m.sections.filter(x=>x.module.key==='room').findIndex(x=>x.instance.id===s.instance.id)===0?'Hall bath':'Kitchen'):s.module.key==='kitchen_scope'?'Kitchen':s.module.key==='bath_scope'?'Hall bath':({door:'Bath door',electrical_panel:'Basement panel',exhaust_fan:'Bath fan',moisture_check:'Under tub'}[s.module.key]??s.module.title),permit_city:'Woodbury',permit_authority:'Woodbury',permit_building_inspector:'City of Woodbury',location:({door:'Bath door',panel:'Basement panel',hvac_exhaust_fan:'Bath fan'}[s.module.key]??'Hall bath'),where:s.module.key==='hvac_exhaust_fan'?'Hall bath ceiling':s.module.key==='moisture_check'?'Under tub':'Hall bath',decision:s.instance.label,product:'Delta Trinsic chrome finish',direction:'Simple shaker style in warm white',budget_words:'Durable midrange finishes; prioritize easy cleaning',alarms_locations:'Hall and each bedroom',who_lives_here:'Two adults, one dog',where_during_work:'Living at home',pets_location:'Crated in the basement',work_hours:'Weekdays only; no work before 7',no_work_times:'No work before 7; weekdays only',past_problems:'Fix the squeaky hall floor',other_deciders:'Spouse — here today',client_list:'New kitchen cabinets and a refreshed hall bath'}[f.key]??(f.key==='name'?s.module.title:'None known')):f.def.type==='length_pair'?[36,24]:f.def.type==='year'?2000:f.def.type==='count'?1:numbers[f.key]??(f.def.unit==='amp'?200:f.def.unit==='cfm'?110:f.def.unit==='sf'?120:36);
     if(s.module.key==='kitchen_wall'&&f.key==='letter')value=['A','B','C','D'][m.sections.filter(x=>x.module.key==='kitchen_wall').findIndex(x=>x.instance.id===s.instance.id)];
     if(f.def.type==='length_pair'&&f.def.component_ranges)value=f.def.component_ranges.map(r=>r[0]);
@@ -83,7 +83,8 @@ export async function seedQaConsult(c,slug,{uploadRoot,fixtureKey='consult-r7',s
     if(f.key==='pets')value=['Dog'];
     if(f.key==='main_breaker')value='200 A';
     if(f.key==='bearing')value='Likely not';
-    if(f.key==='backsplash_height')value='To the uppers';
+    if(f.key==='backsplash_height')value='Full wall at range';
+    if(f.key==='range_wall_tile')value=[36,60];
     // Woodbury operates its own electrical inspection program (city inspection guide).
     if(f.key==='permit_electrical')value='City';
     if(s.module.key==='selections'){

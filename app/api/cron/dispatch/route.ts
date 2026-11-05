@@ -20,7 +20,7 @@ async function handle(req: Request) {
     for (const o of r.dispatched) byClass[o.responseClass] = (byClass[o.responseClass] ?? 0) + 1;
     // Telegram replies whose turn ended without an answer get its last message.
     const replies = await sweepUnansweredReplies().catch((err) => ({ error: (err as Error).message }));
-    return { swept: r.swept, expired_decisions: r.expiredDecisions, dispatched: r.dispatched.length, by_class: byClass, reconciled: r.reconciled, owner_replies: replies };
+    return { swept: r.swept, expired_decisions: r.expiredDecisions, dispatched: r.dispatched.length, by_class: byClass, reconciled: r.reconciled, owner_replies: replies, approved_drafts: r.approvedDrafts };
   });
 }
 

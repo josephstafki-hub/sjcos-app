@@ -1,0 +1,12 @@
+import {test,after} from 'node:test';
+import assert from 'node:assert/strict';
+import {transport} from './_harness/apns-http2.mjs';
+const {sendApns,closeApnsSessions}=await import('../lib/providers/apns.ts');
+delete process.env.SJC_OUTBOUND_DISABLED;process.env.APNS_API_BASE='http://apns.test';
+const device={token:'a'.repeat(64),environment:'sandbox'};
+after(closeApnsSessions);
+test('HTTP/2 session reuse and silent cleanup headers',async()=>{await sendApns(device,{aps:{'content-available':1}},{silent:true});await sendApns(device,{});assert.equal(transport.sessions.length,1);const {headers,base}=transport.requests[0];assert.equal(base,'http://apns.test');assert.equal(headers['apns-priority'],'5');assert.equal(headers['apns-push-type'],'background');assert.equal(headers[':path'],`/3/device/${device.token}`);});
+test('410 and invalid token disable; 503 throws a bounded redacted error',async()=>{for(const r of [{status:410,reason:'Unregistered'},{status:400,reason:'BadDeviceToken'}]){transport.response=()=>r;assert.equal((await sendApns(device,{})).disabledReason,r.reason);}transport.response=()=>({status:503,reason:device.token});await assert.rejects(()=>sendApns(device,{}),e=>/503/.test(e.message)&&!e.message.includes(device.token));});
+for(const event of ['goaway','sessionClose','aborted','close','error'])test(`${event} settles; failed session retires where appropriate`,async()=>{closeApnsSessions();transport.response=()=>({event});await assert.rejects(()=>sendApns(device,{}));transport.response=()=>({status:200});await sendApns(device,{});});
+test('deadline settles even if the stream never responds',async t=>{closeApnsSessions();transport.response=()=>({wait:true});t.mock.timers.enable({apis:['setTimeout']});const p=sendApns(device,{});const rejected=assert.rejects(()=>p,/timed out/);await Promise.resolve();t.mock.timers.tick(15001);await rejected;t.mock.timers.reset();});
+test('provider credentials never sent to a test origin',async()=>{process.env.APNS_KEY_PATH='/never-read';await assert.rejects(()=>sendApns(device,{}),/credentials/);delete process.env.APNS_KEY_PATH;});

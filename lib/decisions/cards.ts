@@ -170,27 +170,28 @@ export interface CardDecision {
 const usd = (cents: number) => `$${(cents / 100).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
 /** Plain-text card for Telegram (no markdown: titles carry client strings). */
-export function cardText(d: CardDecision, opts: { appUrl?: string; maxLines?: number } = {}): string {
+export function cardText(d: CardDecision, opts: { appUrl?: string; maxLines?: number; app?: boolean } = {}): string {
   // Agent-written summaries come in any shape (lib/decisions/summary.ts).
-  const s = normalizeSummary(d.summary);
+  const s = normalizeSummary(d.summary,{hideIds:opts.app});
   const lines: string[] = [`[SJC OS] Decision: ${d.title}`];
   const take = <T,>(arr: T[] | undefined, n = 6): T[] => (arr ?? []).slice(0, n);
   if (s.recipients.length) lines.push(`To: ${s.recipients.map((r) => `${r.name}${r.role ? ` (${r.role})` : ""}${r.address ? ` <${r.address}>` : ""}`).join(", ")}`);
   else if (d.recipient) lines.push(`To: ${d.recipient}`);
   if (d.amount_cents != null) lines.push(`Amount: ${usd(Number(d.amount_cents))}`);
-  for (const n of s.notes) lines.push(`${n.label}: ${n.text}`);
-  if (s.inclusions.length) lines.push(`Includes: ${take(s.inclusions).join("; ")}${s.inclusions.length > 6 ? ` (+${s.inclusions.length - 6} more)` : ""}`);
+  for (const n of s.notes.filter(n => !opts.app || !/^(?:.* id|id)$/i.test(n.label))) lines.push(`${n.label}: ${n.text}`);
+  const inclusions=opts.app?s.inclusions.filter(x=>!/^To:|^Subject:/i.test(x)):s.inclusions;
+  if (inclusions.length) lines.push(`Includes: ${take(inclusions).join("; ")}${s.inclusions.length > 6 ? ` (+${s.inclusions.length - 6} more)` : ""}`);
   if (s.exclusions.length) lines.push(`Excludes: ${take(s.exclusions).join("; ")}`);
   if (s.quantities.length) lines.push(`Quantities: ${take(s.quantities, 8).map((q) => `${q.label} ${q.qty}${q.unit ? ` ${q.unit}` : ""}`).join(", ")}`);
   if (s.attachments.length) lines.push(`Attachments: ${s.attachments.map((a) => `${a.label}${a.revision ? ` rev ${a.revision}` : ""}`).join(", ")}`);
-  if (s.assumptions.length) lines.push(`Assumptions: ${take(s.assumptions, 4).join("; ")}`);
+  if (s.assumptions.length) lines.push(`${opts.app ? "Why" : "Assumptions"}: ${take(s.assumptions, 4).map(x=>opts.app?x.replace(/^Agent's reason:\s*/,''):x).join("; ")}`);
   if (s.gaps.length) lines.push(`Missing / open: ${take(s.gaps, 5).join("; ")}`);
   if (s.changes.length) lines.push(`Since last review: ${take(s.changes, 5).join("; ")}`);
-  if (s.effect) lines.push(`If approved: ${s.effect}`);
-  if (d.status && d.status !== "pending") {
+  if (s.effect) lines.push(`If approved: ${opts.app?s.effect.replace(/^Approving lets .*? perform "([^"]+)".*$/, 'Allows the agent to $1 once. The agent still needs to carry it out.').replace(/^Approving does it now:\s*/,'').replace(/ Nothing else is needed from the agent\./g,''):s.effect}`);
+  if (d.status && d.status !== "pending" && !opts.app) {
     lines.push(`Status: ${d.status}${d.decided_via ? ` via ${d.decided_via}` : ""}${d.decided_at ? ` at ${d.decided_at.slice(0, 16).replace("T", " ")}` : ""}${d.decision_note ? ` — ${d.decision_note}` : ""}`);
-  } else if (d.expires_at) {
-    lines.push(`Expires: ${d.expires_at.slice(0, 16).replace("T", " ")}`);
+  } else if (d.expires_at && (!d.status || d.status === "pending")) {
+    lines.push(opts.app ? `Expires ${new Intl.DateTimeFormat('en-US',{timeZone:'America/Chicago',weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',hour12:true}).format(new Date(d.expires_at)).replace(/\b(AM|PM)\b/g,s=>s.toLowerCase())} Central` : `Expires: ${d.expires_at.slice(0, 16).replace("T", " ")}`);
   }
   if (opts.appUrl) lines.push(`${opts.appUrl.replace(/\/$/, "")}/engine/decisions?d=${d.id}`);
   const max = opts.maxLines ?? 40;

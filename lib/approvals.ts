@@ -12,6 +12,8 @@ import "server-only";
 
 import { runDirect } from "@/lib/commands/db";
 import { listOpenDecisions } from "@/lib/decisions/resolve";
+import { authorityFor } from "@/lib/commands/decisions";
+import { hasArea, isOwner, type Principal } from "@/lib/commands/principal";
 import { normalizeSummary } from "@/lib/decisions/summary";
 import { query } from "@/lib/db";
 import { describeStagedSend, stagedSendOf, type GrantDetail, type OwnerGrant } from "@/lib/owner-grant-types";
@@ -23,7 +25,7 @@ export interface PendingApproval {
   key: string;
   kind: "decision" | "work_item";
   id: string;
-  /** Stale-card guard for decisions: the hash this card was rendered for. */
+  /** Stale-view guard: decision hash or staged-draft binding rendered with this card. */
   contentHash: string | null;
   tag: string;
   title: string;
@@ -43,10 +45,15 @@ export interface PendingApproval {
 
 const ISO = (d: string | Date) => new Date(d).toISOString();
 
-export async function listPendingApprovals(opts: { limit?: number } = {}): Promise<PendingApproval[]> {
+export async function listPendingApprovals(opts: { limit?: number; principal?: Principal } = {}): Promise<PendingApproval[]> {
   const limit = opts.limit ?? 20;
   const decisions = await listOpenDecisions(runDirect, { limit });
-  const decisionIds = decisions.map((d) => d.id);
+  const visibleDecisions = opts.principal
+    ? (await Promise.all(decisions.map(async d =>
+        (d.kind !== "grant" || isOwner(opts.principal!)) && (await authorityFor(runDirect, opts.principal!, d)).ok ? d : null,
+      ))).filter((d): d is NonNullable<typeof d> => d !== null)
+    : decisions;
+  const decisionIds = visibleDecisions.map((d) => d.id);
   const grants = decisionIds.length
     ? (
         await query<Pick<OwnerGrant, "id" | "scope" | "requested_by" | "actions" | "target_kind" | "target_id" | "reason"> & { decision_id: string }>(
@@ -69,7 +76,7 @@ export async function listPendingApprovals(opts: { limit?: number } = {}): Promi
   const parkedSet = new Set(parked);
 
   const out: PendingApproval[] = [];
-  for (const d of decisions) {
+  for (const d of visibleDecisions) {
     // A grant decision whose request lapsed or was settled on the grant page.
     if (d.kind === "grant" && !grantByDecision.has(d.id)) continue;
     const s = normalizeSummary(d.summary);
@@ -98,13 +105,13 @@ export async function listPendingApprovals(opts: { limit?: number } = {}): Promi
     });
   }
 
-  const drafts = await workItemDraftPreviews({ limit: 10 });
+  const drafts = !opts.principal || hasArea(opts.principal, "today") ? await workItemDraftPreviews({ limit: 10 }) : [];
   for (const w of drafts) {
     out.push({
       key: `work_item:${w.id}`,
       kind: "work_item",
       id: w.id,
-      contentHash: null,
+      contentHash: w.binding,
       tag: "Approval",
       title: w.title,
       requestedBy: null,

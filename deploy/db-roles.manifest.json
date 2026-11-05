@@ -2159,12 +2159,19 @@
       ]
     },
     "push_devices": {
-      "note": "phone push tokens; push-drain runs inside the website (cron route)"
+      "note": "Secret device registry: website-only enrollment; senders may only read delivery columns and invalidate devices.",
+      "sjcos_agent": [
+        "SELECT(id,user_id,platform,token,environment,disabled_at,revoked_at,session_auth_at,session_expires_at)"
+      ],
+      "sjcos_worker": [
+        "SELECT(id,user_id,platform,token,environment,disabled_at,revoked_at,session_auth_at,session_expires_at)"
+      ]
     },
     "push_outbox": {
       "sjcos_agent": [
         "SELECT",
-        "INSERT"
+        "INSERT",
+        "UPDATE"
       ],
       "sjcos_worker": [
         "SELECT",
@@ -2906,7 +2913,7 @@
       "note": "staff Gmail refresh tokens; only the website's own mailbox code reads them"
     },
     "users": {
-      "note": "logins and passwords: Joe's Settings › Team (website) or his own panel run only",
+      "note": "logins and passwords: Joe's Settings \u203a Team (website) or his own panel run only",
       "sjcos_agent": [
         "SELECT(id,email,name,role,initials,link_slug,active,permissions,created_at,portal_claimed_at,ai_scope,last_permission_change_at)"
       ],
@@ -3042,6 +3049,47 @@
       "sjcos_readonly": [
         "SELECT"
       ]
+    },
+    "owner_push_messages": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "push_actions": {
+      "note": "Owner mobile API only; narrow logins cannot approve."
+    },
+    "push_device_deliveries": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "approved_draft_dispatches": {
+      "note": "Only an owner approval transaction creates pending work. Worker consumes existing checkpoints after commit.",
+      "sjcos_worker": ["SELECT", "UPDATE(phase,lease_until,result)"]
+    },
+    "approved_work_item_drafts": {
+      "note": "Frozen approval evidence; worker reads for dispatch recovery but narrow logins may neither create nor alter a snapshot.",
+      "sjcos_worker": ["SELECT"]
     }
   }
 }

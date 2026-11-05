@@ -183,7 +183,7 @@ export async function requestGrant(input: {
   const priorDecision = staged2.superseded ?? replaced.find((r) => r.decision_id)?.decision_id ?? null;
   // Joe asked for this revision from Telegram: his note is answered by it,
   // and the new card is threaded under his message.
-  const answered = await withTransaction((run) => closeRepliesRevisedBy(run, grant)).catch(() => [] as { message_id: string | null }[]);
+  const answered = await withTransaction((run) => closeRepliesRevisedBy(run, grant)).catch(() => [] as { message_id: string | null; push_message_id:string|null }[]);
   const replyTo = answered.find((a) => a.message_id)?.message_id ?? null;
   // announceDecision records the 'app' delivery, so the 2-minute
   // unannounced-decision sweep no longer sends a SECOND card for the same ask
@@ -194,6 +194,7 @@ export async function requestGrant(input: {
     // The phone edits the replaced request's message in place.
     superseded: priorDecision,
     replyToMessageId: replyTo,
+    pushReplyToId:answered.find(a=>a.push_message_id)?.push_message_id??null,
     emit: {
       tag: "Permission",
       title: detail

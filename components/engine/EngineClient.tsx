@@ -43,6 +43,7 @@ import { captureKnowledge, deleteKnowledge, searchKnowledgeAction } from "@/lib/
 import { approveSkill, rejectSkill } from "@/lib/actions/skills";
 import { runAction, type ActionLike } from "@/lib/run-action";
 import { toast } from "@/components/ui/Toast";
+import { WorkItemDraft } from "./WorkItemDraft";
 import { describeApproval } from "@/lib/approved-draft-rules";
 import { AssigneePicker, assigneeSummary } from "@/components/today/AssigneePicker";
 import {
@@ -726,9 +727,10 @@ function WorkItemCard({item,assignees,canAssign,onRestored}: {
     {open&&<div className="mx-3 mb-3 rounded-lg border border-rule-soft bg-card p-4">
       {editing?<WorkItemEditor item={item} assignees={assignees} canAssign={canAssign} onClose={()=>setEditing(false)}/>:<>
         {item.body&&<p className="whitespace-pre-wrap break-words text-body text-ink-2">{item.body}</p>}
+        {item.bucket === "approval" && item.draft && (item.draft.to || item.draft.subject || !item.body.startsWith(item.draft.body ?? "")) && <WorkItemDraft draft={item.draft} />}
         {item.blockedReason&&<p className="mt-2 text-body text-warn">{item.blockedReason}</p>}
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          {item.archivedAt?<Button variant="secondary" size="sm" disabled={pending} onClick={()=>start(async()=>{const r=await runAction(()=>restoreWorkItem(item.id));if(r.ok)onRestored?.();router.refresh();})}>Restore</Button>:item.bucket==='approval'?<><Button size="sm" disabled={pending} onClick={()=>start(async()=>{await runAction(()=>approveWorkItem(item.id),{onSuccess:r=>toast(describeApproval(r))});router.refresh();})}>Approve</Button><Button variant="secondary" size="sm" disabled={pending} onClick={()=>run(()=>rejectWorkItem(item.id))}>Reject</Button></>:<>
+          {item.archivedAt?<Button variant="secondary" size="sm" disabled={pending} onClick={()=>start(async()=>{const r=await runAction(()=>restoreWorkItem(item.id));if(r.ok)onRestored?.();router.refresh();})}>Restore</Button>:item.bucket==='approval'?<><Button size="sm" disabled={pending} onClick={()=>start(async()=>{await runAction(()=>approveWorkItem(item.id, item.draft?.binding),{title:"Approve failed",onSuccess:r=>toast(describeApproval(r))});router.refresh();})}>Approve</Button><Button variant="secondary" size="sm" disabled={pending} onClick={()=>run(()=>rejectWorkItem(item.id))}>Reject</Button></>:<>
             <label className="text-label text-ink-3">Status <select aria-label="Work item status" value={item.status} disabled={pending} onChange={e=>run(()=>setWorkItemStatus(item.id,e.target.value as WorkItemStatus))} className="ml-2 rounded-md border border-rule bg-card px-2 py-1.5 text-body text-ink">{WORK_STATUSES.map(status=><option key={status} value={status}>{STATUS_LABEL[status]}</option>)}</select></label>
             {canAssign&&<AssigneePicker triggerClassName={btnCls} roster={assignees} assigned={item.assignedTo} onChange={ids=>run(()=>setWorkItemAssignees(item.id,ids))} disabled={pending} trigger={`${assigneeSummary(item.assignedTo,assignees)} ▾`}/>}
             {item.bucket==='done'&&<details className="relative"><summary className="cursor-pointer px-2 text-body" aria-label="More work item actions">…</summary><div className="absolute right-0 z-10 rounded-lg border border-rule-soft bg-card p-1 shadow-pop"><Button variant="ghost" size="sm" disabled={pending} onClick={()=>run(()=>archiveWorkItems([item.id]))}>Archive</Button></div></details>}

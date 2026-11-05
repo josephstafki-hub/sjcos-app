@@ -839,7 +839,7 @@ export default async function ProjectDetailPage({
 
   const panels: Partial<Record<ProjectTab, ReactNode>> = {
     Overview: overview,
-    Ops: ops ? <RecordOps ops={ops} /> : null,
+    Ops: ops ? <RecordOps ops={ops} canApprove={can(viewer, "today")} /> : null,
     Floor: floorPanel,
     Mood: moodPanel,
     Selections: selectionsPanel,

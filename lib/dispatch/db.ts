@@ -33,6 +33,7 @@ export async function runDispatchPass(opts: { limit?: number } = {}): Promise<{
   dispatched: DispatchOutcome[];
   reconciled: Awaited<ReturnType<typeof reconcileUnknown>>;
   stagedGrants: number;
+  approvedDrafts: number;
 }> {
   const d = deps();
   const swept = await withTransaction((run) => sweepForDispatch(run));
@@ -46,7 +47,9 @@ export async function runDispatchPass(opts: { limit?: number } = {}): Promise<{
     console.error("[dispatch] staged-grant sweep failed:", (err as Error).message);
     return 0;
   });
-  return { swept, expiredDecisions, announced, dispatched, reconciled, stagedGrants };
+  const { sweepApprovedDrafts } = await import("@/lib/approve-work-item");
+  const approvedDrafts = await sweepApprovedDrafts(opts.limit ?? 50);
+  return { swept, expiredDecisions, announced, dispatched, reconciled, stagedGrants, approvedDrafts };
 }
 
 /** The agent-facing verdict for one intent's dispatch outcome. `ok` is true

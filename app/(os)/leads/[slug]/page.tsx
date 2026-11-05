@@ -393,7 +393,7 @@ export default async function LeadDetailPage({
 
   const panels: Record<string, ReactNode> = {
     Overview: overview,
-    Ops: ops ? <RecordOps ops={ops} /> : null,
+    Ops: ops ? <RecordOps ops={ops} canApprove={can(viewer, "today")} /> : null,
     Tasks: <LeadTasks slug={lead.slug} tasks={tasks} />,
     Conversation: (
       <div className="flex max-w-[640px] flex-col gap-4">

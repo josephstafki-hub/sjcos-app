@@ -1,0 +1,35 @@
+# REVIEW SPEC ONLY. The latch/accounting implementation is not in slice C.
+[Unit]
+Description=SJC OS independent resource and OOM latch supervisor
+ConditionPathExists=/etc/sjcos-browser/accounting.json
+
+[Service]
+Type=simple
+User=root
+Slice=user-@JOE_UID@-sjcosbrowsersupervisor.slice
+ExecStartPre=/usr/local/libexec/sjcos-browser-latch check
+ExecStart=/usr/local/libexec/sjcos-browser-supervisor
+ExecStopPost=/usr/local/libexec/sjcos-browser-latch record
+Restart=no
+MemoryMax=32M
+MemorySwapMax=0
+CPUQuota=5%
+TasksMax=8
+Nice=15
+OOMPolicy=stop
+KillMode=control-group
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+LimitCORE=0
+RuntimeDirectory=sjcos-browser-supervisor
+RuntimeDirectoryMode=0700
+StateDirectory=sjcos-browser-supervisor
+StateDirectoryMode=0700
+ReadWritePaths=/run/sjcos-browser-supervisor /var/lib/sjcos-browser-supervisor
+StandardOutput=null
+StandardError=null

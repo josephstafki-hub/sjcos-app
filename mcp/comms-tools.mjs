@@ -17,7 +17,7 @@ export function registerCommsTools(server, { rows, json }) {
     {
       title: "List text-message threads",
       description:
-        "Recent SMS conversations on the business number: counterparty, linked record (lead / project / " +
+        "Recent SMS conversations on the business lines (business_number = which of our numbers; one thread per person per line): counterparty, linked record (lead / project / " +
         "sub / vendor), unread (inbound awaiting a reply), opted_out (they texted STOP — do not draft " +
         "to them), and blocked (Joe blocked the number — ignore it, never draft to it). Newest first.",
       inputSchema: {
@@ -28,7 +28,7 @@ export function registerCommsTools(server, { rows, json }) {
     async ({ unread_only, limit }) => {
       try {
         const r = await rows(
-          `SELECT id, phone, contact_name, link_type, link_slug, unread, opted_out,
+          `SELECT id, phone, business_number, contact_name, link_type, link_slug, unread, opted_out,
                   blocked_at IS NOT NULL AS blocked,
                   last_message_at, last_inbound_at, last_outbound_at
              FROM sms_threads

@@ -272,8 +272,18 @@ type MeResponse = {
   user: CurrentUser; // {id,email,name,role,initials,linkSlug,permissions}
   callPhone: string | null; // stored users.phone, normalized +1 E.164
   callPhoneFormatted: string | null; // e.g. "(612) 555-1234"
+  // Settings › Phone lines (0110). The company's main line clients see, and
+  // this login's own line when one is assigned to it. Show them where people
+  // look for "what number do I text from".
+  businessLine: LineBadge | null;
+  myLine: LineBadge | null;
 } | { error: string };
+type LineBadge = { number: string; formatted: string; label: string }; // number is +1 E.164
 ```
+
+Texts and calls go out from `myLine` when set, else `businessLine`; a reply stays on
+the line its thread is on (`SmsThreadSummary.businessNumber`). Threads and calls on
+another team member's own line are not returned to a staff login.
 
 `callPhone` is the stored personal setting, not the owner's fallback number. Null
 means unset, including for an owner who can still call using the configured fallback.

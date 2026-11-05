@@ -34,7 +34,11 @@ import {
   LogOut,
   PanelLeftClose,
   PanelLeftOpen,
+  Phone,
+  Copy,
+  Check,
 } from "lucide-react";
+import type { LineBadge } from "@/lib/phone-lines";
 import { Logo } from "./Logo";
 import { logout } from "@/lib/actions/auth";
 import { getNavCounts, type NavCounts } from "@/lib/actions/nav";
@@ -172,7 +176,46 @@ export type SidebarUser = {
   /** Staff: the areas they hold — rail items outside them are hidden. Null for
    *  the owner (everything shows). */
   staffPerms: string[] | null;
+  /** The business number the app texts / calls from, and this login's own
+   *  line when it has one (Settings › Phone lines). */
+  lines?: { company: LineBadge | null; mine: LineBadge | null };
 };
+
+/** One business number, always in view: tap to copy. */
+function LineRow({ title, line, collapsed }: { title: string; line: LineBadge; collapsed: boolean }) {
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    navigator.clipboard?.writeText(line.formatted).then(
+      () => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1500);
+      },
+      () => {},
+    );
+  };
+  const tip = `${title} · ${line.formatted}${line.label ? ` · ${line.label}` : ""} · click to copy`;
+  if (collapsed) {
+    return (
+      <button type="button" onClick={copy} title={tip} aria-label={tip}
+        className="inline-flex size-8 items-center justify-center rounded-md text-sidebar-text-dim hover:bg-sidebar-active hover:text-paper focus-visible:outline-2 focus-visible:outline-sidebar-sage">
+        {copied ? <Check aria-hidden className="size-4 text-sidebar-sage" /> : <Phone aria-hidden className="size-4" strokeWidth={1.5} />}
+      </button>
+    );
+  }
+  return (
+    <button type="button" onClick={copy} title={tip}
+      className="group flex w-full items-center gap-2 rounded-md px-1.5 py-1 text-left hover:bg-sidebar-active focus-visible:outline-2 focus-visible:outline-sidebar-sage">
+      <Phone aria-hidden className="size-3.5 flex-none text-sidebar-sage" strokeWidth={1.75} />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-meta text-sidebar-text-dim">{title}</span>
+        <span className="block truncate font-mono text-body font-semibold text-paper">{line.formatted}</span>
+      </span>
+      <span aria-live="polite" className="flex-none text-sidebar-text-dim group-hover:text-paper">
+        {copied ? <Check aria-label="Copied" className="size-3.5 text-sidebar-sage" /> : <Copy aria-hidden className="size-3.5 opacity-0 group-hover:opacity-100" />}
+      </span>
+    </button>
+  );
+}
 
 /** Forest-green primary navigation panel. */
 export function Sidebar({ user, collapsible = false }: { user: SidebarUser; collapsible?: boolean }) {
@@ -323,6 +366,12 @@ export function Sidebar({ user, collapsible = false }: { user: SidebarUser; coll
         </>}
       </div>
 
+      {(user.lines?.company || user.lines?.mine) && (
+        <div className={`mt-3 flex flex-none flex-col gap-0.5 border-t border-sidebar-text-dim/20 pt-2 ${collapsed ? "items-center" : ""}`}>
+          {user.lines?.mine && <LineRow title="My line" line={user.lines.mine} collapsed={collapsed} />}
+          {user.lines?.company && <LineRow title={user.lines.mine ? "Company line" : "SJC phone line"} line={user.lines.company} collapsed={collapsed} />}
+        </div>
+      )}
       <div className={`mt-3 flex flex-none items-center gap-2 border-t border-sidebar-text-dim/20 pb-[max(0.125rem,env(safe-area-inset-bottom))] pt-2 ${collapsed ? "flex-col" : "px-1"}`}>
         {perms ? (
           <div title={`${user.name} · ${user.roleLabel}`} className="flex min-w-0 flex-1 items-center gap-2">{accountRow}</div>

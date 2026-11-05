@@ -22,6 +22,7 @@ import { runAction } from "@/lib/run-action";
 import { ClipTokenCard } from "./ClipTokenCard";
 import { IntakeTokenCard } from "./IntakeTokenCard";
 import { MORE_SETTINGS } from "./settings-nav";
+import { PhoneLinesSettings } from "./PhoneLines";
 
 /** Shared text input for the editable forms, themed to match the modals. */
 function TextInput({
@@ -408,6 +409,16 @@ export function SettingsClient({ data, initialSection = "profile" }: { data: Set
                 </div>
               ))}
             </Card>
+          </>
+        )}
+
+        {active === "phones" && (
+          <>
+            <PageHeader title={<> Phone lines </>} />
+            <div className="mt-1.5 text-meta text-ink-3">
+              The business numbers the app texts and calls from: which one is the main line, and which belong to a team member.
+            </div>
+            <PhoneLinesSettings lines={data.phoneLines.lines} people={data.phoneLines.people} />
           </>
         )}
 

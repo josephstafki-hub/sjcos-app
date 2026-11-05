@@ -1,4 +1,5 @@
 import { formatUsPhone } from "@/lib/comms/phone";
+import { RecordConversations } from "@/components/comms/RecordConversations";
 import type { ReactNode } from "react";
 import { can, getCurrentUser } from "@/lib/dal";
 import Link from "next/link";
@@ -404,6 +405,7 @@ export default async function ProjectDetailPage({
             </dd>
           </dl>
         </section>
+        <RecordConversations kind="project" slug={slug} variant="section" />
         {isHistorical && <section className="border-t border-rule-soft pt-4">
           <h2 className="text-subheading font-semibold">Closeout records</h2>
           <p className="mt-2 text-body text-ink-2">{closeoutView.docs.length ? `${closeoutView.docs.length} closeout documents on file.` : "No closeout documents on file."} Lien waiver: {closeoutView.lienWaiverStatus || "Not recorded"}.</p>

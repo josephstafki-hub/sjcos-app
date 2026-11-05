@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { runDetectors } from "@/lib/detectors";
+import { refreshTextSummaries } from "@/lib/comms-summaries";
 import { cronAuthorized, runCronJob } from "../_lib/guard";
 
 // POST/GET /api/cron/detect — the W1 detector sweep (see lib/detectors.ts).
@@ -19,7 +20,13 @@ async function handle(req: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const dryRun = new URL(req.url).searchParams.get("dry") === "1";
-  return runCronJob("detector sweep", () => runDetectors({ dryRun }));
+  return runCronJob("detector sweep", async () => {
+    const result = await runDetectors({ dryRun });
+    // Shared text-conversation summaries for the record pages (lib/comms-summaries.ts).
+    // Best-effort: a summary failure never fails the sweep.
+    const textSummaries = await refreshTextSummaries({ dryRun }).catch((err: unknown) => ({ error: err instanceof Error ? err.message : String(err) }));
+    return { ...result, textSummaries };
+  });
 }
 
 export const GET = handle;

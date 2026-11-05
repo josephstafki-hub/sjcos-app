@@ -43,8 +43,8 @@ export interface CallDetail {
 }
 
 export async function loadCall(id: string): Promise<CallDetail | null> {
-  await requireAccess("comms");
-  const call = await getCall(id);
+  const user = await requireAccess("comms");
+  const call = await getCall(id, user);
   if (!call) return null;
   const events = await getCallEvents(id);
   return { call, events };

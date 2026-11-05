@@ -33,7 +33,7 @@ export async function getNavCounts(): Promise<NavCounts> {
     can(user, "inbox") ? inboxUnread(user) : zero(),
     can(user, "chat") ? getUnansweredChatCount(user.id).catch(() => 0) : zero(),
     can(user, "leads") ? leadsNeedingAttention() : zero(),
-    can(user, "comms") ? getUnreadSmsCount().catch(() => 0) : zero(),
+    can(user, "comms") ? getUnreadSmsCount(user).catch(() => 0) : zero(),
     can(user, "money") ? countPending(runDirect).catch(() => 0) : zero(),
   ]);
   return { inbox, chat, leads, messages, unsorted };

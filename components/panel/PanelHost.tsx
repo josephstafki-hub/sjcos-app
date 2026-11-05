@@ -1,12 +1,16 @@
 "use client";
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { ChevronDown, ChevronUp, ExternalLink, Eye, EyeOff, Mic, PanelLeftClose, Sparkles, X } from "lucide-react";
 import { ackAppNav, postPanelMessage, subscribePanelBus } from "./panelBus";
 import { usePanel } from "./PanelProvider";
 import { readPanelState } from "./panelStore";
-import { PanelDock } from "./PanelDock";
+import { PanelDock, type AskPaneActivity, type AskPaneControls } from "./PanelDock";
+import { useAskViewport } from "./askPaneHooks";
+import { askPaneOverlays, getAskPaneFeed, subscribeAskPanes } from "./askPaneRegistry";
+import { topEscapeLayer } from "./askPaneLayout";
+import { trapAskFocus } from "./askPaneFocus";
 import { OPEN_MOBILE_OPERATOR } from "@/components/shell/MobileTabBar";
 import { Splitter } from "./Splitter";
 
@@ -18,6 +22,16 @@ import { Splitter } from "./Splitter";
  */
 export function PanelHost({ children }: { children: ReactNode }) {
   const { layout, setWidth, commitWidth, toggleCollapsed, setWhere, setFollow } = usePanel();
+  const viewport = useAskViewport();
+  const desktop = viewport.width >= 1024;
+  const dockControls = useRef<AskPaneControls | null>(null);
+
+  const [dockActivity, setDockActivity] = useState<AskPaneActivity>({selected:false,landscape:false});
+  const sheetActivity = dockActivity;
+  const dockActivityChanged = useCallback((next: AskPaneActivity) => setDockActivity(old => old.selected===next.selected && old.landscape===next.landscape ? old : next), []);
+
+  const registerDock = useCallback((controls: AskPaneControls|null) => {dockControls.current=controls;}, []);
+
   const sheetRef = useRef<HTMLDivElement>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   // Mobile: on the home page the operator is the whole screen (queue cards
@@ -27,13 +41,18 @@ export function PanelHost({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const onHome = pathname === "/today" || pathname === "/";
-  const drawer = !onHome && !sheetFull;
+  const drawer = !onHome && !sheetFull && !sheetActivity.selected;
   // Render the dock only after the persisted layout is adopted (layout.ready
   // flips in PanelProvider's mount effect) — the server render can't know
   // width/collapsed, and a wrong-width flash is worse than the dock appearing
   // a frame late.
   const showDock = layout.ready && layout.where === "docked";
 
+  const closeSheet = useCallback(async () => {
+    if (dockControls.current && !(await dockControls.current.closeOperator())) return;
+    setSheetOpen(false);
+    setDockActivity({selected:false,landscape:false});
+  }, []);
   useEffect(() => {
     const open = () => { postPanelMessage({ type: "redock" }); setWhere("docked"); setSheetFull(false); setSheetOpen(true); };
     window.addEventListener(OPEN_MOBILE_OPERATOR, open);
@@ -44,17 +63,25 @@ export function PanelHost({ children }: { children: ReactNode }) {
     const trigger = document.activeElement as HTMLElement | null;
     sheetRef.current?.querySelector<HTMLElement>("button")?.focus();
     const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSheetOpen(false);
-      if (event.key !== "Tab") return;
-      const targets = Array.from(sheetRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex="0"]') ?? [])
-        .filter((el) => el.getClientRects().length > 0);
-      const first = targets[0], last = targets[targets.length - 1];
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      if (event.defaultPrevented) return;
+      // Content host handles its actual inner layer first, in capture phase.
+      if (event.key === "Escape") {
+        if (sheetRef.current?.querySelector('[data-ask-pane]')) return;
+        event.preventDefault(); void closeSheet(); return;
+      }
+      const overlay = topEscapeLayer(askPaneOverlays(getAskPaneFeed().scope));
+      if (overlay?.element) trapAskFocus(event, overlay.element);
+      else if (sheetRef.current) trapAskFocus(event, sheetRef.current);
     };
+    const containFocus = (event: FocusEvent) => {
+      const overlay = topEscapeLayer(askPaneOverlays(getAskPaneFeed().scope));
+      if (overlay?.element?.contains(event.target as Node)) return;
+      if (sheetRef.current && !sheetRef.current.contains(event.target as Node)) sheetRef.current.focus();
+    };
+    document.addEventListener("focusin", containFocus);
     window.addEventListener("keydown", escape);
-    return () => { window.removeEventListener("keydown", escape); trigger?.focus(); };
-  }, [sheetOpen]);
+    return () => { window.removeEventListener("keydown", escape); document.removeEventListener("focusin", containFocus); trigger?.focus(); };
+  }, [sheetOpen, desktop, closeSheet]);
 
   // A hand-off raised while the dock is hidden below lg (mobile) needs the
   // sheet open so the chat can consume the stashed message.
@@ -65,6 +92,28 @@ export function PanelHost({ children }: { children: ReactNode }) {
       }),
     [],
   );
+
+  useEffect(() => {
+    let last = getAskPaneFeed().request;
+    return subscribeAskPanes(() => {
+      const request = getAskPaneFeed().request;
+      if (request && request !== last && !window.matchMedia("(min-width: 1024px)").matches) setSheetOpen(true);
+      last = request;
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!desktop || !dockActivity.selected) return;
+    const click = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const anchor = (event.target as Element).closest?.('a[href]');
+      if (!(anchor instanceof HTMLAnchorElement) || anchor.download || (anchor.target && anchor.target !== "_self") || anchor.origin !== location.origin) return;
+      event.preventDefault(); event.stopPropagation();
+      void dockControls.current?.exitForNavigation(anchor.pathname + anchor.search + anchor.hash);
+    };
+    document.addEventListener("click", click, true);
+    return () => document.removeEventListener("click", click, true);
+  }, [desktop, dockActivity.selected]);
 
   // App-window duties toward a detached panel: take its navigation requests,
   // and watch its liveness — when the popout dies (closed, crashed, or was
@@ -126,148 +175,46 @@ export function PanelHost({ children }: { children: ReactNode }) {
 
   return (
     <div className="flex h-dvh overflow-hidden bg-paper">
-      {showDock &&
-        (layout.collapsed ? (
-          <div className="hidden w-11 flex-none flex-col items-center border-r border-rule bg-paper-2 pt-3 lg:flex">
-            <button
-              onClick={toggleCollapsed}
-              aria-label="Expand operator panel"
-              title="Expand operator panel"
-              className="rounded-md p-1.5 text-ai transition-colors hover:bg-paper"
-            >
-              <Sparkles className="size-[18px]" strokeWidth={1.5} />
-            </button>
-          </div>
-        ) : (
-          <>
-            <aside
-              style={{ width: layout.width }}
-              className="hidden flex-none flex-col overflow-hidden bg-paper-2 lg:flex"
-            >
-              <div className="flex items-center gap-2 px-3 pt-2">
-                <Sparkles className="size-3.5 text-ai" strokeWidth={1.5} />
-                <span className="text-label text-ink-3">
-                  Operator
-                </span>
-                <div className="flex-1" />
-                <button
-                  onClick={() => setFollow(!layout.follow)}
-                  aria-pressed={layout.follow}
-                  aria-label={layout.follow ? "Stop following agent actions" : "Follow agent actions"}
-                  title={
-                    layout.follow
-                      ? "Following: a run you start opens what it's working on in the app view. Click to stop."
-                      : "Not following: runs only offer a chip. Click to follow again."
-                  }
-                  className={`rounded-md p-1 transition-colors hover:bg-paper ${layout.follow ? "text-ai" : "text-ink-4"}`}
-                >
-                  {layout.follow ? <Eye className="size-3.5" strokeWidth={1.75} /> : <EyeOff className="size-3.5" strokeWidth={1.75} />}
-                </button>
-                <button
-                  onClick={detach}
-                  aria-label="Pop out to its own window"
-                  title="Pop out to its own window (second monitor)"
-                  className="inline-flex size-11 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-paper hover:text-ink-2"
-                >
-                  <ExternalLink className="size-3.5" strokeWidth={1.75} />
-                </button>
-                <button
-                  onClick={toggleCollapsed}
-                  aria-label="Collapse operator panel"
-                  title="Collapse operator panel"
-                  className="inline-flex size-11 items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-paper hover:text-ink-2"
-                >
-                  <PanelLeftClose className="size-3.5" strokeWidth={1.75} />
-                </button>
-              </div>
-              <div className="min-h-0 flex-1">
-                <PanelDock width={layout.width} />
-              </div>
-            </aside>
-            <Splitter width={layout.width} onResize={setWidth} onCommit={commitWidth} />
-          </>
-        ))}
-
-      {/* data-app-view: LiveActionNav counts only interaction inside the app
-          view as "Joe is busy here" — typing in the dock must not block it. */}
-      <div className="h-full min-w-0 flex-1" data-app-view>
-        {children}
-      </div>
-
-      {/* Detached: a slim pill to bring the dock home (the popout closes
-          itself when it sees the state flip). */}
-      {layout.ready && layout.where === "window" && (
-        <button
-          onClick={() => {
-            // Order matters: the popout closes on `redock`, and must see it
-            // before the state flip or it reads the flip as a false alarm.
-            postPanelMessage({ type: "redock" });
-            setWhere("docked");
-          }}
-          title="Bring the operator panel back into this window"
-          className="fixed bottom-4 left-4 z-40 hidden items-center gap-1.5 rounded-full border border-rule bg-paper px-3 py-1.5 text-label font-medium text-ink-2 shadow-card hover:bg-paper-2 lg:flex"
-        >
-          <Sparkles className="size-3.5 text-ai" strokeWidth={1.5} /> Re-dock panel
-        </button>
-      )}
-
-      {/* Tablet launcher; phones use the Operator tab in MobileTabBar. */}
-      {showDock && !sheetOpen && (
-        <button
-          onClick={() => setSheetOpen(true)}
-          aria-label="Open operator panel"
-          className="fixed bottom-5 right-4 z-40 hidden items-center gap-2 rounded-full border border-ai bg-paper py-2 pl-3 pr-2 text-body font-medium text-ai-2 shadow-card sm:flex lg:hidden"
-        >
-          <Sparkles className="size-4 text-ai" strokeWidth={1.5} /> Operator
-          <span className="flex size-8 items-center justify-center rounded-full bg-ink text-paper">
-            <Mic className="size-4" strokeWidth={1.75} />
-          </span>
-        </button>
-      )}
-      {showDock && sheetOpen && (
-        <>
-        <div className="fixed inset-0 z-50 bg-black/30 lg:hidden" onClick={() => setSheetOpen(false)} aria-hidden="true" />
-        <div
-          ref={sheetRef} id="mobile-operator-sheet" role="dialog" aria-label="Operator" aria-modal="true"
-          className={`fixed inset-x-0 bottom-0 z-50 flex flex-col bg-paper lg:hidden ${
-            drawer
-              ? "h-[66dvh] rounded-t-2xl border-t border-rule shadow-[0_-8px_24px_rgba(0,0,0,0.12)]"
-              : "top-0"
-          }`}
-        >
-          <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-rule" aria-hidden="true" />
-          <div className="flex items-center gap-2 border-b border-rule px-3 py-2">
-            <Sparkles className="size-3.5 text-ai" strokeWidth={1.5} />
-            <span className="text-label text-ink-3">
-              Operator
-            </span>
-            <div className="flex-1" />
-            {!onHome && (
-              <button
-                onClick={() => setSheetFull((f) => !f)}
-                aria-label={sheetFull ? "Shrink to a drawer" : "Expand to full screen"}
-                title={sheetFull ? "Shrink to a drawer" : "Expand to full screen"}
-                className="inline-flex size-11 items-center justify-center rounded-md text-ink-3 hover:bg-paper-2"
-              >
-                {sheetFull ? <ChevronDown className="size-4" strokeWidth={1.75} /> : <ChevronUp className="size-4" strokeWidth={1.75} />}
+      {showDock && <>
+        {layout.collapsed && <div className="hidden w-11 flex-none flex-col items-center border-r border-rule bg-paper-2 pt-3 lg:flex">
+          <button onClick={toggleCollapsed} aria-label="Expand operator panel" title="Expand operator panel" className="rounded-md p-1.5 text-ai hover:bg-paper"><Sparkles className="size-[18px]" strokeWidth={1.5}/></button>
+        </div>}
+        {/* One persistent PanelDock: resizing/rotating never duplicates Chat,
+            selection, focus coordination or the owned history entry. */}
+        <aside ref={sheetRef} id="mobile-operator-sheet" tabIndex={-1}
+          role={!desktop && sheetOpen ? "dialog" : undefined}
+          aria-label="Operator" aria-modal={!desktop && sheetOpen ? true : undefined}
+          style={desktop ? {width:dockActivity.selected ? "100%" : layout.width} : sheetActivity.selected ? {paddingTop:'env(safe-area-inset-top)',paddingRight:'env(safe-area-inset-right)',paddingBottom:'env(safe-area-inset-bottom)',paddingLeft:'env(safe-area-inset-left)'} : {paddingBottom:'env(safe-area-inset-bottom)'}}
+          className={`min-h-0 flex-none flex-col overflow-hidden bg-paper-2 ${
+            desktop ? layout.collapsed ? "hidden" : "flex" : !sheetOpen ? "hidden" : `fixed inset-x-0 bottom-0 z-50 flex bg-paper ${drawer ? "h-[66dvh] rounded-t-2xl border-t border-rule shadow-[0_-8px_24px_rgba(0,0,0,0.12)]" : "top-0 h-dvh"}`
+          }`}>
+          {!desktop && !sheetActivity.landscape && <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-rule" aria-hidden="true"/>}
+          {(!sheetActivity.landscape || desktop) && <div className={`flex shrink-0 items-center gap-2 ${desktop ? "px-3 pt-2" : "border-b border-rule px-3 py-2"}`}>
+            <Sparkles className="size-3.5 text-ai" strokeWidth={1.5}/><span className="text-label text-ink-3">Operator</span><div className="flex-1"/>
+            {desktop ? <>
+              <button onClick={() => setFollow(!layout.follow)} aria-pressed={layout.follow} aria-label={layout.follow ? "Stop following agent actions" : "Follow agent actions"} title={layout.follow ? "Following: a run you start opens what it's working on in the app view. Click to stop." : "Not following: runs only offer a chip. Click to follow again."} className={`rounded-md p-1 hover:bg-paper ${layout.follow ? "text-ai" : "text-ink-4"}`}>
+                {layout.follow ? <Eye className="size-3.5" strokeWidth={1.75}/> : <EyeOff className="size-3.5" strokeWidth={1.75}/>}
               </button>
-            )}
-            <button
-              onClick={() => setSheetOpen(false)}
-              aria-label="Close operator panel" title="Close operator panel"
-              className="inline-flex size-11 items-center justify-center rounded-md text-ink-3 hover:bg-paper-2"
-            >
-              <X className="size-4" strokeWidth={1.75} />
-            </button>
+              <button onClick={async () => {if (!dockControls.current || await dockControls.current.closeOperator()) detach();}} aria-label="Pop out to its own window" title="Pop out to its own window (second monitor)" className="inline-flex size-11 items-center justify-center rounded-md text-ink-3 hover:bg-paper"><ExternalLink className="size-3.5" strokeWidth={1.75}/></button>
+              <button onClick={async () => {if (!dockControls.current || await dockControls.current.closeOperator()) toggleCollapsed();}} aria-label="Collapse operator panel" title="Collapse operator panel" className="inline-flex size-11 items-center justify-center rounded-md text-ink-3 hover:bg-paper"><PanelLeftClose className="size-3.5" strokeWidth={1.75}/></button>
+            </> : <>
+              {!onHome && !sheetActivity.selected && <button onClick={() => setSheetFull(f => !f)} aria-label={sheetFull ? "Shrink to a drawer" : "Expand to full screen"} title={sheetFull ? "Shrink to a drawer" : "Expand to full screen"} className="inline-flex size-11 items-center justify-center rounded-md text-ink-3 hover:bg-paper-2">
+                {sheetFull ? <ChevronDown className="size-4" strokeWidth={1.75}/> : <ChevronUp className="size-4" strokeWidth={1.75}/>}
+              </button>}
+              <button onClick={() => void closeSheet()} aria-label="Close Operator" title="Close Operator" className="inline-flex size-11 items-center justify-center rounded-md text-ink-3 hover:bg-paper-2"><X className="size-4" strokeWidth={1.75}/></button>
+            </>}
+          </div>}
+          <div className="min-h-0 min-w-0 flex-1">
+            <PanelDock width={desktop ? layout.width : undefined} dockWidth={layout.width} mode={desktop ? "dock" : "sheet"} compact={!desktop && drawer} active={desktop ? !layout.collapsed : sheetOpen} onPaneActivity={dockActivityChanged} registerPaneControls={registerDock} closeOperator={() => void closeSheet()}/>
           </div>
-          <div className="min-h-0 flex-1 pb-[env(safe-area-inset-bottom)]">
-            {/* Narrow width forces the single-column dock; the drawer is
-                compact (conversation + composer only). */}
-            <PanelDock width={400} compact={drawer} />
-          </div>
-        </div>
-        </>
-      )}
+        </aside>
+        {!layout.collapsed && !dockActivity.selected && <Splitter width={layout.width} onResize={setWidth} onCommit={commitWidth}/>}
+      </>}
+      {/* Keep the underlying route mounted, preserving app scroll/state. */}
+      <div className={`h-full min-w-0 flex-1 ${desktop && dockActivity.selected ? "hidden" : ""}`} inert={(!desktop && sheetOpen) || (desktop && dockActivity.selected)} data-app-view>{children}</div>
+      {layout.ready && layout.where === "window" && <button onClick={() => {postPanelMessage({type:"redock"});setWhere("docked");}} title="Bring the operator panel back into this window" className="fixed bottom-4 left-4 z-40 hidden items-center gap-1.5 rounded-full border border-rule bg-paper px-3 py-1.5 text-label font-medium text-ink-2 shadow-card hover:bg-paper-2 lg:flex"><Sparkles className="size-3.5 text-ai" strokeWidth={1.5}/>Re-dock panel</button>}
+      {showDock && !sheetOpen && <button onClick={() => setSheetOpen(true)} aria-label="Open operator panel" className="fixed bottom-5 right-4 z-40 hidden items-center gap-2 rounded-full border border-ai bg-paper py-2 pl-3 pr-2 text-body font-medium text-ai-2 shadow-card sm:flex lg:hidden"><Sparkles className="size-4 text-ai" strokeWidth={1.5}/>Operator<span className="flex size-8 items-center justify-center rounded-full bg-ink text-paper"><Mic className="size-4" strokeWidth={1.75}/></span></button>}
+      {showDock && sheetOpen && !desktop && <div className="fixed inset-0 z-40 bg-black/30" onClick={() => void closeSheet()} aria-hidden="true"/>}
     </div>
   );
 }

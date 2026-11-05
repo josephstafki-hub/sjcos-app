@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Sparkles, PanelLeft } from "lucide-react";
 import {
   postPanelMessage,
@@ -11,7 +11,7 @@ import {
 import { subscribePanelState, writePanelState } from "./panelStore";
 import { LiveUpdates } from "@/components/shell/LiveUpdates";
 import { PanelQueueProvider } from "./PanelQueueProvider";
-import { PanelDock } from "./PanelDock";
+import { PanelDock, type AskPaneControls } from "./PanelDock";
 
 /**
  * The operator panel as its own browser window (/panel) — the two-monitor
@@ -30,6 +30,8 @@ import { PanelDock } from "./PanelDock";
  * DB-backed and the dock resumes them via the panel store + pendingRunId.
  */
 export function PanelWindow() {
+  const paneControls = useRef<AskPaneControls|null>(null);
+  const registerPaneControls = useCallback((controls:AskPaneControls|null) => {paneControls.current=controls;}, []);
   const [width, setWidth] = useState(720);
   // Set once a deliberate re-dock is underway, so the matching state flip
   // isn't mistaken for a watchdog false alarm and re-claimed.
@@ -53,8 +55,13 @@ export function PanelWindow() {
       if (m.type === "nav-ack") resolveNavAck(m.id);
       else if (m.type === "ping") beatNow();
       else if (m.type === "redock") {
-        closingRef.current = true;
-        window.close();
+        void (async () => {
+          if (paneControls.current && !(await paneControls.current.closeOperator())) {
+            writePanelState({ where: "window" }); return;
+          }
+          closingRef.current = true;
+          window.close();
+        })();
       }
     });
     let reclaim: number | null = null;
@@ -98,10 +105,11 @@ export function PanelWindow() {
       const a = (e.target as Element).closest?.("a[href]");
       if (!a) return;
       const href = a.getAttribute("href");
-      if (!href || !href.startsWith("/")) return;
+      if (!href || !href.startsWith("/") || a.hasAttribute("download") || (a.getAttribute("target") && a.getAttribute("target") !== "_self")) return;
       e.preventDefault();
       e.stopPropagation();
-      requestAppNav(href);
+      if (paneControls.current) void paneControls.current.exitForNavigation(href);
+      else requestAppNav(href);
     }
     document.addEventListener("click", onClick, true);
     return () => document.removeEventListener("click", onClick, true);
@@ -116,7 +124,8 @@ export function PanelWindow() {
         </span>
         <div className="flex-1" />
         <button
-          onClick={() => {
+          onClick={async () => {
+            if (paneControls.current && !(await paneControls.current.closeOperator())) return;
             // Flipping the store re-docks every app window. Mark ourselves
             // closing first so the state flip isn't re-claimed.
             closingRef.current = true;
@@ -132,7 +141,7 @@ export function PanelWindow() {
       </div>
       <div className="min-h-0 flex-1">
         <PanelQueueProvider>
-          <PanelDock width={width} navigate={requestAppNav} inWindow />
+          <PanelDock width={width} navigate={requestAppNav} inWindow registerPaneControls={registerPaneControls} />
         </PanelQueueProvider>
         {/* The popout has no (os) layout, so it polls the change log itself —
             that's what keeps its queue cards live while agents write. */}

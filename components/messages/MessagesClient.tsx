@@ -14,7 +14,7 @@ import {
   setSmsOptOut,
   setSmsBlocked,
 } from "@/lib/actions/sms";
-import { placeCallAction } from "@/lib/actions/calls";
+import { useStartCall } from "@/components/calls/BrowserPhone";
 import { runAction } from "@/lib/run-action";
 import type { SmsThreadSummary, SmsMessage, SmsLinkOptions } from "@/lib/sms";
 
@@ -79,6 +79,7 @@ export function MessagesClient({
   // list). Desktop keeps both panes — this only toggles below `lg`.
   const [mobileThread, setMobileThread] = useState(Boolean(initialThreadId&&firstOpen?.id===initialThreadId));
   const [, start] = useTransition();
+  const startCall = useStartCall();
 
   const selected = threads.find((t) => t.id === selectedId) ?? null;
   const openThreads = threads.filter((t) => !t.blockedAt);
@@ -191,9 +192,15 @@ export function MessagesClient({
     setDialing(true);
     setNotice(null);
     start(async () => {
-      const r = await runAction(() => placeCallAction(selected.phone, selected.contactName), { fallback: "Could not place the call." });
+      const r = await runAction(() => startCall(selected.phone, selected.contactName), { fallback: "Could not place the call." });
       setDialing(false);
-      setNotice(r.ok ? "Calling: your cell rings first, then the OS dials them and connects you. Notes land on /calls." : r.error ?? "Could not place the call.");
+      setNotice(
+        r.ok
+          ? r.via === "browser"
+            ? "Calling from this browser: use the call bar to mute or hang up. Notes land on /calls."
+            : "Calling: your cell rings first, then the OS dials them and connects you. Notes land on /calls."
+          : r.error ?? "Could not place the call.",
+      );
     });
   }
 

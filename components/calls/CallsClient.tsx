@@ -4,7 +4,8 @@ import { useEffect, useState, useTransition } from "react";
 import { PhoneCall, PhoneIncoming, PhoneOutgoing, Voicemail, AlertCircle, ExternalLink, Plus, X, ArrowLeft, FileText } from "lucide-react";
 import { ConnectionNotice } from "@/components/messages/ConnectionNotice";
 import { Button, PageHeader, Chip } from "@/components/ui";
-import { loadCall, placeCallAction, type CallDetail } from "@/lib/actions/calls";
+import { loadCall, type CallDetail } from "@/lib/actions/calls";
+import { CallViaSwitch, useBrowserPhone, useStartCall } from "@/components/calls/BrowserPhone";
 import { runAction } from "@/lib/run-action";
 import { formatUsPhone } from "@/lib/comms/phone";
 import { callIdentityLabel } from "@/lib/comms/call-identity";
@@ -73,6 +74,9 @@ export function CallsClient({
   const [notice, setNotice] = useState<string | null>(null);
   const [showTranscript, setShowTranscript] = useState(false);
   const [loading, start] = useTransition();
+  const startCall = useStartCall();
+  const phone = useBrowserPhone();
+  const viaBrowser = phone?.available === true && phone.via === "browser";
 
   // Fetch the detail (events, transcript) for whichever call is selected.
   // State only changes inside the async transition, never synchronously in
@@ -98,13 +102,17 @@ export function CallsClient({
     setComposeErr(null);
     setDialing(true);
     start(async () => {
-      const r = await runAction(() => placeCallAction(newPhone, newName), { fallback: "Could not place the call." });
+      const r = await runAction(() => startCall(newPhone, newName), { fallback: "Could not place the call." });
       setDialing(false);
       if (r.ok && r.callId) {
         setComposeOpen(false);
         setNewPhone("");
         setNewName("");
-        setNotice("Your cell is ringing. Pick up, and the OS will dial them and connect you.");
+        setNotice(
+          r.via === "browser"
+            ? "Calling from this browser. Use the call bar to mute or hang up."
+            : "Your cell is ringing. Pick up, and the OS will dial them and connect you.",
+        );
         setSelectedId(r.callId);
         setMobileDetail(true);
       } else {
@@ -314,8 +322,12 @@ export function CallsClient({
               <Button onClick={() => setComposeOpen(false)} icon={X} iconOnly aria-label="Close" title="Close" />
             </div>
             <p className="mt-2 text-meta leading-relaxed text-ink-3">
-              Your cell rings first. When you pick up, the OS dials them and connects you. The call is recorded and transcribed, and notes land on the record.
+              {viaBrowser
+                ? "You talk through this browser (microphone and speakers or a headset). The OS dials them from the business number and connects you."
+                : "Your cell rings first. When you pick up, the OS dials them and connects you."}{" "}
+              The call is recorded and transcribed, and notes land on the record.
             </p>
+            <CallViaSwitch className="mt-3" />
             {!configured && (
               <div className="mt-3 flex items-start gap-1.5 rounded-md border border-dashed border-rule bg-paper px-2.5 py-2 text-meta text-ink-3">
                 <AlertCircle className="mt-0.5 size-3.5 flex-none text-flag" strokeWidth={1.5} /> Voice is not connected — dialing is disabled.
@@ -334,7 +346,7 @@ export function CallsClient({
             {composeErr && <p className="mt-2 text-meta text-flag">{composeErr}</p>}
             <div className="mt-4 flex justify-end gap-2">
               <Button onClick={() => setComposeOpen(false)} variant="secondary">Cancel</Button>
-              <Button onClick={dial} icon={PhoneCall} disabled={!configured || dialing || !newPhone.trim()}>{dialing ? "Ringing your cell…" : "Ring my cell, then call"}</Button>
+              <Button onClick={dial} icon={PhoneCall} disabled={!configured || dialing || !newPhone.trim() || (viaBrowser && phone?.busy)}>{viaBrowser ? (dialing ? "Connecting…" : "Call") : dialing ? "Ringing your cell…" : "Ring my cell, then call"}</Button>
             </div>
           </div>
         </div>

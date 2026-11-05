@@ -51,6 +51,7 @@ VOICE_FORWARD_TO=                  # +E.164, Joe's cell
 VOICE_RECORDING=all                # all | off
 VOICE_RECORDING_ANNOUNCEMENT=off   # off | on  (built, ships off — env change + restart only)
 VOICE_TRANSCRIPTION=telnyx
+VOICE_WEBRTC_CONNECTION_ID=        # optional: browser phone (node scripts/voice-browser-setup.mjs prints it)
 
 # 10DLC registration script + daily watch only
 TELNYX_API_KEY=
@@ -159,6 +160,20 @@ Joe's leg is hung up, "missed" push.
 Outbound (`placeCall`): dial Joe's cell with state `{role: owner}` → on answer:
 record, dial the client with `link_to`, ringback to Joe → client answers →
 bridge. No answer → "No answer from …" spoken to Joe → hang up.
+
+Browser phone (`VOICE_WEBRTC_CONNECTION_ID` set): the Call buttons offer
+"Ring: This browser | My cell" (remembered per browser). "This browser" uses
+the same flow; only the first leg changes. The tab logs in to the Telnyx
+WebRTC SDK with a short-lived JWT for the user's own telephony credential
+(`lib/voice-browser.ts`; one per login, found by tag `sjcos-user-<id>`, made on
+first use), and `placeCall({ ringBrowser: true })` dials
+`sip:<credential>@sip.telnyx.com` instead of the cell, with header
+`X-SJC-Call: <call id>`. The tab auto-answers only that expected call (any
+other is declined), and is logged out again between calls. The credential
+connection only accepts SIP-URI calls from our own account (`internal`).
+`components/calls/BrowserPhone.tsx` is mounted in the `(os)` layout, so a call
+survives page changes; its bar has mute, keypad (DTMF) and hang up. Mobile and
+agent calls still ring the cell.
 
 Recording (`call.recording.saved`, URL valid 10 min) is downloaded at once into
 `uploads/` as a `files` row. Transcript arrives on

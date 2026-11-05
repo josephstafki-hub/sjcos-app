@@ -119,6 +119,13 @@ test("voice + telegram providers: owner chat only; edit-in-place; not-modified i
     assert.equal(v.responseClass, "accepted");
     assert.equal(v.providerRef, "cc-1");
     assert.equal(v.providerState, "session:sess-1");
+    // Browser phone: the first leg may be the caller's own Telnyx SIP address,
+    // never an arbitrary SIP host.
+    const sip = await voice.send({ callId: "c2", to: "sip:gencredAbC123@sip.telnyx.com", from: "+13125550000", timeoutSecs: 20, counterparty: "+13125550001" }, ctx);
+    assert.equal(sip.responseClass, "accepted");
+    const foreign = await voice.send({ callId: "c3", to: "sip:someone@evil.example.com", from: "+13125550000", timeoutSecs: 20, counterparty: "+13125550001" }, ctx);
+    assert.equal(foreign.responseClass, "permanent");
+    assert.equal(foreign.transmitted, false);
 
     const calls = [];
     const tg = makeTelegramProvider({

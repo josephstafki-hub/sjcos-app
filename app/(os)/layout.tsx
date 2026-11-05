@@ -6,6 +6,9 @@ import { NotificationCenter } from "@/components/shell/NotificationCenter";
 import { PanelProvider } from "@/components/panel/PanelProvider";
 import { PanelHost } from "@/components/panel/PanelHost";
 import { LiveActionNav } from "@/components/panel/LiveActionNav";
+import { BrowserPhoneProvider } from "@/components/calls/BrowserPhone";
+import { voiceConfigured } from "@/lib/voice";
+import { browserCallingConfigured } from "@/lib/voice-browser";
 
 /**
  * The internal app's layout: owns the h-dvh frame and, for the owner, the
@@ -15,6 +18,9 @@ import { LiveActionNav } from "@/components/panel/LiveActionNav";
  * changes — and router.refresh() re-renders only its server parts, leaving the
  * client dock untouched.
  *
+ * BrowserPhoneProvider wraps everything for the same reason: a browser call
+ * must not drop when the page changes.
+ *
  * RouteTracker/LiveUpdates moved here from Shell: one persistent instance for
  * the whole session instead of one per page mount.
  */
@@ -23,9 +29,12 @@ export default async function OsLayout({ children }: { children: ReactNode }) {
   // The operator dock mounts for the owner and for staff who hold the "ai"
   // area (lib/permissions.ts) — agents in it act with owner-level tools.
   const withPanel = can(user, "ai");
+  // The browser phone lives here (not on /calls) so a call survives page
+  // changes. Off unless VOICE_WEBRTC_CONNECTION_ID is set.
+  const phoneEnabled = can(user, "comms") && voiceConfigured() && browserCallingConfigured();
 
   return (
-    <>
+    <BrowserPhoneProvider enabled={phoneEnabled}>
       {withPanel ? (
         <PanelProvider>
           <PanelHost>{children}</PanelHost>
@@ -38,6 +47,6 @@ export default async function OsLayout({ children }: { children: ReactNode }) {
       <LiveUpdates />
       {/* Corner approvals (owner) + live toasts and bell count (everyone). */}
       {user && (user.role === "owner" || user.role === "staff") && <NotificationCenter />}
-    </>
+    </BrowserPhoneProvider>
   );
 }

@@ -1,6 +1,6 @@
 // Voice provider (Telnyx Call Control dial through lib/telnyx.ts).
 //
-// A click-to-call rings Joe's cell first; the intent's effect is the dial of
+// A click-to-call rings the caller first (their cell, or their browser tab); the intent's effect is the dial of
 // that first leg. The call_control_id Telnyx returns is the provider ref; the
 // voice webhook (lib/voice.ts handleVoiceEvent) carries the call from there.
 
@@ -9,7 +9,8 @@ import { classifyTransportError, outboundDisabled, recordFakeSend, type Provider
 export interface VoicePayload {
   /** Internal calls.id, carried in client_state so the webhook finds the row. */
   callId: string;
-  /** The number to dial for the first leg (Joe's cell). */
+  /** The first leg: the caller's cell (+E.164), or their browser phone
+   *  (sip:<user>@sip.telnyx.com, lib/voice-browser.ts). */
   to: string;
   from: string;
   timeoutSecs: number;
@@ -25,12 +26,15 @@ export interface VoiceTransport {
 }
 
 const E164 = /^\+[1-9]\d{6,14}$/;
+/** The caller's own browser phone (a Telnyx telephony credential on our account). */
+const BROWSER_SIP = /^sip:[A-Za-z0-9_.-]{3,64}@sip\.telnyx\.com$/;
 
 export function makeVoiceProvider(transport: VoiceTransport = defaultTransport): Provider<VoicePayload> {
   return {
     name: "voice",
     async send(payload, ctx): Promise<ProviderResult> {
-      if (!E164.test(String(payload.to ?? ""))) return { responseClass: "permanent", error: `"${payload.to}" is not a +E.164 number.`, transmitted: false };
+      const first = String(payload.to ?? "");
+      if (!E164.test(first) && !BROWSER_SIP.test(first)) return { responseClass: "permanent", error: `"${payload.to}" is not a +E.164 number or a browser phone address.`, transmitted: false };
       if (outboundDisabled()) return recordFakeSend("voice", payload, ctx);
       if (!(await transport.configured())) return { responseClass: "permanent", error: "Voice is not configured (VOICE_APPLICATION_ID unset).", transmitted: false };
       try {
@@ -63,7 +67,15 @@ const defaultTransport: VoiceTransport = {
     const [{ voiceConfigFrom }, { callControl }] = await Promise.all([import("../comms/env"), import("../telnyx")]);
     const cfg = voiceConfigFrom();
     if (!cfg) throw Object.assign(new Error("Voice is not configured."), { status: 400 });
-    return callControl.dial(cfg, { to: p.to, from: p.from, timeoutSecs: p.timeoutSecs, linkTo: null, state: { c: p.callId, r: "owner", p: "answered" } });
+    return callControl.dial(cfg, {
+      to: p.to,
+      from: p.from,
+      timeoutSecs: p.timeoutSecs,
+      linkTo: null,
+      state: { c: p.callId, r: "owner", p: "answered" },
+      // The browser phone only auto-answers the call it asked for.
+      ...(p.to.startsWith("sip:") ? { customHeaders: [{ name: "X-SJC-Call", value: p.callId }] } : {}),
+    });
   },
   async status(id) {
     const [{ voiceConfigFrom }, { telnyxRequest, TelnyxError }] = await Promise.all([import("../comms/env"), import("../telnyx")]);

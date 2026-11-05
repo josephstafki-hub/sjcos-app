@@ -12,8 +12,9 @@ import { requireAccess } from "@/lib/dal";
 import { createGrant } from "@/lib/owner-grants";
 import { normalizeE164 } from "@/lib/comms/phone";
 import { getCall, getCallEvents, placeCall, voiceConfigured, type CallRow } from "@/lib/voice";
+import { browserCallingConfigured, browserLoginToken } from "@/lib/voice-browser";
 
-export async function placeCallAction(phone: string, contactName?: string | null): Promise<{ ok: boolean; callId?: string; error?: string }> {
+export async function placeCallAction(phone: string, contactName?: string | null, via: "cell" | "browser" = "cell"): Promise<{ ok: boolean; callId?: string; error?: string }> {
   const user = await requireAccess("comms");
   if (!voiceConfigured()) {
     return { ok: false, error: connectionCopy("voice").error };
@@ -30,7 +31,7 @@ export async function placeCallAction(phone: string, contactName?: string | null
     maxUses: 1,
     expiresInMinutes: 5,
   });
-  const r = await placeCall({ to: norm.e164, grantId: grant.id, actor: user.role === "owner" ? "owner" : `staff:${user.id}`, caller: { id: user.id, role: user.role as "owner" | "staff" }, contactName });
+  const r = await placeCall({ to: norm.e164, grantId: grant.id, actor: user.role === "owner" ? "owner" : `staff:${user.id}`, caller: { id: user.id, role: user.role as "owner" | "staff" }, contactName, ringBrowser: via === "browser" });
   revalidatePath("/calls");
   if (!r.ok) return { ok: false, error: r.error };
   return { ok: true, callId: r.callId };
@@ -47,4 +48,16 @@ export async function loadCall(id: string): Promise<CallDetail | null> {
   if (!call) return null;
   const events = await getCallEvents(id);
   return { call, events };
+}
+
+/** Log this tab in to the browser phone: a short-lived Telnyx SDK token for
+ *  the signed-in user's own credential. */
+export async function browserPhoneTokenAction(): Promise<{ ok: boolean; token?: string; error?: string }> {
+  const user = await requireAccess("comms");
+  if (!voiceConfigured() || !browserCallingConfigured()) return { ok: false, error: "Browser calling is not set up." };
+  try {
+    return { ok: true, token: await browserLoginToken({ id: user.id, name: user.name }) };
+  } catch (err) {
+    return { ok: false, error: `Could not start the browser phone: ${(err as Error).message}` };
+  }
 }

@@ -90,6 +90,10 @@ export interface VoiceConfig {
   /** SMS_API_KEY — one Telnyx account, one bearer for both products. */
   apiKey: string;
   publicKey: string;
+  /** VOICE_WEBRTC_CONNECTION_ID — optional Telnyx credential connection whose
+   *  per-user telephony credentials let a browser tab be the caller's leg of a
+   *  click-to-call (lib/voice-browser.ts). Unset = calls ring the cell only. */
+  webrtcConnectionId?: string;
 }
 
 const v = (env: EnvLike, k: string) => (env[k] ?? "").trim();
@@ -194,6 +198,7 @@ export function voiceConfigFrom(env: EnvLike = process.env as EnvLike): VoiceCon
     transcription: "telnyx",
     apiKey: v(env, "SMS_API_KEY"),
     publicKey: v(env, "SMS_PUBLIC_KEY"),
+    webrtcConnectionId: v(env, "VOICE_WEBRTC_CONNECTION_ID") || undefined,
   };
 }
 

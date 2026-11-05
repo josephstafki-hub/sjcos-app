@@ -152,7 +152,7 @@ export const callControl = {
 
   dial: async (
     cfg: VoiceConfig,
-    input: { to: string; from: string; timeoutSecs: number; linkTo: string | null; state: ClientState },
+    input: { to: string; from: string; timeoutSecs: number; linkTo: string | null; state: ClientState; customHeaders?: { name: string; value: string }[] },
   ): Promise<{ callControlId: string; callLegId: string | null; callSessionId: string | null }> => {
     const out = await telnyxRequest<{ data?: { call_control_id?: string; call_leg_id?: string; call_session_id?: string } }>(
       cfg.apiKey,
@@ -165,6 +165,7 @@ export const callControl = {
         timeout_secs: input.timeoutSecs,
         time_limit_secs: Number(process.env.VOICE_CALL_MAX_S ?? 7200),
         ...(input.linkTo ? { link_to: input.linkTo } : {}),
+        ...(input.customHeaders?.length ? { custom_headers: input.customHeaders } : {}),
         client_state: encodeClientState(input.state),
       },
     );
@@ -192,6 +193,57 @@ export const callControl = {
 
   hangup: (cfg: VoiceConfig, leg: string, state?: ClientState) =>
     telnyxRequest(cfg.apiKey, "POST", cc(leg, "hangup"), state ? { client_state: encodeClientState(state) } : {}),
+};
+
+// ─── Telephony credentials (browser phone) ───────────────────────────────────
+// One credential per app login on the VOICE_WEBRTC_CONNECTION_ID credential
+// connection. The browser logs in with a short-lived JWT minted from it; the
+// Call Control app reaches that browser by dialing sip:<sip_username>@sip.telnyx.com.
+
+export interface TelephonyCredential {
+  id: string;
+  name: string | null;
+  tag: string | null;
+  sip_username: string;
+  resource_id: string | null;
+  expired: boolean;
+}
+
+export const telephonyCredentials = {
+  listByTag: async (apiKey: string, tag: string): Promise<TelephonyCredential[]> => {
+    const out = await telnyxRequest<{ data?: TelephonyCredential[] }>(apiKey, "GET", `/telephony_credentials?filter[tag]=${encodeURIComponent(tag)}&page[size]=50`);
+    return Array.isArray(out?.data) ? out.data : [];
+  },
+  create: async (apiKey: string, input: { connectionId: string; name: string; tag: string }): Promise<TelephonyCredential> => {
+    const out = await telnyxRequest<{ data?: TelephonyCredential }>(apiKey, "POST", "/telephony_credentials", {
+      connection_id: input.connectionId,
+      name: input.name.slice(0, 100),
+      tag: input.tag,
+    });
+    if (!out?.data?.id || !out.data.sip_username) throw new TelnyxError(200, [], "Telnyx returned no telephony credential.");
+    return out.data;
+  },
+  /** A login JWT for the browser SDK (valid ~24h). Telnyx answers text/plain. */
+  token: async (apiKey: string, credentialId: string): Promise<string> => {
+    let res: Response;
+    try {
+      res = await fetch(`${BASE()}/telephony_credentials/${encodeURIComponent(credentialId)}/token`, {
+        method: "POST",
+        headers: { authorization: `Bearer ${apiKey}`, accept: "text/plain, application/json" },
+        signal: AbortSignal.timeout(15_000),
+      });
+    } catch (e) {
+      throw new TelnyxError(0, [], `Telnyx unreachable (${(e as Error).message})`);
+    }
+    const text = (await res.text()).trim();
+    if (!res.ok) {
+      let json: unknown = null;
+      try { json = JSON.parse(text); } catch { /* not JSON */ }
+      throw new TelnyxError(res.status, parseErrors(json), `Telnyx HTTP ${res.status}`);
+    }
+    if (!text || text.startsWith("{")) throw new TelnyxError(res.status, [], "Telnyx returned no login token.");
+    return text;
+  },
 };
 
 // ─── 10DLC reads (daily watch) ───────────────────────────────────────────────

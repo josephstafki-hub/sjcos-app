@@ -7,8 +7,9 @@ import "server-only";
 //             cell. No IVR, no greeting: he answers his phone the way he
 //             always has. No answer → voicemail (greeting, beep, recorded,
 //             transcribed) → a callback work item + a push.
-//   Outbound: click-to-call. The caller's cell rings FIRST; once they answer
-//             the OS dials the client and bridges. Placing a call is a
+//   Outbound: click-to-call. The caller's cell rings FIRST (or their browser
+//             tab, lib/voice-browser.ts); once they answer the OS dials the
+//             client and bridges. Placing a call is a
 //             communication with a client, so it spends a single-use owner
 //             grant (action 'place_call') exactly like send_sms / send_email.
 //
@@ -540,6 +541,9 @@ export interface PlaceCallInput {
   contactName?: string | null;
   /** Authenticated web/mobile caller; omitted for legacy granted agent calls. */
   caller?: { id: string; role: "owner" | "staff" };
+  /** Ring the caller's browser tab (lib/voice-browser.ts) instead of their
+   *  cell. Needs `caller`; the tab must already be logged in to the SDK. */
+  ringBrowser?: boolean;
 }
 
 export type PlaceCallResult =
@@ -557,7 +561,19 @@ export async function placeCall(input: PlaceCallInput): Promise<PlaceCallResult>
   if (!norm.ok) return { ok: false, error: norm.error, blocked: "invalid_number" };
   const to = norm.e164;
   let callerPhone = cfg.forwardTo;
-  if (input.caller) {
+  if (input.ringBrowser) {
+    if (!input.caller) return { ok: false, error: "Browser calls need a signed-in caller." };
+    const caller = await queryOne<{ name: string | null; role: string }>(
+      "SELECT name, role FROM users WHERE id = $1 AND active = true", [input.caller.id],
+    );
+    if (!caller || !["owner", "staff"].includes(caller.role)) return { ok: false, error: "Caller is unavailable." };
+    const { browserSipUri } = await import("./voice-browser");
+    try {
+      callerPhone = await browserSipUri({ id: input.caller.id, name: caller.name });
+    } catch (err) {
+      return { ok: false, error: `Browser calling is unavailable: ${(err as Error).message}`, blocked: "not_configured" };
+    }
+  } else if (input.caller) {
     const caller = await queryOne<{ phone: string | null; role: string }>(
       "SELECT phone, role FROM users WHERE id = $1 AND active = true", [input.caller.id],
     );
@@ -615,7 +631,9 @@ export async function placeCall(input: PlaceCallInput): Promise<PlaceCallResult>
   const [outcome] = await dispatchIntentsNow([intent.id]);
   const name = input.contactName?.trim() || match?.contactName || to;
   if (outcome && (outcome.responseClass === "accepted" || outcome.responseClass === "confirmed")) {
-    const summary = `Calling ${name}: your cell is ringing; once you answer the OS dials ${to} and bridges.`;
+    const summary = input.ringBrowser
+      ? `Calling ${name} from your browser: connecting, then the OS dials ${to} and bridges.`
+      : `Calling ${name}: your cell is ringing; once you answer the OS dials ${to} and bridges.`;
     return { ok: true, callId: id, summary };
   }
   if (outcome?.responseClass === "unknown") {

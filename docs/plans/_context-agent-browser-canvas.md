@@ -164,3 +164,7 @@ Migration split: browser **0100–0104**, canvas **0105–0109**.
    canvases are never shown to clients in v1.
 
 Branch note: T3 renamed this branch to `t3/in-app-browser-agent-tools`.
+
+9. **Canvas Save default (Joe, 2026-11-05):** when Joe saves a canvas to a job's
+   files, **Share with staff** is pre-selected. Required areas such as Money are
+   pre-ticked. Joe can pick **Only Joe** instead.

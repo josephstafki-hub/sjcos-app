@@ -5,6 +5,7 @@ import {registerHooks} from 'node:module';
 import ts from 'typescript';
 import React from 'react';
 import {renderToString} from 'react-dom/server';
+import {compile} from 'tailwindcss';
 import {hostWidths, deviceCases} from './fixtures/ask-pane-host.mjs';
 
 // Real React SSR, with controlled provider/action/browser seams. No DOM, DB or server.
@@ -14,7 +15,7 @@ const stubs=new Map([
  ['@/components/today/ModelActionChips',`export const ModelActionChips=()=>null;`],
  ['next/navigation',`export const useRouter=()=>({push(){}});export const usePathname=()=>'/panel';`],
  ['@/components/today/TodayQueueContext',`export const useTodayQueue=()=>({priorities:[],waiting:[],refresh:async()=>{}});`],
- ['@/lib/use-voice-round',`export const useVoiceRound=()=>({phase:'idle',voiceMode:false});`],
+ ['@/lib/use-voice-round',`export const useVoiceRound=()=>({phase:'idle',voiceMode:false,supported:true});`],
  ['./useRecordMentions',`export const useRecordMentions=()=>({refs:[],records:[],results:[],clear(){}});`],
  ['./PanelDictation',`export const PanelDictation=()=>null;`],
  ['./JobPicker',`export const JobPicker=()=>null;`],
@@ -111,7 +112,7 @@ function clientScope(work){
  globalThis.window={sessionStorage:session,localStorage:storage({}),location:{search:''},addEventListener(){},removeEventListener(){},setTimeout(){},confirm(){return true;}};
  return Promise.resolve().then(work).finally(()=>{for(const [key,value]of Object.entries(prior)){if(value===undefined)delete globalThis[key];else globalThis[key]=value;}});
 }
-for(const code of Object.keys(ASK_STATUS_COPY))test(`rail renders ${code} without private metadata`,()=>{
+for(const code of Object.keys(ASK_STATUS_COPY).filter(code=>code!=='THREAD_UNAVAILABLE'))test(`rail renders ${code} without private metadata`,()=>{
  const html=render(()=>React.createElement(ThreadList,{...railProps,failureCode:code}));
  assert.ok(html.includes(ASK_STATUS_COPY[code].replaceAll("'",'&#x27;')));
  assert.doesNotMatch(html,/Search threads|Empty —|New folder/);
@@ -260,8 +261,105 @@ for(const code of ['ASK_PAUSED','THREAD_UNAVAILABLE','SIGN_IN_AGAIN','CHAT_OFF']
   nodes(tree,n=>n.type==='input'&&n.props.placeholder?.startsWith('Tell '))[0].props.onChange({target:{value:'Keep the typed draft'}});
   tree=h.render();nodes(tree,n=>n.type==='form')[0].props.onSubmit({preventDefault(){}});await tick();tree=h.render();h.effects();tree=h.render();
   const html=render(()=>tree);assert.ok(html.includes(ASK_STATUS_COPY[code].replaceAll("'",'&#x27;')));
+  if(code==='THREAD_UNAVAILABLE')assert.doesNotMatch(html,/Try again/);
+  else if(code==='SIGN_IN_AGAIN')assert.match(html,/href="\/login"/);
+  else assert.match(html,/Try again/);
   const send=nodes(tree,n=>n.type==='button'&&n.props['aria-label']==='Send')[0];assert.equal(send.props.disabled,code!=='THREAD_UNAVAILABLE');
   assert.equal(nodes(tree,n=>n.type==='input'&&n.props.placeholder?.startsWith('Tell '))[0].props.value,'Keep the typed draft');
   assert.equal((html.match(/Keep the typed draft/g)||[]).length,1);
  }finally{h.dispose();delete globalThis.__panelActions;}
 }));
+
+for(const variant of ['rail','drawer'])test(`${variant} SSR and initial render show loading until the first list resolves`,()=>clientScope(async()=>{
+ let finish;
+ globalThis.__panelActions={listThreadRailAction:()=>new Promise(resolve=>{finish=resolve;})};
+ const props={...railProps,variant},h=lifecycle(ThreadList,props);
+ const assertLoading=html=>{
+  assert.match(html,/<p role="status"[^>]*>Loading chats…<\/p>/);
+  assert.doesNotMatch(html,/No chats yet|Empty —|class="mb-1"/);
+ };
+ try{
+  assertLoading(render(()=>React.createElement(ThreadList,props)));
+  assertLoading(render(()=>h.render()));h.effects();await tick();assertLoading(render(()=>h.render()));
+  finish({ok:true,rail:{folders:[],threads:[]}});await tick();const html=render(()=>h.render());
+  assert.match(html,/No chats yet\. Only your own chats show here\./);assert.doesNotMatch(html,/Loading chats|Empty —/);
+ }finally{h.dispose();delete globalThis.__panelActions;}
+}));
+
+for(const variant of ['rail','drawer'])test(`${variant} empty folders use today's per-folder copy`,()=>clientScope(async()=>{
+ const folder={id:'empty-job',name:'Tierney',entityKind:null,entityId:null,entityHref:null,collapsed:false,archivedAt:null,sortKey:null};
+ globalThis.__panelActions={listThreadRailAction:async()=>({ok:true,rail:{folders:[folder],threads:[]}})};
+ const h=lifecycle(ThreadList,{...railProps,variant,scopeFolderId:folder.id});
+ try{
+  h.render();h.effects();await tick();const html=render(()=>h.render());
+  assert.match(html,/Tierney/);assert.match(html,/Empty — start a chat here\./);assert.doesNotMatch(html,/No chats yet|Loading chats/);
+ }finally{h.dispose();delete globalThis.__panelActions;}
+}));
+
+for(const variant of ['rail','drawer'])test(`${variant} ignores an unavailable active chat before and after list load`,()=>clientScope(async()=>{
+ globalThis.__panelActions={listThreadRailAction:async()=>({ok:true,rail:{folders:[],threads:[thread]}})};
+ const props={...railProps,variant,failureCode:'THREAD_UNAVAILABLE'},h=lifecycle(ThreadList,props);
+ try{
+  let html=render(()=>h.render());assert.match(html,/Loading chats/);assert.doesNotMatch(html,/This chat isn|Try again/);
+  h.effects();await tick();html=render(()=>h.render());assert.match(html,/Private delete title/);
+  props.failureCode=null;h.render();h.effects();props.failureCode='THREAD_UNAVAILABLE';
+  html=render(()=>h.render());assert.match(html,/Private delete title/);
+  h.effects();await tick();html=render(()=>h.render());
+  assert.match(html,/Private delete title/);assert.doesNotMatch(html,/This chat isn|Try again/);
+ }finally{h.dispose();delete globalThis.__panelActions;}
+}));
+
+test('an unavailable row action flashes the sentence and reloads without clearing other chats',()=>clientScope(async()=>{
+ let reloads=0,finish;const failures=[];
+ globalThis.__panelActions={
+  listThreadRailAction:()=>++reloads===1?Promise.resolve({ok:true,rail:{folders:[],threads:[thread,{...thread,id:'other',title:'Other owned chat'}]}}):new Promise(resolve=>{finish=resolve;}),
+  pinConversationAction:async id=>{assert.equal(id,thread.id);return {ok:false,code:'THREAD_UNAVAILABLE'};},
+ };
+ const h=lifecycle(ThreadList,{...railProps,onFailure:code=>failures.push(code)});
+ try{
+  h.render();h.effects();await tick();let tree=h.render();
+  const row=nodes(tree,n=>n.props.draggable!==undefined&&nodes(n,x=>x.type==='button'&&x.props.title===thread.title).length)[0];
+  nodes(row,n=>n.props['aria-label']==='More')[0].props.onClick();tree=h.render();
+  nodes(tree,n=>n.props.label==='Pin')[0].props.onClick();await tick();tree=h.render();
+  let html=render(()=>tree);assert.match(html,/This chat isn&#x27;t available to this account\./);
+  assert.match(html,/Other owned chat/);assert.match(html,/Search threads/);
+  assert.equal(nodes(tree,n=>n.type==='button'&&n.props.children==='Try again').length,0);
+  assert.equal(reloads,2);assert.deepEqual(failures,[]);
+  finish({ok:true,rail:{folders:[],threads:[{...thread,id:'other',title:'Other owned chat'}]}});await tick();html=render(()=>h.render());
+  assert.match(html,/Other owned chat/);assert.doesNotMatch(html,/Private delete title/);
+ }finally{h.dispose();delete globalThis.__panelActions;}
+}));
+
+for(const search of ['?c=foreign&m=opus&keep=1','?c=foreign&c=another&m=opus&m=sonnet&keep=1','?m=opus&keep=1'])test(`mount consumes chat parameters once, preserving route, other query, hash and history state: ${search}`,()=>clientScope(async()=>{
+ const historyState={__NA:true,key:'next-entry'},replaced=[],opened=[];
+ window.location=new URL(`https://sjcos.test/panel${search}#transcript`);
+ window.history={state:historyState,replaceState(state,title,url){
+  replaced.push({state,title,url});window.location=new URL(url,window.location);
+ }};
+ globalThis.__panelActions={
+  listThreadRailAction:async()=>({ok:true,rail:{folders:[],threads:[]}}),
+  loadConversationAction:async id=>{opened.push(id);assert.equal(window.location.search,'?keep=1');return {ok:false,code:'THREAD_UNAVAILABLE'};},
+ };
+ let h=lifecycle(()=>useAgentChat({getPageContext:()=>undefined}));
+ try{
+  h.render();h.effects();await tick();const chat=h.render();
+  assert.equal(chat.failureCode,search.includes('c=')?'THREAD_UNAVAILABLE':null);
+  assert.equal(chat.conversationTitle,'New chat');assert.deepEqual(chat.messages,[]);
+  assert.equal(replaced.length,1);assert.equal(replaced[0].state,historyState);assert.equal(replaced[0].title,'');
+  assert.equal(window.location.pathname,'/panel');assert.equal(window.location.search,'?keep=1');assert.equal(window.location.hash,'#transcript');
+  h.dispose();h=lifecycle(()=>useAgentChat({getPageContext:()=>undefined}));h.render();h.effects();await tick();
+  assert.equal(h.render().failureCode,null);assert.deepEqual(opened,search.includes('c=')?['foreign']:[]);assert.equal(replaced.length,1);
+ }finally{h.dispose();delete globalThis.__panelActions;}
+}));
+
+test('initial composer keeps 44 px touch targets and compiles 28 px fine-pointer controls',async()=>{
+ const html=render(()=>React.createElement(PanelChat,chatProps));
+ for(const label of ['Attach files','Start voice conversation','Send']){
+  const button=[...html.matchAll(/<button\b[^>]*>/g)].map(match=>match[0]).find(tag=>tag.includes(`aria-label="${label}"`));
+  assert.ok(button,label);assert.match(button,/\bsize-11 pointer-fine:size-7\b/);
+ }
+ const compiler=await compile('@theme { --spacing: 0.25rem; } @tailwind utilities;');
+ const css=compiler.build(['size-11','pointer-fine:size-7']);
+ assert.match(css,/\.size-11\s*\{\s*width: calc\(var\(--spacing\) \* 11\);\s*height: calc\(var\(--spacing\) \* 11\);/);
+ assert.match(css,/@media \(pointer: fine\)\s*\{\s*width: calc\(var\(--spacing\) \* 7\);\s*height: calc\(var\(--spacing\) \* 7\);/);
+});

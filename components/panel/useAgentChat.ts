@@ -441,6 +441,12 @@ export function useAgentChat({
     let deepLink: string | null = null;
     try {
       deepLink = new URLSearchParams(window.location.search).get("c");
+      const url = new URL(window.location.href);
+      if (url.searchParams.has("c") || url.searchParams.has("m")) {
+        url.searchParams.delete("c");
+        url.searchParams.delete("m");
+        window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+      }
     } catch {
       /* no location — fine */
     }

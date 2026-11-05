@@ -848,7 +848,7 @@ export function PanelChat({
       </div>}
       {chat.failureCode && <div role="status" className="border-t border-rule px-3 py-2 text-body text-ink-2">
         <p>{ASK_STATUS_COPY[chat.failureCode]}</p>
-        {chat.failureCode === "SIGN_IN_AGAIN" ? <a href="/login" className="inline-flex min-h-11 items-center text-ai-2">Sign in</a> : <button type="button" className="min-h-11 text-ai-2" onClick={() => void chat.retry()}>Try again</button>}
+        {chat.failureCode === "SIGN_IN_AGAIN" ? <a href="/login" className="inline-flex min-h-11 items-center text-ai-2">Sign in</a> : chat.failureCode !== "THREAD_UNAVAILABLE" && <button type="button" className="min-h-11 text-ai-2" onClick={() => void chat.retry()}>Try again</button>}
       </div>}
       {/* Composer */}
       <form
@@ -872,7 +872,7 @@ export function PanelChat({
           disabled={!!chat.failureCode || chat.pending || uploading}
           aria-label="Attach files"
           title="Attach files"
-          className="flex size-11 flex-none items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-paper-2 disabled:opacity-40"
+          className="flex size-11 pointer-fine:size-7 flex-none items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-paper-2 disabled:opacity-40"
         >
           <Paperclip className={`size-4 ${uploading ? "animate-pulse" : ""}`} strokeWidth={1.75} />
         </button>
@@ -914,7 +914,7 @@ export function PanelChat({
           disabled={(!!chat.failureCode && chat.failureCode !== "THREAD_UNAVAILABLE") || uploading || (!prompt.trim() && (chat.pending || attachments.length === 0))}
           aria-label={chat.pending ? "Steer the running agent" : "Send"}
           title={chat.pending ? "Steer: send this into the run that's working now" : "Send"}
-          className="flex size-11 flex-none items-center justify-center rounded-md bg-ink text-paper transition-colors hover:bg-[#232a1e] disabled:opacity-40"
+          className="flex size-11 pointer-fine:size-7 flex-none items-center justify-center rounded-md bg-ink text-paper transition-colors hover:bg-[#232a1e] disabled:opacity-40"
         >
           <ArrowUp className="size-4" strokeWidth={2} />
         </button>
@@ -1120,7 +1120,7 @@ function VoiceRoundButton({ voice }: { voice: ReturnType<typeof useVoiceRound> }
         onClick={voice.micTap}
         aria-label="Start voice conversation"
         title="Voice conversation — hands-free, Claude answers out loud"
-        className="flex size-11 flex-none items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-paper-2"
+        className="flex size-11 pointer-fine:size-7 flex-none items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-paper-2"
       >
         <AudioLines className="size-4" strokeWidth={1.75} />
       </button>

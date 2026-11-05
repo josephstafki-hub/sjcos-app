@@ -2,6 +2,20 @@
 
 2026-11-05. Branch `t3/in-app-browser-agent-tools`. Starting HEAD was `6d4494823daaf4e74d69be2103e8b809b11c03d8`; concurrent plan/review commits are outside this implementation. Only the explicitly owned panel files, new shared test fixtures/test and this handoff are staged.
 
+## Build round 2 panel fixes — 2026-11-05
+
+Starting HEAD: `6693c528086c9f75a66183149346acc016a0ecbf`. This section supersedes round 1's loading, unavailable-chat and composer-size behavior. Only `components/panel/`, `tests/ask-panel-ssr.test.mjs` and this handoff changed in this revision; concurrent server changes are outside this UI commit.
+
+- Required 1: rail and History render **Loading chats…** with status semantics until the first successful list load, with no groups yet. **No chats yet. Only your own chats show here.** appears only after load with zero chats and zero folders. Empty groups restore `e082956a`'s exact **Empty — start a chat here.**
+- Required 2: the list ignores an active chat's `THREAD_UNAVAILABLE`, including its content-clearing effect. The same code from a row action flashes the fixed sentence and reloads the list without clearing other chats or reporting a whole-panel failure.
+- Required 3: the unavailable composer notice has no button. Paused/Chat off keep Try again and Sign in keeps its link. Mount consumes every `c`/`m` parameter with `history.replaceState`, preserving Next history state, route, other query parameters and hash. The captured chat id opens once; a reload no longer repeats the unavailable notice.
+- Required 4: Attach, Voice conversation and Send use `size-11 pointer-fine:size-7`. The installed Tailwind **4.3.0**, used through `@tailwindcss/postcss` and `app/globals.css`'s Tailwind import, compiles the native `pointer-fine` variant to `@media (pointer: fine)`. The SSR test checks all three buttons and compiles both size rules in memory: 44 px default, 28 px for fine pointers. No media-variant fallback was needed.
+- Required 5: rollout item 3 below uses the judge's Joe-facing wording, with **0 on the Nov 4 live dump** from the coordinator's measurement, and requires a deploy dry-run recount. The next visual round now explicitly uses `/panel?c=<other id>`.
+
+Expectations were added first: the initial single-file SSR run had **40 passed / 12 failed**, exposing all four UI findings. Final separate invocations: `node --test --test-reporter=spec tests/ask-panel-ssr.test.mjs` → **52 passed / 0 failed / 0 skipped**, exit **0**; `node --test --test-reporter=spec tests/panel-defects.test.mjs` → **6 passed / 0 failed / 0 skipped**, exit **0**. Locked typecheck: `flock /tmp/sjcos-tsc.lock nice -n 19 npx tsc --noEmit -p .` → **exit 0**. `git diff --check` → **exit 0**.
+
+Tests use real React SSR and controlled initial/effect/event lifecycles, with stubbed actions; they do not prove browser layout, hydration or live privacy. No install, build, server, browser, DB/service operation, deploy or subagent was used. Visual checks remain with the coordinator, as listed under Next visual round below.
+
 ## Build round 1 panel fixes — 2026-11-05
 
 This section supersedes the earlier validation and release assumptions below. UI starting HEAD: `803a5f6b`. Server/DB/actions are a concurrent builder's work and are not staged in this UI commit. No dependencies were installed: `node_modules` remains the live dependency symlink and was read only.
@@ -41,10 +55,14 @@ What Joe/coordinator must do before rollout:
 
 1. Follow decision 10 / A1.1: never-enabled deletion with no deletion evidence permits ordinary chats while Delete stays off. Capture this working configuration deliberately; missing authority alone is no longer supposed to pause that configuration. After deletion has ever been enabled/accepted, the full recovery gate applies and remains latched.
 2. Before enabling deletion or releasing a previously latched installation, install and verify the independent journal authority environment configuration **and its binding file**, using the server handoff's exact identity, durability and recovery acceptance steps. Verify fresh high-water, journal directory and recovery health. Without those prerequisites in gated mode, the paused message is indefinite; do not describe it as a UI retry that can fix missing infrastructure. Leave `SJC_ASK_THREAD_DELETE_ACCEPTED` off until server acceptance is complete.
-3. Tell Abigail before deploy that old chats with consistent creator evidence stay with their creator (including the two legacy chats); the remaining unassigned old chats stay with Joe, ambiguous ones remain quarantined, and new chats are private to the account that starts them. No pronoun-based ownership inference.
+3. **Tell Joe and Abigail before deploy:** Chats are now private to whoever started them. Abigail's list keeps her 2 old chats. Joe's list keeps his old chats and every chat with no recorded starter. Abigail's 2 chats leave Joe's list and Joe can't open them any more. 0 old chats that more than one person worked in are held aside and show in neither list.
 4. Use an isolated QA authority for the healthy/deletion-enabled capture and deliberately close the gate for separate paused captures. Seed distinct owner/staff chat titles, test foreign links/search as both, and inspect network/logs for leaked titles and unhandled errors. Do not reuse this UI test fixture as authority/privacy acceptance.
 
+Item 3's count is **0 on the Nov 4 live dump**, measured by the coordinator: Abigail 2 / Joe 291 / held aside 0. The deploy dry-run must re-count it before rollout.
+
 Next visual round (coordinator only): compare ordinary two-tab pill/hover against base at 360/390, tablet 820, landscape 800×360, 420 dock and 1100/1280 popout; check chat width with the rail at 880/900/1100/1280, one visible Threads control in narrow Chat, and four registered labels at 360. Check zero #418/hydration/page errors at every width with populated storage. Capture each fixed-code state, retained draft and disabled Send, sign-in link, private-content clearance, unavailable-thread fresh chat, and recovery. Verify disabled Delete explanation, exact confirm, title-free pending/error/retry after a deliberately lost response. Mount authorized test panes: verify actual 839/840/1000 allocation, one landscape selector/Close with suppressed horizontal header/grabber, stage ≥200, portrait ≥420, rotation/draft/focus/history preservation and real iframe/Safari behavior using the existing capture list below. No new screenshots were produced here.
+
+Recapture the deep link with **`/panel?c=<other id>`**, not `?thread=`, as Joe and Abigail at 1280 and phone360: the sentence has no button, the viewer's own chats stay visible, `c`/`m` leave the URL, and reload shows no notice. Capture History immediately on opening (Loading chats…) and after load at 360/390, 800×360, 820 and the 900 sheet; expand an empty folder (Empty — start a chat here.). Compare the composer controls at 420 dock, 1280 popout and 800×360 with `e082956a`: 28 px with a fine pointer, 44 px on touch.
 
 ## Purpose and boundaries
 

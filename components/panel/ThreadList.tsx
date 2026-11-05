@@ -147,7 +147,7 @@ export function ThreadList({
   const deletionRef = useRef<DeleteAttempt | null>(null);
   const setDeletion = (value: DeleteAttempt | null) => { deletionRef.current = value; setDeletionState(value); };
   const deleteBusy = useRef(false);
-  const failure = failureCode ?? localFailure;
+  const failure = (failureCode === 'THREAD_UNAVAILABLE' ? null : failureCode) ?? localFailure;
   const [search, setSearch] = useState("");
   const [folders, setFolders] = useState<RailFolder[]>([]);
   const [threads, setThreads] = useState<RailThread[]>([]);
@@ -198,6 +198,11 @@ export function ThreadList({
 
   const fail = (error: unknown) => {
     const code = askFailure(error)?.code ?? "ASK_PAUSED";
+    if (code === "THREAD_UNAVAILABLE") {
+      flashNotice(ASK_STATUS_COPY.THREAD_UNAVAILABLE);
+      void reload();
+      return;
+    }
     ++seqRef.current;
     setLocalFailure(code);
     setFolders([]); setThreads([]); setArchived(null); setSearch("");
@@ -240,7 +245,7 @@ export function ThreadList({
   }, [showArchived, refreshKey]);
 
   useEffect(() => {
-    if (!failureCode) return;
+    if (!failureCode || failureCode === 'THREAD_UNAVAILABLE') return;
     ++seqRef.current;
     setFolders([]); setThreads([]); setArchived(null); setSearch("");
     setMenu(null); setMover(null); setPicker(null); setFlash("");
@@ -613,8 +618,10 @@ export function ThreadList({
       {flash && <p className="border-b border-rule bg-flag-soft px-3 py-1.5 text-meta text-flag">{flash}</p>}
 
       <div className="flex-1 overflow-y-auto p-1.5">
-        {needle && scoped.length === 0 && <p role="status" className="px-2 py-3 text-body text-ink-3">No matching threads or folders.</p>}
-        {loaded && threads.length === 0 && folders.length === 0 ? (
+        {loaded && needle && scoped.length === 0 && <p role="status" className="px-2 py-3 text-body text-ink-3">No matching threads or folders.</p>}
+        {!loaded ? (
+          <p role="status" className="px-2 py-3 text-meta text-ink-4">Loading chats…</p>
+        ) : threads.length === 0 && folders.length === 0 ? (
           <p className="px-2 py-3 text-meta text-ink-4">{ASK_EMPTY_COPY}</p>
         ) : (
           scoped.map((g) => {
@@ -763,7 +770,7 @@ export function ThreadList({
                       </>
                     )}
                     {allRows.length === 0 && (
-                      <p className="px-2 py-1 text-meta text-ink-4">{ASK_EMPTY_COPY}</p>
+                      <p className="px-2 py-1 text-meta text-ink-4">Empty — start a chat here.</p>
                     )}
                   </div>
                 )}

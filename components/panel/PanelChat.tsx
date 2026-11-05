@@ -436,6 +436,15 @@ export function PanelChat({
               {AGENT_META[a].label}
             </button>
           ))}
+          {/* Auto is no longer a choice; an older Auto thread still says so. */}
+          {chat.agent === "auto" && (
+            <span
+              title="An older Auto thread — it keeps routing each message. Pick an agent to start a new chat."
+              className="rounded bg-ink px-2.5 py-0.5 text-[11.5px] font-medium text-paper"
+            >
+              {AGENT_META.auto.label}
+            </span>
+          )}
         </div>
         {chat.folderName && (
           <span

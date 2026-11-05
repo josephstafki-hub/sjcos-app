@@ -796,4 +796,4 @@ const LEFT_RUNNING_NOTICE = "Left running in the background — its answer will 
 /** Deterministic first-render agent; the persisted choice is adopted in an
  *  effect (hydration safety — see mount effect). Auto = the router decides
  *  per message (Hermes stays the workhorse for OS work). */
-const PANEL_DEFAULT_AGENT: PanelAgent = "auto";
+const PANEL_DEFAULT_AGENT: PanelAgent = "claude";

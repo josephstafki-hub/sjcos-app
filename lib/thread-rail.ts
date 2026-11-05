@@ -90,10 +90,10 @@ export const STATUS_META: Record<ThreadStatus, StatusMeta> = {
 
 /**
  * One status per thread, in T3's strict priority. A finished run only reads
- * as "done-unread"/"failed" when it ended after `sinceMs` (this tab's start —
- * older history is not news) and `seen(runId)` hasn't been stamped by opening
- * the thread here; the open thread is always "seen" — its transcript is on
- * screen.
+ * as "done-unread"/"failed" when it ended after `sinceMs` (when this browser /
+ * app started tracking reads — older history is not news) and `seen(runId)`
+ * hasn't been stamped by opening the thread; the open thread is always "seen"
+ * — its transcript is on screen.
  */
 export function resolveThreadStatus(
   t: Pick<

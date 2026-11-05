@@ -30,7 +30,9 @@ import { postPanelMessage, subscribePanelBus } from "./panelBus";
  * the only thing stopping Joe from putting Claude on one page and Hermes on
  * another was this record. Each tab now keeps its own pointer; a brand-new tab
  * (or the popout) seeds from the shared mirror below so "reopen the app and my
- * thread is there" still holds.
+ * thread is there" still holds. The mirror only takes the keys a write
+ * actually changed, so it holds the last agent/model Joe explicitly picked —
+ * which is what a restart (fresh tab) comes back on.
  *
  * Same render-phase rule as the old stores: client components still
  * server-render, so reads/writes happen in effects and event handlers ONLY —
@@ -73,7 +75,7 @@ export const PANEL_DEFAULT_WIDTH = 420;
 
 export const PANEL_DEFAULTS: PanelState = {
   conversationId: null,
-  agent: "auto",
+  agent: "claude",
   claude: CLAUDE_DEFAULTS,
   folderId: null,
   width: PANEL_DEFAULT_WIDTH,
@@ -96,6 +98,13 @@ const CLAIMS_KEY = "sjcos:panel:claims:v1";
  *  holder re-stamps every 5s (useAgentChat), so this is a generous 3 beats. */
 const CLAIM_TTL_MS = 15_000;
 
+/** "auto" is no longer offered for a fresh chat (Joe, 2026-11-05): a stored
+ *  "auto" pick from before then falls to Claude. An older Auto *thread* still
+ *  opens as Auto — openConversation takes the agent from the thread row. */
+function pickAgent(a: unknown): PanelAgent {
+  return a === "claude" || a === "qwen" || a === "hermes" ? a : PANEL_DEFAULTS.agent;
+}
+
 function readShared(): PanelState {
   if (typeof window === "undefined") return PANEL_DEFAULTS;
   try {
@@ -105,6 +114,7 @@ function readShared(): PanelState {
     return {
       ...PANEL_DEFAULTS,
       ...parsed,
+      agent: pickAgent(parsed.agent),
       claude: { ...CLAUDE_DEFAULTS, ...(parsed.claude ?? {}) },
     };
   } catch {
@@ -120,7 +130,9 @@ function readTabSession(): PanelSession | null {
     const parsed = JSON.parse(raw) as Partial<PanelSession>;
     return {
       conversationId: parsed.conversationId ?? null,
-      agent: parsed.agent ?? PANEL_DEFAULTS.agent,
+      // A tab sitting on an older Auto thread keeps "auto" until it reloads
+      // that thread (which sets the agent from the row anyway).
+      agent: parsed.agent === "auto" && parsed.conversationId ? "auto" : pickAgent(parsed.agent),
       claude: { ...CLAUDE_DEFAULTS, ...(parsed.claude ?? {}) },
       folderId: parsed.folderId ?? null,
     };
@@ -166,8 +178,13 @@ export function writePanelState(patch: Partial<PanelState>): PanelState {
     });
     if ("conversationId" in patch) claimConversation(next.conversationId);
   }
+  // The shared record takes ONLY the keys this write changed. It used to take
+  // the whole merged state, so a tab that merely resized the dock (or opened a
+  // thread) stamped its own model/mode/effort over the last one Joe actually
+  // picked — and a restart, which seeds a fresh tab from this record, came
+  // back on the wrong model. Now the seed is the last explicit choice.
   try {
-    window.localStorage.setItem(KEY, JSON.stringify(next));
+    window.localStorage.setItem(KEY, JSON.stringify({ ...readShared(), ...patch }));
   } catch {
     // Quota/private-mode failures degrade to in-memory-only for this window.
   }
@@ -287,50 +304,85 @@ export function adoptPanelSession(): PanelSession {
 
 // ─── Run-seen registry ───────────────────────────────────────────────────────
 // The thread rail shows an unseen completion ("Done — unread" / "Failed") on a
-// thread whose last run finished while this tab was elsewhere, T3-style. What
-// counts as seen is per tab (sessionStorage): opening the thread here marks
-// its latest run seen; another tab keeps its own view. Capped so it can't grow
-// without bound across a long day.
+// thread whose last run finished and hasn't been opened since, T3-style.
+//
+// Both halves live in localStorage — durable and shared by every tab/window of
+// this browser. They used to be per tab (sessionStorage), which broke on a
+// restart: a restored tab could come back with its old start time but none of
+// the threads Joe had read in other tabs or the popout, so every recent chat
+// lit up as unread. Opening a thread anywhere here now marks it read
+// everywhere, and that survives a reload, a server restart and a browser
+// restart. (The iPhone app keeps its own list — not synced to the browser.)
 
-const SEEN_KEY = "sjcos:panel:seen:v1";
-const SEEN_MAX = 300;
-/** Per tab: when this tab first opened the panel — runs that finished before
- *  it are history, not news. Survives reload (sessionStorage), dies with the tab. */
-const TAB_STARTED_KEY = "sjcos:panel:started:v1";
+const SEEN_KEY = "sjcos:panel:seen:v2";
+/** Per-tab list from before v2 — folded in once so nothing already read
+ *  re-lights on the first load after the change. */
+const SEEN_KEY_V1 = "sjcos:panel:seen:v1";
+/** Every run id the panel has ever made is ~1k (2026-11); this keeps months. */
+const SEEN_MAX = 2000;
+/** Runs that finished before this browser first used the v2 registry are
+ *  history, not news. Set once, never moved. */
+const SINCE_KEY = "sjcos:panel:since:v2";
 
-export function panelTabStartedAt(): number {
+export function panelUnreadSince(): number {
   if (typeof window === "undefined") return Date.now();
   try {
-    const raw = window.sessionStorage.getItem(TAB_STARTED_KEY);
+    const raw = window.localStorage.getItem(SINCE_KEY);
     if (raw && Number.isFinite(Number(raw))) return Number(raw);
     const now = Date.now();
-    window.sessionStorage.setItem(TAB_STARTED_KEY, String(now));
+    window.localStorage.setItem(SINCE_KEY, String(now));
     return now;
   } catch {
     return Date.now();
   }
 }
 
-function readSeen(): string[] {
+function parseList(raw: string | null): string[] {
   try {
-    const raw = window.sessionStorage.getItem(SEEN_KEY);
-    return raw ? (JSON.parse(raw) as string[]) : [];
+    const v = raw ? (JSON.parse(raw) as unknown) : [];
+    return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : [];
   } catch {
     return [];
   }
 }
 
+/** Parsed once per change: the rail asks isRunSeen() for every row on every
+ *  render, so re-parsing a 2k-entry list each time would add up. */
+let seenCache: { raw: string | null; list: string[]; set: Set<string> } | null = null;
+
+function readSeen(): { list: string[]; set: Set<string> } {
+  try {
+    const legacy = parseList(window.sessionStorage.getItem(SEEN_KEY_V1));
+    if (legacy.length) {
+      const shared = parseList(window.localStorage.getItem(SEEN_KEY));
+      const merged = [...legacy.filter((id) => !shared.includes(id)), ...shared].slice(-SEEN_MAX);
+      window.localStorage.setItem(SEEN_KEY, JSON.stringify(merged));
+      window.sessionStorage.removeItem(SEEN_KEY_V1);
+    }
+    const raw = window.localStorage.getItem(SEEN_KEY);
+    if (seenCache?.raw !== raw) {
+      const list = parseList(raw);
+      seenCache = { raw, list, set: new Set(list) };
+    }
+    return seenCache;
+  } catch {
+    return { list: [], set: new Set() };
+  }
+}
+
 export function isRunSeen(runId: string): boolean {
   if (typeof window === "undefined") return true;
-  return readSeen().includes(runId);
+  return readSeen().set.has(runId);
 }
 
 export function markRunSeen(runId: string | null | undefined): void {
   if (typeof window === "undefined" || !runId) return;
-  const cur = readSeen().filter((id) => id !== runId);
+  const all = readSeen().list;
+  if (all[all.length - 1] === runId) return;
+  const cur = all.filter((id) => id !== runId);
   cur.push(runId);
   try {
-    window.sessionStorage.setItem(SEEN_KEY, JSON.stringify(cur.slice(-SEEN_MAX)));
+    window.localStorage.setItem(SEEN_KEY, JSON.stringify(cur.slice(-SEEN_MAX)));
   } catch {
     // Without the registry every completion shows as unread — harmless.
   }

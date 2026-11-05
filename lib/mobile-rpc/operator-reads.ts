@@ -79,5 +79,5 @@ export async function operatorJobs(req: Request) { const q = z.string().max(200)
 export async function operatorConfig(req: Request, user: CurrentUser) {
   const query = new URL(req.url).searchParams;
   const agent = z.enum(["auto", "claude", "qwen", "hermes"]).parse(query.get("agent") ?? "auto");
-  return { agents: AGENT_ORDER.filter(a => user.role === "owner" || a === "auto" || a === "claude").map(a => AGENT_META[a]), defaults: CLAUDE_DEFAULTS, models: CLAUDE_MODEL_OPTIONS, contexts: CLAUDE_CONTEXT_OPTIONS, modes: CLAUDE_MODE_OPTIONS, efforts: CLAUDE_EFFORT_OPTIONS, starters: startersForRoute(query.get("route"), agent), allowedActions: ["operator.new", "operator.send", "upload", ...(user.role === "owner" ? ["operator.approveGrant", "operator.denyGrant", "expressPermission"] : [])] };
+  return { agents: (["auto", ...AGENT_ORDER] as const).filter(a => user.role === "owner" || a === "auto" || a === "claude").map(a => AGENT_META[a]), defaults: CLAUDE_DEFAULTS, models: CLAUDE_MODEL_OPTIONS, contexts: CLAUDE_CONTEXT_OPTIONS, modes: CLAUDE_MODE_OPTIONS, efforts: CLAUDE_EFFORT_OPTIONS, starters: startersForRoute(query.get("route"), agent), allowedActions: ["operator.new", "operator.send", "upload", ...(user.role === "owner" ? ["operator.approveGrant", "operator.denyGrant", "expressPermission"] : [])] };
 }

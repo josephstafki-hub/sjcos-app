@@ -61,7 +61,7 @@ import {
 import type { JobPick } from "@/lib/thread-folders";
 import { JobPicker } from "./JobPicker";
 import { postPanelMessage, requestAppNav, subscribePanelBus } from "./panelBus";
-import { isRunSeen, markRunSeen, panelTabStartedAt, readPanelState } from "./panelStore";
+import { isRunSeen, markRunSeen, panelUnreadSince, readPanelState } from "./panelStore";
 
 /** "2m" / "3h" / "5d" / "Aug 12" from a pg timestamptz::text. */
 function timeAgo(ts: string | null, now: number): string {
@@ -159,8 +159,9 @@ export function ThreadList({
     { mode: "link"; folderId: string } | { mode: "new"; thenMove?: string } | { mode: "newChat" } | null
   >(null);
   const [now, setNow] = useState(() => Date.now());
-  /** Completions older than this tab are history, not "new". Read on each
-   *  reload (sessionStorage is client-only, so never during render). */
+  /** Completions from before this browser started tracking reads are history,
+   *  not "new" (panelStore). Read on each reload — localStorage is
+   *  client-only, so never during render. */
   const [sinceMs, setSinceMs] = useState<number | null>(null);
   // The latest reload wins; a stale slow response must not clobber a newer one.
   const seqRef = useRef(0);
@@ -190,7 +191,7 @@ export function ThreadList({
     setArchived(arch);
     setLoaded(true);
     setNow(Date.now());
-    setSinceMs(panelTabStartedAt());
+    setSinceMs(panelUnreadSince());
   };
 
   // Reload on triggers, plus a slow tick: an abandoned thread's run settles

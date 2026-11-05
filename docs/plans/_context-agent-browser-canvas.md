@@ -144,3 +144,12 @@ The bar: a panel of judges scores each plan, and later each build, on **design**
   127.0.0.1, 10/8, 192.168/16, metadata IPs, the app's own admin paths),
   prompt-injection from web pages, canvas sandbox escape, staff vs owner limits,
   audit trail.
+
+## Joe's decisions, round 2 (2026-11-05)
+
+5. **Saved logins are shared per site with named staff.** Joe picks which staff can
+   use each saved login. Their runs can fill it; they never see the password.
+6. **In v1 Joe approves every final step that commits the company** (submit, sign,
+   pay), even when a staff run reached it. Staff cannot approve these.
+
+Migration split: browser **0100–0104**, canvas **0105–0109**.

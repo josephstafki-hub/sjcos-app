@@ -1523,7 +1523,7 @@ selector, each a 48 px row; it can widen to fit labels. No grabber, horizontal
 Operator header/selector, extra Browser title, toolbar or bottom action row.
 The center has exactly **48 px title** **“‹ Chat · {trusted origin} · ⋯”**, then
 **20 px meta** showing fixed state (“Agent is working”, “Paused” or **“Waiting
-for Joe · 0:48 left”**) and **“· 2 windows”** when applicable. The title can wrap
+for Joe · 0:48 left”**), then **“· Joe is watching.”** for staff while an owner viewer is joined, then **“· 2 windows”** when applicable — order: state · Joe is watching. · 2 windows. When the 20 px row runs out of room: drop “· 2 windows” first (it stays in ⋯), then use the short private state, then wrap the meta to two lines (stage recomputed, still ≥200). **“Joe is watching.” is never truncated or hidden.** The title can wrap
 the origin within its row; the full trusted origin remains accessible.
 
 **⋯** contains guarded **‹ / › / Reload**, **Saved logins**, and the window
@@ -2028,12 +2028,18 @@ Abigail asked you to finish: Apply for Larson permit · city.example · Larson b
 Abigail's answers come with it.
 [Open] [Don't finish]
 
-Phone (§6.2 device rule, including the native app):
+Phone web (§6.2 device rule, short side <600, not the native app):
 Abigail asked you to finish: Apply for Larson permit · city.example · Larson bath.
 Abigail's answers come with it.
 Finish this on your iPad or computer. It stays in Browser › Asked to finish.
 [Don't finish] [Close]
-Native additionally: [Open in Safari] (48 px; external canonical invitation URL)
+
+Native app (iPhone OR iPad — the app is always treated as the phone rule):
+Abigail asked you to finish: Apply for Larson permit · city.example · Larson bath.
+Abigail's answers come with it.
+Finish this in Safari on an iPad or computer. It stays in Browser › Asked to finish.
+[Open in Safari] [Don't finish] [Close]
+([Open in Safari] 48 px; external canonical invitation URL.)
 ```
 
 The phone invitation deliberately offers no Open/accept or Open browser:
@@ -2278,7 +2284,7 @@ Additional required states (same table semantics):
 | Joe waiting, staff left | “Abigail left the browser. Nothing more will come until Abigail opens it again. [‹ Back]” |
 | Joe waiting, turn ended and nothing pending | “Agent turn finished. Nothing is waiting for you. [‹ Back]”; verified final outcome/unknown retains its existing copy, §6.3 precedence |
 | Joe hand-off invitation | “Abigail asked you to finish: Apply for Larson permit · city.example · Larson bath. Abigail's answers come with it. [Open] [Don't finish]”; tablet/computer per §6.2, including 820/744 iPad portrait or Split View; card in new-chat preview, no persisted chat/task before Open |
-| Joe hand-off phone/native | §6.2 rule: “Finish this on your iPad or computer. It stays in Browser › Asked to finish.” [Don't finish] [Close]; no accepting Open or Open browser; native also 48 px Open in Safari retaining browserHandoff |
+| Joe hand-off phone/native | Phone web: “Finish this on your iPad or computer. It stays in Browser › Asked to finish.” [Don't finish] [Close]. Native app (iPhone and iPad): “Finish this in Safari on an iPad or computer. It stays in Browser › Asked to finish.” [Open in Safari] [Don't finish] [Close] (48 px, retaining browserHandoff). No accepting Open or Open browser in either. |
 | Joe hand-off busy | “Finish or stop your other browser first. This stays in Asked to finish.”; keep draft/list, no second live task |
 | Joe hand-off outcomes | Current task's Browser status row + chat card: [Mark finished] [Didn't finish]. “Tell Abigail you finished this? [Mark finished] [Cancel]” / “Tell Abigail you won't finish this? [Didn't finish] [Cancel]”; pending Don't finish uses latter; Escape Cancel |
 | Accepted hand-off destination closed/failed | Existing idle/Stop/crash copy + [Open a fresh browser], [Mark finished] [Didn't finish]; Sites/history review → explicit Open browser creates a fresh attempt (§6.4); phone instruction replaces restart |
@@ -3954,6 +3960,8 @@ this plan revision. Preserve every existing H5 width/history/recovery case.
 
 | Viewport / case | Required expected result |
 |---|---|
+| **800×360 staff task with Joe watching + 2 windows** | Meta order state · Joe is watching. · 2 windows; overflow drops “· 2 windows”, then short private state, then wraps to two lines with stage recomputed ≥200; “Joe is watching.” always fully visible. |
+| **Native app on iPad (supportsTablet) hand-off** | Treated as phone rule; shows “Finish this in Safari on an iPad or computer. It stays in Browser › Asked to finish.” with [Open in Safari] [Don't finish] [Close]; no Open/accept. |
 | **800×360 own task, viewing / public paused / private paused** | H3's one ≥64 px strip, Close + four 48 px vertical tabs; no horizontal header/selector/grabber. Center title/meta **48/20**, **128 px** right column with state actions then Zoom/Pause live view and phone text (§6.3); guarded history/reload/window switch in ⋯, “· 2 windows” meta. Center stage **204 px ≥200** with 8 padding + 80 vertical safe areas, no extra bars. Phone has no remote takeover; same viewport on a computer retains authorized controls. |
 | **800×360 Joe's own review / staff waiting** | Same one strip and 48/20 center; ≥200 scrolling card region; right-column exact decision pair + Review image, or staff See request / Cancel request. Decisions pinned and visible without card/page scrolling, targets ≥48; long copy scrolls only in center. Escape Keep paused and original deadline/focus/role checks retained. |
 | **800×360 Joe's owner layer on staff task: review / Watch pre-join / Watch joined** | **No Operator strip/selector**, one **48 px full-width “‹ Back · Abigail's browser · Larson bath”** header, **20 px** meta, **128 px** column, ≥200 card/image stage. Exact decisions remain visible without scrolling. Watch pre-join shows card + Show the page / Pause agent with zero private frame requests; explicit authorized join replaces card with image/private label. No staff chat load; Back/Escape passive exit restores Joe's unchanged view and leaves staff running; review Escape Keep paused. |
@@ -4326,3 +4334,10 @@ whole-file case-insensitive gendered-pronoun sweep with **zero remaining hits**
 service changes, deployment or runtime tests are part of this revision. The
 coordinator still checks the three landscape frames, pinned buttons, safe areas,
 rotation and iPad/phone input behavior on real devices before release.
+
+## Appendix — Round-6 fixes (coordinator)
+
+| Item | Change |
+|---|---|
+| Design 1 — native app on iPad | §6.4 invitation split into phone-web and native-app variants; native copy “Finish this in Safari on an iPad or computer…” with [Open in Safari] [Don't finish] [Close]; §6.5 row updated; native-iPad fixture row added. Presentation only: device class never grants or removes authority (round-6 confirm). |
+| Design 2 — “Joe is watching.” in landscape | §6.3 meta order state · Joe is watching. · 2 windows with defined overflow (drop windows → short state → wrap, stage ≥200); never truncated; 800×360 fixture row added. Presentation only. |

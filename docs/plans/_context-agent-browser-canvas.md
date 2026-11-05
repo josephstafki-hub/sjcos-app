@@ -168,3 +168,11 @@ Branch note: T3 renamed this branch to `t3/in-app-browser-agent-tools`.
 9. **Canvas Save default (Joe, 2026-11-05):** when Joe saves a canvas to a job's
    files, **Share with staff** is pre-selected. Required areas such as Money are
    pre-ticked. Joe can pick **Only Joe** instead.
+
+10. **Chats keep working; deletion waits (Joe, 2026-11-05).** The all-chat recovery
+    gate applies only once chat deletion has ever been switched on. Until the separate
+    deletion-record service exists, deletion stays off and chats work normally.
+    Details: `_ask-pane-host.md` A1.1.
+11. **Old chats go to whoever started them (Joe, 2026-11-05).** A legacy chat whose
+    runs were all started by one person belongs to that person (Abigail keeps her 2).
+    Chats with no recorded starter go to Joe; mixed ones are held aside. See A1.2.

@@ -614,6 +614,9 @@ mutates control. A service outage during auth check fails closed.
 
 ### 4.1 Thread ownership and real web sessions — prerequisites
 
+> **Amended by A1 (`_ask-pane-host.md`, Joe decisions 10–11, 2026-11-05):** the recovery gate applies only once deletion has ever been enabled/accepted; legacy backfill uses creator evidence first. See A1.1–A1.3.
+
+
 **Thread isolation ships before Browser panel access for Joe or staff**, not
 only before browser.staff_enabled. This includes newer H5's complete thread
 delete/recovery/startup acceptance (§6.2), not only ownership DDL. Per shared H5,

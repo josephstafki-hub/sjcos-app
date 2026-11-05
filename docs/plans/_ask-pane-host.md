@@ -121,6 +121,24 @@ Additional shared fixture rows (retain all H5 widths/history/security cases abov
 | **1100 popout**, ~1084 content → **455/12/~617** | **Compact**; fine pointer shows **−/+** alongside Fit/100%, Ctrl/⌘+wheel zoom and drag pan; floor ⋯ **Edit floor plan ↗**, **no hint** (same `/floor/<id>` checks). One split ×. |
 | 360 × 800, Diagram/Page/Floor plan | 136 px Operator/selector + 48 title + 20 meta + 56 actions + 8 padding + ≤80 safe areas = ≤348, ≥452 stage budget and ≥420 required. |
 
+## Amendment A1 — Joe decisions 10 and 11 (2026-11-05, after Phase 0 build round 1)
+
+These override any conflicting text in H5, the Canvas plan (§8.1, §8.5, §10 Phase 0, §11) and the Browser plan (§4.1, §12 Phase 0).
+
+**A1.1 Recovery gate scope (Joe decision 10: "Chats work; delete waits").** The all-Ask recovery gate exists so that a restored database can never expose a chat that had been deleted. Before any deletion has ever been accepted, there is nothing a restore could bring back. So the gate is keyed to **deletion state**, not to whether the authority is configured:
+- **Deletion never enabled** (deletion capability off, AND no journal intent / tombstone / `deletion_sequence` has ever existed, verified at startup from the DB and from the journal directory): Ask reads, writes, polls and launches run normally behind the ownership fences. The independent authority may be absent. Thread Delete is server-disabled. The UI shows the disabled state with the copy "Chat deletion is not ready yet. Try again later." Health reports `JOURNAL_NOT_CONFIGURED` as an owner-visible warning, not an outage.
+- **Deletion enabled, or any deletion ever accepted** (any intent/tombstone/sequence exists): the full approved gate applies unchanged. Authority missing, unreachable, behind on high-water, wrong identity, or recovery pending ⇒ every Ask read/write/poll/launch fails closed with the designed paused state ("Chats are paused while SJC OS checks its records. Try again in a few minutes."), never an HTTP 500.
+- **Turning deletion on** is an owner/ops action that requires a configured, verified authority (identity + signed fresh high-water). It is a one-way latch: once any deletion intent exists, it stays in the gated mode even if the deletion flag is later turned off. A restored DB that predates the latch but meets a journal/authority that records deletions must still gate (the existing stale-replica/primary-loss rules apply).
+- Tests: never-enabled + no authority ⇒ Ask works and Delete is refused with the fixed code; a forged or removed latch cannot reopen Ask while journal evidence of past deletions exists; enabling without a verified authority is refused; enabled + authority loss ⇒ designed paused state on every surface.
+
+**A1.2 Legacy thread backfill (Joe decision 11).** Replace "backfill to unique active owner, never guess staff ownership" with **creator evidence first**:
+1. If every run in the thread with a non-null `dev_agent_runs.principal_user_id` names the **same active user**, that user owns the thread (staff included).
+2. Else, if no run in the thread has a principal, the unique active owner (Joe) owns it.
+3. Else (mixed principals, or the only principal is inactive/missing) ⇒ quarantine as before.
+Existing non-null owners are never rewritten. On live-shaped data this gives Abigail's 2 chats to Abigail and the rest to Joe. Keep the one-owner / no-owner / mixed-principal / inactive-principal fixtures.
+
+**A1.3 Phase 0 scope split (coordinator).** "Phase 0 accepted" for the shared + Canvas path means 0100 + 0105, the pane host, privacy fences, recovery gate per A1.1, and the typed UI states. The Browser hard boundaries (0101/0102 vault/action schema, gate/addon/dispatcher, target-barrier patch, namespace/packet/RSS evidence, browser-ui fixture consumer) are tracked as **Browser Phase 0b** and must pass before Browser Phase 1. They do not block Canvas Phase 1. Canvas-only rollout remains 0100 + 0105–0109.
+
 ## Appendix — Round-2 fixes
 
 | Judge item | Host section changed |

@@ -571,6 +571,9 @@ Under `SELECT plan_designs FOR UPDATE`, validate current rev/scope, canonicalize
 
 ### 8.1 Allocation, ownership and protected writes
 
+> **Amended by A1 (`_ask-pane-host.md`, Joe decisions 10–11, 2026-11-05):** the recovery gate applies only once deletion has ever been enabled/accepted; legacy backfill uses creator evidence first. See A1.1–A1.3.
+
+
 Locally recorded planning inspection found no claimed 0100–0109 migrations on available origin refs; recheck fresh main and sibling claims before build/merge, never reuse applied numbers. No migrations run by this task. Adopt shared H5: **0100 is the shared launch/admission prerequisite; 0105 privacy/recovery is required for both Browser and Canvas**, renderer flags separate. Combined rollout applies 0100–0104 before 0105; Canvas-only rollout requires 0100 + 0105–0109 and does not require 0101–0104. A rollout with 0105–0109 but **without 0100** is unsupported: 0105 must fail its explicit dependency check before changing schema. Canvas does not consume browser tables created by 0100; their presence does not enable browser runtime. Runtime admission code requiring owner column deploys after 0105; early browser DDL must not reference absent 0105 fields.
 
 | Migration | Phase | Content |
@@ -700,6 +703,9 @@ Permit steps (v2).html                         [lock] [download]
 Denied rows are absent for staff; Joe sees audience and why a colleague cannot see it. Open file uses static sandboxed viewer caption **Made by Claude · Version 2 · Internal draft**, no source-thread link unlocked for job readers. Saved snapshot survives Canvas/thread deletion under normal job file retention.
 
 ### 8.5 Retention, deletion journal and scheduled maintenance
+
+> **Amended by A1 (`_ask-pane-host.md`, Joe decisions 10–11, 2026-11-05):** the recovery gate applies only once deletion has ever been enabled/accepted; legacy backfill uses creator evidence first. See A1.1–A1.3.
+
 
 **Phase 0 dependency, not a Phase 1 follow-up:** 0105 and its application release include the journal/fences/startup gate and minimum maintenance schema/caller specified below. With **only 0100–0105 installed and all Canvas flags off**, all Ask read/write/context and thread Delete paths use the journal gate/fences; admitted threads support journaled deletion and thread-only purge/reconciliation. The same is true for a Canvas-only Phase 0 install of 0100 + 0105, without 0101–0104. A schema capability map loaded from the migration ledger selects the **thread-only** code path: never query `ask_canvases`, versions/events/saves/usage/provenance or other 0106–0109 relations when absent, including on startup, empty threads, maintenance, polls and deletion. Later extensions register only after their migrations; do not use Canvas flags as table-existence checks. Replay of an incompatible future Canvas intent against a rolled-back schema keeps the gate closed pending compatible recovery code; never skip acknowledged intents. Before Phase 0 acceptance, disable legacy thread Delete in UI **and server** with **Chat deletion is not ready yet. Try again later.** No physical-delete fallback. This temporary deployment gate is removed only after the complete Phase 0 checks, not by enabling Canvas.
 

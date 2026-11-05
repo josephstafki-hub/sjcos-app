@@ -153,3 +153,14 @@ The bar: a panel of judges scores each plan, and later each build, on **design**
    pay), even when a staff run reached it. Staff cannot approve these.
 
 Migration split: browser **0100–0104**, canvas **0105–0109**.
+
+## Joe's decisions, round 3: canvas (2026-11-05)
+
+7. **Canvas retention:** a canvas lives as long as its chat thread. Deleted canvases
+   are purged after 30 days. A canvas saved to a job's files stays there like any
+   other file.
+8. **Canvas visibility:** private to the person whose chat made it. Once saved to a
+   job's files, anyone with access to that job's files sees it. **Internal only:**
+   canvases are never shown to clients in v1.
+
+Branch note: T3 renamed this branch to `t3/in-app-browser-agent-tools`.

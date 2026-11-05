@@ -1,6 +1,6 @@
 import "server-only";
 
-import { query, queryOne } from "@/lib/db";
+import { threadQuery as query, threadQueryOne as queryOne } from "@/lib/thread-access";
 import type { PanelAgent } from "@/lib/dev-agents-meta";
 import type { ChatAttachment } from "@/lib/attachments";
 
@@ -274,7 +274,7 @@ export async function insertConversation(
   folderId: string | null = null,
 ): Promise<string> {
   const row = await queryOne<{ id: string }>(
-    `INSERT INTO ai_conversations (agent, title, folder_id, last_activity_at) VALUES ($1, $2, $3, now()) RETURNING id`,
+    `INSERT INTO ai_conversations (agent, title, folder_id, last_activity_at, owner_user_id) VALUES ($1, $2, $3, now(), nullif(current_setting('sjcos.ask_actor',true),'')::uuid) RETURNING id`,
     [agent, title.slice(0, 80) || "New chat", folderId],
   );
   return row!.id;

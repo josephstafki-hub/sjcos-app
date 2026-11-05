@@ -116,3 +116,10 @@ test('unattended runtime stamps background identity after extraEnv, never person
   assert.equal(env.SJC_RUN_PROFILE,'business'); assert.equal(env.SJC_LAUNCH_SOURCE,'background');
   assert.equal(env.SJC_PRINCIPAL_USER_ID,''); assert.equal(env.SJC_CONVERSATION_ID,'');
 });
+
+test('0105 never promotes unattended or Telegram identity through a requested profile', async()=>{
+ const {browserEligible}=await import('../lib/authority/run-profile.mjs');
+ for(const source of ['background','telegram','legacy','panel_mobile','panel_voice'])assert.equal(browserEligible({user:{role:'owner',active:true},launchSource:source,withMcp:true}),false);
+ assert.equal(browserEligible({user:{role:'owner',active:true},launchSource:'panel_web',withMcp:false}),false);
+ assert.equal(profileFor({role:'staff',active:true},'operator'),'business');
+});

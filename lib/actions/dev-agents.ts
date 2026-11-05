@@ -10,7 +10,7 @@ import {
   type AgentInteraction,
   type InteractionResponse,
 } from "@/lib/agent-interactions";
-import { query } from "@/lib/db";
+import { requireRunThreadAccess, requireInteractionThreadAccess, threadQuery as query } from "@/lib/thread-access";
 import { ACTION_LABEL, type GrantDetail } from "@/lib/owner-grant-types";
 import { describeGrants } from "@/lib/grant-detail";
 import { getRunFocus } from "@/lib/run-focus";
@@ -121,25 +121,8 @@ async function pendingGrants(runId: string, conversationId: string | null): Prom
 
 /** A22: the owner sees every run; a staff member with the `ai` area may
  *  follow only runs started under their own identity. */
-async function requireRunAccess(runId: string) {
-  const user = await requireAccess("ai");
-  if (user.role === "owner") return user;
-  const run = await getDevAgentRun(runId);
-  if (!run || run.principalUserId !== user.id) throw new Error("That run is not yours.");
-  return user;
-}
-
-/** Same rule for a question box / permission prompt: it belongs to a run. */
-async function requireInteractionAccess(id: string) {
-  const user = await requireAccess("ai");
-  if (user.role === "owner") return user;
-  const { rows } = await query<{ principal_user_id: string | null }>(
-    `SELECT r.principal_user_id FROM agent_interactions i LEFT JOIN dev_agent_runs r ON r.id = i.run_id WHERE i.id = $1`,
-    [id],
-  );
-  if (!rows[0] || rows[0].principal_user_id !== user.id) throw new Error("That question is not from one of your runs.");
-  return user;
-}
+async function requireRunAccess(runId: string) { return requireRunThreadAccess(runId); }
+async function requireInteractionAccess(id: string) { return requireInteractionThreadAccess(id); }
 
 export async function pollAgentRun(runId: string): Promise<PollResult> {
   const user = await requireRunAccess(runId);

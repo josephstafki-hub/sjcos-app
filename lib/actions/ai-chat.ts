@@ -7,7 +7,7 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { loadPanelContext, type PanelContextRef } from "@/lib/panel-context";
 import { requireAccess, requireRole } from "@/lib/dal";
-import { query, queryOne } from "@/lib/db";
+import { deleteOwnedThread, threadPrincipal, withThreadAttachmentAccess, requireThreadAccess, threadQuery as query, threadQueryOne as queryOne } from "@/lib/thread-access";
 import { hermesChat, startClaudeRun } from "@/lib/dev-agents";
 import { finalizeHermesAnswer } from "@/lib/orchestrator/effects";
 import { escalateToHermesLadder, runHermesLadder } from "@/lib/orchestrator/ladder";
@@ -120,12 +120,15 @@ export async function uploadChatFilesAction(formData: FormData): Promise<UploadR
   await requireAccess("ai");
   const files = formData.getAll("files").filter((f): f is File => f instanceof File);
   if (!files.length) return { ok: false, error: "No files selected." };
-  await mkdir(UPLOAD_DIR, { recursive: true });
+  const person=await threadPrincipal();
+  await query("SELECT 1"); // startup/journal gate before accepting private bytes
+  const personDir=path.join(UPLOAD_DIR,person.id);
+  await mkdir(personDir, { recursive: true });
   const out: ChatAttachment[] = [];
   for (const f of files) {
     if (f.size > MAX_UPLOAD_BYTES) return { ok: false, error: `${f.name} is over the 25 MB limit.` };
     const safe = f.name.replace(/[^\w.\-]+/g, "_").slice(0, 120) || "file";
-    const dest = path.join(UPLOAD_DIR, `${randomUUID()}-${safe}`);
+    const dest = path.join(personDir, `${Date.now()}-${randomUUID()}-${safe}`);
     await writeFile(dest, Buffer.from(await f.arrayBuffer()));
     out.push({ name: f.name, path: dest });
   }
@@ -157,7 +160,9 @@ export async function sendMessageAction(
   const explicitContext = await loadPanelContext(contextRecords ?? []);
   if (explicitContext) pageContext = [pageContext, explicitContext].filter(Boolean).join("\n\n");
   const text = prompt.trim();
+  await requireThreadAccess(conversationId);
   const files = sanitizeAttachments(attachments);
+  for(const file of files)await withThreadAttachmentAccess(file.path,async()=>{});
   if (!text && !files.length) return { ok: false, error: "Ask something first." };
   // What the model is asked (an attachment-only send still needs a sentence).
   const taskText = text || `(no message — see the attached file${files.length > 1 ? "s" : ""}: ${files.map((f) => f.name).join(", ")})`;
@@ -412,7 +417,7 @@ export async function deleteFolderAction(id: string): Promise<{ ok: boolean; err
 
 export async function deleteConversationAction(id: string): Promise<{ ok: boolean }> {
   await requireAccess("ai");
-  await query(`DELETE FROM ai_conversations WHERE id = $1`, [id]);
+  await deleteOwnedThread(id);
   return { ok: true };
 }
 

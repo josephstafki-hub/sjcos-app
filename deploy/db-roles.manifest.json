@@ -3068,6 +3068,9 @@
     },
     "browser_audit_checkpoints": {
       "note": "0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."
+    },
+    "ask_canvas_maintenance": {
+      "note": "0105 private recovery epoch/lease/checkpoint; website only. No narrow grants. Backup via pg_read_all_data."
     }
   }
 }

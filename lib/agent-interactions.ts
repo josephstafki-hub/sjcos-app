@@ -1,6 +1,6 @@
 import "server-only";
 
-import { query, queryOne } from "@/lib/db";
+import { threadQuery as query, threadQueryOne as queryOne } from "@/lib/thread-access";
 
 // Interactive agent runs — the read/answer layer over agent_interactions.
 //
@@ -105,8 +105,7 @@ export async function listPendingInteractions(
     `SELECT ${COLS} FROM agent_interactions
       WHERE status = 'pending'
         AND (run_id = $1
-             OR ($2::uuid IS NOT NULL AND conversation_id = $2)
-             OR (run_id IS NULL AND conversation_id IS NULL))
+             OR ($2::uuid IS NOT NULL AND conversation_id = $2))
       ORDER BY created_at ASC
       LIMIT 5`,
     [runId, conversationId],

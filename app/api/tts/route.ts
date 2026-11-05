@@ -1,3 +1,4 @@
+import { requireRunThreadAccess } from "@/lib/thread-access";
 import { NextResponse } from "next/server";
 import { hasAccess } from "@/lib/api-auth";
 import { getCurrentUser } from "@/lib/dal";
@@ -44,6 +45,7 @@ export async function POST(req: Request) {
   // written answer into a spoken update (cached in dev_agent_runs.spoken_answer).
   if (runId) {
     if (!hasAccess(user, "ai")) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    await requireRunThreadAccess(runId);
     const spoken = await spokenUpdateForRun(runId);
     if (!spoken) return NextResponse.json({ error: "Nothing to say for that run yet." }, { status: 422 });
     text = spoken;

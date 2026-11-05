@@ -259,3 +259,30 @@ export async function withSessionIdentity(url, identity, callback) {
     await client.end();
   }
 }
+
+/** Test-only subset ledger. Starts BEFORE feature snapshots; applies exact
+ * production SQL/checksums, one transaction + real ledger insertion per file.
+ * Never edits the shared migration directory or fabricates applied rows. */
+export async function withMigrationSubset(name, featureIds, callback) {
+ if(!/^[a-z0-9_]+$/.test(name)||!featureIds.every(n=>Number.isInteger(n)&&n>=100&&n<=109))throw Error('invalid subset fixture');
+ const state=startCluster();ensureDbRoles(state);
+ const db=`sjcos_subset_${name}`,url=dbUrl(state.url,db);assertNotProduction(url);
+ const admin=new pg.Client({connectionString:state.admin});await admin.connect();
+ await admin.query(`DROP DATABASE IF EXISTS ${db} WITH (FORCE)`);await admin.query(`CREATE DATABASE ${db}`);await admin.end();
+ const c=new pg.Client({connectionString:url});await c.connect();
+ try{
+  const baseline=readFileSync(path.join(REPO,'db/schema.sql'),'utf8').split('-- 0100 additive snapshot')[0];
+  await c.query(baseline);
+  const {listMigrationFiles}=await import('../../db/migrate.mjs');
+  await c.query(`CREATE TABLE schema_migrations(id integer PRIMARY KEY,name text NOT NULL,checksum text NOT NULL,applied_at timestamptz NOT NULL DEFAULT now())`);
+  const apply=async ids=>{
+   for(const f of listMigrationFiles().filter(f=>ids.includes(f.id))){
+    const old=(await c.query('SELECT checksum FROM schema_migrations WHERE id=$1',[f.id])).rows[0];
+    if(old){if(old.checksum!==f.checksum)throw Error('migration checksum mismatch');continue;}
+    await c.query('BEGIN');try{await c.query(f.sql);await c.query('INSERT INTO schema_migrations(id,name,checksum) VALUES($1,$2,$3)',[f.id,f.name,f.checksum]);await c.query('COMMIT');}catch(e){await c.query('ROLLBACK');throw e;}
+   }
+  };
+  await apply(listMigrationFiles().filter(f=>f.id<100).map(f=>f.id));
+  await callback({url,db:c,apply:ids=>apply(ids??featureIds),featureIds});
+ }finally{await c.end();}
+}

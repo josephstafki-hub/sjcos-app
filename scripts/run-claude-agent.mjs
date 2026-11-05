@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { withAskJournal } from '../lib/ask-thread-journal.mjs';
 // Detached runner for a single Claude turn (Ask window → "Claude").
 //
 // Invoked by lib/dev-agents.ts startClaudeRun() as:
@@ -274,7 +275,23 @@ const SPEAKER = { claude: "Claude", qwen: "Qwen", hermes: "Hermes", concierge: "
 const TRANSCRIPT_MAX = 12_000;
 const TURN_MAX = 2_000;
 
+async function withPrivateThread(threadId, fn) {
+  if(!threadId)return fn();
+  // Independent connection: no remote/file work while runner row locks exist.
+  const gate = new pg.Pool({connectionString: envFromFile("DATABASE_URL"), max:1});
+  try { return await withAskJournal(gate,async()=>{
+    const r=await client.query(`SELECT c.id FROM ai_conversations c JOIN dev_agent_runs r ON r.conversation_id=c.id
+      JOIN users u ON u.id=r.principal_user_id WHERE r.id=$1 AND c.id=$2 AND c.owner_user_id=r.principal_user_id
+      AND c.deleted_at IS NULL AND NOT r.cancellation_requested AND u.active
+      AND (u.role='owner' OR (u.role='staff' AND 'ai'=ANY(u.permissions)))
+      AND NOT EXISTS(SELECT 1 FROM session_revocations x WHERE x.user_id=u.id AND x.revoked_before>r.created_at)`,[RUN_ID,threadId]);
+    if(!r.rows.length)throw Error('ASK_THREAD_UNAVAILABLE');return fn();
+  }); } finally { await gate.end(); }
+}
 async function unseenTranscript(conversationId) {
+  return withPrivateThread(conversationId,()=>unseenTranscriptAllowed(conversationId));
+}
+async function unseenTranscriptAllowed(conversationId) {
   if (!conversationId) return "";
   let rows;
   try {
@@ -645,6 +662,10 @@ function steerText(bodies, when = "working") {
 
 /** Claim pending steers for this run (or relayed to it by the ladder). */
 async function takeSteers(via) {
+  const r=await client.query('SELECT conversation_id FROM dev_agent_runs WHERE id=$1',[RUN_ID]);
+  return withPrivateThread(r.rows[0]?.conversation_id,()=>takeSteersAllowed(via));
+}
+async function takeSteersAllowed(via) {
   try {
     const { rows } = await client.query(
       `UPDATE run_steers SET status = 'delivered', via = $2, delivered_at = now()
@@ -724,6 +745,10 @@ function runClaude(args, childEnv, conversationId, cwd, promptText) {
     let deadline = TIMEOUT_MS > 0 ? Date.now() + TIMEOUT_MS : Infinity;
     const guard = setInterval(() => {
       void (async () => {
+        if(conversationId && !killed && !stopRequested){
+          try { await withPrivateThread(conversationId,async()=>{}); }
+          catch { killReason='revoked';killed=true;child.kill('SIGKILL');return; }
+        }
         try {
           await client.query(
             `UPDATE dev_agent_runs SET updated_at = now() WHERE id = $1 AND status = 'running'`,
@@ -869,10 +894,10 @@ async function main() {
   // context (files it read/edited earlier in the conversation).
   let resumeSession = null;
   if (conversation_id) {
-    const cr = await client.query(
+    const cr = await withPrivateThread(conversation_id,()=>client.query(
       `SELECT claude_session_id FROM ai_conversations WHERE id = $1`,
       [conversation_id],
-    );
+    ));
     const previous = await client.query(`SELECT profile, principal_user_id, launch_source FROM dev_agent_runs WHERE conversation_id=$1 AND id<>$2 ORDER BY created_at DESC LIMIT 1`, [conversation_id, RUN_ID]);
     const last = previous.rows[0];
     if (last && last.profile === PROFILE && last.principal_user_id === PRINCIPAL_USER_ID && last.launch_source === rows[0].launch_source) resumeSession = cr.rows[0]?.claude_session_id ?? null;
@@ -928,7 +953,7 @@ async function main() {
   const mcpConfigs = [];
   const withMcp = rows[0].with_mcp !== false || PROFILE === "business";
   if (withMcp) {
-    mcpConfigs.push(JSON.stringify({ mcpServers: { sjcos: { command: "node", args: [path.join(REPO, "mcp/sjcos-mcp.mjs")] } } }));
+    mcpConfigs.push(JSON.stringify({ mcpServers: { sjcos: { command: "node", args: [path.join(REPO, "mcp/sjcos-mcp.mjs")], env: { MCP_HTTP_PORT: "0" } } } }));
   }
   // Every in-app session has general business-tool access: pre-approve the
   // whole sjcos server in every mode. Headless `-p` has nobody to answer a
@@ -945,7 +970,7 @@ async function main() {
   // me" additionally runs CLI mode manual so every action is prompted.
   mcpConfigs.push(
     JSON.stringify({
-      mcpServers: { interact: { command: "node", args: [path.join(REPO, "mcp/interact-mcp.mjs")] } },
+      mcpServers: { interact: { command: "node", args: [path.join(REPO, "mcp/interact-mcp.mjs")], env: { MCP_HTTP_PORT: "0" } } },
     }),
   );
   args.push("--permission-prompt-tool", "mcp__interact__approve_action");
@@ -1116,6 +1141,9 @@ async function recordUsage(outcome) {
 /** Save the assistant reply into the persisted thread + chain the CLI session
  *  so the next turn resumes it. No-op when the run isn't tied to a conversation. */
 async function persistToConversation(conversationId, body, costUsd, sessionId) {
+  return withPrivateThread(conversationId,()=>persistToConversationAllowed(conversationId, body, costUsd, sessionId));
+}
+async function persistToConversationAllowed(conversationId, body, costUsd, sessionId) {
   if (!conversationId) return;
   try {
     // Tagged 'claude' so the router keeps follow-ups here and the other

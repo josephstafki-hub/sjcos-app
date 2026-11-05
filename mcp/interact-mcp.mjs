@@ -27,6 +27,8 @@ import pg from "pg";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { createInteractionAdapter } from "../lib/ask-thread-journal-transport.mjs";
+import { readFileSync } from "node:fs";
 import { registerAskOwner } from "./interact-tools.mjs";
 import { databaseUrlFor, mcpLogin } from "../lib/db-login.mjs";
 
@@ -90,6 +92,10 @@ const PROMPT_POLL_MS = 1500;
 // on Joe with no practical limit; the run stays alive via the runner heartbeat.
 const PROMPT_TIMEOUT_MS = Number(process.env.SJC_PROMPT_TIMEOUT_MS ?? 86_000_000);
 
+const interactionAdapter=createInteractionAdapter({transportKind:'stdio',config:key=>{
+ if(process.env[key])return process.env[key];
+ try{return readFileSync(path.join(__dirname,'..','.env.local'),'utf8').split('\n').find(l=>l.startsWith(key+'='))?.slice(key.length+1).replace(/^['"]|['"]$/g,'');}catch{return undefined;}
+}});
 const server = new McpServer({ name: "interact", version: "1.0.0" });
 
 server.registerTool(
@@ -114,25 +120,15 @@ server.registerTool(
       input: JSON.stringify(input ?? {}, null, 2).slice(0, 4000),
       description: describeAction(tool_name, input),
     };
-    const { rows } = await pool.query(
-      `INSERT INTO agent_interactions (run_id, conversation_id, agent, kind, payload)
-       VALUES ($1, $2, $3, 'permission', $4::jsonb) RETURNING id`,
-      [
-        process.env.SJC_RUN_ID || null,
-        process.env.SJC_CONVERSATION_ID || null,
-        process.env.SJC_AGENT || "claude",
-        JSON.stringify(payload),
-      ],
-    );
-    const id = rows[0].id;
+    const id = await interactionAdapter.create('permission',payload);
 
     const deadline = Date.now() + PROMPT_TIMEOUT_MS;
     while (Date.now() < deadline) {
       await sleep(PROMPT_POLL_MS);
-      const r = await pool.query(`SELECT status, response FROM agent_interactions WHERE id = $1`, [id]);
-      const row = r.rows[0];
+      const row = await interactionAdapter.poll(id);
       if (!row) break;
       if (row.status === "answered") {
+        await interactionAdapter.beforeDeliver(id);
         const resp = row.response ?? {};
         if (resp.decision === "allow") return contract({ behavior: "allow", updatedInput: input ?? {} });
         return contract({
@@ -142,9 +138,8 @@ server.registerTool(
       }
       if (row.status === "dismissed" || row.status === "expired") break;
     }
-    await pool
-      .query(`UPDATE agent_interactions SET status = 'expired' WHERE id = $1 AND status = 'pending'`, [id])
-      .catch(() => {});
+    await interactionAdapter.expire(id);
+    await interactionAdapter.beforeDeliver(id);
     return contract({
       behavior: "deny",
       message:
@@ -154,7 +149,7 @@ server.registerTool(
   },
 );
 
-registerAskOwner(server, { pool, json });
+registerAskOwner(server, { pool, json, interactionAdapter });
 
 const transport = new StdioServerTransport();
 await server.connect(transport);

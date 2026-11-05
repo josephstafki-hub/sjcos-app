@@ -61,7 +61,7 @@ function formatAnswers(response) {
  * remote connectors get it) and mcp/interact-mcp.mjs (the Claude runner's
  * interact server).
  */
-export function registerAskOwner(server, { pool, json }) {
+export function registerAskOwner(server, { pool, json, interactionAdapter }) {
   server.registerTool(
     "ask_owner",
     {
@@ -94,27 +94,19 @@ export function registerAskOwner(server, { pool, json }) {
           allowOther: q.allow_other ?? true,
         })),
       };
-      const runId = process.env.SJC_RUN_ID || null;
-      const conversationId = process.env.SJC_CONVERSATION_ID || null;
-      const agent = process.env.SJC_AGENT || process.env.SJCOS_AGENT_NAME || "agent";
-      const { rows } = await pool.query(
-        `INSERT INTO agent_interactions (run_id, conversation_id, agent, kind, payload)
-         VALUES ($1, $2, $3, 'question', $4::jsonb) RETURNING id`,
-        [runId, conversationId, agent, JSON.stringify(payload)],
-      );
-      const id = rows[0].id;
+      if(!interactionAdapter)return {...json({ok:false,code:'RUN_CONTEXT_REQUIRED'}),isError:true};
+      let id;
+      try{id=await interactionAdapter.create('question',payload);}
+      catch{return {...json({ok:false,code:'RUN_CONTEXT_REQUIRED'}),isError:true};}
 
       const deadline = Date.now() + (timeout_seconds ?? DEFAULT_TIMEOUT_S) * 1000;
       while (Date.now() < deadline) {
         await sleep(POLL_MS);
-        const r = await pool.query(
-          `SELECT status, response FROM agent_interactions WHERE id = $1`,
-          [id],
-        );
-        const row = r.rows[0];
+        const row = await interactionAdapter.poll(id);
         if (!row) break;
-        if (row.status === "answered") return json({ ok: true, answer: formatAnswers(row.response) });
+        if (row.status === "answered") {await interactionAdapter.beforeDeliver(id);return json({ ok: true, answer: formatAnswers(row.response) });}
         if (row.status === "dismissed") {
+          await interactionAdapter.beforeDeliver(id);
           return json({
             ok: false,
             answer:
@@ -124,9 +116,8 @@ export function registerAskOwner(server, { pool, json }) {
         }
         if (row.status === "expired") break;
       }
-      await pool
-        .query(`UPDATE agent_interactions SET status = 'expired' WHERE id = $1 AND status = 'pending'`, [id])
-        .catch(() => {});
+      await interactionAdapter.expire(id);
+      await interactionAdapter.beforeDeliver(id);
       return json({
         ok: false,
         answer:

@@ -19,6 +19,7 @@ import "server-only";
 // his message in the thread. Owner chat only, like every Telegram send.
 
 import { query, queryOne } from "@/lib/db";
+import { requireThreadAccess, threadPrincipal, threadQueryOne } from "@/lib/thread-access";
 import { runDirect, withTransaction } from "@/lib/commands/db";
 import { defaultTransport } from "@/lib/providers/telegram";
 import { outboundDisabled } from "@/lib/providers/types";
@@ -136,8 +137,11 @@ export async function deliverOwnerReply(r: RecordedReply & { chatId: string; mes
   try {
     if (r.route === "session" && r.conversationId) {
       const prompt = await promptFor(r, text);
-      const conv = await queryOne<{ title: string | null }>(`SELECT title FROM ai_conversations WHERE id = $1`, [r.conversationId]);
-      const latest = await queryOne<{ id: string; agent: string; status: string }>(
+      const target=await threadPrincipal();
+      if(target.role!=='owner')throw Error('ASK_THREAD_UNAVAILABLE');
+      await requireThreadAccess(r.conversationId,target);
+      const conv = await threadQueryOne<{ title: string | null }>(`SELECT title FROM ai_conversations WHERE id = $1`, [r.conversationId]);
+      const latest = await threadQueryOne<{ id: string; agent: string; status: string }>(
         `SELECT id, agent, status FROM dev_agent_runs WHERE conversation_id = $1 ORDER BY created_at DESC LIMIT 1`,
         [r.conversationId],
       );
@@ -258,8 +262,13 @@ export async function sweepUnansweredReplies(): Promise<{ relayed: number; faile
     let answer: string | null = null;
     let who = "The agent";
     if (r.route === "session" && r.conversation_id) {
+      try {
+        const target=await threadPrincipal();
+        if(target.role!=='owner')continue;
+        await requireThreadAccess(r.conversation_id,target);
+      } catch { continue; }
       // The turn that took the note — and any follow-up turns after it — must be finished.
-      const latest = await queryOne<{ agent: string; status: string; answer: string | null; settled: boolean }>(
+      const latest = await threadQueryOne<{ agent: string; status: string; answer: string | null; settled: boolean }>(
         `SELECT agent, status, answer, updated_at < now() - interval '45 seconds' AS settled FROM dev_agent_runs
           WHERE conversation_id = $1 AND created_at >= $2::timestamptz - interval '10 minutes'
           ORDER BY created_at DESC LIMIT 1`,

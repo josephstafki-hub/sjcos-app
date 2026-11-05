@@ -3,6 +3,7 @@ import type { CurrentUser } from "@/lib/dal";
 import { requireUser } from "@/lib/dal";
 import { staffMayOpen } from "@/lib/permissions";
 import { query } from "@/lib/db";
+import { threadQuery } from "@/lib/thread-access";
 
 export interface PanelSearchResult {
   id: string;
@@ -54,15 +55,14 @@ export async function searchPanelForUser(user: CurrentUser, raw: string, records
     return rows.map(r=>({id:'invoice:'+r.id,recordId:r.id,kind:'invoice' as const,title:r.number || 'Invoice',detail:`${r.name} · ${r.status}`,href:'/projects/'+encodeURIComponent(r.slug)+'?tab=Money'}));
   })());
   if (!recordsOnly && may('/panel')) searches.push((async()=>{
-    const {rows}=await query<{id:string;title:string;folder:string|null;body:string|null;message_id:string|null;status:string|null}>(
+    const {rows}=await threadQuery<{id:string;title:string;folder:string|null;body:string|null;message_id:string|null;status:string|null}>(
       `SELECT c.id::text, c.title, f.name AS folder, hit.body, hit.id::text AS message_id,
               (SELECT status FROM dev_agent_runs r WHERE r.conversation_id=c.id ORDER BY r.created_at DESC LIMIT 1) AS status
        FROM ai_conversations c LEFT JOIN ai_folders f ON f.id=c.folder_id
        LEFT JOIN LATERAL (SELECT id, left(body,240) AS body FROM ai_messages m WHERE m.conversation_id=c.id AND m.body ILIKE $1 ORDER BY m.created_at DESC LIMIT 1) hit ON true
        WHERE (c.title ILIKE $1 OR hit.id IS NOT NULL)
-         AND ($2::boolean OR (EXISTS (SELECT 1 FROM dev_agent_runs r WHERE r.conversation_id=c.id AND r.principal_user_id=$3)
-              AND NOT EXISTS (SELECT 1 FROM dev_agent_runs r WHERE r.conversation_id=c.id AND r.principal_user_id IS DISTINCT FROM $3::uuid)))
-       ORDER BY c.updated_at DESC LIMIT 12`,[pattern,user.role==='owner',user.id]);
+         AND c.owner_user_id=$2 AND c.deleted_at IS NULL
+       ORDER BY c.updated_at DESC LIMIT 12`,[pattern,user.id]);
     return rows.map(r=>({id:'thread:'+r.id,recordId:r.id,messageId:r.message_id??undefined,kind:'thread' as const,title:r.title,detail:[r.folder,r.status,r.body].filter(Boolean).join(' · '),href:`/panel?c=${r.id}${r.message_id?'&m='+r.message_id:''}`}));
   })());
   return [...results,...(await Promise.all(searches)).flat()].slice(0,65);

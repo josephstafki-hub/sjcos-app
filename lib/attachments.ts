@@ -1,4 +1,5 @@
 import "server-only";
+import { withThreadAttachmentAccess } from "@/lib/thread-access";
 
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -186,6 +187,9 @@ async function sofficeConvertAll(file: string): Promise<string> {
 /** Extracted text for an attachment (cached after the first call). Never
  *  throws — a failed extraction caches as empty and the caller notes it. */
 export async function extractText(a: ChatAttachment): Promise<string> {
+ return withThreadAttachmentAccess(a.path,()=>extractTextAllowed(a));
+}
+async function extractTextAllowed(a: ChatAttachment): Promise<string> {
   const kind = attachmentKind(a.name);
   if (kind === "image" || kind === "binary") return "";
   const cached = await readCached(a.path);
@@ -241,6 +245,9 @@ export interface ReadOptions {
 
 /** Everything a model can get out of one attachment. Never throws. */
 export async function readAttachment(a: ChatAttachment, opts: ReadOptions): Promise<AttachmentContent> {
+ return withThreadAttachmentAccess(a.path,()=>readAttachmentAllowed(a,opts));
+}
+async function readAttachmentAllowed(a: ChatAttachment, opts: ReadOptions): Promise<AttachmentContent> {
   const kind = attachmentKind(a.name);
   const out: AttachmentContent = { name: a.name, path: a.path, kind, text: "", images: [] };
   try {

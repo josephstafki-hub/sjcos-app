@@ -3880,3 +3880,22 @@ CREATE TABLE IF NOT EXISTS browser_audit_checkpoints (
  key_id varchar(80) NOT NULL, signature bytea NOT NULL CHECK(octet_length(signature)>0), external_ack_id text NOT NULL,
  external_ack_at timestamptz NOT NULL, retained_boundary boolean NOT NULL DEFAULT false, created_at timestamptz NOT NULL DEFAULT now()
 );
+
+-- 0105 additive snapshot; security/grants installed by the ordered ledger.
+ALTER TABLE ai_conversations ADD COLUMN IF NOT EXISTS owner_user_id uuid REFERENCES users(id) ON DELETE RESTRICT;
+ALTER TABLE ai_conversations ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
+ALTER TABLE ai_conversations ADD COLUMN IF NOT EXISTS purge_after timestamptz;
+ALTER TABLE ai_conversations ADD COLUMN IF NOT EXISTS purged_at timestamptz;
+ALTER TABLE ai_conversations ADD COLUMN IF NOT EXISTS deletion_sequence bigint;
+ALTER TABLE ai_conversations ADD COLUMN IF NOT EXISTS purge_hold boolean NOT NULL DEFAULT false;
+ALTER TABLE ai_folders ADD COLUMN IF NOT EXISTS owner_user_id uuid REFERENCES users(id) ON DELETE RESTRICT;
+ALTER TABLE dev_agent_runs ADD COLUMN IF NOT EXISTS cancellation_requested boolean NOT NULL DEFAULT false;
+CREATE TABLE IF NOT EXISTS ask_canvas_maintenance (
+ singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),
+ lease_owner uuid, lease_expires_at timestamptz, fencing_token bigint NOT NULL DEFAULT 0,
+ heartbeat_at timestamptz, recovery_epoch uuid, recovery_ready boolean NOT NULL DEFAULT false,
+ ledger_id uuid, checkpoint_sequence bigint NOT NULL DEFAULT 0 CHECK(checkpoint_sequence>=0),
+ checkpoint_hash text, cursor_due_at timestamptz, cursor_id uuid,
+ health_code text, blocked_since timestamptz DEFAULT now()
+);
+INSERT INTO ask_canvas_maintenance(singleton) VALUES(true) ON CONFLICT DO NOTHING;

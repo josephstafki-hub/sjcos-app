@@ -81,6 +81,7 @@ import { registerChatgptTools } from "./chatgpt-tools.mjs";
 import { registerGrantTools } from "./grants-tools.mjs";
 import { registerCommsTools } from "./comms-tools.mjs";
 import { registerRunbookTools } from "./runbook-tools.mjs";
+import { createInteractionAdapter } from "../lib/ask-thread-journal-transport.mjs";
 import { registerAskOwner } from "./interact-tools.mjs";
 import { prepareEmailWorkItem } from "../lib/obligations/email.ts";
 import { registerObligationTools } from "./obligation-tools.mjs";
@@ -432,7 +433,8 @@ export const SERVER_INSTRUCTIONS = [
   "Write money as \"$\" amounts through the tools; pass long text through mcp/call-tool.mjs stdin, never as a double-quoted shell argument.",
 ].join("\n\n");
 
-function buildServer() {
+function buildServer({transportKind}) {
+const interactionAdapter=createInteractionAdapter({transportKind,config:envValue,httpActive:()=>!!principalStore.getStore()});
 const server = new McpServer({ name: "sjcos", version: "1.0.0" }, { instructions: SERVER_INSTRUCTIONS });
 
 // A refusal from the narrow database login (deploy/db-roles.md) comes back as
@@ -2975,7 +2977,7 @@ server.registerTool(
   // (Hermes, claude.ai, the Claude runner) gets interactive questions. Rows in
   // agent_interactions; the panel's run poll renders + answers them. See
   // mcp/interact-tools.mjs.
-  registerAskOwner(server, { pool, json });
+  registerAskOwner(server, { pool, json, interactionAdapter });
 
   // Employee / portal login accounts — the agent-side twin of Settings › Team
   // & roles: list, create (staff areas / sub + client portal links), edit
@@ -3061,7 +3063,7 @@ const httpPort = Number(process.env.MCP_HTTP_PORT || 0);
 
 if (!Number.isFinite(httpPort) || httpPort <= 0) {
   // Default: a single server over stdio.
-  const server = buildServer();
+  const server = buildServer({transportKind:'stdio'});
   await server.connect(new StdioServerTransport());
   // stdio servers stay alive on the transport; nothing to log to stdout (it's the
   // JSON-RPC channel). Errors go to stderr.
@@ -3177,7 +3179,7 @@ function startHttpServer(port) {
           transport.onclose = () => {
             if (transport.sessionId) delete transports[transport.sessionId];
           };
-          const server = buildServer();
+          const server = buildServer({transportKind:'http'});
           await server.connect(transport);
         } else if (!transport) {
           // Spec: a request carrying a session id the server no longer knows

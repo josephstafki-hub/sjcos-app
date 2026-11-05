@@ -1,3 +1,4 @@
+import { requireThreadAccess, requireRunThreadAccess, threadQueryOne } from "@/lib/thread-access";
 import "server-only";
 
 import { admitAskRun, type AskLaunchSource, type LaunchSource } from "@/lib/ask-run-admission";
@@ -747,7 +748,7 @@ export async function startClaudeRun(
 
 /** Poll a Claude run's state for the chat UI. */
 export async function getDevAgentRun(id: string): Promise<DevAgentRun | null> {
-  const row = await queryOne<{
+  const row = await threadQueryOne<{
     id: string;
     agent: string;
     status: DevAgentRun["status"];
@@ -765,14 +766,14 @@ export async function getDevAgentRun(id: string): Promise<DevAgentRun | null> {
   }>(
     `SELECT id, agent, status, answer, activity, cost_usd, created_at::text AS created_at, conversation_id,
             context_tokens, token_usage, session_id, profile, principal_user_id, launch_source
-       FROM dev_agent_runs WHERE id = $1`,
+       FROM dev_agent_runs WHERE id = $1 AND EXISTS(SELECT 1 FROM ai_conversations c WHERE c.id=conversation_id AND c.deleted_at IS NULL)`,
     [id],
   );
   if (!row) return null;
   let nextRunId: string | undefined;
   // A settled run (done, or errored with a steer follow-up behind it).
   if ((row.status === "done" || row.status === "error") && row.conversation_id) {
-    const next = await queryOne<{ id: string }>(
+    const next = await threadQueryOne<{ id: string }>(
       `SELECT id FROM dev_agent_runs
         WHERE conversation_id = $1 AND id <> $2 AND status IN ('pending','running')
           AND created_at >= (SELECT created_at FROM dev_agent_runs WHERE id = $2)
@@ -811,6 +812,7 @@ export async function getDevAgentRun(id: string): Promise<DevAgentRun | null> {
  * stays stopped.
  */
 export async function stopDevAgentRun(runId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireRunThreadAccess(runId);
   const run = await queryOne<{
     agent: string;
     status: string;
@@ -953,6 +955,7 @@ export async function pingAgentWorkItem(
  *  (unattended 'business' profile — no session cookie here), Hermes runs
  *  in-process. Returns the run id. Throws on a refused start. */
 export async function pingConversation(conversationId: string, agent: "claude" | "hermes", prompt: string): Promise<string | undefined> {
+  await requireThreadAccess(conversationId);
   if (agent === "hermes") {
     await insertMessage(conversationId, "user", prompt);
     return runHermesTurnTracked(conversationId, prompt, undefined, null);

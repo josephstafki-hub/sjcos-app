@@ -1,6 +1,8 @@
 import "server-only";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { cookies } from "next/headers";
+import { requireThreadAccess } from "@/lib/thread-access";
+import { withAskJournal } from "@/lib/ask-thread-journal.mjs";
 import { pool } from "@/lib/db";
 import { readSession } from "@/lib/session";
 import { SESSION_COOKIE } from "@/lib/session-window";
@@ -33,6 +35,7 @@ export async function admitAskRun(input: AskRunInput, source: AskLaunchSource): 
   const authAt=session?.authAt??session?.iat;
   if (!session?.userId || typeof authAt!=="number") throw new Error("ASK_SIGN_IN_REQUIRED");
   if (source==='panel_web' && !(await cookies()).get(SESSION_COOKIE)) throw new Error('ASK_COOKIE_REQUIRED');
+  return withAskJournal(pool,async()=>{
   const c=await pool.connect();
   try {
     await c.query('BEGIN');
@@ -47,11 +50,12 @@ export async function admitAskRun(input: AskRunInput, source: AskLaunchSource): 
     // release dependency, never an implicit ownership guess for legacy rows.
     const thread=(await c.query(`SELECT c.claude_session_id,to_jsonb(c) AS record FROM ai_conversations c WHERE c.id=$1 FOR UPDATE`,[input.conversationId])).rows[0];
     if(!thread || !Object.hasOwn(thread.record,'owner_user_id'))throw new Error('ASK_THREAD_PRIVACY_REQUIRED');
-    if(thread.record.owner_user_id!==person.id || thread.record.deleted_at)throw new Error('ASK_THREAD_UNAVAILABLE');
+    await requireThreadAccess(input.conversationId,person,c);
     if(input.resumeSessionId && input.resumeSessionId!==thread.claude_session_id)throw new Error('ASK_RESUME_MISMATCH');
     const profile=profileFor({role:person.role,active:person.active},input.requestedProfile) as 'operator'|'business';
     const {rows}=await c.query(`INSERT INTO dev_agent_runs(agent,prompt,page_context,status,conversation_id,model,mode,effort,subject_work_item_id,with_mcp,orchestration_task_id,profile,principal_user_id,activity,launch_source,continuation_of_run_id)
       VALUES($1,$2,$3,CASE WHEN $1='claude' THEN 'pending' ELSE 'running' END,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id`,[input.agent??'claude',input.prompt,input.pageContext??null,input.conversationId,input.model??null,input.mode??'acceptEdits',input.effort??'default',input.subjectWorkItemId??null,input.withMcp,input.orchestrationTaskId??null,profile,person.id,input.activity??null,source,input.continuationOfRunId??null]);
     await c.query('COMMIT'); return {id:rows[0].id,profile,principalUserId:person.id,principalRole:person.role};
   } catch(e){await c.query('ROLLBACK');throw e;} finally{c.release();}
+  });
 }

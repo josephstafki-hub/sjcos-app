@@ -1,6 +1,6 @@
 import "server-only";
 
-import { query, queryOne } from "@/lib/db";
+import { threadQuery as query, threadQueryOne as queryOne } from "@/lib/thread-access";
 import type { PanelAgent } from "@/lib/dev-agents-meta";
 import {
   type FolderEntityKind,
@@ -193,7 +193,7 @@ export async function getFolder(id: string): Promise<RailFolder | null> {
 
 export async function createFolder(name: string): Promise<string> {
   const row = await queryOne<{ id: string }>(
-    `INSERT INTO ai_folders (name) VALUES ($1) RETURNING id`,
+    `INSERT INTO ai_folders (name,owner_user_id) VALUES ($1,nullif(current_setting('sjcos.ask_actor',true),'')::uuid) RETURNING id`,
     [name.replace(/\s+/g, " ").trim().slice(0, 80) || "New folder"],
   );
   return row!.id;
@@ -207,8 +207,8 @@ export async function ensureFolderForEntity(ref: FolderEntityRef): Promise<strin
   // Insert-or-select on the partial unique index; a concurrent first-use from
   // two tabs converges on one row.
   await query(
-    `INSERT INTO ai_folders (name, entity_kind, entity_id) VALUES ('', $1, $2)
-     ON CONFLICT (entity_kind, entity_id) WHERE entity_id IS NOT NULL DO NOTHING`,
+    `INSERT INTO ai_folders (name, entity_kind, entity_id,owner_user_id) VALUES ('', $1, $2,nullif(current_setting('sjcos.ask_actor',true),'')::uuid)
+     ON CONFLICT (owner_user_id, entity_kind, entity_id) WHERE entity_id IS NOT NULL DO NOTHING`,
     [e.kind, e.slug],
   );
   const row = await queryOne<{ id: string }>(

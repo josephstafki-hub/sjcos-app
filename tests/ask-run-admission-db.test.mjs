@@ -1,8 +1,9 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
-import {withTestDb,withSessionIdentity} from './_harness/testdb.mjs';
+import {withTestDb,withSessionIdentity,withMigrationSubset} from './_harness/testdb.mjs';
 import {seedPeople} from './phase0a-fixtures.mjs';
-test('0100 actual login guards preserve background retry and reject forged panel identity (20 attacks)',async()=>withTestDb(async(url,c)=>{
+test('0100 actual login guards preserve background retry and reject forged panel identity (20 attacks)',async()=>withMigrationSubset('admission_0100',[100],async({url,db:c,apply})=>{
+ await apply();
  const {owner,staff,thread}=await seedPeople(c);
  const panel=(await c.query(`INSERT INTO dev_agent_runs(prompt,profile,principal_user_id,conversation_id,launch_source) VALUES('panel','operator',$1,$2,'panel_web') RETURNING id`,[owner.id,thread])).rows[0].id;
  for(const role of ['sjcos_agent','sjcos_worker'])await withSessionIdentity(url,role,async(db)=>{
@@ -29,10 +30,13 @@ test('0100 actual login guards preserve background retry and reject forged panel
   await assert.rejects(db.query(`UPDATE dev_agent_runs SET launch_source='background' WHERE id=$1`,[panel]),e=>e.code==='42501');
   await assert.rejects(db.query(`INSERT INTO dev_agent_runs(prompt,launch_source,profile,principal_user_id,conversation_id) VALUES('staff escalation','panel_web','operator',$1,$2)`,[staff.id,thread]));
  });
-},{fresh:true}));
+}));
 
-test('admitAskRun checks authentication, source, 0105 seam, profile, resume and continuation before insertion',async()=>withTestDb(async(url,c)=>{
+test('admitAskRun checks authentication, source, 0105 seam, profile, resume and continuation before insertion',async()=>withMigrationSubset('admission_seam',[100,105],async({url,db:c,apply})=>{
+ await apply([100]);
  const {appHooks}=await import('./phase0a-fixtures.mjs');appHooks();
+ const {registerHooks}=await import('node:module');
+ registerHooks({resolve(s,c,n){if(s==='@/lib/ask-thread-journal.mjs')return {url:'fixture:admission-journal',shortCircuit:true};return n(s,c);},load(u,c,n){if(u==='fixture:admission-journal')return {format:'module',source:`export const deleteThread=()=>{throw Error('unused deletion fixture')}; export async function withAskJournal(pool,fn){const r=await pool.query("SELECT to_regclass('ask_canvas_maintenance') AS name");if(!r.rows[0].name)throw Error('ASK_THREAD_PRIVACY_REQUIRED');return fn();}`,shortCircuit:true};return n(u,c);}});
  process.env.SESSION_SECRET='phase0a-test-secret-for-admission-32-or-more';
  const {admitAskRun}=await import('../lib/ask-run-admission.ts');
  const {encrypt}=await import('../lib/session.ts');
@@ -45,9 +49,11 @@ test('admitAskRun checks authentication, source, 0105 seam, profile, resume and 
   await assert.rejects(admitAskRun(input,'panel_web'),/ASK_SIGN_IN_REQUIRED/);
   token=await encrypt({userId:owner.id,role:'owner',authAt:Math.floor(Date.now()/1000)});
   await assert.rejects(admitAskRun(input,'panel_web'),/ASK_THREAD_PRIVACY_REQUIRED/);
-  // Contract-only stub of future 0105 fields. This is NOT thread privacy acceptance.
-  await db.query('ALTER TABLE ai_conversations ADD COLUMN owner_user_id uuid; ALTER TABLE ai_conversations ADD COLUMN deleted_at timestamptz');
-  await db.query('UPDATE ai_conversations SET owner_user_id=$1 WHERE id=$2',[owner.id,thread]);
+  // Real 0105 via isolated checksummed ledger; recovery is a test-only ready
+  // fixture here. Full independent recovery is tested separately.
+  await apply([105]);
+  await withSessionIdentity(url,'sjcos_test_website',async()=>{});
+  await db.query('UPDATE ask_canvas_maintenance SET recovery_ready=true');
   for(const source of ['panel_web','panel_mobile','panel_voice']){
    const run=await admitAskRun(input,source);assert.equal(run.profile,'operator');
    const row=(await db.query('SELECT launch_source,with_mcp FROM dev_agent_runs WHERE id=$1',[run.id])).rows[0];assert.equal(row.launch_source,source);assert.equal(row.with_mcp,false);
@@ -61,9 +67,11 @@ test('admitAskRun checks authentication, source, 0105 seam, profile, resume and 
   await assert.rejects(admitAskRun({...input,continuationOfRunId:parent.id},'panel_web'),/invalid human turn continuation/);
   token=await encrypt({userId:staff.id,role:'staff',authAt:Math.floor(Date.now()/1000)});
   await assert.rejects(admitAskRun(input,'panel_web'),/ASK_THREAD_UNAVAILABLE/);
-  await db.query('UPDATE ai_conversations SET owner_user_id=$1 WHERE id=$2',[staff.id,thread]);
+  input.conversationId=(await db.query(`INSERT INTO ai_conversations(agent,title,owner_user_id) VALUES('claude','Staff admission fixture',$1) RETURNING id`,[staff.id])).rows[0].id;
   assert.equal((await admitAskRun({...input,requestedProfile:'operator'},'panel_web')).profile,'business');
-  await db.query('UPDATE ai_conversations SET deleted_at=now() WHERE id=$1',[thread]);await assert.rejects(admitAskRun(input,'panel_web'),/ASK_THREAD_UNAVAILABLE/);
+  await db.query("SELECT set_config('sjcos.ask_purge','yes',false)");
+  await db.query("UPDATE ai_conversations SET deleted_at=now(),purge_after=now()+interval '720 hours',deletion_sequence=1 WHERE id=$1",[input.conversationId]);
+  await db.query("SELECT set_config('sjcos.ask_purge','',false)");await assert.rejects(admitAskRun(input,'panel_web'),/ASK_THREAD_UNAVAILABLE/);
   token=await encrypt({userId:noAi.id,role:'staff',authAt:Math.floor(Date.now()/1000)});await assert.rejects(admitAskRun(input,'panel_web'),/ASK_ACCESS_DENIED/);
   token=await encrypt({userId:owner.id,role:'owner',authAt:Math.floor(Date.now()/1000)});
   await db.query(`INSERT INTO session_revocations(user_id,revoked_before) VALUES($1,now()+interval '1 second')`,[owner.id]);await assert.rejects(admitAskRun(input,'panel_web'),/ASK_ACCESS_DENIED/);
@@ -91,9 +99,10 @@ test('real startClaudeRun under worker login drops inherited person/thread and k
   const row=(await db.query('SELECT conversation_id,principal_user_id,profile,launch_source,with_mcp,subject_work_item_id FROM dev_agent_runs WHERE id=$1',[id])).rows[0];
   assert.deepEqual(row,{conversation_id:null,principal_user_id:null,profile:'business',launch_source:'background',with_mcp:false,subject_work_item_id:item});assert.equal(spawned.length,1);
  });
-}));
+},{fresh:true}));
 
-test('0100 standalone upgrade backfills existing rows to legacy and defaults new rows to background',async()=>withTestDb(async(_url,c)=>{
+test('0100 standalone upgrade backfills existing rows to legacy and defaults new rows to background',async()=>withMigrationSubset('standalone_upgrade',[100],async({db:c,apply})=>{
+ await apply();
  const {readFileSync}=await import('node:fs');
  // Reconstruct the pre-0100 surface in this isolated database only; never
  // edit/skip a migration ledger entry or depend on 0105 ownership columns.
@@ -108,4 +117,4 @@ test('0100 standalone upgrade backfills existing rows to legacy and defaults new
  assert.equal((await c.query(`INSERT INTO dev_agent_runs(prompt) VALUES('ZZ after migration') RETURNING launch_source`)).rows[0].launch_source,'background');
  for(const table of tables)assert.equal((await c.query('SELECT to_regclass($1) AS table',[table])).rows[0].table,table);
  assert.equal((await c.query(`SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name='ai_conversations' AND column_name IN ('owner_user_id','deleted_at')`)).rows[0].n,0);
-},{name:'sjcos_test_phase0a_upgrade',fresh:true}));
+}));

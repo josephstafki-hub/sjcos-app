@@ -21,13 +21,15 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { registerHooks } from "node:module";
-import { assertNotProduction } from "./_harness/testdb.mjs";
+import { assertNotProduction,withTestDb } from "./_harness/testdb.mjs";
 
-const url = process.env.FIN_TEST_DATABASE_URL;
+
 const root = new URL("../", import.meta.url);
 
 registerHooks({
   resolve(specifier, context, next) {
+    if (specifier === "@/lib/thread-access") return {url:'fixture:steer-access',shortCircuit:true};
+    if (specifier === "@/lib/ask-thread-journal.mjs") return {url:'fixture:steer-journal',shortCircuit:true};
     if (specifier === "server-only") return { url: "stub:server-only", shortCircuit: true };
     if (specifier.startsWith("@/")) {
       const base = new URL(specifier.slice(2), root);
@@ -39,14 +41,16 @@ registerHooks({
     return next(specifier, context);
   },
   load(u, context, next) {
+    if(u==='fixture:steer-access')return {format:'module',source:`import {query} from ${JSON.stringify(new URL('../lib/db.ts',import.meta.url).href)};export const requireRunThreadAccess=async()=>{};export const requireThreadAccess=async()=>{};export const threadQuery=query;export const threadQueryOne=async(...a)=>(await query(...a)).rows[0]??null;`,shortCircuit:true};
+    if(u==='fixture:steer-journal')return {format:'module',source:'export const withAskJournal=async(_pool,fn)=>fn();',shortCircuit:true};
     if (u === "stub:server-only") return { format: "module", source: "", shortCircuit: true };
     return next(u, context);
   },
 });
 
-const skip = !url && "set FIN_TEST_DATABASE_URL to run";
 
-test("run steers: accept, refuse after close, never stranded, relay, settle", { skip }, async () => {
+
+test("run steers: accept, refuse after close, never stranded, relay, settle", async () => withTestDb(async(url) => {
   assertNotProduction(url);
   process.env.DATABASE_URL = url;
   const steers = await import(new URL("lib/run-steers.ts", root).href);
@@ -95,9 +99,8 @@ test("run steers: accept, refuse after close, never stranded, relay, settle", { 
     await steers.reopenSteering(r1);
     assert.equal((await steers.enqueueSteer(r1, "reopened")).ok, true);
     // A settled run takes nothing even if never closed.
-    const r1c = await run(c1, "done");
     const c1other = await conv();
-    await query(`UPDATE dev_agent_runs SET conversation_id = $2 WHERE id = $1`, [r1c, c1other]);
+    const r1c = await run(c1other, "done");
     assert.deepEqual(await steers.enqueueSteer(r1c, "x"), { ok: false, finished: true });
 
     // ── 3. the race: refused, or returned by close — never stranded ──────
@@ -118,7 +121,7 @@ test("run steers: accept, refuse after close, never stranded, relay, settle", { 
     // ── 4. relay to a takeover ───────────────────────────────────────────
     const c4 = await conv();
     const parent = await run(c4);
-    const takeover = await run(null);
+    const takeover = await run(c4);
     await steers.enqueueSteer(parent, "tell the takeover");
     assert.equal(await steers.relaySteers(parent, takeover), 1);
     assert.deepEqual((await steers.takePendingSteers(takeover, "mid-turn")).map((t) => t.body), ["tell the takeover"]);
@@ -178,8 +181,7 @@ test("run steers: accept, refuse after close, never stranded, relay, settle", { 
     assert.equal(called, false);
     assert.equal((await rows(`SELECT 1 FROM ai_messages WHERE conversation_id = $1`, [c6])).length, 0);
   } finally {
-    await query(`DELETE FROM ai_conversations WHERE title = 'ZZ steer test'`);
-    await query(`DELETE FROM dev_agent_runs WHERE prompt = 'zz'`);
+    // Disposable DB owns fixture cleanup; retained production shells are never deleted.
     await pool.end();
   }
-});
+},{fresh:true}));

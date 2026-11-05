@@ -53,7 +53,7 @@ export interface AgentSendInput {
   /** send_sms only. */
   sms?: { to: string; body: string };
   /** place_call only. */
-  call?: { to: string; contact_name?: string | null };
+  call?: { to: string; contact_name?: string | null; via?: "browser" | "cell" };
   /** send_document_for_signature only: proceed past the "fields missing" gate. */
   override?: boolean;
   /** Who is acting (for the audit line). */
@@ -151,7 +151,17 @@ export async function performGrantedAction(input: AgentSendInput): Promise<Agent
   if (action === "place_call") {
     const to = (input.call?.to ?? "").trim();
     if (!to) return { ok: false, error: "place_call needs a `to` phone number." };
-    const r = await placeCall({ to, grantId: input.grantId, actor, contactName: input.call?.contact_name ?? null });
+    // via "browser": ring the owner's open browser tab instead of the cell
+    // (the same path as "Ring: This browser" on /calls).
+    let ringBrowser = false;
+    let caller: { id: string; role: "owner" } | undefined;
+    if (input.call?.via === "browser") {
+      const owner = await queryOne<{ id: string }>("SELECT id FROM users WHERE role = 'owner' AND active = true ORDER BY created_at LIMIT 1");
+      if (!owner) return { ok: false, error: "No active owner login to ring in the browser." };
+      ringBrowser = true;
+      caller = { id: owner.id, role: "owner" };
+    }
+    const r = await placeCall({ to, grantId: input.grantId, actor, contactName: input.call?.contact_name ?? null, caller, ringBrowser });
     const result: AgentSendResult = r.ok ? { ok: true, summary: r.summary, call_id: r.callId } : { ok: false, error: r.error, held: r.blocked === "unknown" };
     await audit(agent, action, `phone:${to}`, result);
     return result;

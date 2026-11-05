@@ -101,7 +101,9 @@ export function registerGrantTools(server, { json, grantsCall, rows }) {
         "invoice, newsletter, document) pass the record id as target_id. Joe's Approve tap then " +
         "PERFORMS the send itself — do NOT call the send tool afterwards (it is refused); check the " +
         "outcome with check_owner_permission (`sent_on_approval`). Pass send_on_approval:false only " +
-        "if you must still change something after approval. place_call never runs on approval. " +
+        "if you must still change something after approval. place_call: pass target_id (the +E.164 " +
+        "number) and optionally `call` {contact_name, via}; Joe's Approve PLACES THE CALL right then " +
+        "(his phone rings first, then the OS dials and connects him) — do NOT call place_call afterwards. " +
         "Be specific in `reason` (what, to whom, why now). If Joe already gave you a grant id in " +
         "this conversation, use that instead of asking again. A new request for the SAME send " +
         "(same action + same invoice/draft/PO/address) automatically retires your earlier waiting " +
@@ -126,12 +128,20 @@ export function registerGrantTools(server, { json, grantsCall, rows }) {
           .object({ to: z.string(), body: z.string().min(1).max(1600) })
           .optional()
           .describe("send_sms: the exact text. Approving sends it."),
+        call: z
+          .object({
+            to: z.string().optional().describe("Same number as target_id (optional)."),
+            contact_name: z.string().max(120).optional().describe("Who it is, for the card and the call record."),
+            via: z.enum(["browser", "cell"]).optional().describe("Which of Joe's phones rings first: 'cell' (default) or 'browser' = his open SJC OS tab. Use 'browser' only when he asked from the web app and said so / is clearly at the computer."),
+          })
+          .optional()
+          .describe("place_call: approving places the call immediately."),
         work_item_id: z.string().uuid().optional().describe("The work item this send completes; the send is receipted on it."),
         send_on_approval: z.boolean().optional().describe("Default true. false = approval only grants permission; you send it yourself."),
         conversation_id: z.string().uuid().optional().describe("Ask-window thread id, if you know it."),
       },
     },
-    async ({ action, target_id, reason, email, sms, work_item_id, send_on_approval, conversation_id }) => {
+    async ({ action, target_id, reason, email, sms, call, work_item_id, send_on_approval, conversation_id }) => {
       try {
         const r = await grantsCall("request", {
           gated_action: action,
@@ -139,6 +149,7 @@ export function registerGrantTools(server, { json, grantsCall, rows }) {
           reason,
           email: email ? { ...email, work_item_id } : undefined,
           sms,
+          call,
           work_item_id,
           send_on_approval,
           // The in-app runner exports these: a Telegram reply to this card
@@ -152,8 +163,11 @@ export function registerGrantTools(server, { json, grantsCall, rows }) {
         }
         if (r?.ok && r.grant?.sends_on_approval) {
           r.note =
-            "Joe's Approve sends this itself (Telegram, popup, or the app). Do NOT call the send tool for it. " +
-            "Tell Joe it's waiting for his tap; afterwards check_owner_permission shows sent_on_approval.";
+            action === "place_call"
+              ? "Joe's Approve places this call itself (Telegram, popup, or the app): his phone rings first, then the OS dials and connects him. " +
+                "Do NOT call place_call for it. Tell Joe to tap Approve when he's ready to talk; afterwards check_owner_permission shows sent_on_approval."
+              : "Joe's Approve sends this itself (Telegram, popup, or the app). Do NOT call the send tool for it. " +
+                "Tell Joe it's waiting for his tap; afterwards check_owner_permission shows sent_on_approval.";
         }
         return json(r);
       } catch (e) {
@@ -417,17 +431,20 @@ export function registerGrantTools(server, { json, grantsCall, rows }) {
     {
       title: "Place a phone call for Joe (needs owner grant)",
       description:
-        "Click-to-call: the OS rings JOE'S CELL FIRST; when he answers it dials the number and " +
+        "Click-to-call: the OS rings JOE'S CELL FIRST (or his open browser tab with via='browser'); when he answers it dials the number and " +
         "bridges them, recording + transcribing the call and producing AI call notes afterwards. " +
-        "REQUIRES owner_grant_id for action place_call on that +E.164 number. Only use when Joe " +
+        "REQUIRES owner_grant_id for action place_call on that +E.164 number. Usually you don't need this tool: " +
+        "request_owner_permission(action place_call) places the call itself when Joe approves. Use it only with a " +
+        "grant that doesn't already place its own call (e.g. the Ask window's Express permission). Only when Joe " +
         "asked to be connected to someone now — never to 'check in' on your own initiative.",
       inputSchema: {
         to: z.string().describe("Number to dial, +E.164 preferred."),
         contact_name: z.string().max(120).optional().describe("Who it is, for the call record and the spoken 'no answer' line."),
+        via: z.enum(["browser", "cell"]).optional().describe("Which phone rings first. 'browser' = Joe's open SJC OS browser tab (use when he asks from the web app / Ask window); 'cell' (default) = his cell."),
         owner_grant_id: uuid,
       },
     },
-    async ({ to, contact_name, owner_grant_id }) =>
-      perform("place_call", { grant_id: owner_grant_id, call: { to, contact_name: contact_name ?? null } }),
+    async ({ to, contact_name, via, owner_grant_id }) =>
+      perform("place_call", { grant_id: owner_grant_id, call: { to, contact_name: contact_name ?? null, via: via ?? "cell" } }),
   );
 }

@@ -37,7 +37,7 @@ export async function stageGrantDecision(run: Run, g: OwnerGrant, requestedBy: P
   const content = grantDecisionContent(g);
   const send = stagedSendOf(g);
   const effect = send
-    ? `Approving does it now: ${opts.detail && send.action !== "send_email" && send.action !== "send_sms" ? `${opts.detail.headline}.` : describeStagedSend(send)} Nothing else is needed from the agent.`
+    ? `Approving does it now: ${opts.detail && send.action !== "send_email" && send.action !== "send_sms" && send.action !== "place_call" ? `${opts.detail.headline}.` : describeStagedSend(send)} Nothing else is needed from the agent.`
     : `Approving lets ${g.requested_by} perform "${label}"${g.target_id ? ` on ${g.target_kind ?? "target"} ${g.target_id}` : ""}${to ? ` to ${to}` : ""} once (${g.max_uses} use${g.max_uses === 1 ? "" : "s"}), until ${g.expires_at.slice(0, 16).replace("T", " ")}. The send itself still goes through the dispatcher and can be refused there.`;
   const preview: Record<string, string> = {};
   if (send?.email) {
@@ -51,7 +51,7 @@ export async function stageGrantDecision(run: Run, g: OwnerGrant, requestedBy: P
     preview.message = opts.detail.draft.body.slice(0, 1500);
   }
   const detail = opts.detail ?? null;
-  const recipient = send?.email?.to ?? send?.sms?.to ?? to ?? detail?.draft?.to ?? null;
+  const recipient = send?.email?.to ?? send?.sms?.to ?? send?.call?.to ?? to ?? detail?.draft?.to ?? null;
   const input: StageDecisionInput = {
     kind: "grant",
     action,

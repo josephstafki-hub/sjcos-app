@@ -77,7 +77,7 @@ export async function listPendingApprovals(opts: { limit?: number } = {}): Promi
     const staged = grant ? stagedSendOf(grant as OwnerGrant) : null;
     const note = (label: string) => s.notes.find((n) => n.label.toLowerCase() === label)?.text ?? null;
     const detail = grant ? (details[grant.id] ?? null) : null;
-    const recordSend = staged && staged.action !== "send_email" && staged.action !== "send_sms";
+    const recordSend = staged && staged.action !== "send_email" && staged.action !== "send_sms" && staged.action !== "place_call";
     out.push({
       key: `decision:${d.id}`,
       kind: "decision",
@@ -87,7 +87,7 @@ export async function listPendingApprovals(opts: { limit?: number } = {}): Promi
       // Resolved fresh, so cards filed before titles named the record read right too.
       title: detail ? `${detail.headline}${detail.job ? ` · ${detail.job}` : ""}` : d.title,
       requestedBy: d.requested_by,
-      to: staged?.email?.to ?? staged?.sms?.to ?? detail?.draft?.to ?? (s.recipients.map((r) => r.address || r.name).filter(Boolean).join(", ") || d.recipient || null),
+      to: staged?.email?.to ?? staged?.sms?.to ?? staged?.call?.to ?? detail?.draft?.to ?? (s.recipients.map((r) => r.address || r.name).filter(Boolean).join(", ") || d.recipient || null),
       subject: staged?.email?.subject || detail?.draft?.subject || note("subject"),
       body: staged?.email?.body ?? staged?.sms?.body ?? detail?.draft?.body ?? note("message") ?? null,
       effect: recordSend && detail ? `Approving does it now: ${detail.headline}.` : staged ? describeStagedSend(staged) : (s.effect ?? null),

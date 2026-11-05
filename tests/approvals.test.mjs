@@ -24,9 +24,10 @@ test("buildStagedSend: refuses a half-written email and a target that disagrees 
   assert.equal(mismatch.ok, false);
 });
 
-test("buildStagedSend: no message, a call, or an explicit opt-out stages nothing (approval only grants)", () => {
+test("buildStagedSend: no message, a numberless call, or an explicit opt-out stages nothing (approval only grants)", () => {
   assert.equal(buildStagedSend({ action: "send_email", targetId: "a@b.co" }).staged, null);
-  assert.equal(buildStagedSend({ action: "place_call", targetId: "+16125550100" }).staged, null);
+  assert.equal(buildStagedSend({ action: "place_call" }).staged, null);
+  assert.equal(buildStagedSend({ action: "place_call", targetId: "+16125550100", sendOnApproval: false }).staged, null);
   assert.equal(buildStagedSend({ action: "send_email", email: { to: "a@b.co", body: "x" }, sendOnApproval: false }).staged, null);
   assert.equal(buildStagedSend({ action: "nonsense" }).ok, false);
 });
@@ -80,4 +81,18 @@ test("email provider: a Gmail per-minute quota refusal is retryable and NOT tran
     if (prev === undefined) delete process.env.SJC_OUTBOUND_DISABLED;
     else process.env.SJC_OUTBOUND_DISABLED = prev;
   }
+});
+
+test("buildStagedSend: a call stages from its number — approving places it (cell by default)", () => {
+  const r = buildStagedSend({ action: "place_call", targetId: "(612) 555-0100" });
+  assert.equal(r.ok, true);
+  assert.equal(r.targetId, "+16125550100");
+  assert.deepEqual(r.staged, { action: "place_call", target_id: "+16125550100", call: { to: "+16125550100", contact_name: null, via: "cell" } });
+  assert.match(describeStagedSend(r.staged), /your cell rings first/);
+  const b = buildStagedSend({ action: "place_call", call: { to: "6125550100", contact_name: "Scott", via: "browser" } });
+  assert.equal(b.staged.call.via, "browser");
+  assert.equal(b.staged.call.contact_name, "Scott");
+  assert.match(describeStagedSend(b.staged), /browser tab rings first.*Scott/);
+  assert.equal(buildStagedSend({ action: "place_call", targetId: "+16125550100", call: { to: "+16125550199" } }).ok, false);
+  assert.equal(buildStagedSend({ action: "place_call", targetId: "555" }).ok, false);
 });

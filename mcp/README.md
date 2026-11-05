@@ -520,7 +520,7 @@ an **owner grant** — Joe's express permission for one action on one target
 
 | Tool | Effect |
 |---|---|
-| `request_owner_permission` | Ask: `action` + `target_id` + a specific `reason`, plus the exact send — `email {to, subject, body}` for send_email, `sms {to, body}` for send_sms (record sends need only `target_id`). Joe gets one Approve / Decline card (corner popup, bell, `/engine/permissions`, Telegram) and **his Approve performs the send** — the agent must not call the send tool afterwards (refused). `send_on_approval:false` keeps the old grant-only behaviour; `place_call` never runs on approval. Returns the grant id; `check_owner_permission` shows `sent_on_approval` |
+| `request_owner_permission` | Ask: `action` + `target_id` + a specific `reason`, plus the exact send — `email {to, subject, body}` for send_email, `sms {to, body}` for send_sms (record sends need only `target_id`). Joe gets one Approve / Decline card (corner popup, bell, `/engine/permissions`, Telegram) and **his Approve performs the send** — the agent must not call the send tool afterwards (refused). `send_on_approval:false` keeps the old grant-only behaviour. `place_call` (target = the +E.164 number, optional `call {contact_name, via: cell|browser}`) is placed the moment Joe approves: his phone rings first, then the OS dials and connects him. Returns the grant id; `check_owner_permission` shows `sent_on_approval` |
 | `check_owner_permission` | Poll a grant: requested / approved (live) / denied / revoked / spent, with its audit trail |
 | `reply_to_owner` | Answer Joe's Telegram reply to a request when you are **not** revising it: `owner_reply_id` (or `grant_id` / `decision_id`), `outcome` no_change / question / done, `message`. Goes to his Telegram under his note. If you did revise it, file `request_owner_permission` again instead — a new request for the same send replaces the old one and the new card is his answer |
 | `list_owner_permissions` | Grants pending or currently usable |
@@ -563,9 +563,11 @@ Granted (`mcp/grants-tools.mjs`, each REQUIRES `owner_grant_id`):
   numbers, refuses opted-out contacts with a reason, and files a work item on
   provider failure — including "10DLC campaign not yet approved" while carrier
   review is pending (expected for 1–3 weeks after registration).
-- `place_call` — click-to-call: Joe's cell rings FIRST; when he answers the OS
-  dials the number and bridges, records, transcribes and writes notes. Only when
-  Joe asked to be connected now.
+- `place_call` — click-to-call: Joe's cell (or, with `via: "browser"`, his open
+  SJC OS tab) rings FIRST; when he answers the OS dials the number and bridges,
+  records, transcribes and writes notes. Only when Joe asked to be connected now.
+  A `request_owner_permission` for `place_call` places the call itself the
+  moment Joe approves the card — the agent doesn't call `place_call` after.
 
 Ask with `request_owner_permission` (action `send_sms` / `place_call`, target the
 +E.164 number). A grant may be pinned to one number.

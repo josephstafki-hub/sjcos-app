@@ -2,6 +2,8 @@
 // type + the pure "does this grant cover this call" rule, with no db import so
 // UI components and unit tests can use them.
 
+import { normalizeE164 } from "./comms/phone.ts";
+
 /** Every action an agent needs a grant for. Keep in sync with the MCP tool
  *  surface (mcp/grants-tools.mjs) and lib/agent-sends.ts. */
 export const GATED_ACTIONS = [
@@ -26,7 +28,7 @@ export const ACTION_LABEL: Record<GatedAction, string> = {
   send_document_for_signature: "Send a document for signature",
   send_email: "Send an email",
   send_sms: "Send a text message",
-  place_call: "Place a phone call (Joe's cell rings first)",
+  place_call: "Place a phone call (Joe's phone rings first)",
 };
 
 /** What each action's target_kind is, for narrowing a grant. */
@@ -138,7 +140,18 @@ export interface StagedSend {
   target_id?: string | null;
   email?: { to: string; subject: string; body: string; attachment_file_ids?: string[]; work_item_id?: string | null };
   sms?: { to: string; body: string };
+  /** place_call: approving dials Joe's phone first, then this number. */
+  call?: StagedCall;
   override?: boolean;
+}
+
+/** Which of Joe's phones rings first on a staged call: his cell, or his
+ *  open SJC OS browser tab (the browser phone). */
+export type CallVia = "cell" | "browser";
+export interface StagedCall {
+  to: string;
+  contact_name?: string | null;
+  via?: CallVia;
 }
 
 export interface StagedResult {
@@ -159,9 +172,9 @@ export function stagedResultOf(g: Pick<OwnerGrant, "scope"> | null | undefined):
   return r && typeof r === "object" && typeof (r as StagedResult).state === "string" ? (r as StagedResult) : null;
 }
 
-/** Record-backed actions run from the target id alone. Calls are left to the
- *  agent: Joe's phone rings first, so it happens when he's ready, not when he
- *  taps Approve from a job site. */
+/** Record-backed actions run from the target id alone. (Calls stage too, from
+ *  their number: Joe 2026-11-05, "connect me" means ring me the moment I
+ *  approve, not when the agent next checks back.) */
 const RUN_FROM_TARGET: ReadonlySet<string> = new Set([
   "send_bid_package",
   "send_purchase_order",
@@ -179,13 +192,29 @@ export function buildStagedSend(input: {
   targetId?: string | null;
   email?: { to?: string; subject?: string; body?: string; attachment_file_ids?: string[]; work_item_id?: string | null } | null;
   sms?: { to?: string; body?: string } | null;
+  call?: { to?: string; contact_name?: string | null; via?: string | null } | null;
   override?: boolean;
   sendOnApproval?: boolean;
 }): { ok: true; staged: StagedSend | null; targetId: string | null } | { ok: false; error: string } {
   if (!isGatedAction(input.action)) return { ok: false, error: `Unknown gated action "${input.action}".` };
   const action = input.action;
   const targetId = input.targetId?.toString().trim() || null;
-  if (input.sendOnApproval === false || action === "place_call") return { ok: true, staged: null, targetId };
+  if (input.sendOnApproval === false) return { ok: true, staged: null, targetId };
+  if (action === "place_call") {
+    // A call stages from its number alone (target_id or call.to): approving
+    // the card places it. The grant is pinned to the normalized number.
+    const raw = (input.call?.to ?? targetId ?? "").trim();
+    if (!raw) return { ok: true, staged: null, targetId };
+    const num = normalizeE164(raw);
+    if (!num.ok) return { ok: false, error: num.error };
+    if (targetId && input.call?.to) {
+      const t = normalizeE164(targetId);
+      if (!t.ok || t.e164 !== num.e164) return { ok: false, error: `target_id (${targetId}) and call.to (${input.call.to}) disagree.` };
+    }
+    const name = input.call?.contact_name?.toString().trim().slice(0, 120) || null;
+    const via: CallVia = input.call?.via === "browser" ? "browser" : "cell";
+    return { ok: true, targetId: num.e164, staged: { action, target_id: num.e164, call: { to: num.e164, contact_name: name, via } } };
+  }
   if (action === "send_email") {
     if (!input.email) return { ok: true, staged: null, targetId };
     const to = (input.email.to ?? targetId ?? "").trim();
@@ -226,13 +255,20 @@ export function buildStagedSend(input: {
 export function stagedHeadline(s: StagedSend): string {
   if (s.action === "send_email" && s.email) return `Email ${s.email.to}${s.email.subject ? ` — "${s.email.subject}"` : ""}`;
   if (s.action === "send_sms" && s.sms) return `Text ${s.sms.to}`;
+  if (s.action === "place_call" && s.call) return `Call ${s.call.contact_name ? `${s.call.contact_name} (${s.call.to})` : s.call.to}`;
   return `${ACTION_LABEL[s.action] ?? s.action} (${s.target_id})`;
+}
+
+/** "your cell" / "your browser tab" — which phone a call rings first. */
+export function callRingsFirst(via: CallVia | null | undefined): string {
+  return via === "browser" ? "your SJC OS browser tab" : "your cell";
 }
 
 /** One line for cards / popups: what approving this request will do. */
 export function describeStagedSend(s: StagedSend): string {
   if (s.action === "send_email" && s.email) return `Sends the email to ${s.email.to}${s.email.subject ? ` — "${s.email.subject}"` : ""}${s.email.attachment_file_ids?.length ? ` with ${s.email.attachment_file_ids.length} attachment(s)` : ""}.`;
   if (s.action === "send_sms" && s.sms) return `Texts ${s.sms.to}.`;
+  if (s.action === "place_call" && s.call) return `Calls now: ${callRingsFirst(s.call.via)} rings first, then the OS dials ${s.call.contact_name ? `${s.call.contact_name} (${s.call.to})` : s.call.to} and connects you.`;
   const label = ACTION_LABEL[s.action] ?? s.action;
   return `${label} (${ACTION_TARGET_KIND[s.action] ?? "target"} ${s.target_id}).`;
 }

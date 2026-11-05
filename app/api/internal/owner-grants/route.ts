@@ -67,6 +67,7 @@ export async function POST(req: Request) {
         const obj = (k: string) => (body[k] && typeof body[k] === "object" ? (body[k] as Record<string, unknown>) : null);
         const em = obj("email");
         const sm = obj("sms");
+        const cl = obj("call");
         const built = buildStagedSend({
           action: str("gated_action") ?? "",
           targetId: str("target_id") ?? null,
@@ -80,6 +81,9 @@ export async function POST(req: Request) {
               }
             : null,
           sms: sm ? { to: sm.to == null ? undefined : String(sm.to), body: sm.body == null ? undefined : String(sm.body) } : null,
+          call: cl
+            ? { to: cl.to == null ? undefined : String(cl.to), contact_name: cl.contact_name == null ? null : String(cl.contact_name), via: cl.via == null ? null : String(cl.via) }
+            : null,
           override: Boolean(body.override),
           sendOnApproval: body.send_on_approval === false ? false : undefined,
         });
@@ -145,8 +149,8 @@ export async function POST(req: Request) {
               ok: false,
               already_handled: true,
               error: done
-                ? `This permission sent its own message when Joe approved it (${done.state}${done.summary ? `: ${done.summary}` : done.error ? `: ${done.error}` : ""}). Do not send it again.`
-                : "This permission sends its own message the moment Joe approves it — don't call the send tool for it. Check it with check_owner_permission.",
+                ? `This permission did its own ${spending.actions.includes("place_call") ? "call" : "send"} when Joe approved it (${done.state}${done.summary ? `: ${done.summary}` : done.error ? `: ${done.error}` : ""}). Do not send it again.`
+                : `This permission ${spending.actions.includes("place_call") ? "places its own call" : "sends its own message"} the moment Joe approves it — don't call the ${spending.actions.includes("place_call") ? "place_call" : "send"} tool for it. Check it with check_owner_permission.`,
             },
             { status: 409 },
           );
@@ -167,7 +171,7 @@ export async function POST(req: Request) {
               }
             : undefined,
           sms: sms ? { to: String(sms.to ?? ""), body: String(sms.body ?? "") } : undefined,
-          call: call ? { to: String(call.to ?? ""), contact_name: call.contact_name == null ? null : String(call.contact_name) } : undefined,
+          call: call ? { to: String(call.to ?? ""), contact_name: call.contact_name == null ? null : String(call.contact_name), via: call.via === "browser" ? "browser" : "cell" } : undefined,
           override: Boolean(body.override),
           agent: str("agent") ?? "agent",
         });

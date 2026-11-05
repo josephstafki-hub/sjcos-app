@@ -11,7 +11,7 @@ import "server-only";
 import { query, queryOne } from "@/lib/db";
 import { usd } from "@/lib/money";
 import { previewInvoiceEmail, previewPurchaseOrderEmail } from "@/lib/send-ops";
-import { ACTION_LABEL, stagedSendOf, type GatedAction, type GrantDetail, type OwnerGrant } from "@/lib/owner-grant-types";
+import { ACTION_LABEL, callRingsFirst, stagedSendOf, type GatedAction, type GrantDetail, type OwnerGrant } from "@/lib/owner-grant-types";
 
 type GrantLike = Pick<OwnerGrant, "actions" | "target_kind" | "target_id" | "scope" | "reason">;
 
@@ -84,17 +84,23 @@ async function emailDetail(g: GrantLike): Promise<GrantDetail> {
 
 async function smsDetail(g: GrantLike, call: boolean): Promise<GrantDetail> {
   const staged = stagedSendOf(g);
-  const to = staged?.sms?.to ?? g.target_id ?? "";
+  const to = staged?.sms?.to ?? staged?.call?.to ?? g.target_id ?? "";
   const who = to ? await whoIsPhone(to) : null;
-  const name = who ? who.replace(/ \(.*\)$/, "") : to;
+  const name = who ? who.replace(/ \(.*\)$/, "") : staged?.call?.contact_name || to;
   if (call) {
+    const ring = callRingsFirst(staged?.call?.via);
     return {
-      headline: `Call ${name}${who ? ` at ${to}` : ""} — your cell rings first`,
+      headline: `Call ${name}${who || staged?.call?.contact_name ? ` at ${to}` : ""} — ${ring} rings first`,
       job: null,
-      facts: [{ label: "Number", value: who ? `${who} · ${to}` : to }],
+      facts: [
+        { label: "Number", value: who ? `${who} · ${to}` : to },
+        { label: "Rings first", value: staged?.call?.via === "browser" ? "Your SJC OS browser tab (keep it open)" : "Your cell" },
+      ],
       draft: null,
-      draftNote: "Nothing is sent. Approving lets the agent place the call; your phone rings first and connects you.",
-      links: [],
+      draftNote: staged?.call
+        ? `Approving places the call right away: ${ring} rings, and when you answer the OS dials ${name} and connects you.`
+        : "Nothing is sent. Approving lets the agent place the call; your phone rings first and connects you.",
+      links: [{ label: "Calls", href: "/calls" }],
     };
   }
   return {

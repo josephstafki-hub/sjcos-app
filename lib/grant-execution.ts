@@ -57,6 +57,7 @@ export async function runStagedGrant(grantId: string | null | undefined): Promis
         ? { to: staged.email.to, subject: staged.email.subject, body: staged.email.body, attachment_file_ids: staged.email.attachment_file_ids }
         : undefined,
       sms: staged.sms,
+      call: staged.call ? { to: staged.call.to, contact_name: staged.call.contact_name ?? null, via: staged.call.via ?? "cell" } : undefined,
       override: staged.override,
       agent: `${claimed.requested_by} (approved)`.slice(0, 40),
     });
@@ -77,21 +78,29 @@ export async function runStagedGrant(grantId: string | null | undefined): Promis
       await setResult(grantId, { state: held ? "held" : "failed", at, error: r.error });
     }
 
-    const what = staged.email ? `Email to ${staged.email.to}${staged.email.subject ? ` ("${staged.email.subject}")` : ""}` : staged.sms ? `Text to ${staged.sms.to}` : `${staged.action} ${staged.target_id ?? ""}`.trim();
-    const line = r.ok
-      ? `Sent ✓ ${what}.`
-      : held
-        ? `${what}: the provider didn't confirm it went out. It's held for a check against Sent mail — don't resend.`
-        : `${what} was NOT sent: ${r.error}`;
+    const call = staged.action === "place_call" ? staged.call : undefined;
+    const who = call ? (call.contact_name ? `${call.contact_name} (${call.to})` : call.to) : "";
+    const what = staged.email ? `Email to ${staged.email.to}${staged.email.subject ? ` ("${staged.email.subject}")` : ""}` : staged.sms ? `Text to ${staged.sms.to}` : call ? `Call to ${who}` : `${staged.action} ${staged.target_id ?? ""}`.trim();
+    const line = call
+      ? r.ok
+        ? `Calling ✓ ${r.summary}`
+        : held
+          ? `${what}: Telnyx didn't confirm the dial started. It's held for a check — not redialled.`
+          : `${what} did NOT start: ${r.error}`
+      : r.ok
+        ? `Sent ✓ ${what}.`
+        : held
+          ? `${what}: the provider didn't confirm it went out. It's held for a check against Sent mail — don't resend.`
+          : `${what} was NOT sent: ${r.error}`;
     await emit({
       kind: "job",
-      tag: r.ok ? "Sent" : "Send failed",
+      tag: call ? (r.ok ? "Calling" : "Call failed") : r.ok ? "Sent" : "Send failed",
       accent: r.ok ? "money" : "flag",
       icon: staged.email ? "mail" : "chat",
       flagged: !r.ok,
-      title: r.ok ? `Sent on your approval · ${what}` : `Not sent · ${what}`,
-      subline: (r.ok ? (staged.email ? "Went out from the business Gmail." : "Accepted by the provider.") : r.error).slice(0, 200),
-      href: "/engine/permissions",
+      title: call ? (r.ok ? `Calling on your approval · ${who}` : `Call not placed · ${who}`) : r.ok ? `Sent on your approval · ${what}` : `Not sent · ${what}`,
+      subline: (r.ok ? (call ? r.summary : staged.email ? "Went out from the business Gmail." : "Accepted by the provider.") : r.error).slice(0, 200),
+      href: call ? "/calls" : "/engine/permissions",
       ref: `grant:${grantId}`,
     });
     return { ran: true, ok: r.ok, line };
@@ -105,13 +114,15 @@ export async function runStagedGrant(grantId: string | null | undefined): Promis
 /** Safety net for the dispatch pass: an approved request whose staged send
  *  never started (the process died between the approval commit and the
  *  send). Approvals older than a day are left alone: that send is stale, and
- *  a person should look first. A claim stuck at "running" is NOT retried;
- *  its outcome is unknown. */
+ *  a person should look first. A call gets five minutes, not a day: Joe's
+ *  phone ringing an hour after he approved is a surprise, not a connection.
+ *  A claim stuck at "running" is NOT retried; its outcome is unknown. */
 export async function sweepStagedGrants(limit = 5): Promise<number> {
   const { rows } = await query<{ id: string }>(
     `SELECT id FROM owner_grants
       WHERE status = 'approved' AND scope ? 'staged' AND NOT (scope ? 'staged_result')
-        AND decided_at > now() - interval '1 day' AND decided_at < now() - interval '1 minute'
+        AND decided_at > now() - CASE WHEN scope->'staged'->>'action' = 'place_call' THEN interval '5 minutes' ELSE interval '1 day' END
+        AND decided_at < now() - interval '1 minute'
         AND expires_at > now()
       ORDER BY decided_at LIMIT $1`,
     [limit],

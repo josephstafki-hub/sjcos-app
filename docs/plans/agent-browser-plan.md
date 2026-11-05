@@ -8,6 +8,9 @@ and release gates below are not claims of runtime verification.
 Round-4 revision: design items 1–4 and engineering item 1 against HEAD
 `c8aba006`; round-4 security 10/10 retained. Host H1–H5 re-adopted at
 `85a7a5c6`, including the round-4 shell and explicit passive Watch exit.
+Round-5 revision: design items 1–3 against HEAD `febc1e26`; round-5
+engineering and security 10/10 contracts retained. Changes are layout, device
+definitions, copy and proposed acceptance cases only; see Round-5 fixes appendix.
 Normative owner decisions: `_context-agent-browser-canvas.md`, “Joe's decisions.”
 This plan owns the browser; `ask-canvas-plan.md` owns Canvas. Both depend on the
 shared host/auth prerequisites (§6.2); neither renderer requires the other enabled. Technical names below are implementation names, not UI copy.
@@ -48,7 +51,7 @@ evidence that the permit was issued. No change to construction-start gates here.
 | Give back to agent | Phase 4 reviewed steps only: release personal control, then explicitly confirm blind adapter continuation |
 | Back to the page / Ask Joe again | Generic expired flow: return to page for a new deliberate click / Phase 4 pre-click adapter only: build and notify a fresh review |
 | Ask Joe to finish | Confirm a bounded hand-off to a new Joe-owned task; no shared browser, password or staff transcript |
-| Asked to finish | Joe’s persistent Browser list of hand-offs awaiting his outcome |
+| Asked to finish | Joe’s persistent Browser list of hand-offs awaiting an outcome |
 | Mark finished / Didn't finish / Don't finish | Confirm a human-reported hand-off outcome, never proof of a portal result |
 | Show the page | Explicitly join a private page as an authorized human viewer, without control |
 | Stop browser | Close this task's browser, preserve already saved files |
@@ -72,6 +75,10 @@ evidence that the permit was issued. No change to construction-start gates here.
 | Continue / Cancel / Try again / Close | Local UI actions; Continue never authorizes an outside final step |
 
 No “broker,” “lease,” “principal,” “CDP,” “capability,” or “egress” in product copy.
+Copy names people; never guess gendered pronouns for a runtime staff or owner
+name, in on-screen templates or plan prose. Joe, Abigail and Mark are examples;
+substitute the authorized display name everywhere a template names that person,
+including possessives. §12 requires a copy-lint case with varied runtime names.
 Use existing `--paper`, `--paper-2`, `--ink`, `--ink-3`, `--ai-soft`, `--ai-2`,
 `--flag`, `--rule` tokens. Flag states have an icon **and** a word. No color-only
 warnings. Use app type tokens: `text-body` 13 px for existing chat (unchanged),
@@ -863,7 +870,7 @@ old wrap metadata, interrupted rewrap and backup restore. Exclude plaintext
 ### 5.2 Visibility and filling
 
 Each entry belongs to one SJC OS user. Staff creates/updates/deletes only their
-own entries. Joe manages his entries and can grant named staff **use** of selected
+own entries. Joe manages Joe-owned entries and can grant named staff **use** of selected
 company entries, with required areas. Joe can disable delegated access, but does
 not get a “show staff password” feature. Staff never enumerates another user's
 private entry; list results contain label + exact site, visibility, last-used,
@@ -898,7 +905,7 @@ Any separately authored receipt document must use those safe facts, not page byt
 
 V1 has **no reviewed site adapters**. Share sheet explicitly says
 **“Abigail can use this login only on sites with supported steps. City permit
-office: not supported yet — Joe signs in for her.”** Staff row is **“From Joe ·
+office: not supported yet — Joe signs in instead.”** Staff row is **“From Joe ·
 not usable on this site yet”**. Named access is saved but cannot start a generic
 delegated staff context. Joe finishes in a Joe-controlled task on their behalf;
 no staff private view is opened. With the first reviewed adapter (Phase 4),
@@ -994,7 +1001,7 @@ Fill flow:
 Before public-page Take over (also Phase 1), show **“Take over? After you take
 over, the agent can't see this page anymore. To let it keep reading, open a fresh
 browser afterwards. [Take over] [Cancel]”**. Joe alone may tick **“Don't ask
-again”** for himself; preference suppresses confirmation, never private transition.
+again”** for Joe's own takeovers; preference suppresses confirmation, never private transition.
 Staff always confirm. Cancel leaves page/control unchanged. Label manual reason
 **“Private — you took over. The agent can't see this page.”**; if vault/restore
 also applies use login/account reason. Protection and output draining ship in
@@ -1154,6 +1161,33 @@ strip, duplicate header or history entry on rotation. Control/attendance and all
 leave guards survive orientation changes; apply §6.3’s compact keyboard row
 when capturing keys, with the shared shell rather than duplicate chrome.
 
+**One device-input definition, used throughout this plan:** **phone** means the
+native app **or** a web view whose screen's shorter side is **<600 CSS px**:
+`Math.min(screen.width, screen.height) < 600`. Evaluate once on load and retain
+the result through rotation and viewport/keyboard/Split View resizing. All other
+web views are **tablet/computer**, including iPads in either orientation or Split
+View. A native iPad app still follows the native/phone path; Safari on that iPad
+follows the web screen rule. Viewport and measured pane width decide **layout
+only**, using H1/H3; the 1024 px sheet/dock breakpoint is not a phone definition.
+An 800×360 phone stays a phone sideways; 820 portrait and 744 iPad mini portrait
+in Safari are tablet/computer even in a narrow pane.
+
+Use this single helper for **every** Take over variant (including Take over
+again, Take over here and replacing staff control), first-fill field mapping,
+and every “on a tablet or computer” or iPad/computer instruction. Phone templates
+replace unavailable takeover controls with **“Take over on a tablet or computer.
+Open SJC OS on your iPad or computer, then Operator › Browser.”**, never a
+disabled or working input button.
+In short landscape, the column shows the first sentence; the full instruction
+remains in ⋯ and the instruction's accessible description, without another row.
+The hand-off invitation's accepting **Open** and accepted-draft Open browser /
+restart use the same rule (§6.4); **Open** in Asked to finish only opens the card
+and remains available on a phone. Local Zoom/pan, human review decisions and
+Show the page remain available in authorized web views. This helper describes
+device input availability, grants no permission and changes no server session,
+claim, presence, private-before-input or role check. Native admission remains
+unavailable in v1; Open in Safari opens the website, never accepts or launches.
+
 New H5 Phase 0 acceptance is adopted too: 0105's minimum maintenance lease/fence/
 recovery schema, independent durable intent/high-water, all-Ask startup/recovery
 gate and thread-only deletion/reconciliation must pass with later Canvas tables/
@@ -1258,10 +1292,10 @@ Join with owner_review validates Joe's cookie sid/ai/task-area rights, returns
 this claim and viewer, then shows **“‹ Back · Abigail's browser · Larson bath”**,
 no view selector. Watch from In use uses this same layer with action_id=null;
 new review appears within it, not another history entry. Native/browser Back, ‹ Back, Close and Escape on Watch with **no Joe control
-and no open review** close only Joe's viewer and restore his untouched selection;
+and no open review** close only Joe's viewer and restore Joe's untouched selection;
 Abigail's task/control/attendance are unchanged. **Escape = Keep paused** applies
 to the actual review sheet only, never turns a passive Watch exit into a pause.
-An explicit **[Pause agent]** opens **“Pause Abigail's agent? She'll need to tap
+An explicit **[Pause agent]** opens **“Pause Abigail's agent? Abigail will need to tap
 Continue. [Pause agent] [Cancel]”** (Escape = Cancel). Confirm uses owner-authorized
 pause without acquiring control, fences agent/undispatched commands and stales
 pending review; staff see **“Joe paused the agent. [Continue]”**. Joe sees
@@ -1307,8 +1341,9 @@ counts only as Joe's review presence.
 
 ### 6.3 Wireframes and complete start/task/review flows
 
-Own-task screens retain the shipped **Operator** header; the cross-person owner
-layer and keyboard-open compact mode use their explicit exceptions below. Below 1024 viewport the
+Own-task screens retain the shipped **Operator** header; the H3 short-landscape
+strip, cross-person owner layer and keyboard-open compact mode use their explicit
+exceptions below. Below 1024 viewport the
 66dvh drawer expands to full-height for Browser and covers MobileTabBar; safe-area
 insets and visualViewport keyboard resize apply. Hide sheet chevron; keep the
 working × labeled Close Operator, with H3 leave/history behavior.
@@ -1425,7 +1460,7 @@ job details isn't available yet.”**; hide company lookup/page approval guidanc
 while dispatch is unavailable (also Phase 2). Phase 3 company tasks show **“Each
 lookup with job details needs Joe's OK.”** Staff on a company task without
 reviewed steps also see **“Joe has to OK each page you send on this site, usually
-within a minute. Let him know before you start.”** Never show these alongside the
+within a minute. Let Joe know before you start.”** Never show these alongside the
 public-only warning. No company lookup release before Phase 3.
 
 A typed name must resolve to a proposed exact HTTPS address, shown before Add;
@@ -1462,6 +1497,140 @@ text, no undefined device-transfer button.
 │ computer, then Operator › Browser│
 └──────────────────────────────────┘
 ```
+
+**800×360 landscape Browser — own task, viewing (H3 sheet shell).** This is the
+sideways phone view recommended by the portrait tip; the §6.2 device helper still
+forbids phone takeover. The same sheet layout applies to a short computer window
+when H1 selects sheet mode; that computer retains authorized takeover controls.
+
+```text
+800 × 360 · own task, phone viewing
+┌──────────┬──────────────────────────────────────────────┬────────────────┐
+│    ×     │ ‹ Chat · city.example · ⋯              48 px │ [Stop browser] │
+│ Queue    │ Agent is working                       20 px │ [Zoom]         │
+│ Chat     ├──────────────────────────────────────────────┤ [Pause live    │
+│ Canvas   │                                              │  view]         │
+│ Browser• │       live image (contain/letterbox)          │                │
+│          │              stage ≥200 px                   │ Take over on   │
+│          │                                              │ a tablet or    │
+│          │                                              │ computer       │
+└──────────┴──────────────────────────────────────────────┴────────────────┘
+ ≥64 px     center: 48 title / 20 meta / remaining stage     128 px
+```
+
+The left strip is **the host's one** Close Operator + Queue/Chat/Canvas/Browser
+selector, each a 48 px row; it can widen to fit labels. No grabber, horizontal
+Operator header/selector, extra Browser title, toolbar or bottom action row.
+The center has exactly **48 px title** **“‹ Chat · {trusted origin} · ⋯”**, then
+**20 px meta** showing fixed state (“Agent is working”, “Paused” or **“Waiting
+for Joe · 0:48 left”**) and **“· 2 windows”** when applicable. The title can wrap
+the origin within its row; the full trusted origin remains accessible.
+
+**⋯** contains guarded **‹ / › / Reload**, **Saved logins**, and the window
+switch **“city.example / Payment window”** only when the second window exists.
+Keyboard, Page controls and Your answers open from this menu when authorized;
+they add no permanent horizontal rows. No menu navigation/window switch bypasses
+the existing request guard, privacy fence, input checks or frozen review.
+Private reasons and live-view-paused notices stay visible in the stage as trusted
+labels, without adding chrome; never show a private image before its authorized
+join. Local Zoom opens the existing zoom view, never remote input.
+
+**128 px right column, top to bottom:** state's primary action, remaining state
+actions, then **Zoom**, **Pause live view** (or Resume live view), then the phone
+instruction **“Take over on a tablet or computer”** as non-button text. Working
+phone: **Stop browser**; working tablet/computer: **Take over**, then **Stop
+browser**. Public paused: **Continue**, then **Stop browser** (tablet/computer
+also has Take over in ⋯). Private paused: §5.2's available Take over again on
+tablet/computer, Open a fresh browser when offered, then Stop browser; **no
+Continue**. Person-controlled: **Done**, then Stop browser (Phase 4 alone may
+substitute Give back to agent). All controls are **≥48 px**; touch take-over
+toolbar controls retain the existing **56 px** targets. Decision buttons may
+wrap to two lines, and gaps are 4 px. At standard type, the busiest phone
+rest has four 48 px buttons + four gaps + ≤60 px instruction = **268 px**, fitting
+the **272 px** column budget after 8 px padding and ≤80 px vertical safe areas.
+Longer explanations stay in the center/menu; additional secondary controls can
+scroll within the column, below pinned primary actions, without page scrolling.
+
+**800×360 own review — Joe's own task.** Retain that same single host strip and
+48/20 center rows. The review **replaces** the live stage with a scrolling card;
+no second sheet header above it. Put the sticky decision buttons in the right
+column, never at the bottom of the scrolling card.
+
+```text
+800 × 360 · Joe reviewing Joe's own task
+┌──────────┬──────────────────────────────────────────────┬────────────────┐
+│    ×     │ ‹ Chat · city.example · ⋯              48 px │ [Pay $125.00   │
+│ Queue    │ Waiting for you · 0:48 left             20 px │  once]         │
+│ Chat     ├──────────────────────────────────────────────┤ [Don't pay]    │
+│ Canvas   │ Ready to pay                                 │ [Review image] │
+│ Browser• │ $125.00 USD to City of Fargo                  │ [Stop browser] │
+│          │ answers · files · attestations               │ [Pause live    │
+│          │ The page is locked during this review.       │  view]         │
+│          │ card scrolls here · stage ≥200 px             │                │
+└──────────┴──────────────────────────────────────────────┴────────────────┘
+```
+
+Use the exact action pair for this request: Send once / Don't send, Submit once /
+Don't submit, Pay $125.00 once / Don't pay, or Sign once / Don't sign. **Review
+image** opens the zoom view; Stop browser and Pause live view follow (at most
+five 48 px controls + four gaps = **256 px**). Optional takeover stays in ⋯,
+**only Joe's own task on tablet/computer**, subject to the existing review
+invalidation rules. Staff use the same center card for the full Waiting for Joe
+template, with **See request / Cancel request** first in the column, never
+owner decisions; keep the full “Keep this screen open” instruction in the card.
+The review focus trap, original deadline, Keep paused on Escape and all approval
+checks are unchanged.
+
+**800×360 cross-person owner layer — Joe reviewing a staff task.** Unlike the
+own-task shell, it has **no Operator strip, selector or second header**; the
+underlying own selection is inert. One **48 px full-width** header **“‹ Back ·
+Abigail's browser · Larson bath”** spans center and right column. Below it, the
+center has a **20 px** status row and the scrolling review/status card or image;
+the **128 px** column holds pinned actions.
+
+```text
+800 × 360 · Joe's owner layer on Abigail's task
+┌───────────────────────────────────────────────────────────────────────┐
+│ ‹ Back · Abigail's browser · Larson bath                         48 px │
+├──────────────────────────────────────────────────────┬────────────────┤
+│ Waiting for Joe · 0:48 left                     20 px │ [Pay $125.00   │
+├──────────────────────────────────────────────────────┤  once]         │
+│ Ready to pay · $125.00 USD to City of Fargo            │ [Don't pay]    │
+│ answers · files · attestations                        │ [Review image] │
+│ The page is locked during this review.                │ [Pause live    │
+│ card scrolls here · stage ≥200 px                     │  view]         │
+└──────────────────────────────────────────────────────┴────────────────┘
+                         center                             128 px
+```
+
+On **Watch before private join**, the center card says **“Abigail took over.
+The agent can't see this page.”**; the right column holds **Show the page**, then
+**Pause agent**, plus the phone instruction when applicable. No frame request
+before Show the page. After the authorized join the image fills the center
+stage with its private label, fixed status moves to the 20 px meta row, and the
+right column holds **Pause agent / Zoom / Pause live view**. Phone views retain
+the non-button tablet/computer instruction below these. Authorized
+tablet/computer Watch may also offer the existing confirmed Take over from
+Abigail as its primary action; never offer it on the staff-task decision card.
+At most four 48 px controls + three gaps = **204 px**, fitting **224 px** below
+the full-width header after safe areas/padding. Phone Watch's three buttons +
+three gaps + ≤60 px instruction use **216 px** of that same budget.
+Public Watch uses the same image layout without the private join prompt. Pause agent still confirms and only
+reports success after the fence; passive Back/Escape still leaves staff running.
+
+**Stage budget for all three frames:** with keyboard closed, center stage means
+the image viewport or scrolling card region, not the letterboxed image's pixel
+bounds. **360−48−20−8−80 = 204 px ≥200** after the same host safe areas (applied
+once). Decision buttons remain visible without scrolling the card or page.
+With larger text, keep decisions pinned while secondary actions scroll. During
+key capture on a short tablet/computer sheet, **“city.example · You're in control
+· [Done]”** in the existing **44 px** keyboard row replaces the center 48/20 rows;
+the left host strip and right column remain, without another capture bar. Your
+answers stays in ⋯ here, rather than adding a strip above the stage. With a
+physical keyboard the stage budget becomes **360−44−8−80 = 228 px**; a soft
+keyboard uses the remaining visualViewport height, with no false ≥200 claim.
+Rotation retains selection/focus/control/attendance and adds no history entry;
+every existing leave/private-view/review guard still applies.
 
 **820 iPad portrait**, full-height sheet, one content pane. Take over atomically
 makes context private before *any* input; keyboard-open layout below replaces
@@ -1656,8 +1825,8 @@ only “Sign in to open the review.”
 ```
 
 Watch Back/Escape/Close leaves Abigail working (§6.2); Pause agent is deliberate.
-Take-over is never available on Joe's phone. For 360 view/review give a dismissible
-one-time tip: **“Turn your phone sideways for a bigger view.”** Owner copy uses
+Take-over is never available on Joe's phone. For phone view/review (§6.2), give a
+dismissible one-time tip: **“Turn your phone sideways for a bigger view.”** Owner copy uses
 the configured owner's display name, with Joe as this plan's concrete example.
 
 Display header **“‹ Back · Abigail's browser · Larson bath”**; wraps on 360.
@@ -1715,7 +1884,7 @@ Track old/new message IDs and confirmed provider results. Delete absent counts
 as deleted; other deletion failure keeps the old message outcome-only (remove
 review link), raises staff delivery warning and retries deletion bounded by the
 same deadline before sending replacement. Send failure after deletion leaves bell
-authoritative with **“Couldn't alert Joe on Telegram. Ask him to open SJC OS.”**
+authoritative with **“Couldn't alert Joe on Telegram. Ask Joe to open SJC OS.”**
 Unknown send outcome is reconciled/flagged, never blindly resent into duplicate
 pings. Do not claim guaranteed one-message cleanup during provider failure. Only
 one actionable current notification/review can exist; stale buttons cannot act.
@@ -1737,7 +1906,7 @@ actions. Update in place, politely announce once, and retain **[‹ Back]**:
 
 - Staff Stop or idle-close: **“Abigail stopped the browser.”**
 - Loss of the last staff initiator's attendance: **“Abigail left the browser.
-  Nothing more will come until she opens it again.”**
+  Nothing more will come until Abigail opens it again.”**
 - Normal turn completion with no pending/executing/unknown action:
   **“Agent turn finished. Nothing is waiting for you.”**
 
@@ -1746,11 +1915,11 @@ with “Nothing is waiting for you.” Controller failure uses the existing cras
 unknown state, never an endless wait or fabricated staff Stop. Derive the winning
 state from a fresh authorized revision (final/unknown first, closed/failed next,
 absence next, ended-turn next); ignore late events. These notices grant no
-continuation. After she explicitly returns/continues, a fresh pending action
+continuation. After Abigail explicitly returns/continues, a fresh pending action
 may replace the notice using the same reauthorization/focus rules above.
 
-If initiator absent: **“Abigail left the browser. It can't be paid until they
-open it again. [Remind Abigail]”**, Pay disabled with inline reason. Remind is
+If initiator absent: **“Abigail left the browser. It can't be paid until Abigail
+opens it again. [Remind Abigail]”**, Pay disabled with inline reason. Remind is
 internal/rate-limited, no client message. Loss invalidates undispatched review;
 return/re-ask needs a fresh snapshot. Both presences required at dispatch; Joe
 review never substitutes for staff attendance. Pending review suspends only idle
@@ -1774,7 +1943,7 @@ permission inherited from the link or Watch. Reauthorize each frame (§4.1/§6.1
 
 Delegated-secret keeps the same label and **Joe-only pixels** rule: Abigail
 receives no image, raw page or controls even while Joe watches; this label is not
-a grant to her. In that mode the pre-image status is **“Login from Joe. The agent
+a grant to Abigail. In that mode the pre-image status is **“Login from Joe. The agent
 can't see this page. [Show the page]”**, with the same explicit Joe-only join.
 While **any** live owner viewer is joined (public or private), Abigail's Browser
 status row additionally shows **“Joe is watching.”** Remove it only when the last
@@ -1817,7 +1986,7 @@ Sharing is decision 5 implemented, not an unresolved policy: Joe's sheet
 “Let these people use this login” [Abigail] [Mark], named staff checkboxes,
 “They can sign in without seeing the password.” Under names:
 **“Abigail can use this login only on sites with supported steps. City permit
-office: not supported yet — Joe signs in for her.”** Default Only me. Required
+office: not supported yet — Joe signs in instead.”** Default Only me. Required
 areas derived/read-only. Staff own logins editable by them; delegated row no
 Edit/Share/Reveal. Remove access: **“Remove Abigail's access to City permit
 office? Their open browser will close.”** [Remove access] [Cancel]. Delete:
@@ -1840,7 +2009,7 @@ record access; atomically creates one active hand-off, fences staff commands,
 cancels undispatched review and releases/closes its browser slot. Executing or
 unknown action must be reconciled first; never pass possible execution to Joe
 as a fresh attempt. Staff task stays paused, with no automatic resumption:
-**“Sent to Joe. He'll finish this in his own browser. [Close browser]”**.
+**“Sent to Joe. Joe will finish this in a separate browser. [Close browser]”**.
 Closing staff's view does not cancel the separate hand-off; no staff attendance
 is required for Joe's independent task.
 
@@ -1851,26 +2020,28 @@ an authorized invitation **in Joe's Operator, as a card at the top of a new chat
 surface, not the cross-person owner layer**. Before **Open**, no conversation,
 attempt, browser task or run is created; the surface is only a transient preview.
 It must not load/select Abigail's chat or disturb Joe's current draft/selection.
-Close returns to his prior view. Use H1's single host/header and H3 focus/back.
+Close returns to Joe's prior view. Use H1's single host/header and H3 focus/back.
 
 ```text
-Joe's Operator · new chat preview (1280; narrow/native variant below)
+Joe's Operator · new chat preview (tablet/computer; phone/native variant below)
 Abigail asked you to finish: Apply for Larson permit · city.example · Larson bath.
-Her answers come with it.
+Abigail's answers come with it.
 [Open] [Don't finish]
 
-Phone (<1024 viewport, or the native app):
+Phone (§6.2 device rule, including the native app):
 Abigail asked you to finish: Apply for Larson permit · city.example · Larson bath.
-Her answers come with it.
+Abigail's answers come with it.
 Finish this on your iPad or computer. It stays in Browser › Asked to finish.
 [Don't finish] [Close]
 Native additionally: [Open in Safari] (48 px; external canonical invitation URL)
 ```
 
-The narrow/native invitation deliberately offers no Open/accept or Open browser:
-it cannot leave a login-paused task occupying capacity. On an iPad at a narrow
-viewport, open the wider web view to accept; an already admitted iPad task keeps
-§6.3's 820 take-over controls. Native Open in Safari only opens the web invitation;
+The phone invitation deliberately offers no Open/accept or Open browser:
+it cannot leave a login-paused task occupying capacity. On **820 iPad portrait**
+and **744 iPad mini portrait** in Safari, including Split View, show **[Open]
+[Don't finish]**; Open accepts into full-height Sites review using H1's narrow
+layout, without rotation or widening. Input eligibility is §6.2, not pane width.
+Native Open in Safari only opens the web invitation;
 it never accepts, launches or enables phone input. Preserve browserHandoff before
 native Today mapping (§10.2). Signed-out entry remains outside the returnTo
 allowlist; after sign-in Joe opens Browser › Asked to finish (also reachable from
@@ -1880,14 +2051,14 @@ an invitation whose query the login path drops.
 Joe's Browser empty state has **Asked to finish** beside **In use** (stacked on
 360), with rows **“Abigail · Apply for Larson permit — Larson bath [Open]”**.
 Open on this list only displays the authorized invitation/current accepted card;
-on a phone it shows the narrow copy above. List pending **and accepted** hand-offs
+on a phone it shows the phone copy above. List pending **and accepted** hand-offs
 until Joe records an outcome, regardless of bell read status or closed destination.
 If Joe has a live browser, the same list remains reachable under Browser's task
 status; it never vanishes behind that task. Empty list: **“No requests to finish.”**
 Expired/deleted/access-revoked entries follow §9.3 cleanup/ACLs, never leak names
 or offer an unusable acceptance. This is a Browser view, not a new dashboard.
 
-On a supported wider web view, invitation **Open** = cookie+CSRF accept POST →
+On a tablet/computer web view (§6.2), invitation **Open** = cookie+CSRF accept POST →
 Joe's **Sites review**, prefilled for a **new Joe-owned task in one new private
 chat**: **“Finish for Abigail: Apply for Larson permit”**. Same job/proposed
 sites; **Your answers** contains the immutable confirmed snapshot labelled
@@ -1896,8 +2067,8 @@ frames, vault secret, artifacts, control capability, approval or owner grant
 crosses. Joe reviews sites/read manifests and answers anew; **Open browser**
 explicitly admits the first fresh attended panel_web browser-profile turn.
 No automatic run at notification, GET, acceptance or login. The task has Joe's
-own immutable identities, may fill his authorized login privately, and requires
-his exact approval for every company commitment/data release (decision 6).
+own immutable identities, may fill Joe's authorized login privately, and requires
+Joe's exact approval for every company commitment/data release (decision 6).
 
 **Acceptance and recovery.** Fresh Joe ai/job/area rights are required on every
 read/write; lost access shows generic unavailable. Acceptance is idempotent:
@@ -1997,7 +2168,7 @@ code. Joe has to finish signing in on an iPad or computer. [Ask Joe]”**.
 Notification **“Abigail needs you to finish signing in to city.example · Larson
 bath”** opens In use's same owner top layer on tablet/computer; phone shows
 **“Take over on a tablet or computer.”** Unsupported v1 site asks Joe to finish
-in his own task, not staff takeover or a hidden unreviewed adapter.
+in Joe's own task, not staff takeover or a hidden unreviewed adapter.
 Done cannot turn a private/delegated context public; Phase 4 reviewed-step
 Give back cannot do so either.
 
@@ -2023,6 +2194,12 @@ Joe-only, including sanitized copies; staff receive only separately generated
 fixed-schema safe business output (§5.2), not those artifacts.
 
 ### 6.5 States, exact copy and recovery
+
+Every phone/tablet/computer variant and takeover control in these tables uses
+§6.2's single device rule, including Take over here/again, first-fill mapping and
+hand-off invitation Open; a narrow iPad pane is not a phone. Portrait toolbar
+placements become §6.3's ⋯/right-column placements in short landscape; the state,
+authority and exact action stay the same.
 
 | State / event | What the person sees | Available action / outcome |
 |---|---|---|
@@ -2080,7 +2257,7 @@ Additional required states (same table semantics):
 | Offer missed | “You missed your turn. [Get back in line]” |
 | Queue expired | “You left the line after 5 minutes. [Get back in line]” |
 | Third tab blocked | “The site tried to open another window. Only two are allowed for a task.” |
-| Popup open | Toolbar strip “[city.example] [Payment window]”; guarded before first request |
+| Popup open | Toolbar strip “[city.example] [Payment window]”; in short landscape the same switch is in ⋯, meta adds “· 2 windows”; guarded before first request |
 | Unapproved redirect | “The site wants to go to {origin}. It isn't on this task's list. [Add a site] [Stay here]” |
 | Joe replaces staff | Confirm “Take over from Abigail? Their control ends.”; staff “Joe is in control.” |
 | Frozen review | “The page is locked while this review is open.” |
@@ -2090,7 +2267,7 @@ Additional required states (same table semantics):
 | Attendance lost | “You left the browser. The agent paused.” [Continue] only for public/reviewed steps; private no-adapter Take over again or phone instruction |
 | View paused locally | “Live view paused. The agent may still be working. [Resume live view]” |
 | Delegated site unsupported | “This site can't safely share a login yet. Ask Joe to finish, or sign in with your own account.” **[Ask Joe to finish]** → §6.4 confirm and separate-task hand-off |
-| Staff hand-off paused | “Sent to Joe. He'll finish this in his own browser. [Close browser]”; outcome “Joe finished this.” / “Joe didn't finish this.”, no automatic resume |
+| Staff hand-off paused | “Sent to Joe. Joe will finish this in a separate browser. [Close browser]”; outcome “Joe finished this.” / “Joe didn't finish this.”, no automatic resume |
 | Joe paused staff agent | Staff: “Joe paused the agent. [Continue]”. Joe, after pause succeeds: “Agent paused. Abigail can tap Continue.”; no successful copy on failure |
 | Joe Watch, ordinary private page | “Abigail took over. The agent can't see this page. [Show the page]” (48 px); no image before explicit private owner join, no control |
 | Joe Watch, delegated-secret page | “Login from Joe. The agent can't see this page. [Show the page]”; only Joe can view; staff get no pixels |
@@ -2098,10 +2275,10 @@ Additional required states (same table semantics):
 | Staff, owner viewer present | “Joe is watching.” in staff status row while any owner viewer is joined; removed on last leave/expiry/revocation |
 | Joe waits for next page | “Sent. Waiting for Abigail's next page. [‹ Back]”; next pending decision replaces in place with §6.3 focus/announcement; terminal/presence updates below are polite-announced once |
 | Joe waiting, staff stopped/idle-closed | “Abigail stopped the browser. [‹ Back]” |
-| Joe waiting, staff left | “Abigail left the browser. Nothing more will come until she opens it again. [‹ Back]” |
+| Joe waiting, staff left | “Abigail left the browser. Nothing more will come until Abigail opens it again. [‹ Back]” |
 | Joe waiting, turn ended and nothing pending | “Agent turn finished. Nothing is waiting for you. [‹ Back]”; verified final outcome/unknown retains its existing copy, §6.3 precedence |
-| Joe hand-off invitation | “Abigail asked you to finish: Apply for Larson permit · city.example · Larson bath. Her answers come with it. [Open] [Don't finish]”; card in new-chat preview, no persisted chat/task before Open |
-| Joe hand-off phone/native | “Finish this on your iPad or computer. It stays in Browser › Asked to finish.” [Don't finish] [Close]; no Open browser; native also 48 px Open in Safari retaining browserHandoff |
+| Joe hand-off invitation | “Abigail asked you to finish: Apply for Larson permit · city.example · Larson bath. Abigail's answers come with it. [Open] [Don't finish]”; tablet/computer per §6.2, including 820/744 iPad portrait or Split View; card in new-chat preview, no persisted chat/task before Open |
+| Joe hand-off phone/native | §6.2 rule: “Finish this on your iPad or computer. It stays in Browser › Asked to finish.” [Don't finish] [Close]; no accepting Open or Open browser; native also 48 px Open in Safari retaining browserHandoff |
 | Joe hand-off busy | “Finish or stop your other browser first. This stays in Asked to finish.”; keep draft/list, no second live task |
 | Joe hand-off outcomes | Current task's Browser status row + chat card: [Mark finished] [Didn't finish]. “Tell Abigail you finished this? [Mark finished] [Cancel]” / “Tell Abigail you won't finish this? [Didn't finish] [Cancel]”; pending Don't finish uses latter; Escape Cancel |
 | Accepted hand-off destination closed/failed | Existing idle/Stop/crash copy + [Open a fresh browser], [Mark finished] [Didn't finish]; Sites/history review → explicit Open browser creates a fresh attempt (§6.4); phone instruction replaces restart |
@@ -2125,7 +2302,8 @@ full-site label and Close. Disabled controls have visible explanation. Accessibl
 state changes, never each frame. Reduced motion keeps content frames updating but
 stops pulse dots/transitions; Pause live view is always available, stops presentation
 only, not attendance/agent. Persistent capture bar immediately above image: “Keys
-go to the website · Esc to stop”. Focus order: back-to-chat, site/history, state,
+go to the website · Esc to stop”; §6.3's 44 px keyboard row replaces it in compact
+capture mode, never stacks a second bar. Focus order: back-to-chat, site/history, state,
 Take over/Done (Phase 4 reviewed steps: Give back), Keyboard, Page controls, Zoom, Pause live view, Stop, answers.
 On review appearance, move focus to card heading; preserve prior target for return.
 No remote keyboard capture until person explicitly selects it.
@@ -2195,7 +2373,7 @@ approval; reject a second mutation even if sent to the same endpoint.
 
 | Step | Staff initiator | Joe | Take-over rule |
 |---|---|---|---|
-| Their own sign-in, 2FA/CAPTCHA or their own personal-account contact details | May approve exact personal step; permitted own account only | Himself | Direct deliberate person action; private input and exact login endpoint |
+| Their own sign-in, 2FA/CAPTCHA or their own personal-account contact details | May approve exact personal step; permitted own account only | May approve Joe's own exact personal step | Direct deliberate person action; private input and exact login endpoint |
 | Login from Joe shared with named staff | May request blind Fill login and explicitly approve a reviewed exact login endpoint under named site use; no view/reveal/arbitrary controls | Sets mapping, may handle private login/2FA | Delegated-secret restriction persists after sign-in; unsupported = refuse |
 | Any company final submit, permit application, request/form or account change; even described “nonbinding” | **Cannot approve; §6.3 single waiting template** | Exact one-use owner grant | Staff manual click cannot bypass; company scope derives from account/task, not model label |
 | Company draft save / Next / autosave / business data release including GET lookup, upload/send | Must ask Joe | Exact recipient+field/value/request approval; external_browser_submit subtype company_save/send | Review is visibly mid-form, not final; no generic staff nonbinding release category |
@@ -3518,9 +3696,27 @@ public tasks) is part of this phase's acceptance, not an unplanned owner-only v1
   phone instruction, no resting no-op or private Continue. Phase 2 adds invitation
   preview/new-chat placement without persistence, pending/accepted Asked to finish
   rows after bell read/login/closed attempt, native/phone no Open browser, exact
-  busy/outcome confirms and Escape Cancel. Shared 800×360 shell/rotation has one
-  vertical selector/Close and no duplicate chrome/history. Deterministic rendered
-  component tests; device behavior still requires the coordinator.
+  busy/outcome confirms and Escape Cancel. Import the shared
+  `tests/fixtures/ask-pane-host.mjs` rows below for **800×360 own task, Joe's own
+  review and Joe's owner layer**, including Watch before/after Show the page:
+  center stage ≥200 with ≤80 px safe areas + 8 padding, 48/20 rows, 128 px right
+  column, pinned decisions visible without card/page scrolling; one vertical
+  selector/Close only in own-task views, none in owner layer. Assert ⋯ guarded
+  history/reload/window switch, 2-window meta, phone instruction, Stop/Zoom/Pause
+  live view placement and rotation with no duplicate chrome/history.
+  Device fixtures separate **screen dimensions** from viewport: 820×1180 iPad
+  portrait and 744×1133 iPad mini allow takeover/first-fill/hand-off acceptance;
+  a 360 px Split View pane on the same iPad does too. A 360×800 phone rotated to
+  800×360 still has no takeover/first-fill/accepting Open; the identical viewport
+  on a computer screen keeps those controls. Test native app on phone and iPad,
+  shorter-side **599 vs 600** boundary, stable classification through rotation,
+  resize and keyboard changes, and every repeated device-specific instruction.
+  **Copy lint:** render on-screen strings naming runtime staff/owners with
+  Abigail, Mark and varied configured owner names; assert no gendered third-person
+  pronouns, including possessive, reflexive and contracted forms, in templates or rendered
+  output. Assert the exact §5.2/§6.2–6.5 replacement copy for pause, absence,
+  invitation, sign-in, hand-off and alerts. Deterministic rendered component
+  tests; device behavior still requires the coordinator.
 * `tests/browser-private.test.mjs` Phase 1 cases: public→take-over permanent
   privacy before first pointer/wheel/key/IME/Type it, concurrent observation/frame
   cancel+drain, no-log/HMAC input, deceptive textbox/focus swap, Done/no-adapter
@@ -3542,7 +3738,9 @@ public tasks) is part of this phase's acceptance, not an unplanned owner-only v1
   release can pass disabled flags via model, direct input, SQL, web or gate.
 * `tests/browser-owner-review.test.mjs` Phase 1 subset: private Watch join/deny/
   expiry and watching indicator/audit, private/no-model frame fence, passive exit
-  and successful/failed Pause agent copy (§6.3/§6.5); review/wait cases extend in Phase 3.
+  and successful/failed Pause agent copy (§6.3/§6.5); shared 800×360 owner-layer
+  fixture before/after Show the page, 48/20 rows, ≥200 stage, right column and
+  no Operator strip/selector or premature image. Review/wait cases extend in Phase 3.
 * Mobile link acceptance (read-only fixtures + later coordinator device check):
   relative/absolute review and Watch links in Today, destination/notification and
   Operator entries retain UUIDs before generic native Today mapping, 48 px Open
@@ -3585,6 +3783,13 @@ independent of Phase 4's research runbook/first city adapter.
   FIFO/draft and access loss. Asked to finish persists after bell read/sign-in
   and terminal destination; phone/native links retain browserHandoff, no phone
   acceptance/launch, native external Safari and cookie-only decline confirmation.
+  Pair the §6.2 device fixtures with these acceptance cases: **820 iPad portrait**
+  and **744 iPad mini portrait**, including narrow Split View, accept into one
+  full-height Sites draft without rotation; **800×360 phone landscape** and
+  native app show the phone invitation without accepting Open or launching.
+  List Open still displays the invitation on every device. Screen/viewport hints
+  grant no authority: all accept/launch operations still require the unchanged
+  fresh cookie/CSRF/rights/admission checks, even if device hints are forged.
   Reject forged staff/source/answer refs and all password/page/transcript/cookie/
   artifact/grant copying, executing/unknown source. Exact Mark finished / Didn't
   finish / Don't finish placement/confirms, Escape Cancel and one fixed staff
@@ -3674,6 +3879,11 @@ before enabling dispatch. Still no chosen city automation and no unattended use.
   yields Joe paused the agent/Continue for staff only. Review Escape remains Keep
   paused, controlled exit still confirms/fences. At 360/1280/1180 and ≥840/<840
   pop-out: correct layout, no staff chat, Joe draft/scroll/focus restored.
+  Import shared **800×360 owner-layer review/Watch** rows: no strip/selector,
+  one full-width 48 px Back header + 20 px meta, ≥200 center stage, 128 px right
+  column and decisions visible without scrolling; Joe's own review uses exactly
+  one host strip. Exact action pair/refusal and original expiry/focus/Escape
+  behavior remain; layout never joins a private stream or acquires control.
   Private Watch initially shows exact Abigail took over/Show the page at 48 px,
   no private frame request until fresh authorized join; then exact private image
   label, no control/model stream. Public→private clears/drains and re-prompts;
@@ -3726,8 +3936,8 @@ replace, the above tests and make every round-1/round-2/round-3 fix falsifiable:
 | 1 `tests/browser-multiturn-db.test.mjs` | Turn 1 action FK survives turn 2; ended-run card can dispatch only via valid web review, old model capability rejected; successful wait vs crash vs Stop vs 5 min inactivity / ≤60 s generic review expiry; simultaneous resume/approval one winner, old grant/run never rewritten. Crash at each consume/transmission boundary produces unknown without replay. |
 | 1 `tests/browser-routes.test.mjs` | Cookie-only rejects Bearer-only, absent/development secret blocks feature; JWT expires during SSE; sid logout/replacement/revocation fences devices. Swapped conversation, copied device secret with wrong sid, wrong stream generation/frame after reconnect/navigation, same seq different body; one of two devices hides vs both; Joe joins private view without control. Planned rotation preserves attendance; accidental initiator stream loss pauses, passive owner-only loss just revokes Joe’s viewer. |
 | 1 `tests/browser-supervisor.test.mjs` | Serialized simultaneous admission, unavailable/incomplete accounting, outside-budget workload discovered; controller killed before latch write, marker survives reboot, ExecStopPost failure, OOM counter and persistent latch, root-only reset; pressure during executing action→unknown, queue reconciliation; temp/disk/connection/CPU ceilings; safe cleanup/reader while latched. |
-| 1 `tests/panel-content-pane.test.mjs` + `tests/browser-ui.test.mjs` importing `tests/fixtures/ask-pane-host.mjs` (shared with Canvas) | 360/820/1280 + 420 dock at wide viewport and 1180 iPad landscape; owner-layer 1280 dock/1180 iPad/≥840 pop-out split and <840 pop-out single view, passive Watch exit vs explicit pause, current-task next-review replacement; H2/H3/H5 compact Canvas, shared short-landscape shell and recovery fixtures adopted at 85a7a5c6; content switching in both directions, composer retained, no duplicate rails, temporary expansion/back, popout/redock, Browser attention never steals Canvas and Canvas never steals takeover/review, Chat/Canvas switching preserves attendance; confirmed exit during take-over releases control and pauses; panel close/thread change/background pauses. |
-| 1 `tests/browser-ui.test.mjs` | All §6 wireframes/states: start fields derived areas, grouped resource sites, In use owner/staff privacy, mid-form versus final, phone owner review/presence/countdown, one action, token sizes/44–48–56 targets, reduced motion, live accessible name, focus capture/review return and Pause live view behavior. |
+| 1 `tests/panel-content-pane.test.mjs` + `tests/browser-ui.test.mjs` importing `tests/fixtures/ask-pane-host.mjs` (shared with Canvas) | 360/820/1280 + 420 dock at wide viewport and 1180 iPad landscape; owner-layer 1280 dock/1180 iPad/≥840 pop-out split and <840 pop-out single view, passive Watch exit vs explicit pause, current-task next-review replacement; H2/H3/H5 compact Canvas, shared short-landscape shell and recovery fixtures adopted at 85a7a5c6; **add Browser 800×360 own-task, Joe-own-review and staff-task owner-layer review/Watch rows** as specified below; content switching in both directions, composer retained, no duplicate rails, temporary expansion/back, popout/redock, Browser attention never steals Canvas and Canvas never steals takeover/review, Chat/Canvas switching preserves attendance; confirmed exit during take-over releases control and pauses; panel close/thread change/background pauses. |
+| 1 `tests/browser-ui.test.mjs` | All §6 wireframes/states: start fields derived areas, grouped resource sites, In use owner/staff privacy, mid-form versus final, phone owner review/presence/countdown, one action, token sizes/44–48–56 targets, reduced motion, live accessible name, focus capture/review return and Pause live view behavior. **Single §6.2 device helper** for every takeover/first-fill/instruction/accepting Open; screen vs pane fixtures including 820/744 iPads and 800×360 phone. **Copy lint** across runtime-named staff/owner templates and rendered strings: no gendered third-person pronouns (including possessive, reflexive and contracted forms). |
 | 1 `tests/browser-private.test.mjs` (Phase 2 extends same file) | Public→takeover permanently private **before first pointer/key/IME/Type it**; deceptive text box, focus swap, concurrent public observation/frame cancellation/draining and Done/fresh reset gate Phase 1. Phase 2: restored state starts private. Delegated staff account-settings/reveal/plaintext/image/encoded reflection, download/export/upload all denied; unsupported adapter refuses, fresh per-person login separate. Joe-only view still absent from every model channel. |
 | 1 `tests/panel-content-pane.test.mjs` + `tests/browser-routes.test.mjs` owner-layer cases | Joe with unrelated Chat/Canvas open reviews Abigail's action via /today deep link, reloads, uses Back/Escape/Close and returns unchanged draft/scroll/focus; null local thread returns Today. No staff conversation/message/attachment/run-poll request or reciprocal transcript copy; staff attendance independent; expired/decided link resolves safe outcome. Cross-session claim, wrong local thread, logout, staff impersonation and unauthorized private image fail closed. |
 | 2 `tests/browser-vault.test.mjs` | Cross-purpose/record/action/file substitution, JCS byte fixtures/domain prefixes, wrong data/wrap AAD, key counter limits, CAS rewrap/partial rotation/restore, plaintext provisioning path absent from host+app backup inventory. |
@@ -3735,6 +3945,19 @@ replace, the above tests and make every round-1/round-2/round-3 fix falsifiable:
 | 2 `tests/browser-files-db.test.mjs` | All actual read/export/signed/base64/text/pages/mobile/portal/thumbnail/attachment/ingestion variants; overwrite/tag clear/trash restore preserve provenance, purge old cached exports; cross-UID crash at stage/DB/publish/commit, repeated-save changed body, reader authorization HEAD/Range and closed task; feature off/controller down/rollback/backup restore retains compatible reader; shared-secret artifacts always Joe-only, only separate fixed-schema safe output can be released. |
 | 3 `tests/browser-approval-db.test.mjs` | Every company submit/sign/pay plus “nonbinding”/draft company request staff-denied, staff direct click cannot bypass; personal own-login/contact and named delegated login-only self-approvals. Grant/token/audit consume concurrent and atomic; wildcard/wrong snapshot rejected, original run preserved, absent either person disallows dispatch. |
 | 3 `tests/browser-audit.test.mjs` | Approval and consume evidence durable with grant use; failed chain/checkpoint write blocks gate; mutate/delete/truncate/restore old DB detected against independent sink; retained-boundary checkpoint, key rotation/verifier, signed consume receipt bound to flow; no best-effort logging-only execution. |
+
+**Browser additions to the shared fixture test list**
+(`tests/fixtures/ask-pane-host.mjs`, consumed by `tests/browser-ui.test.mjs` and
+the host test; `tests/browser-owner-review.test.mjs` consumes the owner rows in
+Phases 1/3). These are proposed acceptance cases, not edits to those files in
+this plan revision. Preserve every existing H5 width/history/recovery case.
+
+| Viewport / case | Required expected result |
+|---|---|
+| **800×360 own task, viewing / public paused / private paused** | H3's one ≥64 px strip, Close + four 48 px vertical tabs; no horizontal header/selector/grabber. Center title/meta **48/20**, **128 px** right column with state actions then Zoom/Pause live view and phone text (§6.3); guarded history/reload/window switch in ⋯, “· 2 windows” meta. Center stage **204 px ≥200** with 8 padding + 80 vertical safe areas, no extra bars. Phone has no remote takeover; same viewport on a computer retains authorized controls. |
+| **800×360 Joe's own review / staff waiting** | Same one strip and 48/20 center; ≥200 scrolling card region; right-column exact decision pair + Review image, or staff See request / Cancel request. Decisions pinned and visible without card/page scrolling, targets ≥48; long copy scrolls only in center. Escape Keep paused and original deadline/focus/role checks retained. |
+| **800×360 Joe's owner layer on staff task: review / Watch pre-join / Watch joined** | **No Operator strip/selector**, one **48 px full-width “‹ Back · Abigail's browser · Larson bath”** header, **20 px** meta, **128 px** column, ≥200 card/image stage. Exact decisions remain visible without scrolling. Watch pre-join shows card + Show the page / Pause agent with zero private frame requests; explicit authorized join replaces card with image/private label. No staff chat load; Back/Escape passive exit restores Joe's unchanged view and leaves staff running; review Escape Keep paused. |
+| **360×800 → 800×360 rotation; 800×360 computer capture** | Retain selection/focus/attendance/control and history count; one selector changes orientation, never duplicates. Phone classification stays fixed, no takeover appears sideways. Computer capture replaces center 48/20 rows with **44 px** row; physical-keyboard stage **228 px**, soft-keyboard stage uses remaining visualViewport. Preserve capture exit, 56 px touch tools, private fence and one host. |
 
 ### Phase 4 — generic permit handoff, then separately a first-city adapter
 
@@ -3844,7 +4067,7 @@ its feature flag. Recheck all branch migration allocations before merge.
    a separate SJC_DIST_DIR production build, side-port service in MemoryMax=8G,
    checks and stops it in the same turn, without touching live `.next`.
    This planning task does none of those operations and never calls systemctl.
-7. Set Telegram's link setting to open reviews in Safari so Joe uses his signed-in
+7. Set Telegram's link setting to open reviews in Safari using Joe's signed-in
    Safari session rather than Telegram's own browser; verify the neutral login
    return flow for the first legacy-JWT reauthentication and the native 48 px
    external Open in Safari button. No native token exchange.
@@ -4083,3 +4306,23 @@ Only `docs/plans/agent-browser-plan.md` is owned/staged by this revision. No
 business question blocks the changes. The already deferred first permit portal
 (§14) still recommends the city with the next real application after generic
 acceptance; no new policy decision is requested.
+
+## Appendix — Round-5 fixes
+
+Round-5 design items 1–3 are addressed below. Engineering and security both
+scored 10/10 with no required fix; their reviewed contracts and all §12 runtime
+release gates remain normative. This revision changes only this plan; fixture
+and copy-lint entries describe future tests, not implemented or passing tests.
+
+| Item | Sections changed / concrete fix | Engineering/security effect or boundary touched |
+|---|---|---|
+| Design 1 — 800×360 landscape | §6.2–6.3/§6.5 and §12 Phases 1/3 + shared fixture list: draw own task, Joe's own review and staff-task owner layer; 48/20 center rows, 128 px action column, ≥200 center stage with safe areas, decisions pinned outside card scroll. H3's ≥64 px strip is present only for own-task views; owner layer has one full-width Back header and no strip/selector. Define guarded navigation/window switch in ⋯, two-window meta, state actions, Stop/Zoom/Pause live view, phone text and 44 px keyboard-row replacement. | Presentation and planned layout assertions only: consumes existing H1–H3 slots/reducer/history/focus/leave guards, no second host or new authority. Private Watch still requires explicit authorized/audited join before frames; passive owner exit does not pause staff, Pause agent still fences, and review Escape remains Keep paused. Roles, presence/control epochs, request guard, expiry and exact one-use approvals are unchanged. |
+| Design 2 — one phone definition | §6.2 single native-or-shorter-screen-side <600 CSS px helper, stable through rotation; §6.3/§6.4–6.5/§12 Phases 1/2 apply it to every takeover variant, first-fill, instruction and hand-off accepting Open/restart. Remove viewport-width phone classification and widening advice; 820 iPad portrait, 744 iPad mini and Split View accept into Sites review without rotation; sideways 800×360 phones retain viewing/review only. Add screen-vs-pane, 599/600, native and rotation cases to UI and hand-off test lists. | Touches UI device-availability selection and expected fixtures, not admission/authentication or schema. H1/H3 width thresholds still choose layout only. Screen hints confer no permission; fresh cookie/CSRF/record rights, device claim/control, attendance and private-before-input checks still apply. Native remains outside Browser admission with external Safari only; acceptance alone still launches nothing, copies no staff chat/secrets and consumes no capacity. |
+| Design 3 — runtime names | §1 Words; §5.2/§6.2–6.5 replace every guessed gendered person reference with a name or neutral phrasing, including pause, waiting/absence, invitation, unsupported login, hand-off and owner alerts. Prose in §7.2/§13 is likewise neutral. §12 UI test list adds copy lint across staff/owner template strings and rendered variants using Abigail, Mark and configured owner names. | Copy only: no change to who may see, approve, control, share a login or receive an outcome. Names still come from authorized metadata, never page content; no added person lookup, data payload, protocol, grant, audit or database write path. Exact action/refusal verbs and verified-vs-unknown outcome meanings stay intact. |
+
+Validation for this plan revision: whitespace/diff review, copy consistency and a
+whole-file case-insensitive gendered-pronoun sweep with **zero remaining hits**
+(including reflexive variants). No browsers, servers, builds, database access,
+service changes, deployment or runtime tests are part of this revision. The
+coordinator still checks the three landscape frames, pinned buttons, safe areas,
+rotation and iPad/phone input behavior on real devices before release.

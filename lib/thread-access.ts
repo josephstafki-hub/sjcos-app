@@ -19,7 +19,10 @@ export async function threadPrincipal() {
 }
 /** The OS journal lock covers the entire transaction, including its commit.
  * RLS uses only this verified website actor; narrow session_user cannot spoof it.
- * No DB transaction/row lock spans the remote authority round trip. */
+ * No DB transaction/row lock spans the remote authority round trip.
+ * The actor GUC alone is not authorization when the DB login bypasses RLS:
+ * callers must also use explicit self predicates or exact access guards.
+ * tests/ask-private-query-scan.test.mjs pins that reviewed caller inventory. */
 export async function threadQuery<T extends QueryResultRow=QueryResultRow>(sql:string,params?:unknown[]):Promise<QueryResult<T>> {
  const person=await threadPrincipal();
  return withAskJournal(pool,async()=>{
@@ -40,12 +43,13 @@ export async function requireThreadAccess(id:string,principal?:{id:string},db?:P
 }
 export async function requireRunThreadAccess(id:string){
  const person=await threadPrincipal();
- const run=await threadQueryOne<{conversation_id:string|null;principal_user_id:string|null}>(`SELECT conversation_id,principal_user_id FROM dev_agent_runs WHERE id=$1`,[id]);
+ const run=await threadQueryOne<{conversation_id:string|null;principal_user_id:string|null}>(`SELECT conversation_id,principal_user_id FROM dev_agent_runs WHERE id=$1 AND principal_user_id=$2`,[id,person.id]);
  if(!run?.conversation_id||run.principal_user_id!==person.id)throw Error('ASK_THREAD_UNAVAILABLE');
  await requireThreadAccess(run.conversation_id,person);return person;
 }
 export async function requireInteractionThreadAccess(id:string){
- const row=await threadQueryOne<{run_id:string|null;conversation_id:string|null}>(`SELECT run_id,conversation_id FROM agent_interactions WHERE id=$1`,[id]);
+ const person=await threadPrincipal();
+ const row=await threadQueryOne<{run_id:string|null;conversation_id:string|null}>(`SELECT run_id,conversation_id FROM agent_interactions WHERE id=$1 AND EXISTS(SELECT 1 FROM ai_conversations c WHERE c.id=conversation_id AND c.owner_user_id=$2 AND c.deleted_at IS NULL)`,[id,person.id]);
  if(!row?.run_id||!row.conversation_id)throw Error('ASK_THREAD_UNAVAILABLE');
  return requireRunThreadAccess(row.run_id);
 }

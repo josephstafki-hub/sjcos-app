@@ -529,7 +529,7 @@ async function verifiedOwnerReplyOf(run: Run, scope: ContextScope): Promise<stri
   const id = (scope.trigger?.payload as { owner_reply_id?: unknown } | null | undefined)?.owner_reply_id;
   if (typeof id !== "string" || !/^[0-9a-f-]{36}$/i.test(id)) return null;
   if (!(await tableExists(run, "owner_replies"))) return null;
-  const rows = await safe<{ body: string }>(run, `SELECT body FROM owner_replies WHERE id = $1`, [id]);
+  const rows = await safe<{ body: string }>(run, `SELECT body FROM owner_replies WHERE id = $1 AND conversation_id IS NULL`, [id]);
   return rows?.[0]?.body ?? null;
 }
 

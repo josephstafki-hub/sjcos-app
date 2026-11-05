@@ -15,7 +15,7 @@ function actionFor(agent) {
     '@/lib/ask-run-admission': { currentAskLaunchSource: async () => "panel_web" },
     '@/lib/dal': { requireAccess: async () => ({ role: 'staff', name: 'Staff' }) },
     '@/lib/db': { queryOne: async () => ({ agent }) },
-    '@/lib/thread-access': { queryOne: async () => ({ agent }), threadQueryOne: async () => ({ agent }), requireThreadAccess: async () => {}, threadPrincipal: async () => ({id:'staff',role:'staff'}) },
+    '@/lib/thread-access': { askBoundary: async callback => callback(), queryOne: async () => ({ agent }), threadQueryOne: async () => ({ agent }), requireThreadAccess: async () => {}, threadPrincipal: async () => ({id:'staff',role:'staff'}) },
     '@/lib/panel-context': { loadPanelContext: async refs => { calls.context.push(refs); return 'Explicit job context'; } },
     '@/lib/attachments': { sanitizeAttachments: () => [] },
     '@/lib/orchestrator/proposals': { setEscalateHook() {} },

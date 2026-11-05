@@ -1,6 +1,6 @@
 import "server-only";
 
-import { threadQuery as query, threadQueryOne as queryOne } from "@/lib/thread-access";
+import { threadQuery as query, threadQueryOne as queryOne, requireRunThreadAccess, requireThreadAccess, requireInteractionThreadAccess } from "@/lib/thread-access";
 
 // Interactive agent runs — the read/answer layer over agent_interactions.
 //
@@ -95,11 +95,13 @@ export async function listPendingInteractions(
   runId: string,
   conversationId: string | null,
 ): Promise<AgentInteraction[]> {
+  await requireRunThreadAccess(runId);
+  if (conversationId) await requireThreadAccess(conversationId);
   // Orphan sweep first: an asker that died mid-poll leaves 'pending' forever —
   // expire anything older than 15 min so it can't haunt every future run.
   await query(
     `UPDATE agent_interactions SET status = 'expired'
-      WHERE status = 'pending' AND created_at < now() - interval '15 minutes'`,
+      WHERE EXISTS(SELECT 1 FROM ai_conversations c WHERE c.id=agent_interactions.conversation_id AND c.owner_user_id=nullif(current_setting('sjcos.ask_actor',true),'')::uuid AND c.deleted_at IS NULL) AND status = 'pending' AND created_at < now() - interval '15 minutes'`,
   );
   const { rows } = await query<Row>(
     `SELECT ${COLS} FROM agent_interactions
@@ -118,6 +120,7 @@ export async function answerInteraction(
   id: string,
   response: InteractionResponse,
 ): Promise<AgentInteraction | null> {
+  await requireInteractionThreadAccess(id);
   const row = await queryOne<Row>(
     `UPDATE agent_interactions
         SET status = 'answered', response = $2::jsonb, answered_at = now()
@@ -130,6 +133,7 @@ export async function answerInteraction(
 
 /** Dismiss without answering — the asker's poll treats it like a timeout. */
 export async function dismissInteraction(id: string): Promise<void> {
+  await requireInteractionThreadAccess(id);
   await query(
     `UPDATE agent_interactions SET status = 'dismissed', answered_at = now()
       WHERE id = $1 AND status = 'pending'`,

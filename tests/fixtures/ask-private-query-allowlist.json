@@ -1,0 +1,1309 @@
+{
+  "version": 1,
+  "note": "Manually reviewed privacy inventory. Query and full source hashes require explicit review on changes. No file-wide query wildcard. not-private entries explain business metadata/aggregate/conservative non-SQL matches.",
+  "sources": {
+    "lib/actions/ai-chat.ts": "f5c821ca2562c800851de64e36a6425f88f2c5f03ae30da51b7b2115f7d5a416",
+    "lib/actions/panel-review.ts": "2a69b85f6dc7655ef5e7e3dc54fed3d4b2548711625a612066a33d98d926b499",
+    "lib/agent-interactions.ts": "b3c9c62363c44be68a954cf635accb6c331f033e36099fd0bf1dd36a0e17517f",
+    "lib/agent-runtime/context.ts": "278796cd05d6cdd7daedae6ac779654a3a5b76fd4d42c5c70aa2f6515d8dc702",
+    "lib/ai-chat.ts": "3ce216a36019763bfdedd24f1d808a233c9b59abf050d565416cc457252374a8",
+    "lib/ask-run-admission.ts": "f07318d9ee3666da83dd659a20c257cbf30b12a5b0f3fd51a1e0b359019188a4",
+    "lib/ask-thread-journal-interactions.mjs": "bb7cc8fc617e99d1eea8131a590f4089fec6be00e065ec16624fb7dcba67be55",
+    "lib/ask-thread-journal.mjs": "b12e3e94d1581e1f6d2ade39f59b398ffd6d412926382afa5b1c71f4d823fae1",
+    "lib/authority/usage.ts": "0e86785e1c48d24d132c974f2f612985dccb225e5b2baeb947cac19d35252cf1",
+    "lib/decisions/owner-replies.ts": "c0a207660a5046f4af785e5e10359948ad31e4284c97619e04335199dc567455",
+    "lib/dev-agents.ts": "04919b77226d1759e20af95a580b507410547f6b8fc62de839e1d95001e6e061",
+    "lib/measure/baseline.ts": "3c3afd48d4d34bcecadd93bee90fcdae37042cf20a56de6dba392eb8aca6c31a",
+    "lib/measure/cases.ts": "130d79c27bf30cbe5923238736c19bed4901884a33a344cbb206e718d75aa36f",
+    "lib/orchestrator/activity.ts": "a00b374c9614b2122d7deceecb7897d579e877ee736b99e8464c35f89e411036",
+    "lib/orchestrator/effects.ts": "6b177e744a9446efd0ef0a5922bb87df322ece27c3053a6507ad553042359309",
+    "lib/orchestrator/ladder.ts": "703ffc7a9e967c055675ecfa03b561fe124c470b5de66b65acabde832c41fe88",
+    "lib/orchestrator/proposals.ts": "1beae0211f1e0dbb8315681f92b0251ab2d82ac3e91f17f37b268598c7ac45d8",
+    "lib/orchestrator/thread.ts": "5ba641e41aa357edebc089f398e98ff67be9ae4cd3b83c00680f8dfb6b4109ab",
+    "lib/orchestrator/voice.ts": "21d93168dd348caaee551a4538394e110e2055fd15a08ee00012867ba81e9d90",
+    "lib/owner-reply-delivery.ts": "1714459969a85a52e4e8dc509a111b37b0f0104e883643706166d765dd4bf51c",
+    "lib/panel-search.ts": "9c447bd0320be9f9b0e19c2dc4fc98dd5115bece914d83c19db42bd6bd6f4600",
+    "lib/run-focus.ts": "653f2d48e2ff665d26b5da1a1675ad98c4f16c611440677c529d725c8a16d4cc",
+    "lib/run-steers.ts": "2aa61011144ea0e82e8367a0fc0227d1323c8e00794fdaa536804f5460f9a2ba",
+    "lib/thread-access.ts": "b7f7c0ef210752d7d49b50655c50dca6161d60357ff1b328fe7d3559d8e9cf3d",
+    "lib/thread-folder-maintenance.ts": "5f61ac07eb05eed99b531334ef66a9c123ea0922300e22e45f42504d8d5e9136",
+    "lib/thread-folders.ts": "119b0a7594f7e3f9c7b301a0cce363b02a435802df3f0a793c7aa40c52d52344",
+    "app/api/internal/canvas-maintenance/route.ts": "149d93f2d35ec25b5faaf1aa1832bc2a45b1d7e7eadd6fe9b8262755937633dc",
+    "scripts/run-claude-agent.mjs": "f6b9b6c4843922569488761f3276dcca1c15a3a20b89a01722c7004a4b45cf6a"
+  },
+  "entries": [
+    {
+      "file": "lib/actions/ai-chat.ts",
+      "function": "sendMessageActionImpl",
+      "queries": [
+        "9d90b5c2b891d1ede97c662a3a687e27b4174ee8e93fe348784830721a9031e8",
+        "b7588347d7ea0cb7f22a55633c65848cd40ea9d15baf17765135bc3e6f9dee67"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Each public action uses askBoundary and exact requireThreadAccess before ID reads/writes; runtime INSERT uses admitAskRun or the internal owned-thread continuation. No independent RPC SQL."
+    },
+    {
+      "file": "lib/actions/ai-chat.ts",
+      "function": "resetClaudeSessionActionImpl",
+      "queries": [
+        "c663e588f941a65329db954646400cf25c49e57477739f0fa4ecab6aa309b21d"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Each public action uses askBoundary and exact requireThreadAccess before ID reads/writes; runtime INSERT uses admitAskRun or the internal owned-thread continuation. No independent RPC SQL."
+    },
+    {
+      "file": "lib/actions/ai-chat.ts",
+      "function": "renameConversationActionImpl",
+      "queries": [
+        "7c33f6962341e9d34196f0aeda38fc8acbdb6e1d9c18011940c1c63f07976505"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Each public action uses askBoundary and exact requireThreadAccess before ID reads/writes; runtime INSERT uses admitAskRun or the internal owned-thread continuation. No independent RPC SQL."
+    },
+    {
+      "file": "lib/actions/ai-chat.ts",
+      "function": "startBackgroundTurn",
+      "queries": [
+        "2d526eaf15bc48865ca6e2f01f31864cfbab14a157c78c693f9546a75cef2248"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Each public action uses askBoundary and exact requireThreadAccess before ID reads/writes; runtime INSERT uses admitAskRun or the internal owned-thread continuation. No independent RPC SQL."
+    },
+    {
+      "file": "lib/actions/ai-chat.ts",
+      "function": "voiceTurnActionImpl",
+      "queries": [
+        "9d90b5c2b891d1ede97c662a3a687e27b4174ee8e93fe348784830721a9031e8"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Each public action uses askBoundary and exact requireThreadAccess before ID reads/writes; runtime INSERT uses admitAskRun or the internal owned-thread continuation. No independent RPC SQL."
+    },
+    {
+      "file": "lib/actions/panel-review.ts",
+      "function": "loadRunReviewImpl",
+      "queries": [
+        "8bb9d0e9cc5683252633d358bfdb9e768bc6d28a0bd4663aa330c7c6bdbdf5a9",
+        "c77679b97ed9f2057ac04e4af1a3676ef04b3b8bd1c68f6102b031f337f448a9"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "askBoundary + requireRunThreadAccess precede run and run_effects reads; staff effects remain area restricted."
+    },
+    {
+      "file": "lib/agent-interactions.ts",
+      "function": "listPendingInteractions",
+      "queries": [
+        "48687884064c281edfac46f82eae2335cb90351556e4061a468ac0e7dfffc90a",
+        "ab1e9c9755d4c8d09b35709c0c03c824aa7ed5602a33d676d6c4b7793753a30b"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Exact run/thread/interaction helper checks precede reads/answers/dismissals; orphan expiry has an explicit current-actor thread predicate."
+    },
+    {
+      "file": "lib/agent-interactions.ts",
+      "function": "answerInteraction",
+      "queries": [
+        "daaa82a0cd03a4b2bca72241944840d213d3836cc98331b9d4d5813a75afe90d"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Exact run/thread/interaction helper checks precede reads/answers/dismissals; orphan expiry has an explicit current-actor thread predicate."
+    },
+    {
+      "file": "lib/agent-interactions.ts",
+      "function": "dismissInteraction",
+      "queries": [
+        "88cb2ee4a0c44b0c7f90173d8024c7a0114f5a20a4a149862f4764f9d7f62e90"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Exact run/thread/interaction helper checks precede reads/answers/dismissals; orphan expiry has an explicit current-actor thread predicate."
+    },
+    {
+      "file": "lib/agent-runtime/context.ts",
+      "function": "verifiedOwnerReplyOf",
+      "queries": [
+        "9714c63604b4c45471df7ff7b2702a4f9237249a947a49b51769e946d0ffa02c"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Only runtime trigger context reads a verified owner business reply ID; conversation_id IS NULL prevents private-thread reply ingestion."
+    },
+    {
+      "file": "lib/ai-chat.ts",
+      "function": "listConversations",
+      "queries": [
+        "6ae2d20629627413ca1059317390b15591ab34e05205289d4fb4f55575427837"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Lists explicitly filter current actor and live threads. ID operations requireThreadAccess; creation stamps the actor and validates folder ownership. threadQuery supplies actor transaction and journal fence."
+    },
+    {
+      "file": "lib/ai-chat.ts",
+      "function": "listAllConversations",
+      "queries": [
+        "39bca7b9872f9bffb52d95f9f00ebd0776d21063f70fc59c6a0d22e91384a751"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Lists explicitly filter current actor and live threads. ID operations requireThreadAccess; creation stamps the actor and validates folder ownership. threadQuery supplies actor transaction and journal fence."
+    },
+    {
+      "file": "lib/ai-chat.ts",
+      "function": "getConversation",
+      "queries": [
+        "1f9132143493c020dcfc7df36816337bdb8c18f597199a0211c45359f4e7f2ad",
+        "bee43d854b4425dfefa4fbec234b4fcfc41ebdae964619bb0de7c08a8d3c2758",
+        "3eb0b25a9cecadc4b2c55483899ffa458a8d6fc3873d05c79eb83db87508f064"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Lists explicitly filter current actor and live threads. ID operations requireThreadAccess; creation stamps the actor and validates folder ownership. threadQuery supplies actor transaction and journal fence."
+    },
+    {
+      "file": "lib/ai-chat.ts",
+      "function": "getTurns",
+      "queries": [
+        "6461c9376894f7844b317ef28efedbd6cc430989e1bd7a77fe2de5d7095e07a6"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Lists explicitly filter current actor and live threads. ID operations requireThreadAccess; creation stamps the actor and validates folder ownership. threadQuery supplies actor transaction and journal fence."
+    },
+    {
+      "file": "lib/ai-chat.ts",
+      "function": "getThreadMessages",
+      "queries": [
+        "6249876e6b09b4b9f9a8071910aa841304532c0489c868bf3a0482c9614dfa6c"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Lists explicitly filter current actor and live threads. ID operations requireThreadAccess; creation stamps the actor and validates folder ownership. threadQuery supplies actor transaction and journal fence."
+    },
+    {
+      "file": "lib/ai-chat.ts",
+      "function": "insertConversation",
+      "queries": [
+        "36afe138ece30f524cd2c1d9be521baa1af8cd1f6306cbf410e109ac1d2c2050",
+        "0932c716af6d2cc2c08ba4bcc74d0f79cbba547b8193c243e5dec34808534321"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Lists explicitly filter current actor and live threads. ID operations requireThreadAccess; creation stamps the actor and validates folder ownership. threadQuery supplies actor transaction and journal fence."
+    },
+    {
+      "file": "lib/ai-chat.ts",
+      "function": "insertMessage",
+      "queries": [
+        "ef02204d34cb18aae53332dff21b83a4bca453fdd26f5683f29313b156326f8f",
+        "23f07a19c832c913d4c1cbd28b09534c6547ba41aab79d10ed2e8f7e72822496"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Lists explicitly filter current actor and live threads. ID operations requireThreadAccess; creation stamps the actor and validates folder ownership. threadQuery supplies actor transaction and journal fence."
+    },
+    {
+      "file": "lib/ai-chat.ts",
+      "function": "autoTitleIfNeeded",
+      "queries": [
+        "f5c77295f74113d069a9c8ca023e74c3b3e0434e1a99b6f04f83edd784785482"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Lists explicitly filter current actor and live threads. ID operations requireThreadAccess; creation stamps the actor and validates folder ownership. threadQuery supplies actor transaction and journal fence."
+    },
+    {
+      "file": "lib/ask-run-admission.ts",
+      "function": "admitAskRun",
+      "queries": [
+        "c83f388a79608c1f23d27407be9faeba3e3747b756ded7496117242c0f2f75fc",
+        "1272f2b1f7b4d84e9295c860769884cd0192e3eec0659a481034c759508ce438"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Verified session/person, transaction-local actor, explicit owned live-thread predicate and requireThreadAccess before admitted INSERT; immutable DB principal/continuation guards."
+    },
+    {
+      "file": "lib/ask-thread-journal-interactions.mjs",
+      "function": "interactionCommand",
+      "queries": [
+        "046c9385f34f5014474f0d6f7c2db325693cda2476c54839c1300af713eea213",
+        "ac8a192b1099d146828ad141ef3c1b7ae7c0ef1d89695659f12902d8beb4e4cc",
+        "5e21bdd5878e088f7fd4b3ddd8241279859d78e6a457f701959055520abbad8c",
+        "f1521410bb6d446725d900398b135eae545ca4e17d829badecbe250622e9d155"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Secret-authenticated closed runner_stdio bridge, immutable run/person/thread/profile/start tuple, active/revocation checks and withAskJournal; no caller-selected principal."
+    },
+    {
+      "file": "lib/ask-thread-journal.mjs",
+      "function": "deletionState",
+      "queries": [
+        "165ec0cc0f07ea306c78b0b5287f4d9274011351644088785b8aa75eac0cfc50"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Title-free latch/checkpoint and existence-of-deletion health only; no source payload or per-person activity."
+    },
+    {
+      "file": "lib/ask-thread-journal.mjs",
+      "function": "replay",
+      "queries": [
+        "2ef31d44345a41d03a481a10ac1287746d6d4e35d76c820c0ddda8d97c7f5a99",
+        "1f3adf642c0a9d76574ff0bab3b149e73973002a787d8b56801dc773054b23c3"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Journal recovery/replay/purge under the OS lock, independent durability and maintenance lease; trusted internal website identity, no user payload returned."
+    },
+    {
+      "file": "lib/ask-thread-journal.mjs",
+      "function": "deleteThread",
+      "queries": [
+        "883b080f993449c39ef05c408f97a0f37b2619790d58b7bf63072b3665e3975e"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Verified principal is supplied by deleteOwnedThread; explicit owner/thread predicate and opaque operation retry under journal lock, never a general tombstone reader."
+    },
+    {
+      "file": "lib/ask-thread-journal.mjs",
+      "function": "maintainThreads",
+      "queries": [
+        "252e17dd00c92959c55e9f7cd7037d204afe354ef904c197d0c641282bf1c76f",
+        "a167abcc3887c6aebb8f3225530c50edb54b676bafd53684ca7785a0e7cd226b",
+        "d51d54cc872468cf733224cd63fc3a0376f24cbbf4b80967d3ba3e6237aa3851",
+        "56f87f82de4732f825540bd1e54c69bb42b5cfb9f26a5ba41acfa005623b637b",
+        "b275f2f700ab10486ff51ab2456206be01c2a059ebea6e9afea406c0e44ed691",
+        "5fac8a783b5cab2ac0aed41a833cd308f81a47d097060e6ecc97f4521957580c"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Journal recovery/replay/purge under the OS lock, independent durability and maintenance lease; trusted internal website identity, no user payload returned."
+    },
+    {
+      "file": "lib/authority/usage.ts",
+      "function": "admitRun",
+      "queries": [
+        "914b2ee6e42d9455bd9b9048b687ab6bd9ff789340f4679134734fc0af26c1fb"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Global operational quota aggregate only (run count/cap verdict), no title, text, person, thread ID, per-folder count or per-thread activity. Not a source-chat reader."
+    },
+    {
+      "file": "lib/decisions/owner-replies.ts",
+      "function": "recordOwnerReply",
+      "queries": [
+        "14fb6d4a29146fec9a2c748dee962c8fb58b018e77b9f0e81c39aa5fd2922cd8",
+        "e0dbbf05f0fa522a251e2299f029b5c5f9cdf6ed1e655649b2b105552bfd7e45",
+        "ad88b1c6f79f245795de3a2ed6ee8c23b5eb238caa2770f412cbcb064ae08f2b"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Business decision/draft replies explicitly written by Joe for business agents, not captured chat transcript. Queries use opaque chat IDs solely to choose delivery; private routing subsequently requires self access. No private title/messages/session selected."
+    },
+    {
+      "file": "lib/decisions/owner-replies.ts",
+      "function": "recordDraftReply",
+      "queries": [
+        "159aa7d7fa4ce5c1b536a0f507ddf747ed18871b2fac591757929e992d4da981",
+        "40b1913a632e979efc3fa3848793ee0a360c788668daa7db4dd4be262321fde1",
+        "ad88b1c6f79f245795de3a2ed6ee8c23b5eb238caa2770f412cbcb064ae08f2b"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Business decision/draft replies explicitly written by Joe for business agents, not captured chat transcript. Queries use opaque chat IDs solely to choose delivery; private routing subsequently requires self access. No private title/messages/session selected."
+    },
+    {
+      "file": "lib/decisions/owner-replies.ts",
+      "function": "closeRepliesRevisedByDraft",
+      "queries": [
+        "b8174bd545c545b1af5705e3017fbed633844a9d1a92a5f96688e4ea3436a695"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Business decision/draft replies explicitly written by Joe for business agents, not captured chat transcript. Queries use opaque chat IDs solely to choose delivery; private routing subsequently requires self access. No private title/messages/session selected."
+    },
+    {
+      "file": "lib/decisions/owner-replies.ts",
+      "function": "closeRepliesRevisedBy",
+      "queries": [
+        "809d65b46e0b726a6b8385f09b20f08937d37fc543b97040b415415b92779019"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Business decision/draft replies explicitly written by Joe for business agents, not captured chat transcript. Queries use opaque chat IDs solely to choose delivery; private routing subsequently requires self access. No private title/messages/session selected."
+    },
+    {
+      "file": "lib/dev-agents.ts",
+      "function": "runPrincipalStillValid",
+      "queries": [
+        "f0d5b77233b54d415aa6c333e20462f3dcbe9ad765945dc717333ee497cf2cf1"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Internal runtime revocation check reads only opaque principal ID/start/active and returns a fixed validity reason, never source chat content."
+    },
+    {
+      "file": "lib/dev-agents.ts",
+      "function": "hermesChat",
+      "queries": [
+        "83e87abc3140c7f9aa8116e2e9d31b8d4f94f1d9c179711f83345fa7c44ead17"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Internal owned-turn runtime stores instruction version metadata on its captured steer.runId; user-selected run IDs are not an input to this provider API."
+    },
+    {
+      "file": "lib/dev-agents.ts",
+      "function": "startClaudeRun",
+      "queries": [
+        "9932f7a470ebf8f3ac42ccb06061d68f5cc9bb78181f94d7005c4b3d964c3292",
+        "9286f3f522f60c111e14d0b4297a1ee740550973511e2557c248b40fa7173283"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Human thread launches use admitAskRun/requireThreadAccess; poll and stop requireRunThreadAccess. Internal unbound background branches cannot bind a private thread. Poll reaper explicitly scopes current actor/live thread."
+    },
+    {
+      "file": "lib/dev-agents.ts",
+      "function": "getDevAgentRun",
+      "queries": [
+        "67bdea32bde558a49db261c8373708a8748cbc16bb11573e83469d0f0456e4ba",
+        "f3576f8a988502e9d427df14780e0b000e6abb08f6ab2236ce31a91be82daa7e"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Human thread launches use admitAskRun/requireThreadAccess; poll and stop requireRunThreadAccess. Internal unbound background branches cannot bind a private thread. Poll reaper explicitly scopes current actor/live thread."
+    },
+    {
+      "file": "lib/dev-agents.ts",
+      "function": "stopDevAgentRun",
+      "queries": [
+        "74223921c952dc8bddd3006542dea83aab8a399252b46b64f9239d2e39d0e852",
+        "fc1737ad07d920fd56f6bc1f0e764ea4a8b8aa2498f7e8f1fbc63d2019e69dce"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Human thread launches use admitAskRun/requireThreadAccess; poll and stop requireRunThreadAccess. Internal unbound background branches cannot bind a private thread. Poll reaper explicitly scopes current actor/live thread."
+    },
+    {
+      "file": "lib/dev-agents.ts",
+      "function": "runHermesTurnTracked",
+      "queries": [
+        "6cfeef62cfa17e05ec65e27aba3695d1fcb0ce58c72c87fd33867f48e9947473",
+        "3d514f0ddef70c0f2a94be233991a7b76e9151ac45332fbee37fbbf11cf6bb69",
+        "1ab5a5d616ede97009ee276d16986f07a1f133fd76b071b9be49a7547ff73b3e"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Human thread launches use admitAskRun/requireThreadAccess; poll and stop requireRunThreadAccess. Internal unbound background branches cannot bind a private thread. Poll reaper explicitly scopes current actor/live thread."
+    },
+    {
+      "file": "lib/dev-agents.ts",
+      "function": "pingConversation",
+      "queries": [
+        "60e388eb4999a9963de37d44048573f0b0c728b07e86416b495dba194db65a7b",
+        "50d3cc1fbd7ab1a888659b1a4cd75ee9e366043abc39de80868ee118cd472d93"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Human thread launches use admitAskRun/requireThreadAccess; poll and stop requireRunThreadAccess. Internal unbound background branches cannot bind a private thread. Poll reaper explicitly scopes current actor/live thread."
+    },
+    {
+      "file": "lib/dev-agents.ts",
+      "function": "retryFailedApprovalPings",
+      "queries": [
+        "68890d9176355038c1e93e3b2bd1ee7bf08d9810cbdb5f7e277bc2142459172f"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Secret cron sweep counts only unbound background attempts by shared business subject; private conversation runs explicitly excluded."
+    },
+    {
+      "file": "lib/dev-agents.ts",
+      "function": "failStaleRuns",
+      "queries": [
+        "bb3f66fd968a7fb1a90024add4b5d844abaf1c3d83219c3d0508c81614e5b987"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Human thread launches use admitAskRun/requireThreadAccess; poll and stop requireRunThreadAccess. Internal unbound background branches cannot bind a private thread. Poll reaper explicitly scopes current actor/live thread."
+    },
+    {
+      "file": "lib/measure/baseline.ts",
+      "function": "baselineOwnerTouches",
+      "queries": [
+        "bca5a0bb2fbfaf86c880d4f82d3a98d94690a5bd12cd1e722482ff95ddf39d46"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Owner operations measurement uses aggregate recorded cost and run count only; no per-person/thread identifiers, title, prompt, answer or folder state."
+    },
+    {
+      "file": "lib/measure/cases.ts",
+      "function": "linkedTouches",
+      "queries": [
+        "7056956e7915c4ecd238024ce3cc6827e60cc4f8e1750f108d6108a2b6320734"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Operations measurement and owner-touch accounting; private source tables contribute aggregate recorded cost/count only, never private chat contents or per-folder counts. Conservative scan also catches non-private measurement SQL fragments."
+    },
+    {
+      "file": "lib/measure/cases.ts",
+      "function": "recordOwnerTouch",
+      "queries": [
+        "03640a54a145f34b10a47c84325c74301c0d516ba88f7d0f8aca14b20f47a0da"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Operations measurement and owner-touch accounting; private source tables contribute aggregate recorded cost/count only, never private chat contents or per-folder counts. Conservative scan also catches non-private measurement SQL fragments."
+    },
+    {
+      "file": "lib/measure/cases.ts",
+      "function": "measurementSummary",
+      "queries": [
+        "6edccd42ffb4b34def35daf18c7df5b7c7588f5006b024631a35376cf708d7f8"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Operations measurement and owner-touch accounting; private source tables contribute aggregate recorded cost/count only, never private chat contents or per-folder counts. Conservative scan also catches non-private measurement SQL fragments."
+    },
+    {
+      "file": "lib/measure/cases.ts",
+      "function": "agentCost",
+      "queries": [
+        "7697bef7be37cae1978f8f534457702f747f3b0dde016e12430b1b68195a905e",
+        "b85ea1b4d15a7ce4b8f533a12ddd77ddae91cc20b0035bb6b92d5c7fd6a5893a",
+        "435cc0794b846755c7e6d2e5059283606e0ee8547904375109b7d147fe61ce3a"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Operations measurement and owner-touch accounting; private source tables contribute aggregate recorded cost/count only, never private chat contents or per-folder counts. Conservative scan also catches non-private measurement SQL fragments."
+    },
+    {
+      "file": "lib/orchestrator/activity.ts",
+      "function": "write",
+      "queries": [
+        "1cd967c4b8dfcd61db7fce398003a2459571efb428c6b103c4fa9f378d1152b7"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Runtime closure captures the admitted/generated run ID and writes buffered activity, never accepts an action-supplied row ID or returns another run."
+    },
+    {
+      "file": "lib/orchestrator/effects.ts",
+      "function": "recordRunEffects",
+      "queries": [
+        "92498c1458f190fe8c0f9341fef8ef2b64a58539982a342ea19397734ad6f5ec"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Internal completion of a generated/admitted run records effects and infers shared business audit scopes; caller does not accept request-selected run IDs."
+    },
+    {
+      "file": "lib/orchestrator/effects.ts",
+      "function": "inferHermesEffects",
+      "queries": [
+        "2ec9252e38539118894a29777c8ff2a8306b201d63d4d27eb2c9c7cdae034e6a",
+        "f545d5e3e46836985baa1459c9d44d3de12dc294d1662eefe143a08c2135b7bc"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Internal completion of a generated/admitted run records effects and infers shared business audit scopes; caller does not accept request-selected run IDs."
+    },
+    {
+      "file": "lib/orchestrator/ladder.ts",
+      "function": "addEvent",
+      "queries": [
+        "a65ededda626e307b3ea0418cc82eef8848cb3e8afc2b3da6db1341f7c99286b"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Internal owned-thread runtime driver uses generated task/takeover IDs, owned transcript helpers and guarded steer relay; never a public task-history endpoint. Poll reaper separately actor scoped."
+    },
+    {
+      "file": "lib/orchestrator/ladder.ts",
+      "function": "effectsDigest",
+      "queries": [
+        "4ef3d0e8cce1b7e15e43a142a8a555ce92fe8caaaf486f8013aa9f52917397ef"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Internal owned-thread runtime driver uses generated task/takeover IDs, owned transcript helpers and guarded steer relay; never a public task-history endpoint. Poll reaper separately actor scoped."
+    },
+    {
+      "file": "lib/orchestrator/ladder.ts",
+      "function": "runHermesLadder",
+      "queries": [
+        "1544c201fc13f4c8b738b95c467094f696ff582ea9e4080e36eba51b28db58a0",
+        "89f281fc6c45b9537193e9cafb84a90104b9d0f22198f683245a25f6452c081d",
+        "778e822a0bc0e45245858f7e69c9affcbe321fab8d4fb99d439e2ecf449424e4",
+        "6351d680e1a6fd603478563404c36a6f013c61813bff0f745e4bc7aef15e4625",
+        "4b4c476e6a3aa9f0c251a0579618d64b49a1515af9c8cdf52b314a658a613b41",
+        "a9a9e91149fddd8fc36ededee6a9762275ce222b418eb7dcd3a954707a69143a",
+        "6351d680e1a6fd603478563404c36a6f013c61813bff0f745e4bc7aef15e4625",
+        "86376cefa48e5de4a8def521238fa561c9bf89a9826159b043f7bf12a3253f7a",
+        "402c87bac5d73fe1d409287b1819781b95b0272a5620b7ca60379be2b375e18d",
+        "e72d18828018acbafbe494630daf1452a58f483bc265da7212edcf0a481b428b",
+        "6351d680e1a6fd603478563404c36a6f013c61813bff0f745e4bc7aef15e4625"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Internal owned-thread runtime driver uses generated task/takeover IDs, owned transcript helpers and guarded steer relay; never a public task-history endpoint. Poll reaper separately actor scoped."
+    },
+    {
+      "file": "lib/orchestrator/ladder.ts",
+      "function": "taskWithSteers",
+      "queries": [
+        "bb080e4b92095722ca1ddf871f1169ee93ddd4b5de5a5acfa21718d70d674ea2"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Internal owned-thread runtime driver uses generated task/takeover IDs, owned transcript helpers and guarded steer relay; never a public task-history endpoint. Poll reaper separately actor scoped."
+    },
+    {
+      "file": "lib/orchestrator/ladder.ts",
+      "function": "failStaleTasks",
+      "queries": [
+        "0d43ce5e12b4682b38ef00dd671ad1ca123594b710e29ad3d195977dd03c7646"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Poll-side task reaper uses threadQuery and explicit owned live-conversation predicate; cannot mutate another persons task."
+    },
+    {
+      "file": "lib/orchestrator/ladder.ts",
+      "function": "startLadderRun",
+      "queries": [
+        "26d262ce1edefd8af067d9f09ca1a40689dacd66c36055e4ecf7570b8382caa5"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Internal owned-thread runtime driver uses generated task/takeover IDs, owned transcript helpers and guarded steer relay; never a public task-history endpoint. Poll reaper separately actor scoped."
+    },
+    {
+      "file": "lib/orchestrator/proposals.ts",
+      "function": "processQwenProposals",
+      "queries": [
+        "d22b7ca8181cc756792afd9d9987e5630a2da0c4f9d87165f700e796322a935c",
+        "1cd967c4b8dfcd61db7fce398003a2459571efb428c6b103c4fa9f378d1152b7",
+        "22b1aa757d422bcdb9f5d6de466db395616288203348f79e3a1fed9112e021ad",
+        "43c4719b5f8fb4bba3a9d51f2d4a74be14cd8ab99b114fc618be22e2d59a2baf",
+        "43c4719b5f8fb4bba3a9d51f2d4a74be14cd8ab99b114fc618be22e2d59a2baf"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Only the admitted owned-turn runtime supplies run/thread IDs; review records business proposals and updates its captured run, not request-selected history."
+    },
+    {
+      "file": "lib/orchestrator/thread.ts",
+      "function": "lastAnsweringAgent",
+      "queries": [
+        "7d632dd0240e63548265ea40aef16df6a2cd4434350f4a24c2c1705459af94bd"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "getThreadMessages requiresThreadAccess before continuity/model-input reads; fallback run query is restricted to that exact immutable owned conversation."
+    },
+    {
+      "file": "lib/orchestrator/voice.ts",
+      "function": "conciergeTurn",
+      "queries": [
+        "a47282a6cd81ef0bfc97faa975155994df450a211956f7c13483382ab0374af5",
+        "6036671a18ad71e4d8e9b56f02bb117bc0ded2028d3eb9e229d707eac28e1e46",
+        "a77d7bbfc563a160d936447c8bad71b0baa43878d3cc49940a275fe343efc1d2",
+        "9731879d2a0be9979dae4aafdfffd45cbd8dbcf11c1ee1f0c153bc6e23adf00c"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "No private SQL: conservative fragment tracking catches a prompt string; the input is the current supplied utterance, not stored chat data."
+    },
+    {
+      "file": "lib/orchestrator/voice.ts",
+      "function": "spokenUpdateForRun",
+      "queries": [
+        "65b2715acd6154df417bd5f5eed0e419d1c590912d657f18fcceb132777d9162",
+        "deadc08abb97834e6fe6595055ebec4a6dbb1f4a37417390eec47e7286803e38"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "spokenUpdateForRun requiresRunThreadAccess before prompt/answer/cache access; concierge accepts current supplied utterance, not stored foreign-thread history."
+    },
+    {
+      "file": "lib/owner-reply-delivery.ts",
+      "function": "markDraftCardPulled",
+      "queries": [
+        "6b38026658323019c31db4165590471d9d331279855d67a3cc4c81620c05d4e3"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "No private SQL: conservative string tracking captures Telegram UI text for shared business draft cards."
+    },
+    {
+      "file": "lib/owner-reply-delivery.ts",
+      "function": "promptFor",
+      "queries": [
+        "b95c731d84f82c64ce22c9ef84d58a3ad9d732c7c9e665a85b950930960cf19d"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Shared business owner-grant request selected by its ID, not a private transcript; conservative scan also catches formatting strings."
+    },
+    {
+      "file": "lib/owner-reply-delivery.ts",
+      "function": "deliverOwnerReplyImpl",
+      "queries": [
+        "97819ae128bc3ffb06e7aae06dcc59ac1d25fb1ca0a9349fb0c4ae6ce02a55b5",
+        "5803d41d6d031586f9662efacde42b70aaa6c78c5c24f3a23bb665c731224fd0",
+        "79d0bf1552d28b0ebc20bcaba852aa0353e995c4fa8ff1add83ff99fa0068529",
+        "4ea258f6847838a07466ccfbeb9a5c5ca22562fca6ebaa442b9530bdd0c7b159",
+        "ffc5ddd6bea7b2327ee3a06879c6521df501c51d0d2a2656d38769aeb6396a18",
+        "eef02f6f77d64c4367937e54d0931274f0e3ec5680bcf1fa3ab8deaeb034b6d0",
+        "b805806f53c5b38a4b8e6fad9efcc7c40cb7bcefdebf7009a033083dce39c131"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Session route requires threadPrincipal owner plus requireThreadAccess(self), then journal/threadQuery; no private-denial fallback. Remaining writes update only the owner business reply being delivered."
+    },
+    {
+      "file": "lib/owner-reply-delivery.ts",
+      "function": "replyToOwner",
+      "queries": [
+        "b9149352a069efc51cf04f63e22721d30fe1e984901bed07a1bdfe0a68d41faf",
+        "9302e1493fd04dce84423960f7ab605c150032ddf176c5426df36617e240f5ab",
+        "d010b656403c6a67ff942a08cc2b33cc48e4ea958b1e6335253d5593f3e3cc8c",
+        "6b38026658323019c31db4165590471d9d331279855d67a3cc4c81620c05d4e3",
+        "6f2dda5c66a356456d6102b8107cfa25238f8b648a44f26da778920cdcca330a"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Owner-authored business reply delivery metadata and Joe-only Telegram routing; private session title/run reads additionally require current owner=self thread access and journal, never blanket owner access. MCP reply selects decision/work-item routing metadata, not source chat content."
+    },
+    {
+      "file": "lib/owner-reply-delivery.ts",
+      "function": "sweepUnansweredReplies",
+      "queries": [
+        "e3c9b2d201fc0cc5d4de89ce680b613988a455b457dd380b5c36acd2952f72af",
+        "6620b9723ee8071c1d6c9062ee8d708bac0be4360c994db495c34f8b24adce53",
+        "be1a66b21b6bfd9e30e6f83fcbd56c9204d199a7c19fedc990d76ab65bd3d3bc",
+        "2632571b1acca628d376152fca58707d7705ffb9d2658a1c8d95a0503d5e4ea8",
+        "3b60e52aeab2fa26f42e9947e7a7ac6007c2950b231243906fa4c420c5f6b03c"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Secret dispatch cron reads reply routing metadata; private session branch requires self access and skips when no verified current person, so cron cannot forward staff/private transcripts. Unbound branch reads business trigger results only."
+    },
+    {
+      "file": "lib/panel-search.ts",
+      "function": "searchPanelForUser",
+      "queries": [
+        "9714fa287ce1c8379d8122483008a79694a7de0eb2f58caa9cc54163e0f03746"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Actor loaded by threadPrincipal must match authenticated web/bearer adapter user; SQL requires c.owner_user_id=$2 and live thread for both roles. Failure yields no chat hits."
+    },
+    {
+      "file": "lib/run-focus.ts",
+      "function": "getRunFocus",
+      "queries": [
+        "9047b3a85b38363ac658d0025d6c1269595a272c4769c29d046aab459caf2504"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "requireRunThreadAccess before reading run_effects; downstream business entity resolution preserves area checks in consumers."
+    },
+    {
+      "file": "lib/run-steers.ts",
+      "function": "enqueueSteer",
+      "queries": [
+        "a8c31ee2fb8d7f9d35fed85beb06da0aa145c410be17cc30b8725026d99b48db"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Public enqueue/status/relay and run lifecycle claims require exact run/thread helpers; bulk release/mark takes only internally claimed steer IDs, never request input. Journal covers enqueue/relay transactions."
+    },
+    {
+      "file": "lib/run-steers.ts",
+      "function": "tryEnqueue",
+      "queries": [
+        "dc21f3876ed17907354e6f63b157d7701d1598b9f3237a366972d1be9f5b2fa7",
+        "1282c5c898c38b0370c560a455bf666a495d9d1e1c2d58bca314398ea2aec475",
+        "03c255ae0dccddc762339cbce70be0e46a4b3ef014f302b7b9c4f41bb4ce4f2f",
+        "bd54b2ffa550d482a81192d6cf21ee443fc2774f477cbe4c3182e20ffc45f9c6"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Public enqueue/status/relay and run lifecycle claims require exact run/thread helpers; bulk release/mark takes only internally claimed steer IDs, never request input. Journal covers enqueue/relay transactions."
+    },
+    {
+      "file": "lib/run-steers.ts",
+      "function": "takePendingSteers",
+      "queries": [
+        "4aac28d671a397651f28dce8a9efdaabe486efd3e53e26279486afb31f7f96d1"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Public enqueue/status/relay and run lifecycle claims require exact run/thread helpers; bulk release/mark takes only internally claimed steer IDs, never request input. Journal covers enqueue/relay transactions."
+    },
+    {
+      "file": "lib/run-steers.ts",
+      "function": "hasPendingSteers",
+      "queries": [
+        "f12ab89798685a049113c4bf09c271e55914eaa38e635c1446adcfdb15f49c98"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Public enqueue/status/relay and run lifecycle claims require exact run/thread helpers; bulk release/mark takes only internally claimed steer IDs, never request input. Journal covers enqueue/relay transactions."
+    },
+    {
+      "file": "lib/run-steers.ts",
+      "function": "releaseSteers",
+      "queries": [
+        "5c2bb78b69b7d2ad8e1da1f6bc1f21c2d2d467f00daa6bb29141f7ad820e0c11"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Public enqueue/status/relay and run lifecycle claims require exact run/thread helpers; bulk release/mark takes only internally claimed steer IDs, never request input. Journal covers enqueue/relay transactions."
+    },
+    {
+      "file": "lib/run-steers.ts",
+      "function": "markSteersVia",
+      "queries": [
+        "75855c17356bf92a23b0cef7fe33b10bf94c3eff840b0b394187ce443d0e1450"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Public enqueue/status/relay and run lifecycle claims require exact run/thread helpers; bulk release/mark takes only internally claimed steer IDs, never request input. Journal covers enqueue/relay transactions."
+    },
+    {
+      "file": "lib/run-steers.ts",
+      "function": "closeSteering",
+      "queries": [
+        "0b50f9dcd916c16bfb0038f737d425c6b61743f36107174e4453b03735298e00"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Public enqueue/status/relay and run lifecycle claims require exact run/thread helpers; bulk release/mark takes only internally claimed steer IDs, never request input. Journal covers enqueue/relay transactions."
+    },
+    {
+      "file": "lib/run-steers.ts",
+      "function": "reopenSteering",
+      "queries": [
+        "9ffb1462e668c9e896b46d01f5fc282506ccd7967370f8e2e678e60e945cc37d"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Public enqueue/status/relay and run lifecycle claims require exact run/thread helpers; bulk release/mark takes only internally claimed steer IDs, never request input. Journal covers enqueue/relay transactions."
+    },
+    {
+      "file": "lib/run-steers.ts",
+      "function": "relaySteers",
+      "queries": [
+        "5e6fbca3b4d1b2aad7951cdd637be6339201e78793bca5c7077ed9446109d4e3",
+        "7b388acf0feb7dbaa807237f8b0c8bf2ff1bf4e043129af1c8d856dcb6a8cde7"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Public enqueue/status/relay and run lifecycle claims require exact run/thread helpers; bulk release/mark takes only internally claimed steer IDs, never request input. Journal covers enqueue/relay transactions."
+    },
+    {
+      "file": "lib/run-steers.ts",
+      "function": "steersForRun",
+      "queries": [
+        "a1ceb62440f85752fec850f6fa3e20c08a4e2088bef17c1d266890fa6ffc6655"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Public enqueue/status/relay and run lifecycle claims require exact run/thread helpers; bulk release/mark takes only internally claimed steer IDs, never request input. Journal covers enqueue/relay transactions."
+    },
+    {
+      "file": "lib/run-steers.ts",
+      "function": "steerPrompt",
+      "queries": [
+        "8f8d8733004f17d6d2cdb4a7ef14566817f67f77a58666f2680c1a38c956321e"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "No SQL: conservative fragment tracking catches runtime prompt text; only caller-supplied already-owned steer bodies are formatted."
+    },
+    {
+      "file": "lib/run-steers.ts",
+      "function": "settleSteeredRun",
+      "queries": [
+        "01b5a712f08fc19a112b8adba6c76f2bb8150983637db876ce279c2418766636",
+        "1ebca3cb33c463136960bf2d9c0538be55d5d6786d8dba933f5be562786827fd",
+        "e5e2e23d66a0cffb2f22039a6829c1cf371fba730e92388b7b8554b6a0f680e1"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Public enqueue/status/relay and run lifecycle claims require exact run/thread helpers; bulk release/mark takes only internally claimed steer IDs, never request input. Journal covers enqueue/relay transactions."
+    },
+    {
+      "file": "lib/thread-access.ts",
+      "function": "requireThreadAccess",
+      "queries": [
+        "d9f7cf8b6a74c13084ba2b25afec11e4e042167240da1c283db6899b7431c58c"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Verified session/person; exact self-owner/live thread or run principal; no owner override. Attachment path is canonical, owned live refs or same-person pending upload; global attached boolean stays internal to denial."
+    },
+    {
+      "file": "lib/thread-access.ts",
+      "function": "requireRunThreadAccess",
+      "queries": [
+        "1a002fe8518ba932ae0aa30b3df8df420e4818803e6d72d173f8da734413fdd2"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Verified session/person; exact self-owner/live thread or run principal; no owner override. Attachment path is canonical, owned live refs or same-person pending upload; global attached boolean stays internal to denial."
+    },
+    {
+      "file": "lib/thread-access.ts",
+      "function": "requireInteractionThreadAccess",
+      "queries": [
+        "5c9d43ec47bb544bb901afc2e275308a6e43525902bfc935659923419da94d6e"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Verified session/person; exact self-owner/live thread or run principal; no owner override. Attachment path is canonical, owned live refs or same-person pending upload; global attached boolean stays internal to denial."
+    },
+    {
+      "file": "lib/thread-access.ts",
+      "function": "withThreadAttachmentAccess",
+      "queries": [
+        "d5966c0e8bf8d5fe153cb453c6f55f0b460f97fbad7eba8cd418f7809bcca68c"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Verified session/person; exact self-owner/live thread or run principal; no owner override. Attachment path is canonical, owned live refs or same-person pending upload; global attached boolean stays internal to denial."
+    },
+    {
+      "file": "lib/thread-folder-maintenance.ts",
+      "function": "autoSettleQuietThreadsInBackground",
+      "queries": [
+        "9ba4fe01c912a7440653c09e172b66259f8f512d3c1dd3dc1639043bbbe46d62"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Only secret-authenticated agent-retries cron imports this entry point; journal-fenced sweep of live quiet owned threads, returns aggregate count to the machine caller. No action option selects it."
+    },
+    {
+      "file": "lib/thread-folders.ts",
+      "function": "requireFolderAccess",
+      "queries": [
+        "4d333e50f2d9e88f461b4cb4cae3a0d1526088f0766aa1dfd9c4071b7488394c"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD."
+    },
+    {
+      "file": "lib/thread-folders.ts",
+      "function": "searchFolderEntities",
+      "queries": [
+        "c86212c99015586e7b9bee5127062cb627902fa23dcd02292447c3d7dd63a7ab"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD."
+    },
+    {
+      "file": "lib/thread-folders.ts",
+      "function": "listFolders",
+      "queries": [
+        "0180cb85df3aac431615f65b41d03e032074ab423fce069d43e304526c3979ca"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD."
+    },
+    {
+      "file": "lib/thread-folders.ts",
+      "function": "getFolder",
+      "queries": [
+        "e6fac3909784688348c2375edac5fb90c48f842dac9abe68cc114cb0f2eba37a"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD."
+    },
+    {
+      "file": "lib/thread-folders.ts",
+      "function": "createFolder",
+      "queries": [
+        "ac4a3672d57624c5a28d850f3b0a7d5c0938ce46009bc6f1b3ccd8dda715a577"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD."
+    },
+    {
+      "file": "lib/thread-folders.ts",
+      "function": "ensureFolderForEntity",
+      "queries": [
+        "41a3435ea1587ffb8dea0f03c157b15c6474d41c8c811d4110d1b8a4dd158a3d",
+        "a2a7fde8d411288a850e9f60344be32c3340e35cae2f0712a1c07b4a60b0c9e4",
+        "b4bbe33a4dce80c1d1477eecf9db83509cecbc7a41ed56aaeca953594d609718"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD."
+    },
+    {
+      "file": "lib/thread-folders.ts",
+      "function": "renameFolder",
+      "queries": [
+        "a202ab867b66d69c5560051b6fbe21fd55c015d909916e800d8f48068a779ce6"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD."
+    },
+    {
+      "file": "lib/thread-folders.ts",
+      "function": "bindFolder",
+      "queries": [
+        "69d8d31b35dc5bb9884f4eda340696cc859a07c6d2043473e8ec79addcf867ac",
+        "ebfa7587bdf4d3b3e741aabefba3e6cd4f27928e413a5a6a4bdfe64f7b7e9cfb",
+        "dbcb368d25bc8c77d87b8488bfdad112090a45a378d8e3dcc294fe3fff015575"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD."
+    },
+    {
+      "file": "lib/thread-folders.ts",
+      "function": "reorderFolders",
+      "queries": [
+        "634f6bc4db4cebd650c4c732d5c2c4f668b041343df7f1cfbc899cde9a0c308f"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD."
+    },
+    {
+      "file": "lib/thread-folders.ts",
+      "function": "setFolderCollapsed",
+      "queries": [
+        "3a20e8400b3ba3bc01a2f2b318d92989e6f41e9304743161291b11aa91f43138"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD."
+    },
+    {
+      "file": "lib/thread-folders.ts",
+      "function": "setFolderArchived",
+      "queries": [
+        "69cd7cadee05dc61d3f62b1c1b6935607e581bb45733e9bf69c31714c422b9b6",
+        "4229e933fc373fdd0a4967d4afdd178f392b042db7d7dc5c36b333c3fbce9265"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD."
+    },
+    {
+      "file": "lib/thread-folders.ts",
+      "function": "deleteFolder",
+      "queries": [
+        "7666464f52b5be11488b9283fdaf871071d6e6e0df8a43fc89aa971333723498",
+        "79a98758c2c2a1614d7421ede8869ccf4e7ac3c6216153c6e44eafb59e4f0f0e"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD."
+    },
+    {
+      "file": "lib/thread-folders.ts",
+      "function": "<module>",
+      "queries": [
+        "2476b0404eb92001faffc817b0db0f33e6984d5a2c8bcad422c4479cb54224bf"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD."
+    },
+    {
+      "file": "lib/thread-folders.ts",
+      "function": "listThreadRail",
+      "queries": [
+        "21b4e5ff645bd316b96f623121ec98a0f9a20e8d0026cabd8fae5097f8c84a2a"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD."
+    },
+    {
+      "file": "lib/thread-folders.ts",
+      "function": "listArchivedThreads",
+      "queries": [
+        "c466b7decc736455d947e50a726ec92e4e580ff363c1dc010f6361924f7faefd"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD."
+    },
+    {
+      "file": "lib/thread-folders.ts",
+      "function": "threadBusy",
+      "queries": [
+        "f17e91b2b745c516874a778aadf1f4df9788f0f8d3d0b9885badf487b10991ba"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD."
+    },
+    {
+      "file": "lib/thread-folders.ts",
+      "function": "settleThread",
+      "queries": [
+        "fed13f8e2603ef1d44066d2d8ecf9d9ebbe128a4e775013a929050775e6e2ff1"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD."
+    },
+    {
+      "file": "lib/thread-folders.ts",
+      "function": "unsettleThread",
+      "queries": [
+        "1365d2008874ffb7d170230996458c416f6cb099753977367a575bda9e68324b"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD."
+    },
+    {
+      "file": "lib/thread-folders.ts",
+      "function": "touchThreadActivity",
+      "queries": [
+        "1b2c4585665bd50fc5c737aed1aff93b459effa79e11cc0aa6373502365ac190"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD."
+    },
+    {
+      "file": "lib/thread-folders.ts",
+      "function": "setThreadPinned",
+      "queries": [
+        "0adb6d524668672f5af5e5f5a37be0bb50ed316087e6fafe52040fba58a310bf",
+        "e71ba4499f2b0cc0acf64bf6b38c4cd93dccaa7bb2dde8d53b76d21160d8d8e3"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD."
+    },
+    {
+      "file": "lib/thread-folders.ts",
+      "function": "setThreadArchived",
+      "queries": [
+        "0d4961fd013a86a6c69587147e04cc9721695019cdceb70cc4d8ea4030672ac2"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD."
+    },
+    {
+      "file": "lib/thread-folders.ts",
+      "function": "moveThread",
+      "queries": [
+        "93dbebc9a8050a368711af955d2e252e0ac40db913daa9b6293f018020e9c59d"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD."
+    },
+    {
+      "file": "lib/thread-folders.ts",
+      "function": "autoSettleQuietThreads",
+      "queries": [
+        "bf1ad17b2f5e8a947e25ef60f3d8a721c0608a51349a34cf550ecdaa5ab2831e"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD."
+    },
+    {
+      "file": "lib/thread-folders.ts",
+      "function": "folderContextLine",
+      "queries": [
+        "2cf1f767a0ce26103b62339a5860bc51bd8d7195a8de727be1c8c097639c51d0"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD."
+    },
+    {
+      "file": "app/api/internal/canvas-maintenance/route.ts",
+      "function": "reportHealth",
+      "queries": [
+        "459b3552de1052c203e60d730abd562699c5cfe098e23f5419f9989ceb292178"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Secret-authenticated maintenance health reports only opaque UUID/count/ready state; no private chat text. Conservative SQL scan also tracks fixed private-table absence checks."
+    },
+    {
+      "file": "scripts/run-claude-agent.mjs",
+      "function": "finish",
+      "queries": [
+        "8b1560c6e168c30b18795c952ebe3d55ec5c3ee09258ac0079f2de4ca6aedfb7"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login."
+    },
+    {
+      "file": "scripts/run-claude-agent.mjs",
+      "function": "loadBusinessInstructions",
+      "queries": [
+        "83e87abc3140c7f9aa8116e2e9d31b8d4f94f1d9c179711f83345fa7c44ead17"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login."
+    },
+    {
+      "file": "scripts/run-claude-agent.mjs",
+      "function": "withPrivateThread",
+      "queries": [
+        "93d74da8c9eb24d497fdefbb0fd22ca8d0b79a22e0da5955fd2efd88da8a456d"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login."
+    },
+    {
+      "file": "scripts/run-claude-agent.mjs",
+      "function": "unseenTranscriptAllowed",
+      "queries": [
+        "236a19761a77e7877c47e4aa687c11d33f04c886277c485038154291fc4e29ca",
+        "af0739cccb22f09cc51f0ac95bb665c799849170817166fec590ffe208bc9908",
+        "d847cffeeb9798882051b3e547a4c3fef25af51a12bba50ea0f975686c0671b5"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login."
+    },
+    {
+      "file": "scripts/run-claude-agent.mjs",
+      "function": "flushActivity",
+      "queries": [
+        "774fe30d11c3b50c0c837c45c0cf4e359ea0154cb37ddd10843f1cd98142d5ce"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login."
+    },
+    {
+      "file": "scripts/run-claude-agent.mjs",
+      "function": "recordEffect",
+      "queries": [
+        "dfa194b218f6dd80fc76c7950de629320e3acdfccb1a61029f86c636a4fb70a8"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login."
+    },
+    {
+      "file": "scripts/run-claude-agent.mjs",
+      "function": "steerText",
+      "queries": [
+        "9279a9ca37f0534a1614678e4a41bb63fefab65a6d3602c4d1d6df16c3db9871"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login."
+    },
+    {
+      "file": "scripts/run-claude-agent.mjs",
+      "function": "takeSteers",
+      "queries": [
+        "b45f19824a96ecc80a7f3676263b451fc05c0db722ddd64f28585fceb3d1be78"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login."
+    },
+    {
+      "file": "scripts/run-claude-agent.mjs",
+      "function": "takeSteersAllowed",
+      "queries": [
+        "30f0ea9bc857d2472671122a0f35de79b5f157e797e2adbc7e62ca8fa56e9401"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login."
+    },
+    {
+      "file": "scripts/run-claude-agent.mjs",
+      "function": "onResult",
+      "queries": [
+        "984bd9c89085de18d4500cabb58a6d3ac5c270653585ae73453838cbab89b435",
+        "9ffb1462e668c9e896b46d01f5fc282506ccd7967370f8e2e678e60e945cc37d"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login."
+    },
+    {
+      "file": "scripts/run-claude-agent.mjs",
+      "function": "runClaude",
+      "queries": [
+        "a19e42712b7ba67e916466a0ade96bb32d1fe7f23871e5d56cfc61460e88faa6",
+        "4e0c26c09d9b576f717c7f5e328fd70b29c245e7a98e12f2f34aaea0089687b4"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login."
+    },
+    {
+      "file": "scripts/run-claude-agent.mjs",
+      "function": "main",
+      "queries": [
+        "89343d8319760171f6d576c3b203d2163f4110db777f7e799347876c2bfdc1b8",
+        "cdecc5e9352632e0c945e53fed5dccedf0f835c79fcdef8f4812d243875b0430",
+        "523561b2f0d205478554236b20b1c250cf91b8f364c8d768fe285d79d3a1977e",
+        "4674d168b640e71936987e9becd18f18ac9ba704b64568eefa2ffec057ff9591"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login."
+    },
+    {
+      "file": "scripts/run-claude-agent.mjs",
+      "function": "recordUsage",
+      "queries": [
+        "b0ed78c6cf5b9a2e00965c9ee4a646e5a598ada81509183fd9ed4dd1631894b8"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login."
+    },
+    {
+      "file": "scripts/run-claude-agent.mjs",
+      "function": "persistToConversationAllowed",
+      "queries": [
+        "ee628970cbfd2e5421846752fddffefc5b1b1658ec2146ee9161a334c26d3a99",
+        "2dea732b7c2df176ce9e3d81b69ed2b9291420f257f1a0ce2b558b36ab9ebee9"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login."
+    }
+  ]
+}

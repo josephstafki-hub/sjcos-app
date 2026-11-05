@@ -1,3 +1,4 @@
+import { requireRunThreadAccess } from "@/lib/thread-access";
 import "server-only";
 
 import { queryOne } from "@/lib/db";
@@ -95,6 +96,7 @@ export async function resolveRunEntity(kind: string, id: string): Promise<RunFoc
 /** The page for the entity the run most recently touched, or null when it
  *  hasn't named one yet (or the reference no longer resolves). */
 export async function getRunFocus(runId: string): Promise<RunFocus | null> {
+  await requireRunThreadAccess(runId);
   try {
     const row = await queryOne<{ entity_kind: string; entity_id: string }>(
       `SELECT entity_kind, entity_id FROM run_effects

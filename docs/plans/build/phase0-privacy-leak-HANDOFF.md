@@ -1,0 +1,302 @@
+# Phase 0 Ask privacy leak correction (2026-11-05)
+
+Base: `854a9026`, branch `t3/in-app-browser-agent-tools`. Implementation sub-agent;
+no delegation, UI edits, dependency installs, builds, browsers, live/QA database
+access or service operations. `node_modules` remains the existing symlink.
+This report supersedes earlier claims that RLS or the old helper-only caller
+inventory proved the rail private.
+
+## Result and folder rule
+
+A chat belongs only to its creator, including Joe. Folders are **per person**,
+not shared entity containers. This follows Ask host A1 / Canvas §8.1 self-only
+folder/count requirements and the existing 0105 `owner_user_id` plus
+`(owner_user_id, entity_kind, entity_id)` unique index. No schema change is
+needed. Two people may independently file under the same business entity;
+neither gets the other's folder name, existence/conflict, working state,
+activity timestamp, suggestions, thread titles or counts.
+
+- `listThreadRail`, `listArchivedThreads`, the older agent/all-thread lists,
+  folder lists, entity-folder joins/conflict lookups, busy counts and mutations
+  have explicit current-actor predicates, before ordering/LIMIT/aggregation.
+  Archived OR branches are parenthesized under ownership. Deleted threads are
+  excluded. Existing client grouping/counts receive only the person's rows.
+- Every thread lifecycle/folder context operation checks exact thread access
+  before activity checks or side effects. Filing checks before creating a
+  folder. Moving/creating validates the destination folder; folder mutations
+  validate its owner before reading busy state. Public actions return the fixed
+  `THREAD_UNAVAILABLE`, including Joe acting on Abigail's thread. No UI change.
+- Search verifies that its authenticated web/bearer principal matches the
+  current session and applies the same explicit SQL ownership predicate for
+  staff and Joe. The staff path already had that SQL predicate at this base;
+  regression coverage now proves the actual staff query and returned rows with
+  RLS bypassed, rather than assuming it from a role branch.
+- Shared run/interaction guards scope their initial queries, and direct data
+  readers (chat/model inputs, run poll/focus, spoken-answer cache, interaction
+  answer/dismiss and steer lifecycle) recheck exact access. Poll-side run/task
+  expiry and orphan interaction expiry cannot mutate another person's work.
+- Poll auto-settle is per actor, including its throttle. The separate
+  `thread-folder-maintenance` adapter is imported only by the existing
+  CRON_SECRET-authenticated agent-retries route and runs under the journal.
+  Neither action input nor a missing session selects that trusted path. Its
+  count goes only to the machine caller. Quiet background settling still works.
+- Approval retries count only unbound background runs. Agent-runtime context
+  refuses conversation-linked owner-reply bodies. Business decision/draft
+  replies and aggregate operations metering are explicitly distinguished from
+  private chat transcripts in the audit below.
+
+## RLS assessment
+
+0105 **already ENABLEs and FORCEs RLS** on conversations, messages, runs,
+interactions, folders and steers. Its `ask_private_visible` intentionally permits
+an unset actor for the trusted website login. PostgreSQL superusers also bypass
+FORCE. Therefore FORCE alone does not fix this leak. The new adversarial tests
+run once with actual non-superuser website `session_user=current_user=
+ sjcos_test_website`, and once with the harness superuser (RLS bypass), using
+separate verified Joe/Abigail session IDs. Neither relies on SET ROLE pretending
+to be a login.
+
+No RLS policy, role grant or migration was changed in this slice. The existing
+threadQuery transaction already sets `sjcos.ask_actor` locally; admission now
+sets it on its own transaction as well, before loading the thread. Ownership
+predicates/access checks are also enforced in application SQL, independently
+of RLS.
+
+Making *all* website SQL fail closed on an absent actor is deferred because the
+same owner pool/login is also used by detached runner startup/heartbeat/results,
+OS-journal recovery/replay/purge, secret cron adapters and transaction callbacks
+(`Run`) with no request/session. Changing the policy now would disable those
+paths; setting a session-wide pool GUC would introduce concurrent-person identity
+contamination. A safe follow-up needs a distinct non-superuser request pool/role,
+transaction-scoped actor for every request/Run transaction, and separately
+run-bound maintenance/runtime identities/adapters (with role manifest, migration
+and restore/runner tests), rather than treating absence of a session as trust.
+No claim is made that website arbitrary SQL execution is sandboxed by RLS.
+
+## Scan defense and complete caller audit
+
+`tests/ask-private-query-scan.test.mjs` scans **all** source files under `lib/`,
+`app/`, `mcp/`, `scripts/`; no directory/file-wide SQL exemption. It includes the
+five requested tables plus folders, steers, run effects, pending actions and
+orchestration tasks/events. It tracks literal/template/concatenated SQL and
+referenced table/SQL-fragment constants. It conservatively includes some
+non-SQL prompt/business fragments. Each allowlist entry has an exact file,
+function, classification, prescribed reason, explanation and query hashes;
+source-file hashes also pin guards/imports, so removing a guard without changing
+SQL fails. New files/functions/queries, changed queries and stale entries fail.
+The trusted cron adapter's imports are checked across the entire source tree.
+There is no auto-update/generate-allowlist command committed to the repository.
+
+The scan guarantees that statically identified private SQL/fragments cannot
+change or be added without updating an explicit reviewed inventory. It is a
+regression fence, not a SQL authorization engine or proof that an allowlisted
+function is correct. Arbitrary runtime-generated/obfuscated table names require
+human review; the real identity/bypass DB tests establish actual privacy behavior.
+
+| Classification | Function entries | SQL / conservative fragments |
+|---|---:|---:|
+| fenced | 71 | 108 |
+| trusted-background | 30 | 63 |
+| not-private | 18 | 31 |
+| **Total** | **119** | **202** |
+
+`not-private` means only explicitly described shared business records,
+opaque health/routing metadata, global cost/quota aggregates or conservative
+non-SQL matches; it is not an owner exception for reading staff transcripts.
+The allowlist is `tests/fixtures/ask-private-query-allowlist.json`.
+
+Non-SQL entrypoints audited too:
+
+| Surface | Disposition |
+|---|---|
+| `app/panel/page.tsx`, panel rail/history and `/today` dock | AI area gate; shared actions/data functions above own all thread reads. No UI file edited. |
+| `lib/mobile-rpc/operator-reads.ts` and mobile operator route wrappers | Read adapter matches request/DAL identity; rail/archived/conversation/poll/review delegate to fenced actions. Real rail and archived serializers are exercised by the new DB test. |
+| `lib/mobile-rpc/operator.ts` | Strict schemas + askBoundary; per-ID folder/thread/run mutations delegate to checked actions. |
+| `lib/mobile-rpc/today.ts` | Handoff creates a new actor-owned conversation; poll delegates to checked run action, no direct private SQL. |
+| `lib/actions/dev-agents.ts`, TTS route, legacy Ask routes | Public boundary + exact run/thread/interaction guards before callbacks or providers. |
+| `mcp/interact-mcp.mjs`, `mcp/interact-tools.mjs`, `mcp/sjcos-mcp.mjs` | No direct private-table SQL; private interactions use the closed authenticated runner bridge and its journal/tuple checks. Ordinary business replies stay business metadata. |
+| `lib/decisions/telegram.ts`, dispatch and maintenance routes | Verified owner-channel business events / secret machine routes; private session delivery still requires self access; maintenance exposes only opaque health. |
+| `lib/permissions.ts`, `lib/entity-href.ts`, `lib/thread-rail.ts`, measure page | Permissions or pure metadata/formatting, no private SQL; rail partitions/counts use only fenced input; measure shows global operations aggregates. |
+
+Full function inventory (SQL fragments in one function grouped; exact individual
+hashes are in the allowlist):
+
+| File | Function | SQL/fragments | Classification | Why |
+|---|---|---:|---|---|
+| `lib/actions/ai-chat.ts` | `sendMessageActionImpl` | 2 | fenced | Each public action uses askBoundary and exact requireThreadAccess before ID reads/writes; runtime INSERT uses admitAskRun or the internal owned-thread continuation. No independent RPC SQL. |
+| `lib/actions/ai-chat.ts` | `resetClaudeSessionActionImpl` | 1 | fenced | Each public action uses askBoundary and exact requireThreadAccess before ID reads/writes; runtime INSERT uses admitAskRun or the internal owned-thread continuation. No independent RPC SQL. |
+| `lib/actions/ai-chat.ts` | `renameConversationActionImpl` | 1 | fenced | Each public action uses askBoundary and exact requireThreadAccess before ID reads/writes; runtime INSERT uses admitAskRun or the internal owned-thread continuation. No independent RPC SQL. |
+| `lib/actions/ai-chat.ts` | `startBackgroundTurn` | 1 | fenced | Each public action uses askBoundary and exact requireThreadAccess before ID reads/writes; runtime INSERT uses admitAskRun or the internal owned-thread continuation. No independent RPC SQL. |
+| `lib/actions/ai-chat.ts` | `voiceTurnActionImpl` | 1 | fenced | Each public action uses askBoundary and exact requireThreadAccess before ID reads/writes; runtime INSERT uses admitAskRun or the internal owned-thread continuation. No independent RPC SQL. |
+| `lib/actions/panel-review.ts` | `loadRunReviewImpl` | 2 | fenced | askBoundary + requireRunThreadAccess precede run and run_effects reads; staff effects remain area restricted. |
+| `lib/agent-interactions.ts` | `listPendingInteractions` | 2 | fenced | Exact run/thread/interaction helper checks precede reads/answers/dismissals; orphan expiry has an explicit current-actor thread predicate. |
+| `lib/agent-interactions.ts` | `answerInteraction` | 1 | fenced | Exact run/thread/interaction helper checks precede reads/answers/dismissals; orphan expiry has an explicit current-actor thread predicate. |
+| `lib/agent-interactions.ts` | `dismissInteraction` | 1 | fenced | Exact run/thread/interaction helper checks precede reads/answers/dismissals; orphan expiry has an explicit current-actor thread predicate. |
+| `lib/agent-runtime/context.ts` | `verifiedOwnerReplyOf` | 1 | trusted-background | Only runtime trigger context reads a verified owner business reply ID; conversation_id IS NULL prevents private-thread reply ingestion. |
+| `lib/ai-chat.ts` | `listConversations` | 1 | fenced | Lists explicitly filter current actor and live threads. ID operations requireThreadAccess; creation stamps the actor and validates folder ownership. threadQuery supplies actor transaction and journal fence. |
+| `lib/ai-chat.ts` | `listAllConversations` | 1 | fenced | Lists explicitly filter current actor and live threads. ID operations requireThreadAccess; creation stamps the actor and validates folder ownership. threadQuery supplies actor transaction and journal fence. |
+| `lib/ai-chat.ts` | `getConversation` | 3 | fenced | Lists explicitly filter current actor and live threads. ID operations requireThreadAccess; creation stamps the actor and validates folder ownership. threadQuery supplies actor transaction and journal fence. |
+| `lib/ai-chat.ts` | `getTurns` | 1 | fenced | Lists explicitly filter current actor and live threads. ID operations requireThreadAccess; creation stamps the actor and validates folder ownership. threadQuery supplies actor transaction and journal fence. |
+| `lib/ai-chat.ts` | `getThreadMessages` | 1 | fenced | Lists explicitly filter current actor and live threads. ID operations requireThreadAccess; creation stamps the actor and validates folder ownership. threadQuery supplies actor transaction and journal fence. |
+| `lib/ai-chat.ts` | `insertConversation` | 2 | fenced | Lists explicitly filter current actor and live threads. ID operations requireThreadAccess; creation stamps the actor and validates folder ownership. threadQuery supplies actor transaction and journal fence. |
+| `lib/ai-chat.ts` | `insertMessage` | 2 | fenced | Lists explicitly filter current actor and live threads. ID operations requireThreadAccess; creation stamps the actor and validates folder ownership. threadQuery supplies actor transaction and journal fence. |
+| `lib/ai-chat.ts` | `autoTitleIfNeeded` | 1 | fenced | Lists explicitly filter current actor and live threads. ID operations requireThreadAccess; creation stamps the actor and validates folder ownership. threadQuery supplies actor transaction and journal fence. |
+| `lib/ask-run-admission.ts` | `admitAskRun` | 2 | fenced | Verified session/person, transaction-local actor, explicit owned live-thread predicate and requireThreadAccess before admitted INSERT; immutable DB principal/continuation guards. |
+| `lib/ask-thread-journal-interactions.mjs` | `interactionCommand` | 4 | fenced | Secret-authenticated closed runner_stdio bridge, immutable run/person/thread/profile/start tuple, active/revocation checks and withAskJournal; no caller-selected principal. |
+| `lib/ask-thread-journal.mjs` | `deletionState` | 1 | not-private | Title-free latch/checkpoint and existence-of-deletion health only; no source payload or per-person activity. |
+| `lib/ask-thread-journal.mjs` | `replay` | 2 | trusted-background | Journal recovery/replay/purge under the OS lock, independent durability and maintenance lease; trusted internal website identity, no user payload returned. |
+| `lib/ask-thread-journal.mjs` | `deleteThread` | 1 | fenced | Verified principal is supplied by deleteOwnedThread; explicit owner/thread predicate and opaque operation retry under journal lock, never a general tombstone reader. |
+| `lib/ask-thread-journal.mjs` | `maintainThreads` | 6 | trusted-background | Journal recovery/replay/purge under the OS lock, independent durability and maintenance lease; trusted internal website identity, no user payload returned. |
+| `lib/authority/usage.ts` | `admitRun` | 1 | not-private | Global operational quota aggregate only (run count/cap verdict), no title, text, person, thread ID, per-folder count or per-thread activity. Not a source-chat reader. |
+| `lib/decisions/owner-replies.ts` | `recordOwnerReply` | 3 | not-private | Business decision/draft replies explicitly written by Joe for business agents, not captured chat transcript. Queries use opaque chat IDs solely to choose delivery; private routing subsequently requires self access. No private title/messages/session selected. |
+| `lib/decisions/owner-replies.ts` | `recordDraftReply` | 3 | not-private | Business decision/draft replies explicitly written by Joe for business agents, not captured chat transcript. Queries use opaque chat IDs solely to choose delivery; private routing subsequently requires self access. No private title/messages/session selected. |
+| `lib/decisions/owner-replies.ts` | `closeRepliesRevisedByDraft` | 1 | not-private | Business decision/draft replies explicitly written by Joe for business agents, not captured chat transcript. Queries use opaque chat IDs solely to choose delivery; private routing subsequently requires self access. No private title/messages/session selected. |
+| `lib/decisions/owner-replies.ts` | `closeRepliesRevisedBy` | 1 | not-private | Business decision/draft replies explicitly written by Joe for business agents, not captured chat transcript. Queries use opaque chat IDs solely to choose delivery; private routing subsequently requires self access. No private title/messages/session selected. |
+| `lib/dev-agents.ts` | `runPrincipalStillValid` | 1 | not-private | Internal runtime revocation check reads only opaque principal ID/start/active and returns a fixed validity reason, never source chat content. |
+| `lib/dev-agents.ts` | `hermesChat` | 1 | trusted-background | Internal owned-turn runtime stores instruction version metadata on its captured steer.runId; user-selected run IDs are not an input to this provider API. |
+| `lib/dev-agents.ts` | `startClaudeRun` | 2 | fenced | Human thread launches use admitAskRun/requireThreadAccess; poll and stop requireRunThreadAccess. Internal unbound background branches cannot bind a private thread. Poll reaper explicitly scopes current actor/live thread. |
+| `lib/dev-agents.ts` | `getDevAgentRun` | 2 | fenced | Human thread launches use admitAskRun/requireThreadAccess; poll and stop requireRunThreadAccess. Internal unbound background branches cannot bind a private thread. Poll reaper explicitly scopes current actor/live thread. |
+| `lib/dev-agents.ts` | `stopDevAgentRun` | 2 | fenced | Human thread launches use admitAskRun/requireThreadAccess; poll and stop requireRunThreadAccess. Internal unbound background branches cannot bind a private thread. Poll reaper explicitly scopes current actor/live thread. |
+| `lib/dev-agents.ts` | `runHermesTurnTracked` | 3 | fenced | Human thread launches use admitAskRun/requireThreadAccess; poll and stop requireRunThreadAccess. Internal unbound background branches cannot bind a private thread. Poll reaper explicitly scopes current actor/live thread. |
+| `lib/dev-agents.ts` | `pingConversation` | 2 | fenced | Human thread launches use admitAskRun/requireThreadAccess; poll and stop requireRunThreadAccess. Internal unbound background branches cannot bind a private thread. Poll reaper explicitly scopes current actor/live thread. |
+| `lib/dev-agents.ts` | `retryFailedApprovalPings` | 1 | trusted-background | Secret cron sweep counts only unbound background attempts by shared business subject; private conversation runs explicitly excluded. |
+| `lib/dev-agents.ts` | `failStaleRuns` | 1 | fenced | Human thread launches use admitAskRun/requireThreadAccess; poll and stop requireRunThreadAccess. Internal unbound background branches cannot bind a private thread. Poll reaper explicitly scopes current actor/live thread. |
+| `lib/measure/baseline.ts` | `baselineOwnerTouches` | 1 | not-private | Owner operations measurement uses aggregate recorded cost and run count only; no per-person/thread identifiers, title, prompt, answer or folder state. |
+| `lib/measure/cases.ts` | `linkedTouches` | 1 | not-private | Operations measurement and owner-touch accounting; private source tables contribute aggregate recorded cost/count only, never private chat contents or per-folder counts. Conservative scan also catches non-private measurement SQL fragments. |
+| `lib/measure/cases.ts` | `recordOwnerTouch` | 1 | not-private | Operations measurement and owner-touch accounting; private source tables contribute aggregate recorded cost/count only, never private chat contents or per-folder counts. Conservative scan also catches non-private measurement SQL fragments. |
+| `lib/measure/cases.ts` | `measurementSummary` | 1 | not-private | Operations measurement and owner-touch accounting; private source tables contribute aggregate recorded cost/count only, never private chat contents or per-folder counts. Conservative scan also catches non-private measurement SQL fragments. |
+| `lib/measure/cases.ts` | `agentCost` | 3 | not-private | Operations measurement and owner-touch accounting; private source tables contribute aggregate recorded cost/count only, never private chat contents or per-folder counts. Conservative scan also catches non-private measurement SQL fragments. |
+| `lib/orchestrator/activity.ts` | `write` | 1 | trusted-background | Runtime closure captures the admitted/generated run ID and writes buffered activity, never accepts an action-supplied row ID or returns another run. |
+| `lib/orchestrator/effects.ts` | `recordRunEffects` | 1 | trusted-background | Internal completion of a generated/admitted run records effects and infers shared business audit scopes; caller does not accept request-selected run IDs. |
+| `lib/orchestrator/effects.ts` | `inferHermesEffects` | 2 | trusted-background | Internal completion of a generated/admitted run records effects and infers shared business audit scopes; caller does not accept request-selected run IDs. |
+| `lib/orchestrator/ladder.ts` | `addEvent` | 1 | trusted-background | Internal owned-thread runtime driver uses generated task/takeover IDs, owned transcript helpers and guarded steer relay; never a public task-history endpoint. Poll reaper separately actor scoped. |
+| `lib/orchestrator/ladder.ts` | `effectsDigest` | 1 | trusted-background | Internal owned-thread runtime driver uses generated task/takeover IDs, owned transcript helpers and guarded steer relay; never a public task-history endpoint. Poll reaper separately actor scoped. |
+| `lib/orchestrator/ladder.ts` | `runHermesLadder` | 11 | trusted-background | Internal owned-thread runtime driver uses generated task/takeover IDs, owned transcript helpers and guarded steer relay; never a public task-history endpoint. Poll reaper separately actor scoped. |
+| `lib/orchestrator/ladder.ts` | `taskWithSteers` | 1 | trusted-background | Internal owned-thread runtime driver uses generated task/takeover IDs, owned transcript helpers and guarded steer relay; never a public task-history endpoint. Poll reaper separately actor scoped. |
+| `lib/orchestrator/ladder.ts` | `failStaleTasks` | 1 | fenced | Poll-side task reaper uses threadQuery and explicit owned live-conversation predicate; cannot mutate another persons task. |
+| `lib/orchestrator/ladder.ts` | `startLadderRun` | 1 | trusted-background | Internal owned-thread runtime driver uses generated task/takeover IDs, owned transcript helpers and guarded steer relay; never a public task-history endpoint. Poll reaper separately actor scoped. |
+| `lib/orchestrator/proposals.ts` | `processQwenProposals` | 5 | trusted-background | Only the admitted owned-turn runtime supplies run/thread IDs; review records business proposals and updates its captured run, not request-selected history. |
+| `lib/orchestrator/thread.ts` | `lastAnsweringAgent` | 1 | fenced | getThreadMessages requiresThreadAccess before continuity/model-input reads; fallback run query is restricted to that exact immutable owned conversation. |
+| `lib/orchestrator/voice.ts` | `conciergeTurn` | 4 | not-private | No private SQL: conservative fragment tracking catches a prompt string; the input is the current supplied utterance, not stored chat data. |
+| `lib/orchestrator/voice.ts` | `spokenUpdateForRun` | 2 | fenced | spokenUpdateForRun requiresRunThreadAccess before prompt/answer/cache access; concierge accepts current supplied utterance, not stored foreign-thread history. |
+| `lib/owner-reply-delivery.ts` | `markDraftCardPulled` | 1 | not-private | No private SQL: conservative string tracking captures Telegram UI text for shared business draft cards. |
+| `lib/owner-reply-delivery.ts` | `promptFor` | 1 | not-private | Shared business owner-grant request selected by its ID, not a private transcript; conservative scan also catches formatting strings. |
+| `lib/owner-reply-delivery.ts` | `deliverOwnerReplyImpl` | 7 | fenced | Session route requires threadPrincipal owner plus requireThreadAccess(self), then journal/threadQuery; no private-denial fallback. Remaining writes update only the owner business reply being delivered. |
+| `lib/owner-reply-delivery.ts` | `replyToOwner` | 5 | not-private | Owner-authored business reply delivery metadata and Joe-only Telegram routing; private session title/run reads additionally require current owner=self thread access and journal, never blanket owner access. MCP reply selects decision/work-item routing metadata, not source chat content. |
+| `lib/owner-reply-delivery.ts` | `sweepUnansweredReplies` | 5 | trusted-background | Secret dispatch cron reads reply routing metadata; private session branch requires self access and skips when no verified current person, so cron cannot forward staff/private transcripts. Unbound branch reads business trigger results only. |
+| `lib/panel-search.ts` | `searchPanelForUser` | 1 | fenced | Actor loaded by threadPrincipal must match authenticated web/bearer adapter user; SQL requires c.owner_user_id=$2 and live thread for both roles. Failure yields no chat hits. |
+| `lib/run-focus.ts` | `getRunFocus` | 1 | fenced | requireRunThreadAccess before reading run_effects; downstream business entity resolution preserves area checks in consumers. |
+| `lib/run-steers.ts` | `enqueueSteer` | 1 | fenced | Public enqueue/status/relay and run lifecycle claims require exact run/thread helpers; bulk release/mark takes only internally claimed steer IDs, never request input. Journal covers enqueue/relay transactions. |
+| `lib/run-steers.ts` | `tryEnqueue` | 4 | fenced | Public enqueue/status/relay and run lifecycle claims require exact run/thread helpers; bulk release/mark takes only internally claimed steer IDs, never request input. Journal covers enqueue/relay transactions. |
+| `lib/run-steers.ts` | `takePendingSteers` | 1 | fenced | Public enqueue/status/relay and run lifecycle claims require exact run/thread helpers; bulk release/mark takes only internally claimed steer IDs, never request input. Journal covers enqueue/relay transactions. |
+| `lib/run-steers.ts` | `hasPendingSteers` | 1 | fenced | Public enqueue/status/relay and run lifecycle claims require exact run/thread helpers; bulk release/mark takes only internally claimed steer IDs, never request input. Journal covers enqueue/relay transactions. |
+| `lib/run-steers.ts` | `releaseSteers` | 1 | fenced | Public enqueue/status/relay and run lifecycle claims require exact run/thread helpers; bulk release/mark takes only internally claimed steer IDs, never request input. Journal covers enqueue/relay transactions. |
+| `lib/run-steers.ts` | `markSteersVia` | 1 | fenced | Public enqueue/status/relay and run lifecycle claims require exact run/thread helpers; bulk release/mark takes only internally claimed steer IDs, never request input. Journal covers enqueue/relay transactions. |
+| `lib/run-steers.ts` | `closeSteering` | 1 | fenced | Public enqueue/status/relay and run lifecycle claims require exact run/thread helpers; bulk release/mark takes only internally claimed steer IDs, never request input. Journal covers enqueue/relay transactions. |
+| `lib/run-steers.ts` | `reopenSteering` | 1 | fenced | Public enqueue/status/relay and run lifecycle claims require exact run/thread helpers; bulk release/mark takes only internally claimed steer IDs, never request input. Journal covers enqueue/relay transactions. |
+| `lib/run-steers.ts` | `relaySteers` | 2 | fenced | Public enqueue/status/relay and run lifecycle claims require exact run/thread helpers; bulk release/mark takes only internally claimed steer IDs, never request input. Journal covers enqueue/relay transactions. |
+| `lib/run-steers.ts` | `steersForRun` | 1 | fenced | Public enqueue/status/relay and run lifecycle claims require exact run/thread helpers; bulk release/mark takes only internally claimed steer IDs, never request input. Journal covers enqueue/relay transactions. |
+| `lib/run-steers.ts` | `steerPrompt` | 1 | not-private | No SQL: conservative fragment tracking catches runtime prompt text; only caller-supplied already-owned steer bodies are formatted. |
+| `lib/run-steers.ts` | `settleSteeredRun` | 3 | fenced | Public enqueue/status/relay and run lifecycle claims require exact run/thread helpers; bulk release/mark takes only internally claimed steer IDs, never request input. Journal covers enqueue/relay transactions. |
+| `lib/thread-access.ts` | `requireThreadAccess` | 1 | fenced | Verified session/person; exact self-owner/live thread or run principal; no owner override. Attachment path is canonical, owned live refs or same-person pending upload; global attached boolean stays internal to denial. |
+| `lib/thread-access.ts` | `requireRunThreadAccess` | 1 | fenced | Verified session/person; exact self-owner/live thread or run principal; no owner override. Attachment path is canonical, owned live refs or same-person pending upload; global attached boolean stays internal to denial. |
+| `lib/thread-access.ts` | `requireInteractionThreadAccess` | 1 | fenced | Verified session/person; exact self-owner/live thread or run principal; no owner override. Attachment path is canonical, owned live refs or same-person pending upload; global attached boolean stays internal to denial. |
+| `lib/thread-access.ts` | `withThreadAttachmentAccess` | 1 | fenced | Verified session/person; exact self-owner/live thread or run principal; no owner override. Attachment path is canonical, owned live refs or same-person pending upload; global attached boolean stays internal to denial. |
+| `lib/thread-folder-maintenance.ts` | `autoSettleQuietThreadsInBackground` | 1 | trusted-background | Only secret-authenticated agent-retries cron imports this entry point; journal-fenced sweep of live quiet owned threads, returns aggregate count to the machine caller. No action option selects it. |
+| `lib/thread-folders.ts` | `requireFolderAccess` | 1 | fenced | Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD. |
+| `lib/thread-folders.ts` | `searchFolderEntities` | 1 | fenced | Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD. |
+| `lib/thread-folders.ts` | `listFolders` | 1 | fenced | Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD. |
+| `lib/thread-folders.ts` | `getFolder` | 1 | fenced | Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD. |
+| `lib/thread-folders.ts` | `createFolder` | 1 | fenced | Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD. |
+| `lib/thread-folders.ts` | `ensureFolderForEntity` | 3 | fenced | Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD. |
+| `lib/thread-folders.ts` | `renameFolder` | 1 | fenced | Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD. |
+| `lib/thread-folders.ts` | `bindFolder` | 3 | fenced | Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD. |
+| `lib/thread-folders.ts` | `reorderFolders` | 1 | fenced | Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD. |
+| `lib/thread-folders.ts` | `setFolderCollapsed` | 1 | fenced | Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD. |
+| `lib/thread-folders.ts` | `setFolderArchived` | 2 | fenced | Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD. |
+| `lib/thread-folders.ts` | `deleteFolder` | 2 | fenced | Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD. |
+| `lib/thread-folders.ts` | `<module>` | 1 | fenced | Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD. |
+| `lib/thread-folders.ts` | `listThreadRail` | 1 | fenced | Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD. |
+| `lib/thread-folders.ts` | `listArchivedThreads` | 1 | fenced | Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD. |
+| `lib/thread-folders.ts` | `threadBusy` | 1 | fenced | Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD. |
+| `lib/thread-folders.ts` | `settleThread` | 1 | fenced | Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD. |
+| `lib/thread-folders.ts` | `unsettleThread` | 1 | fenced | Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD. |
+| `lib/thread-folders.ts` | `touchThreadActivity` | 1 | fenced | Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD. |
+| `lib/thread-folders.ts` | `setThreadPinned` | 2 | fenced | Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD. |
+| `lib/thread-folders.ts` | `setThreadArchived` | 1 | fenced | Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD. |
+| `lib/thread-folders.ts` | `moveThread` | 1 | fenced | Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD. |
+| `lib/thread-folders.ts` | `autoSettleQuietThreads` | 1 | fenced | Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD. |
+| `lib/thread-folders.ts` | `folderContextLine` | 1 | fenced | Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD. |
+| `app/api/internal/canvas-maintenance/route.ts` | `reportHealth` | 1 | not-private | Secret-authenticated maintenance health reports only opaque UUID/count/ready state; no private chat text. Conservative SQL scan also tracks fixed private-table absence checks. |
+| `scripts/run-claude-agent.mjs` | `finish` | 1 | trusted-background | Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login. |
+| `scripts/run-claude-agent.mjs` | `loadBusinessInstructions` | 1 | trusted-background | Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login. |
+| `scripts/run-claude-agent.mjs` | `withPrivateThread` | 1 | trusted-background | Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login. |
+| `scripts/run-claude-agent.mjs` | `unseenTranscriptAllowed` | 3 | trusted-background | Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login. |
+| `scripts/run-claude-agent.mjs` | `flushActivity` | 1 | trusted-background | Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login. |
+| `scripts/run-claude-agent.mjs` | `recordEffect` | 1 | trusted-background | Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login. |
+| `scripts/run-claude-agent.mjs` | `steerText` | 1 | trusted-background | Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login. |
+| `scripts/run-claude-agent.mjs` | `takeSteers` | 1 | trusted-background | Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login. |
+| `scripts/run-claude-agent.mjs` | `takeSteersAllowed` | 1 | trusted-background | Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login. |
+| `scripts/run-claude-agent.mjs` | `onResult` | 2 | trusted-background | Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login. |
+| `scripts/run-claude-agent.mjs` | `runClaude` | 2 | trusted-background | Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login. |
+| `scripts/run-claude-agent.mjs` | `main` | 4 | trusted-background | Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login. |
+| `scripts/run-claude-agent.mjs` | `recordUsage` | 1 | trusted-background | Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login. |
+| `scripts/run-claude-agent.mjs` | `persistToConversationAllowed` | 2 | trusted-background | Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login. |
+
+## Verification
+
+Expectations were written before implementation/execution in the new test
+files. Real DB SQL, functions and login identities are exercised with controlled
+request/session/journal-admission seams; this is not an HTTP/browser QA claim.
+The folder test checks both real actions and mobile rail/archived serializers,
+client grouping/count/activity inputs, both roles, active and archived rows,
+foreign busy runs, same-entity independent folder binding, every thread folder
+operation and unchanged database snapshots after denial. The separate recovery
+suite tests the real journal; background auto-settle tests execute its real SQL.
+
+Every invocation was one file at a time with `SJC_TEST_CLUSTER_TAG=p0leak-<ts>`;
+each invoking shell used an EXIT trap to stop/remove that cluster, including
+failed assertions. All clusters were stopped. No exit 137 occurred.
+
+| Test file (`tests/<name>.test.mjs`) | Final pass | Fail |
+|---|---:|---:|
+| ask-folder-privacy-db | 11 | 0 |
+| ask-private-query-scan | 4 | 0 |
+| ask-thread-access-db | 33 | 0 |
+| ask-thread-recovery-db | 43 | 0 |
+| ask-server-boundaries-db | 8 | 0 |
+| ask-run-admission-db | 4 | 0 |
+| panel-search | 6 | 0 |
+| mobile-rpc | 28 | 0 |
+| db-roles-manifest-db | 6 | 0 |
+| db-roles-paths-db | 3 | 0 |
+| run-steers-db | 1 | 0 |
+| panel-defects | 6 | 0 |
+| merge-chat-regressions | 2 | 0 |
+| agent-runtime-db | 10 | 0 |
+| canvas-rollout-db | 3 | 0 |
+
+Earlier admission test failure caught a result-code regression (foreign rows
+became PRIVACY_REQUIRED after filtering); fixed to THREAD_UNAVAILABLE without
+weakening its assertion. Existing panel-defects fixture gained the exact access
+helper seam. Merge-chat-regressions had a stale missing askBoundary stub at the
+base; its isolated external-boundary fixture now supplies the wrapper and keeps
+all routing/no-write/context assertions. A new scan import-boundary test first
+matched a documentation comment; corrected to match import/require syntax.
+
+Final prescribed typecheck:
+`flock /tmp/sjcos-tsc.lock nice -n 19 npx tsc --noEmit -p .` **exit 0**.
+`node scripts/db-roles-scan.mjs --diff` **exit 0**; all printed differences have
+existing intentional withholding annotations, no new grants needed. Specifically:
+agent's settings, authority, lane, permission audit, policy, revocation and user
+writes remain owner-only. Worker's private interaction UPDATE/message DELETE,
+journal/session state, payment authorization, QBO, mailbox tokens and the same
+owner-control tables remain withheld website/maintenance paths from import
+tracing. The scan does not justify broadening worker access to private threads.
+The actual role identity/privilege tests pass. No migration or manifest changed
+because no new table or narrow-role writer was introduced.
+
+Coordinator-only visual checks remain: Joe and Abigail separately open `/panel`,
+History, Show archived, staff Cmd-K QA search and the `/today` dock/mobile rail;
+confirm each payload/list/count/status contains only that person's threads.
+No browser, server or build was started here. No deploy was performed.

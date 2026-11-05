@@ -131,6 +131,7 @@ async function tryEnqueue(runId: string, text: string): Promise<{ steerId: strin
 /** Claim every pending steer addressed to this run (directly, or relayed to
  *  it from a ladder) as delivered. Oldest first. */
 export async function takePendingSteers(runId: string, via: SteerVia): Promise<SteerRow[]> {
+  await requireRunThreadAccess(runId);
   try {
     const { rows } = await query<{ id: string; body: string; message_id: string | null; created_at: string }>(
       `UPDATE run_steers SET status = 'delivered', via = $2, delivered_at = now()
@@ -148,6 +149,7 @@ export async function takePendingSteers(runId: string, via: SteerVia): Promise<S
 
 /** Cheap "anything waiting?" check for the per-second tickers. */
 export async function hasPendingSteers(runId: string): Promise<boolean> {
+  await requireRunThreadAccess(runId);
   try {
     const r = await queryOne<{ one: number }>(
       `SELECT 1 AS one FROM run_steers WHERE status = 'pending' AND (run_id = $1 OR relay_run_id = $1) LIMIT 1`,
@@ -159,7 +161,8 @@ export async function hasPendingSteers(runId: string): Promise<boolean> {
   }
 }
 
-/** Put claimed steers back (the runtime couldn't take them this tick — e.g.
+/** Runtime-only IDs returned by the owned-run claim; never accepts action/RPC input.
+ * Put claimed steers back (the runtime couldn't take them this tick — e.g.
  *  Hermes' run wasn't accepting steer input yet). */
 export async function releaseSteers(ids: string[]): Promise<void> {
   if (!ids.length) return;
@@ -169,7 +172,8 @@ export async function releaseSteers(ids: string[]): Promise<void> {
   ).catch(() => {});
 }
 
-/** Mark how already-claimed steers were finally delivered. */
+/** Runtime-only claim IDs, never action/RPC input.
+ * Mark how already-claimed steers were finally delivered. */
 export async function markSteersVia(ids: string[], via: SteerVia): Promise<void> {
   if (!ids.length) return;
   await query(`UPDATE run_steers SET via = $2 WHERE id = ANY($1::uuid[])`, [ids, via]).catch(() => {});
@@ -179,6 +183,7 @@ export async function markSteersVia(ids: string[], via: SteerVia): Promise<void>
  *  pending — the caller MUST deliver those (a follow-up turn). Call
  *  reopenSteering() if the same run keeps going to deliver them. */
 export async function closeSteering(runId: string, via: SteerVia = "follow-up"): Promise<SteerRow[]> {
+  await requireRunThreadAccess(runId);
   try {
     await query(`UPDATE dev_agent_runs SET steer_closed_at = now() WHERE id = $1 AND steer_closed_at IS NULL`, [runId]);
   } catch {
@@ -188,6 +193,7 @@ export async function closeSteering(runId: string, via: SteerVia = "follow-up"):
 }
 
 export async function reopenSteering(runId: string): Promise<void> {
+  await requireRunThreadAccess(runId);
   await query(`UPDATE dev_agent_runs SET steer_closed_at = NULL WHERE id = $1`, [runId]).catch(() => {});
 }
 
@@ -293,6 +299,7 @@ export async function settleSteeredRun(opts: {
   followUp: (prompt: string) => Promise<unknown>;
 }): Promise<boolean> {
   await requireThreadAccess(opts.conversationId);
+  await requireRunThreadAccess(opts.runId);
   const left = await closeSteering(opts.runId);
   const live = await queryOne<{ status: string }>(`SELECT status FROM dev_agent_runs WHERE id = $1`, [opts.runId]);
   if (!live || (live.status !== "pending" && live.status !== "running")) return false;

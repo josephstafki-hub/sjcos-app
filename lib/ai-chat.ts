@@ -1,8 +1,10 @@
 import "server-only";
 
-import { threadQuery as query, threadQueryOne as queryOne } from "@/lib/thread-access";
+import { threadQuery as query, threadQueryOne as queryOne, requireThreadAccess } from "@/lib/thread-access";
 import type { PanelAgent } from "@/lib/dev-agents-meta";
 import type { ChatAttachment } from "@/lib/attachments";
+
+const OWN_THREAD = "owner_user_id = nullif(current_setting('sjcos.ask_actor',true),'')::uuid AND deleted_at IS NULL";
 
 // Persisted AI chat: per-agent conversations + messages. Backs the /ai Ask
 // window so threads survive navigation, and keeps history separated by model.
@@ -75,7 +77,7 @@ export async function listConversations(
   }>(
     `SELECT id, agent, title, updated_at::text AS updated_at, archived
        FROM ai_conversations
-      WHERE agent = $1 ${includeArchived ? "" : "AND archived_at IS NULL"}
+      WHERE ${OWN_THREAD} AND agent = $1 ${includeArchived ? "" : "AND archived_at IS NULL"}
       ORDER BY updated_at DESC
       LIMIT 100`,
     [agent],
@@ -111,7 +113,8 @@ export async function listAllConversations(includeArchived = false): Promise<Thr
             EXISTS (SELECT 1 FROM dev_agent_runs r
                      WHERE r.conversation_id = c.id AND r.status IN ('pending','running')) AS live
        FROM ai_conversations c
-      ${includeArchived ? "" : "WHERE c.archived_at IS NULL"}
+      WHERE c.owner_user_id = nullif(current_setting('sjcos.ask_actor',true),'')::uuid AND c.deleted_at IS NULL
+      ${includeArchived ? "" : "AND c.archived_at IS NULL"}
       ORDER BY c.updated_at DESC
       LIMIT 100`,
   );
@@ -127,6 +130,7 @@ export async function listAllConversations(includeArchived = false): Promise<Thr
 
 /** Full thread with messages + any in-flight Claude run. */
 export async function getConversation(id: string): Promise<ConversationDetail | null> {
+  await requireThreadAccess(id);
   const conv = await queryOne<{
     id: string;
     agent: PanelAgent;
@@ -145,7 +149,7 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
        LEFT JOIN leads l ON f.entity_kind = 'lead' AND (l.slug = f.entity_id OR l.id::text = f.entity_id)
        LEFT JOIN vendors v ON f.entity_kind = 'vendor' AND (v.slug = f.entity_id OR v.id::text = f.entity_id)
        LEFT JOIN subs s ON f.entity_kind = 'sub' AND (s.slug = f.entity_id OR s.id::text = f.entity_id)
-      WHERE c.id = $1`,
+      WHERE c.id = $1 AND c.owner_user_id = nullif(current_setting('sjcos.ask_actor',true),'')::uuid AND c.deleted_at IS NULL`,
     [id],
   );
   if (!conv) return null;
@@ -222,6 +226,7 @@ export async function getConversation(id: string): Promise<ConversationDetail | 
 export async function getTurns(
   conversationId: string,
 ): Promise<{ role: "user" | "assistant"; content: string }[]> {
+  await requireThreadAccess(conversationId);
   const { rows } = await query<{ role: "user" | "assistant"; body: string }>(
     `SELECT role, body FROM ai_messages
       WHERE conversation_id = $1 ORDER BY created_at ASC`,
@@ -244,6 +249,7 @@ export interface ThreadMessage {
  *  orchestrator uses to work out which turns an agent hasn't seen yet
  *  (lib/orchestrator/thread.ts). */
 export async function getThreadMessages(conversationId: string): Promise<ThreadMessage[]> {
+  await requireThreadAccess(conversationId);
   const { rows } = await query<{
     id: string;
     role: "user" | "assistant";
@@ -273,6 +279,7 @@ export async function insertConversation(
   title: string,
   folderId: string | null = null,
 ): Promise<string> {
+  if (folderId && !await queryOne(`SELECT id FROM ai_folders WHERE id=$1 AND owner_user_id=nullif(current_setting('sjcos.ask_actor',true),'')::uuid`, [folderId])) throw Error('ASK_THREAD_UNAVAILABLE');
   const row = await queryOne<{ id: string }>(
     `INSERT INTO ai_conversations (agent, title, folder_id, last_activity_at, owner_user_id) VALUES ($1, $2, $3, now(), nullif(current_setting('sjcos.ask_actor',true),'')::uuid) RETURNING id`,
     [agent, title.slice(0, 80) || "New chat", folderId],
@@ -296,6 +303,7 @@ export async function insertMessage(
     attachments?: ChatAttachment[];
   } = {},
 ): Promise<ChatMessage> {
+  await requireThreadAccess(conversationId);
   const row = await queryOne<{
     id: string;
     role: "user" | "assistant";
@@ -323,7 +331,7 @@ export async function insertMessage(
   );
   // last_activity_at is the auto-settle clock and the settled shelf's sort key
   // (lib/thread-folders.ts) — every persisted turn moves it.
-  await query(`UPDATE ai_conversations SET updated_at = now(), last_activity_at = now() WHERE id = $1`, [conversationId]);
+  await query(`UPDATE ai_conversations SET updated_at = now(), last_activity_at = now() WHERE id = $1 AND ${OWN_THREAD}`, [conversationId]);
   return {
     id: row!.id,
     role: row!.role,
@@ -338,9 +346,10 @@ export async function insertMessage(
 
 /** Retitle a still-default conversation from its first user message. */
 export async function autoTitleIfNeeded(conversationId: string, firstPrompt: string): Promise<void> {
+  await requireThreadAccess(conversationId);
   const title = firstPrompt.replace(/\s+/g, " ").trim().slice(0, 60) || "New chat";
   await query(
-    `UPDATE ai_conversations SET title = $2 WHERE id = $1 AND title = 'New chat'`,
+    `UPDATE ai_conversations SET title = $2 WHERE id = $1 AND ${OWN_THREAD} AND title = 'New chat'`,
     [conversationId, title],
   );
 }

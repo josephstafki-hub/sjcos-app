@@ -46,10 +46,12 @@ export async function admitAskRun(input: AskRunInput, source: AskLaunchSource): 
       const s=(await c.query(`SELECT id FROM web_sessions WHERE id=$1 AND user_id=$2 AND generation=$3 AND auth_at=to_timestamp($4) AND revoked_at IS NULL AND expires_at>now() FOR SHARE`,[session.sid,person.id,session.generation,authAt])).rows[0];
       if(!s)throw new Error('ASK_SESSION_REVOKED');
     }
+    await c.query(`SELECT set_config('sjcos.ask_actor',$1,true)`,[person.id]);
     // Do not add/backfill privacy fields here. Missing 0105 is an explicit
     // release dependency, never an implicit ownership guess for legacy rows.
-    const thread=(await c.query(`SELECT c.claude_session_id,to_jsonb(c) AS record FROM ai_conversations c WHERE c.id=$1 FOR UPDATE`,[input.conversationId])).rows[0];
-    if(!thread || !Object.hasOwn(thread.record,'owner_user_id'))throw new Error('ASK_THREAD_PRIVACY_REQUIRED');
+    const thread=(await c.query(`SELECT c.claude_session_id,to_jsonb(c) AS record FROM ai_conversations c WHERE c.id=$1 AND c.owner_user_id=$2 AND c.deleted_at IS NULL FOR UPDATE`,[input.conversationId,person.id])).rows[0];
+    if(!thread)throw new Error('ASK_THREAD_UNAVAILABLE');
+    if(!Object.hasOwn(thread.record,'owner_user_id'))throw new Error('ASK_THREAD_PRIVACY_REQUIRED');
     await requireThreadAccess(input.conversationId,person,c);
     if(input.resumeSessionId && input.resumeSessionId!==thread.claude_session_id)throw new Error('ASK_RESUME_MISMATCH');
     const profile=profileFor({role:person.role,active:person.active},input.requestedProfile) as 'operator'|'business';

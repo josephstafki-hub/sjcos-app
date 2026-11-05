@@ -3,7 +3,7 @@ import type { CurrentUser } from "@/lib/dal";
 import { requireUser } from "@/lib/dal";
 import { staffMayOpen } from "@/lib/permissions";
 import { query } from "@/lib/db";
-import { threadQuery } from "@/lib/thread-access";
+import { threadPrincipal, threadQuery } from "@/lib/thread-access";
 
 export interface PanelSearchResult {
   id: string;
@@ -28,7 +28,7 @@ const PAGES = [
 ];
 /** Every entry point rechecks DB-backed area access. No data from a denied
  * table is selected, including snippets. Staff panel history is restricted to
- * threads whose runs all belong to them; legacy/unattributed threads stay private. */
+ * threads owned by the current person, including Joe; legacy/unattributed threads stay private. */
 export async function searchPanel(raw: string, recordsOnly = false): Promise<PanelSearchResult[]> {
   return searchPanelForUser(await requireUser(), raw, recordsOnly);
 }
@@ -55,6 +55,8 @@ export async function searchPanelForUser(user: CurrentUser, raw: string, records
     return rows.map(r=>({id:'invoice:'+r.id,recordId:r.id,kind:'invoice' as const,title:r.number || 'Invoice',detail:`${r.name} · ${r.status}`,href:'/projects/'+encodeURIComponent(r.slug)+'?tab=Money'}));
   })());
   if (!recordsOnly && may('/panel')) searches.push((async()=>{
+    const person = await threadPrincipal();
+    if (person.id !== user.id) return [];
     const {rows}=await threadQuery<{id:string;title:string;folder:string|null;body:string|null;message_id:string|null;status:string|null}>(
       `SELECT c.id::text, c.title, f.name AS folder, hit.body, hit.id::text AS message_id,
               (SELECT status FROM dev_agent_runs r WHERE r.conversation_id=c.id ORDER BY r.created_at DESC LIMIT 1) AS status

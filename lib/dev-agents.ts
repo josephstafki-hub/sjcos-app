@@ -1,4 +1,4 @@
-import { requireThreadAccess, requireRunThreadAccess, threadQueryOne } from "@/lib/thread-access";
+import { requireThreadAccess, requireRunThreadAccess, threadQuery, threadQueryOne } from "@/lib/thread-access";
 import "server-only";
 
 import { admitAskRun, type AskLaunchSource, type LaunchSource } from "@/lib/ask-run-admission";
@@ -748,6 +748,7 @@ export async function startClaudeRun(
 
 /** Poll a Claude run's state for the chat UI. */
 export async function getDevAgentRun(id: string): Promise<DevAgentRun | null> {
+  await requireRunThreadAccess(id);
   const row = await threadQueryOne<{
     id: string;
     agent: string;
@@ -1030,7 +1031,7 @@ export async function retryFailedApprovalPings(): Promise<{ retried: number }> {
   }>(
     `SELECT w.id AS work_item_id, w.title, w.assignee_key, COUNT(r.id) AS attempts
        FROM work_items w
-       JOIN dev_agent_runs r ON r.subject_work_item_id = w.id
+       JOIN dev_agent_runs r ON r.subject_work_item_id = w.id AND r.conversation_id IS NULL AND r.launch_source = 'background'
       WHERE (w.approval_status = 'approved'
              OR (w.runbook_instance_id IS NOT NULL AND w.status <> 'approval_needed'))
         AND w.status NOT IN ('done', 'cancelled')
@@ -1068,12 +1069,14 @@ export async function retryFailedApprovalPings(): Promise<{ retried: number }> {
  *  run that has gone QUIET for 15 minutes has a dead runner behind it.
  *  failStaleTasks() (45 min quiet) is the task-level backstop above this. */
 export async function failStaleRuns(): Promise<void> {
-  await query(
+  await threadQuery(
     `UPDATE dev_agent_runs
         SET status = 'error',
             answer = COALESCE(answer, 'The runner did not report back (timed out).'),
             updated_at = now()
-      WHERE status IN ('pending','running')
+      WHERE principal_user_id = nullif(current_setting('sjcos.ask_actor',true),'')::uuid
+        AND EXISTS(SELECT 1 FROM ai_conversations c WHERE c.id=conversation_id AND c.owner_user_id=principal_user_id AND c.deleted_at IS NULL)
+        AND status IN ('pending','running')
         AND updated_at < now() - interval '15 minutes'`,
   );
 }

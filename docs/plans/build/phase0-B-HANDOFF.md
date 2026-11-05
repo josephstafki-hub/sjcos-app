@@ -1,3 +1,5 @@
+> **Privacy correction after coordinator QA:** see [phase0-privacy-leak-HANDOFF.md](phase0-privacy-leak-HANDOFF.md) for the explicit ownership fences, full 119-function audit, RLS limits and new bypass-identity regression evidence. Earlier helper/RLS-only privacy claims below are superseded.
+
 # Phase 0 round-2 server correction — A1 (2026-11-05)
 
 This section supersedes the pre-A1 backfill, all-Ask gate, combined-matrix and

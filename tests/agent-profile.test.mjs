@@ -109,3 +109,10 @@ test("authority catalog: DECISIONS.md kinds present, 'grant' never delegable, ga
   assert.equal(authorityForGatedAction("send_email"), null, "one-off email is not delegable through an agent");
   assert.equal(authorityForGatedAction("made_up"), null);
 });
+
+test('unattended runtime stamps background identity after extraEnv, never person/panel tags', async () => {
+  const {businessMcpConfig}=await import('../lib/agent-runtime/claude-runner.mjs');
+  const env=businessMcpConfig({repo:REPO,databaseUrl:'test',extraEnv:{SJC_RUN_PROFILE:'operator',SJC_LAUNCH_SOURCE:'panel_web',SJC_PRINCIPAL_USER_ID:'owner',SJC_CONVERSATION_ID:'private'}}).mcpServers.sjcos.env;
+  assert.equal(env.SJC_RUN_PROFILE,'business'); assert.equal(env.SJC_LAUNCH_SOURCE,'background');
+  assert.equal(env.SJC_PRINCIPAL_USER_ID,''); assert.equal(env.SJC_CONVERSATION_ID,'');
+});

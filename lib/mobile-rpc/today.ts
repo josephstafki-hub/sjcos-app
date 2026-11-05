@@ -1,3 +1,4 @@
+import { withAskLaunchSource } from "@/lib/ask-run-admission";
 import { z } from "zod";
 import { defineAction, MobileInputError } from "./dispatch";
 import { completeTodayItem, snoozeTodayItem, promoteTodayItem, sendBackTodayItem, assignTodayItem, restoreTodayItem } from "@/lib/actions/today";
@@ -49,8 +50,8 @@ export const todayActions = {
         throw new MobileInputError("That handoff isn't available for this item.");
       }
       const conversationId = await newConversationAction(kind === "do" ? "hermes" : "qwen");
-      const turn = await sendMessageAction(conversationId, kind === "do" ? doItDirective(card) : prepDirective(card),
-        undefined, undefined, undefined, card.checkable ? card.id : undefined, false);
+      const turn = await withAskLaunchSource("panel_mobile", () => sendMessageAction(conversationId, kind === "do" ? doItDirective(card) : prepDirective(card),
+        undefined, undefined, undefined, card.checkable ? card.id : undefined, false));
       return turn.ok ? { conversationId, turn } : turn;
     },
   }),

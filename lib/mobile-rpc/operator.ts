@@ -1,3 +1,4 @@
+import { withAskLaunchSource } from "@/lib/ask-run-admission";
 import { z } from "zod";
 import { defineAction, MobileInputError } from "./dispatch";
 import * as chat from "@/lib/actions/ai-chat";
@@ -29,7 +30,8 @@ export function createOperatorActions(c = chat, r = runs, g = grants, pageContex
     } }),
     "operator.send": defineAction({ area: "ai", input: z.object({ id, prompt: z.string().max(100000), context: operatorContextSchema.optional(), options: options.optional(), attachments: z.array(z.object({ name: z.string().min(1).max(500), path: z.string().min(1).max(2000) }).strict()).max(20).optional(), subjectWorkItemId: id.optional(), allowSends: z.boolean().optional() }).strict(), run: async ({ id, prompt, context, options, attachments, subjectWorkItemId, allowSends }, user) => {
       if (allowSends && user.role !== "owner") throw new MobileInputError("Only Joe can give express send permission.");
-      return c.sendMessageAction(id, prompt, await pageContext(context, user), options, attachments, subjectWorkItemId, allowSends);
+      const contextText = await pageContext(context, user);
+      return withAskLaunchSource("panel_mobile", () => c.sendMessageAction(id, prompt, contextText, options, attachments, subjectWorkItemId, allowSends));
     } }),
     // Preserve PollResult's error/nextRunId envelope: the generic dispatcher would
     // otherwise reduce an error result to {error} and lose a follow-on run.

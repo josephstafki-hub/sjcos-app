@@ -217,3 +217,45 @@ export async function cleanFoundation(client) {
   await client.query(`DELETE FROM leads WHERE slug LIKE 'zz-%'`);
   await client.query(`DELETE FROM users WHERE email LIKE 'zz-%'`);
 }
+
+/** Real login-identity fixture, ONLY in an assertNotProduction harness cluster.
+ * SET ROLE alone cannot exercise SECURITY DEFINER/session_user guards. */
+export async function withSessionIdentity(url, identity, callback) {
+  assertNotProduction(url);
+  const identities = {
+    sjcos_agent: 'SET SESSION AUTHORIZATION sjcos_agent',
+    sjcos_worker: 'SET SESSION AUTHORIZATION sjcos_worker',
+    sjcos_readonly: 'SET SESSION AUTHORIZATION sjcos_readonly',
+    sjcos_test_website: 'SET SESSION AUTHORIZATION sjcos_test_website',
+  };
+  if (!Object.hasOwn(identities, identity)) throw new Error('unsupported test session identity');
+  const client = new pg.Client({ connectionString: url });
+  await client.connect();
+  try {
+    // A distinct non-superuser table owner represents the website. Never
+    // whitelist sjctest (the harness administrator) as production authority.
+    await client.query(`DO $$ BEGIN
+      IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='sjcos_test_website') THEN CREATE ROLE sjcos_test_website NOLOGIN NOSUPERUSER; END IF;
+    END $$`);
+    await client.query(`GRANT USAGE, CREATE ON SCHEMA public TO sjcos_test_website`);
+    await client.query(`DO $$ DECLARE obj record; BEGIN
+      FOR obj IN SELECT c.oid::regclass AS name,c.relkind FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+        WHERE n.nspname='public' AND c.relkind IN ('r','p','v','S') AND NOT EXISTS(SELECT 1 FROM pg_depend d WHERE d.objid=c.oid AND d.deptype='e') ORDER BY c.relkind='S'
+      LOOP
+        IF obj.relkind='S' THEN EXECUTE format('ALTER SEQUENCE %s OWNER TO sjcos_test_website',obj.name);
+        ELSIF obj.relkind='v' THEN EXECUTE format('ALTER VIEW %s OWNER TO sjcos_test_website',obj.name);
+        ELSE EXECUTE format('ALTER TABLE %s OWNER TO sjcos_test_website',obj.name); END IF;
+      END LOOP;
+      FOR obj IN SELECT p.oid::regprocedure AS name FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+        WHERE n.nspname='public' AND NOT EXISTS(SELECT 1 FROM pg_depend d WHERE d.objid=p.oid AND d.deptype='e')
+      LOOP EXECUTE format('ALTER FUNCTION %s OWNER TO sjcos_test_website',obj.name); END LOOP;
+    END $$`);
+    await client.query(identities[identity]);
+    const proof = (await client.query('SELECT session_user, current_user')).rows[0];
+    if (proof.session_user !== identity || proof.current_user !== identity) throw new Error('session identity fixture failed');
+    return await callback(client, proof);
+  } finally {
+    await client.query('RESET SESSION AUTHORIZATION').catch(() => {});
+    await client.end();
+  }
+}

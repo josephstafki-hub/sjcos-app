@@ -1,5 +1,7 @@
 "use server";
 
+import { admitAskRun, currentAskLaunchSource, type AskLaunchSource } from "@/lib/ask-run-admission";
+
 import { mkdir, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
@@ -234,7 +236,7 @@ export async function sendMessageAction(
         conversationId,
         claudeOptions,
         undefined,
-        allowSends ? { allowSends: true } : undefined,
+        { allowSends: !!allowSends, launchSource: await currentAskLaunchSource() },
       );
       return { ok: true, kind: "pending", runId, userMessageId: userMsg.id };
     }
@@ -242,6 +244,7 @@ export async function sendMessageAction(
     // Run the turn in the background (see startBackgroundTurn) and hand the
     // client a run id to poll.
     const runId = await startBackgroundTurn({
+      launchSource: await currentAskLaunchSource(),
       conversationId,
       agent,
       reviewed: conv.agent === "auto",
@@ -416,6 +419,7 @@ export async function deleteConversationAction(id: string): Promise<{ ok: boolea
 // ─── Background turns ────────────────────────────────────────────────────────
 
 interface BackgroundTurn {
+  launchSource?: AskLaunchSource;
   conversationId: string;
   agent: "hermes" | "qwen";
   /** True when this thread is 'auto' — Hermes runs the full Claude-reviewed
@@ -450,9 +454,9 @@ interface BackgroundTurn {
 async function startBackgroundTurn(t: BackgroundTurn): Promise<string> {
   const { conversationId, agent, reviewed, text, attachments, pageContext, subjectWorkItemId } = t;
   const label = agent === "hermes" ? "Hermes" : "Qwen";
-  const run = await queryOne<{ id: string }>(
-    `INSERT INTO dev_agent_runs (agent, prompt, page_context, status, conversation_id, activity, subject_work_item_id)
-     VALUES ($1, $2, $3, 'running', $4, $5, $6)
+  const run = t.launchSource ? await admitAskRun({conversationId, prompt:text, pageContext, agent, requestedProfile:"business", withMcp:true, subjectWorkItemId, activity:t.activity}, t.launchSource) : await queryOne<{ id: string }>(
+    `INSERT INTO dev_agent_runs (agent, prompt, page_context, status, conversation_id, activity, subject_work_item_id, launch_source)
+     VALUES ($1, $2, $3, 'running', $4, $5, $6, 'background')
      RETURNING id`,
     [agent, text, pageContext ?? null, conversationId, t.activity ?? `${label} is thinking…`, subjectWorkItemId ?? null],
   );
@@ -463,6 +467,7 @@ async function startBackgroundTurn(t: BackgroundTurn): Promise<string> {
   const followUp = (steerText: string) =>
     startBackgroundTurn({
       ...t,
+      launchSource: undefined, // Autonomous follow-up must not inherit attendance.
       text: steerText,
       attachments: [],
       pageContext: t.followUpContext ?? pageContext,
@@ -571,6 +576,7 @@ export async function voiceTurnAction(
     return { ok: true, speak: reply.speak, ackMessageId: note.id };
   }
   const runId = await startBackgroundTurn({
+    launchSource: "panel_voice",
     conversationId,
     agent,
     reviewed: conv.agent === "auto" || conv.agent === "claude",

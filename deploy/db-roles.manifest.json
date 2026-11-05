@@ -2894,7 +2894,7 @@
       "note": "staff Gmail refresh tokens; only the website's own mailbox code reads them"
     },
     "users": {
-      "note": "logins and passwords: Joe's Settings › Team (website) or his own panel run only",
+      "note": "logins and passwords: Joe's Settings \u203a Team (website) or his own panel run only",
       "sjcos_agent": [
         "SELECT(id,email,name,role,initials,link_slug,active,permissions,created_at,portal_claimed_at,ai_scope,last_permission_change_at)"
       ],
@@ -3029,6 +3029,45 @@
       "sjcos_readonly": [
         "SELECT"
       ]
+    },
+    "web_sessions": {
+      "note": "0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."
+    },
+    "browser_tasks": {
+      "note": "0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."
+    },
+    "browser_task_runs": {
+      "note": "0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."
+    },
+    "browser_commands": {
+      "note": "0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."
+    },
+    "browser_viewers": {
+      "note": "0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."
+    },
+    "browser_web_commands": {
+      "note": "0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."
+    },
+    "browser_maintenance_jobs": {
+      "note": "0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."
+    },
+    "browser_read_manifests": {
+      "note": "0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."
+    },
+    "browser_read_uses": {
+      "note": "0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."
+    },
+    "browser_owner_views": {
+      "note": "0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."
+    },
+    "browser_audit": {
+      "note": "0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."
+    },
+    "browser_audit_heads": {
+      "note": "0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."
+    },
+    "browser_audit_checkpoints": {
+      "note": "0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."
     }
   }
 }

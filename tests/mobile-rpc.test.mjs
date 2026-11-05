@@ -280,6 +280,7 @@ test('call bridge selects caller cell, preserves owner fallback and refuses miss
 async function operatorRegistry(overrides = {}) {
   const { createOperatorActions } = await isolatedModule('../lib/mobile-rpc/operator.ts', ['createOperatorActions'], {
     z, defineAction, MobileInputError: (await import('../lib/mobile-rpc/dispatch.ts')).MobileInputError,
+    withAskLaunchSource: (source, callback) => { assert.equal(source, "panel_mobile"); overrides.sources?.push(source); return callback(); },
     chat: {}, runs: {}, grants: {}, operatorPageContext: async () => undefined,
     CLAUDE_MODEL_VALUES: ['sonnet', 'opus'], CLAUDE_CONTEXT_VALUES: ['default', '1m'],
     CLAUDE_MODE_VALUES: ['acceptEdits', 'plan'], CLAUDE_EFFORT_OPTIONS: [{value:'default'}, {value:'high'}],
@@ -311,10 +312,12 @@ test('operator send forwards context, options, attachments and express permissio
   const context={type:'project',slug:'kitchen'};
   const options={model:'opus',mode:'plan'};
   const attachments=[{name:'plan.pdf',path:'/uploads/plan.pdf'}];
-  const actions=await operatorRegistry({chat:{sendMessageAction:async(...args)=>{received=args;return {ok:true,kind:'pending',runId:operatorId,userMessageId:operatorId};}},context:async(c,u)=>{assert.deepEqual(c,context);assert.equal(u,owner);return 'Web page context';}});
+  const sources=[];
+  const actions=await operatorRegistry({sources,chat:{sendMessageAction:async(...args)=>{received=args;return {ok:true,kind:'pending',runId:operatorId,userMessageId:operatorId};}},context:async(c,u)=>{assert.deepEqual(c,context);assert.equal(u,owner);return 'Web page context';}});
   const response=await call('operator.send',{id:operatorId,prompt:'Review',context,options,attachments,allowSends:true},owner,actions);
   assert.equal(response.status,200);
   assert.deepEqual(received,[operatorId,'Review','Web page context',options,attachments,undefined,true]);
+  assert.deepEqual(sources,['panel_mobile']);
 });
 test('operator conversation read returns 404 for an unknown thread',async()=>{
   const {operatorConversation}=await isolatedModule('../lib/mobile-rpc/operator-reads.ts',['operatorConversation'],{z,chat:{loadConversationAction:async()=>null}});

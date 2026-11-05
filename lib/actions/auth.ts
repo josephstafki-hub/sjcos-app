@@ -5,6 +5,7 @@
 // Accounts are owner-provisioned (see lib/actions/users.ts) — there is no public
 // signup.
 
+import { validateBrowserReturnPath } from "@/lib/web-sessions";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { queryOne } from "@/lib/db";
@@ -50,7 +51,7 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
 
   const perms = user.role === "staff" ? normalizePermissions(user.permissions) : [];
   await createSession(user.id, user.role, perms);
-  redirect(homeForRole(user.role, perms)); // throws — must be outside try/catch
+  redirect(validateBrowserReturnPath(formData.get("returnTo")) ?? homeForRole(user.role, perms)); // throws — must be outside try/catch
 }
 
 export async function logout(): Promise<void> {

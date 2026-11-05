@@ -7,6 +7,7 @@ import {
   PATH_HEADER,
   type Role,
 } from "@/lib/session-window";
+import { verifyWebSessionToken, renewWebSession, validateBrowserReturnPath, WEB_SESSION_ISSUER, WEB_SESSION_AUDIENCE } from "@/lib/web-sessions";
 import { isOwnerOnlyPath, staffHome } from "@/lib/permissions";
 
 // Next 16 middleware (file name is `proxy.ts`). Optimistic auth: read the
@@ -16,14 +17,16 @@ import { isOwnerOnlyPath, staffHome } from "@/lib/permissions";
 // It is also where sessions SLIDE. Renewal has to happen here because a Server
 // Component can't write a cookie during render, and middleware is the one place
 // every request passes through. lib/session-window.ts holds the shared cookie
-// name and lifetimes — it imports nothing, so it's safe on the Edge runtime
-// (lib/session.ts is not: "server-only" + next/headers).
+// name and lifetimes. Next 16 Proxy uses Node; sid renewal also checks the DB.
 
 const encodedKey = new TextEncoder().encode(
   process.env.SESSION_SECRET ?? "dev-insecure-secret-change-me",
 );
 
 interface Session {
+  sid?: string;
+  generation?: number;
+  exp?: number;
   userId: string;
   role: Role;
   /** Staff: access areas copied into the JWT at login (lib/permissions.ts). */
@@ -40,7 +43,9 @@ async function readSession(req: NextRequest): Promise<Session | null> {
   if (!token) return null;
   try {
     const { payload } = await jwtVerify(token, encodedKey, { algorithms: ["HS256"] });
+    if (payload.sid && !(await verifyWebSessionToken(token))) return null;
     return {
+      sid: payload.sid as string | undefined, generation: payload.generation as number | undefined, exp: payload.exp,
       userId: payload.userId as string,
       role: payload.role as Role,
       perms: Array.isArray(payload.perms) ? (payload.perms as string[]) : [],
@@ -60,10 +65,12 @@ async function renewal(session: Session): Promise<{ token: string; maxAge: numbe
   if (ageS < SESSION_RENEW_AFTER_S) return null;
   const maxAge = sessionMaxAgeS(session.role);
   const authAt = session.authAt ?? session.issuedAt;
+  if (session.sid && !(await renewWebSession({sid:session.sid,userId:session.userId,authAt,generation:session.generation!,exp:session.exp!},maxAge))) return null;
+  const identity = session.sid ? {sid:session.sid,generation:session.generation,iss:WEB_SESSION_ISSUER,aud:WEB_SESSION_AUDIENCE} : {};
   const claims =
     session.role === "staff"
-      ? { userId: session.userId, role: session.role, perms: session.perms, authAt }
-      : { userId: session.userId, role: session.role, authAt };
+      ? { ...identity, userId: session.userId, role: session.role, perms: session.perms, authAt }
+      : { ...identity, userId: session.userId, role: session.role, authAt };
   const token = await new SignJWT(claims)
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
@@ -149,6 +156,8 @@ export default async function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname;
   if (isOauthDiscoveryProbe(path)) return new NextResponse(null, { status: 404 });
   const session = await readSession(req);
+  const returnPath = validateBrowserReturnPath(path === "/login" ? req.nextUrl.searchParams.get("returnTo") : path + req.nextUrl.search);
+  const needsSignin = !!returnPath && !session?.sid;
   // One re-sign per request at most, reused across whichever exit path we take.
   // Never on /logout: that route answers with its own Set-Cookie clearing the
   // session, and a renewal riding the same response is a coin-flip over which
@@ -156,13 +165,14 @@ export default async function proxy(req: NextRequest) {
   const fresh = session && path !== "/logout" ? await renewal(session) : null;
 
   // Unauthenticated → only the public paths are reachable.
-  if (!session) {
+  if (!session || needsSignin) {
     if (PUBLIC_PATHS.includes(path)) return NextResponse.next();
     const url = req.nextUrl.clone();
     url.pathname = "/login";
     // Drop whatever query the old URL carried; the only param /login reads is
     // the notice below, and forwarding a stale one would show the wrong copy.
     url.search = "";
+    if (returnPath) url.searchParams.set("returnTo",returnPath);
     if (LINK_CREDENTIAL_PATHS.some((p) => path === p || path.startsWith(p + "/"))) {
       url.searchParams.set("invite", "signedout");
     }
@@ -172,7 +182,8 @@ export default async function proxy(req: NextRequest) {
   // Authenticated hitting /login → straight to their home.
   if (path === "/login") {
     const url = req.nextUrl.clone();
-    url.pathname = homeFor(session);
+    url.pathname = returnPath ? "/today" : homeFor(session);
+    url.search = returnPath ? returnPath.slice(returnPath.indexOf("?")) : "";
     return slide(NextResponse.redirect(url), fresh);
   }
 

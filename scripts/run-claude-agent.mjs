@@ -826,7 +826,7 @@ async function main() {
 
   const { rows } = await client.query(
     `SELECT r.prompt, r.page_context, r.conversation_id, r.model, r.mode, r.effort, r.with_mcp, r.grant_id,
-            r.profile, r.principal_user_id, extract(epoch FROM r.created_at)::bigint AS started_s,
+            r.profile, r.launch_source, r.browser_task_id, r.continuation_of_run_id, r.principal_user_id, extract(epoch FROM r.created_at)::bigint AS started_s,
             u.name AS principal_name, u.role AS principal_role, u.permissions AS principal_permissions, u.active AS principal_active
        FROM dev_agent_runs r LEFT JOIN users u ON u.id = r.principal_user_id
       WHERE r.id = $1`,
@@ -834,6 +834,8 @@ async function main() {
   );
   if (!rows.length) throw new Error(`run ${RUN_ID} not found`);
   const { prompt, page_context, conversation_id } = rows[0];
+  // Never downgrade a browser row into the ordinary, privileged CLI path.
+  if (rows[0].profile === "browser" || rows[0].browser_task_id) throw new Error("BROWSER_RUNTIME_NOT_READY");
   const model = rows[0].model || ENV_MODEL;
   const effort = rows[0].effort || "default";
 
@@ -871,7 +873,9 @@ async function main() {
       `SELECT claude_session_id FROM ai_conversations WHERE id = $1`,
       [conversation_id],
     );
-    resumeSession = cr.rows[0]?.claude_session_id ?? null;
+    const previous = await client.query(`SELECT profile, principal_user_id, launch_source FROM dev_agent_runs WHERE conversation_id=$1 AND id<>$2 ORDER BY created_at DESC LIMIT 1`, [conversation_id, RUN_ID]);
+    const last = previous.rows[0];
+    if (last && last.profile === PROFILE && last.principal_user_id === PRINCIPAL_USER_ID && last.launch_source === rows[0].launch_source) resumeSession = cr.rows[0]?.claude_session_id ?? null;
   }
 
   // pid on the row = the Stop button's target (SIGTERM → we kill the CLI).
@@ -932,15 +936,8 @@ async function main() {
   // mcp__sjcos__* call and Claude reports "no MCP permissions". Safe: the
   // client-facing sends are gated inside the tools by owner grants.
   if (withMcp) args.push("--allowedTools", "mcp__sjcos");
-  // Optional real-browser access (Playwright MCP attached to Joe's own Chrome
-  // over CDP). Only wired when mcp/playwright-mcp.config.json exists — see
-  // mcp/playwright-mcp.config.example.json + mcp/README.md for setup. Pre-
-  // approved like sjcos so headless -p never silently denies browser calls.
-  const playwrightCfg = path.join(REPO, "mcp/playwright-mcp.config.json");
-  if (withMcp && PROFILE === "operator" && existsSync(playwrightCfg)) {
-    mcpConfigs.push(playwrightCfg);
-    args.push("--allowedTools", "mcp__playwright");
-  }
+  // Raw Playwright MCP is intentionally never registered.
+
   // Anything NOT pre-approved (Bash, edits outside the mode's allowance, …)
   // must become a question for Joe rather than a silent denial: route the
   // CLI's permission prompt into the panel chat via the interact server's
@@ -978,6 +975,7 @@ async function main() {
     ...(conversation_id ? { SJC_CONVERSATION_ID: conversation_id } : {}),
     SJC_AGENT: "claude",
     SJC_RUN_PROFILE: PROFILE,
+    SJC_LAUNCH_SOURCE: rows[0].launch_source,
     ...(PRINCIPAL_USER_ID ? { SJC_PRINCIPAL_USER_ID: PRINCIPAL_USER_ID } : {}),
     SJC_RUN_STARTED_S: String(RUN_STARTED_S),
     MCP_TOOL_TIMEOUT: process.env.MCP_TOOL_TIMEOUT ?? "86400000",

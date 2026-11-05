@@ -1,3 +1,5 @@
+import { readSession } from "@/lib/session";
+import { validateBrowserReturnPath } from "@/lib/web-sessions";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Logo } from "@/components/shell/Logo";
@@ -34,13 +36,14 @@ const INVITE_NOTICE: Record<string, string> = {
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ invite?: string }>;
+  searchParams: Promise<{ invite?: string; returnTo?: string }>;
 }) {
+  const { invite, returnTo: rawReturn } = await searchParams;
+  const returnTo = validateBrowserReturnPath(rawReturn);
   const user = await getCurrentUser();
-  if (user) redirect(homeForRole(user.role));
-
-  const { invite } = await searchParams;
-  const notice = invite ? (INVITE_NOTICE[invite] ?? INVITE_NOTICE.failed) : null;
+  const session = await readSession();
+  if (user && (!returnTo || session?.sid)) redirect(returnTo ?? homeForRole(user.role, user.permissions));
+  const notice = returnTo ? "Sign in to open the review." : invite ? (INVITE_NOTICE[invite] ?? INVITE_NOTICE.failed) : null;
 
   return (
     <div className="flex min-h-dvh items-center justify-center bg-paper px-4 py-8">
@@ -64,7 +67,7 @@ export default async function LoginPage({
         )}
 
         <div className="rounded-xl border border-rule bg-card p-6 shadow-sm">
-          <LoginForm />
+          <LoginForm returnTo={returnTo} />
         </div>
 
         {/* No self-serve reset by design: the owner resets staff passwords (Settings › Team),

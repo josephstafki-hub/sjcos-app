@@ -18,7 +18,7 @@ export async function getUserFromRequest(req: Request): Promise<CurrentUser | nu
   if (!token) return null;
 
   const session = await decrypt(token);
-  if (!session?.userId) return null;
+  if (!session?.userId || session.sid) return null; // Cookie-only web credential.
 
   const row = await queryOne<{
     id: string;

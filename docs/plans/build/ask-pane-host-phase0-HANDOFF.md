@@ -2,6 +2,50 @@
 
 2026-11-05. Branch `t3/in-app-browser-agent-tools`. Starting HEAD was `6d4494823daaf4e74d69be2103e8b809b11c03d8`; concurrent plan/review commits are outside this implementation. Only the explicitly owned panel files, new shared test fixtures/test and this handoff are staged.
 
+## Build round 1 panel fixes — 2026-11-05
+
+This section supersedes the earlier validation and release assumptions below. UI starting HEAD: `803a5f6b`. Server/DB/actions are a concurrent builder's work and are not staged in this UI commit. No dependencies were installed: `node_modules` remains the live dependency symlink and was read only.
+
+### Findings → implementation
+
+- Design 1: Chat's tabpanel is a stretching single-cell grid, including a bounded row. The actual `PanelDock` SSR fixture checks 880/900/1100/1280 and the shared H5 width rows, including 840 → 348/12/480 and 1000 → 420/12/568. This catches the former flex child width collapse.
+- Design 2–3: two-tab Queue/Chat uses the existing Segmented pill's label font, spacing, 44 px buttons, transition and hover, aligned left. Only three-plus tabs share the horizontal row. Tab semantics/keyboard support remain. The additional popout Threads control exists only with an open pane; normal Chat uses its existing header control.
+- Design 4 / engineering 1 UI: `askStatusCopy.ts` owns all five exact fixed-code messages. Rail/list/archive/folder actions, load/new/send/voice, upload, poll/control and run-review paths handle returned codes and legacy throws. Unknown rejected Ask actions fail safely to the paused state without showing a raw cause. Failures clear transcripts, titles, folder context, logs, run cards, queued turns, side-pane claims and attachments; stale responses cannot restore them. A failed admission restores the typed draft exactly once even if the rail fails first. Accepted turns are not restored as unsent drafts after a poll failure. Paused/session/access states disable Send and show Try again or Sign in. THREAD_UNAVAILABLE leaves a fresh New chat; the next typed send can create it, or New chat dismisses that thread-specific notice.
+- Design 6 / engineering 3 UI: Delete defaults off until a list capability explicitly enables it. Both thread-menu and archived Delete use the not-ready explanation, and the confirm has the exact 30-day wording. One `crypto.randomUUID()` is generated per confirmed attempt; retries reuse it. The target title disappears immediately; pending/error status and retry controls contain no title. Pending attempts are also masked from subsequent list loads. Clearing the current chat keeps History open so a lost response can be retried.
+- Design 7: empty lists read “No chats yet. Only your own chats show here.” Decision 11 / A1.2 means Abigail retains the two legacy chats backed by creator evidence; the obsolete “Abigail starts empty” release instruction must not be used.
+- Design 8 / engineering 2: displayed route grounding uses `usePanelPageRoute`, a subscribed `useSyncExternalStore` hook with a stable null server/hydration snapshot. Page effects, bus messages and storage events notify it after hydration. Route chips and starters share that snapshot; send-time context remains a separate getter. No hydration suppression, render-time viewport workaround or initial preference read was added.
+- Engineering 5 UI: new `tests/ask-panel-ssr.test.mjs` imports the same host fixture. Actual React `renderToString` compares server markup with storage-present hydration-snapshot markup, including route/thread/model/layout settings. Controlled hook lifecycles exercise real component event/effect code, failure/retry, deletion UUID reuse, ResizeObserver content-box measurements, rendered pane allocation, the single selector and landscape header/grabber suppression in the actual PanelHost. These are DOM-free integrations, not a claim of browser mounting, actual `hydrateRoot`, CSS dimensions, Safari focus or device behavior. The Browser-specific second consumer remains Phase 0b per A1.3.
+
+### Validation for this revision
+
+Expectations preceded the relevant fixes. Initial regression run: 1 pass / 6 failures, including storage-dependent markup, duplicate Threads and the flex wrapper. Additional expectations caught the missing full empty-state sentence and a draft lost when the rail failed during admission; both were fixed. A fixture expectation initially assumed a utility class where AskContentPane uses inline grid styles; it now asserts the actual style contract.
+
+Final single-file invocations (each separately; no DB):
+
+| File | Passed / failed / skipped |
+|---|---|
+| `tests/ask-panel-ssr.test.mjs` | 42 / 0 / 0 |
+| `tests/panel-content-pane.test.mjs` | 37 / 0 / 0 |
+| `tests/panel-defects.test.mjs` | 6 / 0 / 0 |
+| `tests/panel-run-review.test.mjs` | 1 / 0 / 0 |
+| `tests/panel-context.test.mjs` | 1 / 0 / 0 |
+| `tests/panel-approval.test.mjs` | 1 / 0 / 0 |
+
+Locked typecheck: `flock /tmp/sjcos-tsc.lock nice -n 19 npx tsc --noEmit -p .` → **exit 0**. Earlier intermediate checks caught syntax and newly arriving server envelope changes; all owned errors were resolved. `git diff --check` → **exit 0**. No npm operation, DB, service operation, deploy, server, build, browser or subagent was used.
+
+### Server contract and release coordination
+
+The concurrent server implementation now returns typed failure envelopes and success envelopes (`conversation`, `id`, `rail`, `threads`, `jobs`, `grants`, `review`) at the boundaries this UI consumes. The UI also accepts the old successful raw shapes where applicable and maps known legacy thrown codes/copy; no currently called Ask boundary needs an intentional thrown-error-only fallback. Missing legacy list capabilities conservatively disable Delete. Deletion uses the actual two-argument action and `AskDeleteResult`. Search resilience and server-side privacy, admission, recovery and retry authorization evidence belong to the server handoff; this UI does not certify them.
+
+What Joe/coordinator must do before rollout:
+
+1. Follow decision 10 / A1.1: never-enabled deletion with no deletion evidence permits ordinary chats while Delete stays off. Capture this working configuration deliberately; missing authority alone is no longer supposed to pause that configuration. After deletion has ever been enabled/accepted, the full recovery gate applies and remains latched.
+2. Before enabling deletion or releasing a previously latched installation, install and verify the independent journal authority environment configuration **and its binding file**, using the server handoff's exact identity, durability and recovery acceptance steps. Verify fresh high-water, journal directory and recovery health. Without those prerequisites in gated mode, the paused message is indefinite; do not describe it as a UI retry that can fix missing infrastructure. Leave `SJC_ASK_THREAD_DELETE_ACCEPTED` off until server acceptance is complete.
+3. Tell Abigail before deploy that old chats with consistent creator evidence stay with their creator (including the two legacy chats); the remaining unassigned old chats stay with Joe, ambiguous ones remain quarantined, and new chats are private to the account that starts them. No pronoun-based ownership inference.
+4. Use an isolated QA authority for the healthy/deletion-enabled capture and deliberately close the gate for separate paused captures. Seed distinct owner/staff chat titles, test foreign links/search as both, and inspect network/logs for leaked titles and unhandled errors. Do not reuse this UI test fixture as authority/privacy acceptance.
+
+Next visual round (coordinator only): compare ordinary two-tab pill/hover against base at 360/390, tablet 820, landscape 800×360, 420 dock and 1100/1280 popout; check chat width with the rail at 880/900/1100/1280, one visible Threads control in narrow Chat, and four registered labels at 360. Check zero #418/hydration/page errors at every width with populated storage. Capture each fixed-code state, retained draft and disabled Send, sign-in link, private-content clearance, unavailable-thread fresh chat, and recovery. Verify disabled Delete explanation, exact confirm, title-free pending/error/retry after a deliberately lost response. Mount authorized test panes: verify actual 839/840/1000 allocation, one landscape selector/Close with suppressed horizontal header/grabber, stage ≥200, portrait ≥420, rotation/draft/focus/history preservation and real iframe/Safari behavior using the existing capture list below. No new screenshots were produced here.
+
 ## Purpose and boundaries
 
 One persistent `PanelDock` owns selection across desktop, drawer/full-screen sheet and orientation changes. `AskContentPane` owns trusted side-content chrome. Features register render slots rather than adding a rail, modal host or another layout reducer. Nothing registers Canvas or Browser in this slice, so neither is advertised. Queue/Chat retain the ordinary 560/880 column thresholds and the default 420 dock. Narrow popout Threads moves to the History icon, as H2 requires; the view selector now has tab semantics.

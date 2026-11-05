@@ -236,25 +236,25 @@ export function PanelDock({width,navigate,compact=false,inWindow=false,mode=inWi
   return <div ref={root} className={`flex h-full min-h-0 min-w-0 ${policy.landscape?'flex-row gap-0 pb-2':'flex-col gap-2 p-2'}`}>
     {showSelector&&<div ref={strip} className={`shrink-0 ${policy.landscape?'flex min-w-16 flex-col border-r border-rule':'flex h-12 min-w-0 items-center'}`}>
       {policy.landscape&&<button aria-label="Close Operator" onClick={closeOperator} className="h-12 w-full text-heading focus-visible:outline-2 focus-visible:outline-focus">×</button>}
-      <div role="tablist" aria-label="Operator view" aria-orientation={policy.landscape?'vertical':'horizontal'} className={`flex min-w-0 rounded-md bg-paper-2 ${policy.landscape?'flex-col':'h-12 flex-1 items-center p-0.5'}`}>
+      <div role="tablist" aria-label="Operator view" aria-orientation={policy.landscape?'vertical':'horizontal'} className={`min-w-0 rounded-md bg-paper-2 ${policy.landscape?'flex flex-col':tabs.length===2?'inline-flex h-12 max-w-full items-center gap-0.5 overflow-x-auto p-0.5':'flex h-12 flex-1 items-center gap-0.5 p-0.5'}`}>
         {tabs.map(tab=>{
           const attention=feed.snapshots.find(x=>x.kind===tab&&x.attention!=='none'&&seen.current.get(scopeKey+x.kind+x.id)!==x.revision);
           const label=tab[0].toUpperCase()+tab.slice(1);
           const accessible=attention?`${label}, ${tab==='canvas'?'new version':attention.attention==='needs_you'?'needs you':'new activity'}`:label;
           return <button key={tab} role="tab" id={`${id}-tab-${tab}`} aria-label={accessible} aria-selected={tabValue===tab} aria-controls={tab==='queue'?queueId:tab==='chat'?chatId:paneId} tabIndex={tabValue===tab?0:-1}
-            className={`relative min-w-0 whitespace-nowrap rounded px-2 text-body font-medium focus-visible:outline-2 focus-visible:outline-focus ${policy.landscape?'h-12 min-w-16':'h-11 flex-1'} ${tabValue===tab?'bg-card text-ink shadow-card':'text-ink-3'}`}
+            className={`relative inline-flex shrink-0 items-center whitespace-nowrap rounded-[5px] px-2.5 font-sans text-label font-medium transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus ${policy.landscape?'h-12 min-w-16':tabs.length===2?'h-11':'h-11 flex-1 min-w-0'} ${tabValue===tab?'bg-card text-ink shadow-card':'text-ink-3'}`}
             onClick={e=>void chooseTab(tab,e.currentTarget)}
             onKeyDown={e=>{const next=tabKey(tabs,tab,e.key,policy.landscape);if(next){e.preventDefault();const target=root.current?.querySelector<HTMLElement>(`[id="${id}-tab-${next}"]`);target?.focus();if(target)void chooseTab(next,target);}}}>
             {label}{attention&&<span className="ml-0.5 inline-block size-1.5 rounded-full bg-ai" aria-hidden="true" />}
           </button>;
         })}
       </div>
-      {inWindow&&<button aria-label="Threads" aria-pressed={threadsOpen} onClick={()=>{if(showing)void exit().then(ok=>{if(ok)setThreadsOpen(true);});else setThreadsOpen(open=>!open);}} className="flex size-12 shrink-0 items-center justify-center text-ink-3"><History className="size-4" /></button>}
+      {inWindow&&showing&&<button aria-label="Threads" aria-pressed={threadsOpen} onClick={()=>{if(showing)void exit().then(ok=>{if(ok)setThreadsOpen(true);});else setThreadsOpen(open=>!open);}} className="flex size-12 shrink-0 items-center justify-center text-ink-3"><History className="size-4" /></button>}
     </div>}
     <div ref={content} className="relative min-h-0 min-w-0 flex-1">
       <div className="grid h-full min-h-0 min-w-0" style={{gridTemplateColumns:showing?(policy.split?`${policy.chat}px 12px minmax(0,1fr)`:'minmax(0,1fr)'):twoCol?((width??measured)>=880?'minmax(200px,2fr) minmax(480px,4fr)':'minmax(200px,2fr) minmax(300px,3fr)'):'minmax(0,1fr)',gap:twoCol?8:0}}>
         {!showing&&(twoCol||narrowView==='queue')&&<div id={queueId} className="flex min-h-0" role="tabpanel" aria-label="Queue"><QueueRail className="flex min-h-0 flex-1" onHandOff={(p,k)=>{handOffRef.current?.(p,k);setNarrowView('chat');}} onInspect={inspect} focusedSubjectId={focusedSubjectId}/></div>}
-        <div key="chat" id={chatId} role="tabpanel" aria-label="Chat" className={`min-h-0 min-w-0 ${chatVisible?'flex':'hidden'}`}>
+        <div key="chat" id={chatId} role="tabpanel" aria-label="Chat" className={`min-h-0 min-w-0 ${chatVisible?'grid':'hidden'} grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]`}>
           <h2 ref={chatRegion} tabIndex={-1} className="sr-only">Chat</h2>
           <PanelChat registerHandOff={fn=>{handOffRef.current=fn;}} onRunStart={setActiveRun} onRunEnd={()=>setActiveRun(null)} showQueueCards={false} showNarration={!inWindow} compact={compact} threadView={inWindow&&!twoCol?threadsOpen:undefined} onThreadViewChange={open=>{dispatch({type:'human'});setThreadsOpen(open);}} threadsRail={!compact&&!showing&&(width??measured)>=880}/>
         </div>

@@ -4,6 +4,9 @@ import { useRef, useState } from "react";
 import { uploadChatFilesAction } from "@/lib/actions/ai-chat";
 import type { ChatAttachment } from "@/lib/dev-agents-meta";
 
+import type { AskFailureCode } from "@/lib/ask-result-codes";
+import { askFailure, ASK_STATUS_COPY } from "./askStatusCopy";
+
 /** Mirror of MAX_UPLOAD_BYTES in lib/actions/ai-chat.ts. Checked here too
  *  because Next's serverActions.bodySizeLimit (25mb, next.config.ts) measures
  *  the whole encoded request: a file at exactly the cap throws inside Next
@@ -20,7 +23,9 @@ const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
  * an opaque throw — one request each keeps a good file from being lost to a
  * bad neighbour.
  */
-export function useChatAttachments(onError: (msg: string) => void) {
+export function useChatAttachments(onError: (msg: string) => void, onFailure?: (code: AskFailureCode) => void) {
+  const generation = useRef(0);
+  const clearAttachments = () => { generation.current++; setAttachments([]); };
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
   // A count, not a boolean: pasting a second screenshot while the first is
   // still uploading has to attach both. A boolean either rejects the second
@@ -32,6 +37,7 @@ export function useChatAttachments(onError: (msg: string) => void) {
 
   async function uploadFiles(list: FileList | null) {
     if (!list?.length) return;
+    const claim = generation.current;
     setUploadCount((n) => n + 1);
     const errors: string[] = [];
     try {
@@ -44,9 +50,17 @@ export function useChatAttachments(onError: (msg: string) => void) {
           const fd = new FormData();
           fd.append("files", f);
           const r = await uploadChatFilesAction(fd);
+          if (claim !== generation.current) return;
           if (r.ok) setAttachments((a) => [...a, ...r.files]);
-          else errors.push(r.error);
-        } catch {
+          else {
+            const failure = askFailure(r);
+            if (failure) { clearAttachments(); onFailure?.(failure.code); errors.push(ASK_STATUS_COPY[failure.code]); break; }
+            else errors.push("error" in r ? r.error : "Couldn't upload files.");
+          }
+        } catch (error) {
+          if (claim !== generation.current) return;
+          const failure = askFailure(error);
+          if (failure) { clearAttachments(); onFailure?.(failure.code); errors.push(ASK_STATUS_COPY[failure.code]); break; }
           // A rejected action (over the body limit, auth, network) would
           // otherwise be an unhandled rejection with no sign the file dropped.
           errors.push(`${f.name} couldn't be uploaded.`);
@@ -73,6 +87,7 @@ export function useChatAttachments(onError: (msg: string) => void) {
   return {
     attachments,
     setAttachments,
+    clearAttachments,
     uploading,
     fileInputRef,
     uploadFiles,

@@ -59,11 +59,13 @@ import { useTodayQueue } from "@/components/today/TodayQueueContext";
 import { PriorityCard } from "@/components/today/PriorityCard";
 import { ModelActionChips } from "@/components/today/ModelActionChips";
 import { consumeHandOff, subscribePanelBus } from "./panelBus";
-import { getPanelPageContext, getPanelPageRoute } from "./PageAiContext";
+import { getPanelPageContext, usePanelPageRoute } from "./PageAiContext";
 import type { FolderEntityRef, RailFolder } from "@/lib/thread-rail";
 import { queueContext } from "./queueContext";
 import { startersForRoute } from "./panelStarters";
 import { useAgentChat, type ActiveRun } from "./useAgentChat";
+
+import { ASK_STATUS_COPY } from "./askStatusCopy";
 
 /** Reply labels for Auto threads (message.agent → name). */
 const AGENT_LABELS: Record<string, string> = {
@@ -135,12 +137,13 @@ export function PanelChat({
   const {
     attachments,
     setAttachments,
+    clearAttachments,
     uploading,
     fileInputRef,
     uploadFiles,
     uploadFromTransfer,
     removeAttachment,
-  } = useChatAttachments(flashNotice);
+  } = useChatAttachments(flashNotice, code => chat.reportFailure(code));
 
   const voice = useVoiceRound({
     send: async (text) => submitVoice(text),
@@ -169,22 +172,29 @@ export function PanelChat({
     // written answer gets condensed server-side into a spoken update.
     onAnswer: (id, body, spoken) => (spoken ? voice.speak(id, body) : voice.speakRun(id)),
     onSendError: (spec) => {
+      setPrompt(current => current || spec.directive);
       // Re-stage the files: the turn never reached the model, and re-picking
       // uploads is more annoying than retyping a prompt.
       if (spec.attachments?.length) setAttachments((cur) => [...spec.attachments!, ...cur]);
     },
   });
   const meta = AGENT_META[chat.agent];
+  useEffect(() => {
+    if (!chat.failureCode) return;
+    setQueued([]); clearAttachments(); setFlash(""); setAllowSends(false); mentions.clear();
+    // Draft text stays in the composer; private record context does not.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chat.failureCode]);
   useEffect(() => { setAllowSends(false); }, [chat.conversationId, chat.agent]);
   useEffect(() => { setQueued([]); }, [chat.conversationId]);
   useEffect(() => {
     // A steer the run couldn't take goes first (useAgentChat queuedNext).
-    if (chat.pending || chat.queuedNext || queued.length === 0) return;
+    if (chat.failureCode || chat.pending || chat.queuedNext || queued.length === 0) return;
     const [next, ...rest] = queued;
     setQueued(rest);
     chat.submit({ directive: next.text, contextRefs: next.refs, display: next.text });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chat.pending, chat.queuedNext, queued]);
+  }, [chat.failureCode, chat.pending, chat.queuedNext, queued]);
 
   const narration = queueNarration(priorities, { items: waiting, total: waiting.length });
 
@@ -268,6 +278,7 @@ export function PanelChat({
   // ─── Sending ───────────────────────────────────────────────────────────────
 
   const submitText = (raw: string) => {
+    if (chat.failureCode && chat.failureCode !== "THREAD_UNAVAILABLE") return;
     const q = raw.trim();
     // Slash commands work even mid-run (/stop is FOR mid-run) and in Auto
     // threads (the options apply whenever Claude is the one who runs).
@@ -321,7 +332,7 @@ export function PanelChat({
 
   const submitVoice = (text: string) => {
     const q = text.trim();
-    if (!q || chat.pending) return;
+    if (!q || chat.pending || chat.failureCode) return;
     chat.submit({ directive: q, voice: true });
   };
 
@@ -405,7 +416,7 @@ export function PanelChat({
   const threadsRefreshKey = `${chat.conversationId ?? ""}:${chat.pending ? 1 : 0}`;
 
   const activityLines = chat.activity ? chat.activity.split("\n").filter(Boolean).slice(-4) : [];
-  const route = getPanelPageRoute();
+  const route = usePanelPageRoute();
   const starters = startersForRoute(route, chat.agent);
 
   const chatSection = (
@@ -446,7 +457,7 @@ export function PanelChat({
             </span>
           )}
         </div>
-        {chat.folderName && (
+        {!chat.failureCode && chat.folderName && (
           <span
             className="hidden max-w-36 truncate rounded-full bg-paper-2 px-1.5 py-px font-mono text-[10px] text-ink-3 @lg/chat:inline"
             title="The job this thread is filed under — the agent is told"
@@ -500,7 +511,7 @@ export function PanelChat({
           </button>
         )}
         </div>
-        <h2 className="break-words px-3 py-2 text-body font-semibold text-ink">{chat.conversationTitle}</h2>
+        <h2 className="break-words px-3 py-2 text-body font-semibold text-ink">{chat.failureCode ? "New chat" : chat.conversationTitle}</h2>
       </div>
 
       <div className="relative flex min-h-0 flex-1 flex-col">
@@ -511,6 +522,7 @@ export function PanelChat({
             variant="drawer"
             className="min-h-0 flex-1"
             currentId={chat.conversationId}
+            failureCode={chat.failureCode} onFailure={chat.reportFailure} onRetry={chat.retry}
             refreshKey={threadsRefreshKey}
             scopeFolderId={chat.folderScope}
             onScopeChange={chat.setFolderScope}
@@ -519,7 +531,7 @@ export function PanelChat({
             onNew={newThread}
             onNewFor={newThreadFor}
             onClose={() => { setThreadsOpen(false); onThreadViewChange?.(false); }}
-            onCurrentRemoved={() => newThread()}
+            onCurrentRemoved={() => chat.newChat()}
           />
         </div>
       )}
@@ -568,7 +580,7 @@ export function PanelChat({
             }
           >
             {chat.notice && <div className="text-[11px] font-medium text-ai-2">{chat.notice}</div>}
-            {chat.messages.map((m) => {
+            {(chat.failureCode ? [] : chat.messages).map((m) => {
               if (m.role === "user" && m.steer) {
                 const st = m.id.startsWith("steer-") ? chat.steerStatus[m.id.slice(6)] : undefined;
                 return (
@@ -614,13 +626,13 @@ export function PanelChat({
                     <AssistantMarkdown text={parsed.body} />
                   </div>
                   <ModelActionChips actions={parsed.actions} />
-                  {m.runId ? <RunReview runId={m.runId} /> : (m.workLog || chat.logs[m.id]) && <ActivityLog text={m.workLog || chat.logs[m.id]} done />}
+                  {m.runId ? <RunReview onFailure={chat.reportFailure} runId={m.runId} /> : (m.workLog || chat.logs[m.id]) && <ActivityLog text={m.workLog || chat.logs[m.id]} done />}
                 </div>
               );
             })}
             {/* The agent is blocked on Joe: question boxes + tool approvals,
                 answered right here (the blocked call resumes within ~2s). */}
-            {chat.interactions.map((it) =>
+            {(chat.failureCode ? [] : chat.interactions).map((it) =>
               it.kind === "question" ? (
                 <QuestionCard key={it.id} interaction={it} onRespond={chat.respond} onDismiss={chat.dismiss} />
               ) : (
@@ -629,7 +641,7 @@ export function PanelChat({
             )}
             {/* request_owner_permission → approve/deny inline instead of
                 leaving the chat for /engine/permissions. */}
-            {chat.grants.map((g) => (
+            {(chat.failureCode ? [] : chat.grants).map((g) => (
               <GrantCard key={g.id} grant={g} onDone={chat.dropGrant} />
             ))}
             {chat.pending && (
@@ -789,7 +801,7 @@ export function PanelChat({
       {flash && <div className="border-t border-rule px-3 py-1 text-[11px] font-medium text-ai-2">{flash}</div>}
 
       {/* attachment chips */}
-      {attachments.length > 0 && (
+      {!chat.failureCode && attachments.length > 0 && (
         <div className="flex flex-wrap gap-1.5 border-t border-rule px-3 py-1.5">
           {attachments.map((a, i) => (
             <span
@@ -821,18 +833,22 @@ export function PanelChat({
         onStart={() => voice.startWithBriefing(spokenQueue(priorities, { items: waiting, total: waiting.length }))}
       />
 
-      {mentions.records.length > 0 && <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 text-meta text-ink-3"><span>Working on</span>{mentions.records.map(r=><span key={r.id} className="flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-1"><a href={r.href} className="text-accent">{r.title}</a><button type="button" aria-label={`Remove context ${r.title}`} title={`Remove context ${r.title}`} onClick={()=>mentions.remove(r.id)}><X className="size-3"/></button></span>)}</div>}
-      {mentions.open && <div role="listbox" aria-label="Attach record context" className="max-h-48 overflow-y-auto border-t border-rule bg-card p-2">
+      {!chat.failureCode && mentions.records.length > 0 && <div className="flex flex-wrap items-center gap-1.5 px-3 py-2 text-meta text-ink-3"><span>Working on</span>{mentions.records.map(r=><span key={r.id} className="flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-1"><a href={r.href} className="text-accent">{r.title}</a><button type="button" aria-label={`Remove context ${r.title}`} title={`Remove context ${r.title}`} onClick={()=>mentions.remove(r.id)}><X className="size-3"/></button></span>)}</div>}
+      {!chat.failureCode && mentions.open && <div role="listbox" aria-label="Attach record context" className="max-h-48 overflow-y-auto border-t border-rule bg-card p-2">
         {mentions.results.map((r,i)=><button type="button" key={r.id} role="option" aria-selected={i===mentions.index} onClick={()=>mentions.pick(r)} className={`block w-full rounded-md px-2 py-1.5 text-left text-body ${i===mentions.index?'bg-selected':'hover:bg-hover'}`}>{r.title}<span className="ml-2 text-meta text-ink-3">{r.kind} · {r.detail}</span></button>)}
         {!mentions.results.length&&<p className="text-meta text-ink-3">{mentions.error||'Type a job, client, or invoice name to attach it.'}</p>}
       </div>}
-      {queued.length > 0 && <div className="flex flex-col gap-1 border-t border-rule px-3 py-2" aria-label="Queued messages">
+      {!chat.failureCode && queued.length > 0 && <div className="flex flex-col gap-1 border-t border-rule px-3 py-2" aria-label="Queued messages">
         {queued.map((m, i) => <div key={m.id} className="flex items-center gap-2 text-meta text-ink-2">
           <span className="flex-none text-ink-3">{i === 0 ? "Next" : "Then"}</span>
           <span className="min-w-0 flex-1 truncate">{m.text}</span>
           <button type="button" className="flex-none text-ink-3 hover:text-ink" aria-label={`Steer now: ${m.text}`} onClick={() => { setQueued((cur) => cur.filter((x) => x.id !== m.id)); chat.steer(m.text); }}>Steer now</button>
           <button type="button" className="flex-none text-ink-3 hover:text-ink" aria-label={`Remove queued message: ${m.text}`} title={`Remove queued message: ${m.text}`} onClick={() => setQueued((cur) => cur.filter((x) => x.id !== m.id))}><X className="size-3" /></button>
         </div>)}
+      </div>}
+      {chat.failureCode && <div role="status" className="border-t border-rule px-3 py-2 text-body text-ink-2">
+        <p>{ASK_STATUS_COPY[chat.failureCode]}</p>
+        {chat.failureCode === "SIGN_IN_AGAIN" ? <a href="/login" className="inline-flex min-h-11 items-center text-ai-2">Sign in</a> : <button type="button" className="min-h-11 text-ai-2" onClick={() => void chat.retry()}>Try again</button>}
       </div>}
       {/* Composer */}
       <form
@@ -853,10 +869,10 @@ export function PanelChat({
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          disabled={chat.pending || uploading}
+          disabled={!!chat.failureCode || chat.pending || uploading}
           aria-label="Attach files"
           title="Attach files"
-          className="flex size-7 flex-none items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-paper-2 disabled:opacity-40"
+          className="flex size-11 flex-none items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-paper-2 disabled:opacity-40"
         >
           <Paperclip className={`size-4 ${uploading ? "animate-pulse" : ""}`} strokeWidth={1.75} />
         </button>
@@ -895,10 +911,10 @@ export function PanelChat({
         />
         <button
           type="submit"
-          disabled={uploading || (!prompt.trim() && (chat.pending || attachments.length === 0))}
+          disabled={(!!chat.failureCode && chat.failureCode !== "THREAD_UNAVAILABLE") || uploading || (!prompt.trim() && (chat.pending || attachments.length === 0))}
           aria-label={chat.pending ? "Steer the running agent" : "Send"}
           title={chat.pending ? "Steer: send this into the run that's working now" : "Send"}
-          className="flex size-7 flex-none items-center justify-center rounded-md bg-ink text-paper transition-colors hover:bg-[#232a1e] disabled:opacity-40"
+          className="flex size-11 flex-none items-center justify-center rounded-md bg-ink text-paper transition-colors hover:bg-[#232a1e] disabled:opacity-40"
         >
           <ArrowUp className="size-4" strokeWidth={2} />
         </button>
@@ -917,6 +933,7 @@ export function PanelChat({
         variant="rail"
         className="w-52 flex-none"
         currentId={chat.conversationId}
+        failureCode={chat.failureCode} onFailure={chat.reportFailure} onRetry={chat.retry}
         refreshKey={threadsRefreshKey}
         scopeFolderId={chat.folderScope}
         onScopeChange={chat.setFolderScope}
@@ -924,7 +941,7 @@ export function PanelChat({
         onOpen={openThread}
         onNew={newThread}
         onNewFor={newThreadFor}
-        onCurrentRemoved={() => newThread()}
+        onCurrentRemoved={() => chat.newChat()}
       />
       {chatSection}
     </div>
@@ -1103,7 +1120,7 @@ function VoiceRoundButton({ voice }: { voice: ReturnType<typeof useVoiceRound> }
         onClick={voice.micTap}
         aria-label="Start voice conversation"
         title="Voice conversation — hands-free, Claude answers out loud"
-        className="flex size-7 flex-none items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-paper-2"
+        className="flex size-11 flex-none items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-paper-2"
       >
         <AudioLines className="size-4" strokeWidth={1.75} />
       </button>

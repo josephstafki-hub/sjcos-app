@@ -6,6 +6,9 @@ import { searchJobsAction } from "@/lib/actions/ai-chat";
 import type { JobPick } from "@/lib/thread-folders";
 import type { FolderEntityKind, FolderEntityRef } from "@/lib/thread-rail";
 
+import { askCall, askFailure, ASK_STATUS_COPY } from "./askStatusCopy";
+import type { AskFailureCode } from "@/lib/ask-result-codes";
+
 /**
  * The rail's job picker: a sheet dropping from its anchor row (full rail
  * width) with a search box over
@@ -40,6 +43,7 @@ export function JobPicker({
   onCreate,
   onUnlink,
   onDone,
+  onFailure,
 }: {
   /** Accessible name only; the placeholder carries the visible context. */
   title?: string;
@@ -53,7 +57,9 @@ export function JobPicker({
   onCreate?: (name: string) => void | Promise<void>;
   onUnlink?: () => void | Promise<void>;
   onDone: () => void;
+  onFailure?: (code: AskFailureCode) => void;
 }) {
+  const [error, setError] = useState("");
   const [q, setQ] = useState("");
   const [jobs, setJobs] = useState<JobPick[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -71,13 +77,13 @@ export function JobPicker({
     const id = ++seq.current;
     const t = setTimeout(async () => {
       try {
-        const r = await searchJobsAction(q);
-        if (seq.current === id) setJobs(r);
-      } catch {
-        if (seq.current === id) setJobs([]);
+        const r = await askCall(searchJobsAction(q));
+        if (seq.current === id) { setJobs("jobs" in r ? r.jobs : r); setError(""); }
+      } catch (error) {
+        if (seq.current === id) { setJobs([]); const code = askFailure(error)?.code ?? "ASK_PAUSED"; setError(ASK_STATUS_COPY[code]); onFailure?.(code); }
       }
     }, q ? 120 : 0);
-    return () => clearTimeout(t);
+    return () => { ++seq.current; clearTimeout(t); };
   }, [q]);
 
   const term = q.trim();
@@ -104,6 +110,8 @@ export function JobPicker({
       if (row.type === "job") await onPick(row.job);
       else if (row.type === "create") await onCreate?.(row.name);
       else await onUnlink?.();
+    } catch (error) {
+      const code = askFailure(error)?.code ?? "ASK_PAUSED"; setError(ASK_STATUS_COPY[code]); onFailure?.(code);
     } finally {
       setBusy(false);
     }
@@ -143,6 +151,7 @@ export function JobPicker({
         ) : (
           <Search className="size-3 flex-none text-ink-4" strokeWidth={2} />
         )}
+        {error && <p role="status" className="px-2 text-body text-ink-2">{error}</p>}
         <input
           ref={inputRef}
           value={q}

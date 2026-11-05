@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useSyncExternalStore } from "react";
 import { usePathname } from "next/navigation";
-import { postPanelMessage } from "./panelBus";
+import { postPanelMessage, subscribePanelBus } from "./panelBus";
 
 /**
  * Publishes the app view's current page grounding to the operator panel.
@@ -42,10 +42,32 @@ function lastTrackedRoute(): string | null {
   }
 }
 
+// A stable null hydration snapshot keeps /panel's first render identical to SSR.
+// The send-time getters above deliberately continue reading the latest route.
+const listeners = new Set<() => void>();
+const notify = () => { for (const listener of listeners) listener(); };
+const serverRoute = () => null;
+function subscribePageRoute(listener: () => void) {
+  listeners.add(listener);
+  const unBus = subscribePanelBus(message => {
+    if (message.type === "page") {
+      current = {pathname: message.pathname, context: message.context};
+      notify();
+    }
+  });
+  const storage = (event: StorageEvent) => { if (event.key === "sjcos:lastRoute") notify(); };
+  window.addEventListener("storage", storage);
+  return () => { listeners.delete(listener); unBus(); window.removeEventListener("storage", storage); };
+}
+export function usePanelPageRoute(): string | null {
+  return useSyncExternalStore(subscribePageRoute, getPanelPageRoute, serverRoute);
+}
+
 export function PageAiContext({ context }: { context?: string }) {
   const pathname = usePathname();
   useEffect(() => {
     current = { pathname, context };
+    notify();
     postPanelMessage({ type: "page", pathname, context });
   }, [pathname, context]);
   return null;

@@ -1,0 +1,31 @@
+[Unit]
+Description=SJC OS — Cloudflare Tunnel connector for os.sjcarpentryllc.com
+# Remotely-managed tunnel "sjcos-home-server" (created by Up North Creative in
+# the Cloudflare dashboard, Nov 2026). Its public hostname route is
+#   os.sjcarpentryllc.com -> https://localhost:443  (No TLS Verify, origin
+#   server name os.sjcarpentryllc.com)
+# so traffic lands on nginx's front door, same as a direct hit. Routing lives
+# in the dashboard, not here; this unit only runs the connector.
+#
+# The token is a secret: ~/.cloudflared/sjcos-tunnel.token, mode 600, never in
+# git. Rotating it = new token from the dashboard into that file + restart.
+#
+# Install:
+#   cp deploy/sjcos-tunnel.service ~/.config/systemd/user/
+#   systemctl --user daemon-reload && systemctl --user enable --now sjcos-tunnel.service
+#
+# Not to be confused with the T3 Code remote-access tunnel (a different
+# cloudflared process started by `t3 serve`, different Cloudflare account).
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=%h/bin/cloudflared tunnel --no-autoupdate --loglevel info --metrics 127.0.0.1:20261 run --token-file %h/.cloudflared/sjcos-tunnel.token
+Restart=always
+RestartSec=10
+MemoryMax=512M
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

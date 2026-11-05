@@ -48,10 +48,20 @@ export function authorizationStatement(f: AuthorizationFacts): string {
   return `I, ${f.signerName}, am the cardholder or am authorized to use this card. I authorize ${AUTHORIZATION_COMPANY} to charge ${total} one time to the card I entered on this page, to pay ${what}.${surcharge}`;
 }
 
+const LOOPBACK = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
+
 /** The client's IP as nginx saw it (X-Real-IP is set from $remote_addr and
- *  can't be forged by the browser; the last X-Forwarded-For hop is nginx's). */
+ *  can't be forged by the browser; the last X-Forwarded-For hop is nginx's).
+ *  Traffic through the Cloudflare Tunnel reaches nginx from cloudflared on
+ *  loopback, so there the client is Cloudflare's CF-Connecting-IP. That header
+ *  is only trusted when nginx saw loopback: a client hitting the server
+ *  directly can't make $remote_addr read 127.0.0.1. */
 export function requestIp(h: Pick<Headers, "get">): string {
   const real = h.get("x-real-ip")?.trim();
+  if (real && LOOPBACK.has(real)) {
+    const cf = h.get("cf-connecting-ip")?.trim();
+    if (cf) return cf.slice(0, 64);
+  }
   if (real) return real.slice(0, 64);
   const hops = (h.get("x-forwarded-for") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   return (hops[hops.length - 1] ?? "").slice(0, 64);

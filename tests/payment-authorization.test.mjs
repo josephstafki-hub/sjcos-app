@@ -35,3 +35,12 @@ test("client IP comes from nginx, not a forged forwarded-for", () => {
   assert.equal(requestIp(h({ "x-forwarded-for": "1.2.3.4, 198.51.100.7" })), "198.51.100.7");
   assert.equal(requestIp(h({})), "");
 });
+
+test("through the Cloudflare Tunnel the client is CF-Connecting-IP, trusted only from loopback", () => {
+  const h = (o) => ({ get: (k) => o[k] ?? null });
+  assert.equal(requestIp(h({ "x-real-ip": "127.0.0.1", "cf-connecting-ip": "203.0.113.9" })), "203.0.113.9");
+  assert.equal(requestIp(h({ "x-real-ip": "::1", "cf-connecting-ip": "2001:db8::5" })), "2001:db8::5");
+  // A direct hit can send its own CF-Connecting-IP; nginx's $remote_addr wins.
+  assert.equal(requestIp(h({ "x-real-ip": "198.51.100.7", "cf-connecting-ip": "203.0.113.9" })), "198.51.100.7");
+  assert.equal(requestIp(h({ "x-real-ip": "127.0.0.1" })), "127.0.0.1");
+});

@@ -2,8 +2,8 @@
 
 Status: design for review; no implementation or deployment authorized by this file.
 Revision baseline: `t3/in-app-browser-agent-tools`, HEAD `2c321665`, 2026-11-05.
-Round-2 revision: design items 1–12 and engineering items 1–6; security 10/10
-guarantees retained; owner decisions 1–9 govern. Proposed mechanisms
+Round-3 revision: design items 1–8 and engineering items 1–2, against HEAD
+`fd640d04`; round-3 security 10/10 guarantees retained; owner decisions 1–9 govern. Proposed mechanisms
 and release gates below are not claims of runtime verification.
 Normative owner decisions: `_context-agent-browser-canvas.md`, “Joe's decisions.”
 This plan owns the browser; `ask-canvas-plan.md` owns Canvas. Both depend on the
@@ -37,11 +37,14 @@ evidence that the permit was issued. No change to construction-start gates here.
 |---|---|
 | Operator | Shipped panel name; “Ask” in technical prose refers to this same panel |
 | Browser | Outside website being used for this Operator task |
-| Open browser | Start after the person confirms the task's sites |
+| Open browser / Show browser | Start after the person confirms sites / show an already running or paused task |
 | Allowed sites / Add a site | Exact websites this task may reach; approval belongs to the person |
 | Agent is working / Paused | Whether agent actions can run |
 | Take over / You're in control | Confirm permanent privacy before acquiring exclusive mouse and keyboard control |
-| Give back to agent | Stop personal input, clear private fields, explicitly resume |
+| Done | V1: stop personal input and keep the private browser paused; never resume the agent |
+| Give back to agent | Phase 4 reviewed steps only: release personal control, then explicitly confirm blind adapter continuation |
+| Back to the page / Ask Joe again | Generic expired flow: return to page for a new deliberate click / Phase 4 pre-click adapter only: build and notify a fresh review |
+| Ask Joe to finish | Confirm a bounded hand-off to a new Joe-owned task; no shared browser, password or staff transcript |
 | Stop browser | Close this task's browser, preserve already saved files |
 | Saved logins / Save a login / Fill login | Vault list, entry form, server-side fill |
 | Only me / Shared with Abigail, Mark / From Joe | Owner-only, named sharing shown to Joe, delegated row shown to staff |
@@ -89,6 +92,9 @@ this document are proposed. References describe current code, not security alrea
 | `lib/upload-store.ts:85–108`; `lib/file-serve.ts:75–109` | Existing storage is not a cross-process transaction; add ledger and guarded decrypt reader, bypass generic thumbnail path. |
 | `mcp/bidding-tools.mjs:333–416,462–473` | Real tools are `view_project_image` and `get_project_file` (including signed URLs); block every private-file variant. |
 | `app/panel/page.tsx`; `components/panel/PanelWindow.tsx:39–40`; `components/panel/PanelHost.tsx:187–195` | /panel is shell-free pop-out and claims window state; use /today under (os), preserve left dock/app-right arrangement. |
+| `proxy.ts:159–179`; `app/login/page.tsx:40–43`; `components/auth/LoginForm.tsx`; `lib/actions/auth.ts:53` | Current login loses review query; add the validated relative allowlist across proxy, page, form and action (§4.1). |
+| `lib/providers/telegram.ts:61`; `lib/notify-owner.ts:273–281` | Edit is silent; new live Browser decisions need owner-only delete + fresh send, immediate dispatch and typed URL button, while outcomes edit (§6.3). |
+| Read-only mobile `src/components/today/targets.ts:247–278`; `src/lib/operator-markdown.ts:53–63`; `src/components/operator/OperatorPanel.tsx:155–159`; `app.json` | Today loses query, web links can use in-app browser, no associated web domain; review/Watch special handling + external 48 px Open in Safari are new work (§10.2). |
 | `lib/file-trash.ts:24–38,79–90,120–124,145–155` | Exact browser FK exemption + guarded reserved-ID trash/restore/purge; never grant agent SELECT on ledger. |
 | `tests/_harness/testdb.mjs:118–139` | Extend fifth role and use real-login tests; SET ROLE does not test `session_user`. |
 | `lib/workflow/construction-start.ts:128–136` | Preserve permit research and stable reference; browser handoff remains attended. |
@@ -290,8 +296,12 @@ reading its body); no upstream request and no 100-continue forwarding. Unknown
 or >25 MiB length is rejected before buffering; no-body requests require zero
 body, body-carrying requests require explicit bounded Content-Length. Normal
 bounded body collection then proceeds locally; do not wait for authorization in
-requestheaders. Cap concurrent buffered bodies to two/task and 56 MiB globally;
-reserve bytes before reading, release on every terminal path. Body read timeout
+requestheaders. Cap concurrent buffered bodies to two/task and **56 MiB globally for all live
+request representations/copies**, not just declared payloads. Reserve the full
+worst-case allocation before reading; if a parser needs two copies, reserve both
+(e.g. two simultaneous 25 MiB bodies with copies do not fit). Refuse excess with
+503 BROWSER_BUFFER_BUSY before collection/upstream transmission, no queued body.
+Release on every terminal path. Body read timeout
 15 s and total flow deadline 60 s include review time; slow/short/oversize body
 kills flow with no upstream HTTP bytes.
 
@@ -309,6 +319,56 @@ missing/late/invalid decision, RPC/controller loss, exception or addon error:
 never exception-through forwarding. A pinned fail-closed dispatcher shim catches
 uncaught addon errors too (mitmproxy addon error logging alone is insufficient).
 Startup attests both addon and shim; no hot removal/reload or optional addon.
+
+**Response collection and aggregate memory (Phase 0 release contract).** Keep
+responses nonstreaming too: set `flow.response.stream=False` at responseheaders;
+do not silently fall back to mitmproxy's unbounded default buffering. The pinned
+parser/dispatcher must enforce a shared allocation ledger **before** allocating
+request/response bodies, TLS/parser/socket queues or copies. Global live-buffer
+ceiling **192 MiB** = request representations **56 MiB** + response reservations
+**112 MiB** + transport/parser/flow metadata **24 MiB**. The pools cannot borrow
+from each other. Within the gate's **384 MiB** MemoryMax, measured non-pool runtime,
+code, bounded DNS/certificate caches and interpreter overhead must fit **144 MiB**;
+leave **48 MiB** untouched headroom. Thus accounted peak ≤336 MiB; Phase 0 must
+measure RSS/cgroup peak, not assume Python heap equals RSS. If the exact pinned
+runtime cannot meet this envelope, activation stays off; do not increase caps.
+
+Before read consume or action bind/consume/audit authorization, and before any
+upstream HTTP transmission, reserve **56 MiB per response**,
+including for HEAD/unknown-length bodies; at most **two response flows globally**,
+one/context while both contexts compete, fair rotating admission/refusal priority
+with no body waiting queue or automatic request retry. This reservation covers ≤25 MiB wire payload plus ≤25 MiB parser/
+immutable-copy representation and ≤6 MiB per-flow overhead; all extra allocations
+are charged before creation or refused. It is retained through downstream drain,
+so a slow client cannot accumulate another response. A header/body request already
+held for review retains its separate request reservation. No available response
+slot/transport quota or projected memory >336 MiB: reject before upstream HTTP
+bytes with 503 BROWSER_BUFFER_BUSY; the unused action is staled, never silently
+retried. This is stricter than the eight/task upstream socket ceiling (§3.3),
+which is not a buffering entitlement.
+
+At responseheaders reject declared length >25 MiB, ambiguous lengths, upgrade,
+trailers or unsupported encoding before body collection. Strip Accept-Encoding
+and freeze `Accept-Encoding: identity` in each authorized request digest. Reject
+any non-identity Content-Encoding before collecting; gate performs **no compressed
+expansion**, including via debug/decoded-content accessors. Compressed responses
+are unsupported in v1, not an unaccounted decoder allocation. Unknown/chunked
+response lengths may collect only within the same reservation; count each chunk
+before append, kill on >25 MiB or the original flow deadline. Bound incoming and
+outgoing chunks/queues to 64 KiB per flow inside the 24 MiB transport pool; pause
+socket reads at high water and resume only after downstream drain. The pinned
+parser integration must prove it applies backpressure before its own allocation,
+not after an addon gets an already allocated body. No flow-history/UI/cache/save-
+stream retention, no raw-content logging; completed/error/killed/disconnected/
+revoked flows drop every body/copy/reference and reservation in a finally path.
+No overlapping decoded/concatenated copies outside the ledger. Gate closes a
+slow downstream at the original 60 s total flow deadline, never extends a review.
+
+Buffer pressure is a safe refusal, not an OOM/restart strategy. A response-side
+refusal after an approved write may mean it already reached the site: preserve
+**unknown**, never unsent, refund or retry. The root OOM latch remains a last
+resort, not normal backpressure. The actual pinned-gate concurrency fixture (§12)
+is mandatory for both Phase 0 boundary sign-off and Phase 1 admission.
 
 `http_connect` validates authority and rejects passthrough, IP/port/Host mismatch
 before tunnel establishment. `server_connect` validates the full Unbound
@@ -370,11 +430,15 @@ not a hard common ceiling; different UID never means free capacity.
 Child `user-<joeUID>-sjcosbrowser.slice`: **MemoryHigh=2G, MemoryMax=3G, MemorySwapMax=0,
 CPUQuota=150%, TasksMax=256**, includes controller/Chromium, gate, validator and
 reader. Controller Node heap 256 MiB; gate unit MemoryMax=384M, CPUQuota=35%,
-128 total connections / 32 per task / 8 upstream active per task, 10 s connect,
-30 s headers and 60 s request timeout. Validator 384 MiB/50%/one job; reader
+128 total connections / 32 per task / 8 upstream socket ceiling per task, 10 s connect,
+30 s headers and 60 s total flow timeout. The 192 MiB gate ledger (56 request /
+112 response / 24 transport), two response slots, 144 MiB baseline and 48 MiB
+headroom in §3.2 are binding within that 384 MiB cap; eight upstreams/task is only
+a connection limit. Validator 384 MiB/50%/one job; reader
 128 MiB/15%; Chromium context count remains two. Aggregate cap wins over sum.
-Private tmpfs 384 MiB (profile 128, downloads 200, buffers 56), `/dev/shm` 128 MiB
-charged to slice; encrypted persistent quarantine 256 MiB, staging 256 MiB,
+Private tmpfs 384 MiB (profile 128, downloads 200, staging scratch 56), `/dev/shm` 128 MiB
+charged to slice; gate body pools are separately ledgered heap, never counted as
+free tmpfs space or spilled there. Encrypted persistent quarantine 256 MiB, staging 256 MiB,
 profiles 64 MiB, audit spool 64 MiB. Enforce filesystem quotas and bounded buffers;
 no unbounded spill to Joe's disk. Exhaustion denies work/marks result unknown.
 Nice=15, OOMPolicy=stop, KillMode=control-group, TimeoutStopSec=15.
@@ -434,7 +498,9 @@ independently of awaited tools every second. No timers/cron may open a context.
 
 Session states: `queued → starting → active ↔ paused → closed`; `starting/active/
 paused → failed`. Active control is separate: `agent | person | none` with a
-monotonic `control_epoch`. Privacy is `public | private | delegated_secret`; approval is a separate
+monotonic `control_epoch`. Privacy is `public | private | delegated_secret`;
+sticky per-context vault dependency `none | fill | restore` is independent (§5.2).
+Approval is a separate
 immutable action record. Never conflate “agent waiting” with a CLI tool call that
 must remain open for 24 hours.
 
@@ -448,7 +514,7 @@ MCP capability; decision does not revive the model or change action.run_id.
 |---|---|---|
 | new → queued → starting → active | web admission + supervisor, valid session/sites/slot | Attach immutable run, fresh boot/context/epochs; bounded 20 s start or failed |
 | active → paused (successful turn/end-to-wait) | runner finish authenticated by stored run | Revoke MCP capability; retain context ≤5 min; preserve pending card only; show “Agent turn finished. Browser is paused.” |
-| paused → active (new turn) | explicit attended Continue, no live/pending review | Attach new immutable task_run; fresh capability/control epoch; browser-only history; stale older observations |
+| paused → active (new turn) | explicit attended Continue, public or reviewed Phase 4 steps only, no live/pending review | Attach new immutable task_run; fresh capability/control epoch; browser-only history; stale older observations |
 | paused + pending review → paused | web decision, original action/run still bound, current context and both required presences valid | Dispatch via independent web capability; no CLI starts. New model turn cannot race decision; task lock serializes. |
 | any live → paused (absence/stream fault) | service attendance expiry | Fence commands; stale pending card when attendance invalidated, never dispatch after initiator leaves |
 | any live → closed (Stop / 5 min inactivity) | web/service | Revoke capabilities, close context; expire undispatched action; executing becomes unknown if unconfirmed |
@@ -530,7 +596,9 @@ mutates control. A service outage during auth check fails closed.
 ### 4.1 Thread ownership and real web sessions — prerequisites
 
 **Thread isolation ships before Browser panel access for Joe or staff**, not
-only before browser.staff_enabled. Per shared H5, Canvas **0105 / Phase 0** owns
+only before browser.staff_enabled. This includes newer H5's complete thread
+delete/recovery/startup acceptance (§6.2), not only ownership DDL. Per shared H5,
+Canvas **0105 / Phase 0** owns
 thread/folder ownership, tombstones, backfill and access guards. Browser cannot
 claim independent rollout before that privacy acceptance; apply 0100–0105 with
 both features disabled and deploy guarded admission code afterward. Canvas
@@ -564,6 +632,43 @@ capability launched under that sid and stales its pending actions, fences attach
 controls and attendance; sign-out-everywhere revokes all. Session replacement
 revokes old sid; an old JWT cannot rejoin. No generic client-supplied sid/device
 is trusted.
+
+**Sign-in preserves only validated review/Watch return paths (Phase 0/1).**
+Verified current `proxy.ts:159–179` clears the original query for signed-out
+redirects and redirects authenticated `/login` to role home; `app/login/page.tsx`,
+`components/auth/LoginForm.tsx` and `lib/actions/auth.ts:53` also have no return
+path. All four must adopt one pure `validateBrowserReturnPath` helper. Allow only
+canonical **relative** `/today?browser=<uuid>&review=<uuid>` or Watch
+`/today?browser=<uuid>`; no other pathname/keys, duplicate keys, fragment, userinfo,
+backslash, control character, absolute or protocol-relative URL, encoded path/
+delimiter tricks, recursive/nested returnTo or malformed UUID. Bound input to
+256 bytes; parse against configured trusted app origin, assert exact origin and
+pathname, then rebuild the relative path from validated UUIDs. Origin comes from
+trusted deploy configuration, never Host/X-Forwarded-Host or a supplied URL.
+Reject invalid return paths and fall back to `homeForRole` with a clean query;
+never redirect arbitrary `returnTo` to a browser. IDs remain non-capabilities.
+
+For a signed-out review tap, proxy builds `/login?returnTo=<encoded validated
+relative path>`. Login shows only **“Sign in to open the review.”**; Watch uses the
+same neutral notice. No pre-auth task/staff/job lookup, preview or labels. Pass
+validated returnTo through LoginForm as a hidden field and preserve on validation
+errors; auth action revalidates untrusted FormData after credential verification
+and sid creation before redirecting. The authenticated `/login` proxy branch and
+LoginPage shortcut must preserve/revalidate it too rather than dropping the query.
+Legacy JWT without sid must reach the actual sign-in form (no authenticated-home
+bounce loop); fresh sid lookup/revocation is enforced server-side before any
+Browser access. Do not treat sliding renewal as real reauthentication or mint a
+sid from a legacy JWT. Proxy is an optimistic prefilter only.
+
+After login, `/today` freshly authorizes the task/action, issues owner claim only
+for Joe, and resumes the original immutable review/Watch display against the
+**original server deadline**. GET cannot join/acquire control/approve, resurrect a
+flow or extend TTL; cookie+CSRF POST join and explicit decision/presence remain
+required. Unauthorized roles/IDs get generic unavailable copy/home without task
+metadata; expired reviews show §6.3's existing expired outcome. Login return does
+not replace staff attendance. Restrict this helper to these two forms; the new
+hand-off link in §6.4 is separately authorized after sign-in, not an excuse to
+widen the allowlist. No passwords, session/device/approval tokens in URLs/logs.
 
 `browser_viewers` binds server-random device UUID/hash to sid, user, task, joined
 role (initiator|owner_review), presence deadline, stream ID/generation, last frame,
@@ -682,8 +787,8 @@ bodies; never reuse backup/Gmail/session keys. Errors contain IDs/codes, not buf
 Root provisions `/etc/sjcos-browser/vault-keys.json`, root:service 0640, directory
 0750, read only by the browser service through systemd `LoadCredential`. The
 repository, `.env.local`, app/CLI env, database and backups of application data
-contain **no vault key**. Website receives metadata and boolean results only.
-Local controller RPC encrypts Save a login over Unix socket; web process handles
+contain **no vault key**. Website receives metadata and boolean login/profile results only (the separately authorized
+confirmed-business-fact hand-off projection is specified below). Local controller RPC encrypts Save a login over Unix socket; web process handles
 submitted secret transiently but must never stringify/log it or write agent rows.
 Entry form is a direct authenticated API request, not a chat message or generic
 Server Action result that echoes a submitted value. Password fields have
@@ -691,6 +796,14 @@ Server Action result that echoes a submitted value. Password fields have
 secret in analytics, error reports, request-body logs or APM. TLS and no-store
 for the web form. Manual login secrets use the private input endpoint, not a
 chat composer. Don't put card numbers/CVV/2FA seeds/recovery codes in this vault.
+
+Hand-off answers use their own handoff_answers KEK/purpose and immutable bindings
+below; web-authorized Unix RPC encrypts the trusted snapshot and decrypts it only
+for Joe's freshly authorized invitation/Sites review, never model/CLI. The web
+process already handles these nonsecret confirmed business facts transiently; it
+receives no vault login/profile keys or general decrypt authority. A one-use web
+proof binds hand-off/source/recipient/revision; the service cannot invent an
+invitation or share. Ciphertext is stored by website-only hand-off functions.
 
 Keys have active + decrypt-only versions. Rotation tool is an owner deployment
 operation, not MCP: install new key version, switch encrypts, rewrap data keys in
@@ -721,6 +834,7 @@ revision. Plaintext hash stays encrypted, ciphertext hash can be public.
 | profile | profile_id, user_id, login_id, origin_chain_digest, credential_revision, profile_revision |
 | request_body | artifact_id, task_id, action_id, initiating_user_id, origin, action_revision |
 | read_manifest | manifest_id, task_id, initiating_user_id, origins_digest, task_origins_revision, manifest_revision |
+| handoff_answers | handoff_id, source_task_id, initiating_user_id, recipient_owner_id, project_id (explicit null if none), snapshot_revision |
 | review_image | artifact_id, task_id, action_id, initiating_user_id, origin, action_revision, document_epoch |
 | quarantine_file | artifact_id, task_id, user_id, origin, download_id, revision |
 | saved_file | artifact_id, file_id, project_id, source_task_id, user_id, origin, revision |
@@ -781,10 +895,25 @@ staff get **“Sign in to city.example with Joe's saved login? [Sign in once]
 **“This site wants a code. Joe has to finish signing in on an iPad or computer.
 [Ask Joe]”**. Notification **“Abigail needs you to finish signing in to
 city.example · Larson bath”** opens the same owner watch layer (§6.2), not staff
-chat; phone shows tablet/computer instruction. Without an adapter, Ask Joe
-instead refers him to his own private sign-in task. In supported delegated tasks
+chat; phone shows tablet/computer instruction. Without an adapter, **Ask Joe to finish** uses the complete separate-task
+hand-off in §6.4. In supported delegated tasks
 Joe joins/replaces control privately; staff never get pixels/input/OTP. Failure
 to provide safe adapter continuation leaves paused/unsupported, never shared view.
+
+Vault dependency is authoritative and separate from privacy. Persist on each
+runtime context `vault_dependency=none|fill|restore`, login ID and credential/
+profile revision plus context generation. `none` means anonymous manual-only;
+only a service guarded transition under the context lock can set fill/restore,
+**before decrypt/restore** and before any secret can affect the context. It is
+sticky for that context, even if fill fails or fields/cookies are cleared. It
+cannot be set/reset by a client/model or inferred from whether inputs look secret.
+A fresh anonymous context alone resets dependency to none after destroying/fencing
+the old context (§6.1). Disabled vault denies login/profile decrypt/fill/restore/profile save;
+on disable, revoke proofs and close all fill/restore-dependent contexts, including
+delegated_secret, within 5 s. A `none` anonymous context made permanently private
+by manual take-over continues with no model observation and all effective write/
+file flags enforced. Never enable vault merely to obtain take-over or turn a
+manual context public. This permits Phase 1 with vault/files/final flags off.
 
 Entry deletion immediately revokes in-flight fills and
 profile restore, writes a content-free audit tombstone and schedules ciphertext
@@ -828,11 +957,15 @@ Fill flow:
    may use a reviewed adapter's fixed control IDs and person-supplied business
    inputs; they return content-free statuses. A generic unknown portal can be
    worked by take-over; the agent can prepare data but cannot read its page.
-6. Give back to agent in private mode resumes only reviewed blind, typed actions.
-   Vault/restore reason: **“Login pages stay private. I can fill the steps this
-   site supports; take over for the rest.”** Public take-over reason:
+6. V1 has no reviewed steps: **[Done]** stops capture/input and leaves control
+   none/task paused. Vault/restore reason: **“Browser paused. The agent can't see
+   pages you signed in to. Finish the form yourself — your answers are below.
+   [Take over again] [Stop browser]”**. Public take-over reason:
    **“The agent can't read this page anymore. [Open a fresh browser] [Keep paused]”**.
-   With no adapter, give-back keeps paused; no model observations resume.
+   Neither resumes the model. Only Phase 4 contexts with reviewed steps offer
+   **Give back to agent**, then **“Let the agent continue? [Continue] [Keep paused]”**
+   for blind typed actions; privacy remains irreversible. Vault explanation:
+   **“Login pages stay private. The agent can only do this site's supported steps.”**
    Open a fresh browser **“Starts a new browser for this task on the same sites.
    Pages you signed in to will need signing in again.”** Close old context,
    revoke controls/observations/cards/profile restore, start a new anonymous
@@ -948,12 +1081,19 @@ an explicit control. Focus stays visible; screen-reader users get a **Page
 controls** list for public content or reviewed adapter controls, never raw
 credential field values. Browser image is labeled remote content, not an iframe.
 
-Give back to agent releases person lock, invalidates pending approvals, clears
-sensitive in-page fields where safe, persists only encrypted eligible state,
-and asks **“Let the agent continue?” [Continue] [Keep paused]**. Continue creates
-new observation/control epoch; private-mode restriction persists. Switching Browser↔Chat↔Canvas preserves attendance (§3.3). Closing Operator,
+V1 **Done** first closes keyboard/capture, releases person lock, fences input,
+invalidates undispatched approvals, clears sensitive fields where safe and saves
+only encrypted eligible state when vault is enabled. It keeps control none and
+task paused and shows §5.2's reason-specific paused state; no continuation prompt.
+Take over again reacquires fresh control/stream identities through the private
+barrier; it does not resume the agent. **Give back to agent** and **“Let the agent
+continue? [Continue] [Keep paused]”** exist only for Phase 4 reviewed adapter
+contexts. That explicit Continue creates fresh epochs for blind typed steps,
+never page observations or public mode. Switching Browser↔Chat↔Canvas preserves attendance (§3.3). Closing Operator,
 backgrounding app or changing thread drops that device presence; returning after
-a pause requires Continue. “You left the browser. The agent paused.” [Continue]. Stop browser cancels
+a pause requires explicit Continue for public/reviewed steps, or Take over again
+for private no-adapter tasks. “You left the browser. The agent paused.” uses the
+appropriate action, never offers unavailable private continuation. Stop browser cancels
 queue/actions, closes context, revokes fill capability and retains saved files.
 Back/Close pane changes local view, not browser history; browser history controls
 live in the toolbar and obey site/submit guards.
@@ -961,8 +1101,8 @@ live in the toolbar and obey site/submit guards.
 ### 6.2 Placement; shared contract with Canvas
 
 Adopt **[the shared Ask host contract](_ask-pane-host.md) H1–H5 verbatim by
-reference**, re-adopted from newer commit **`4f22bd30`** (replaces prior
-`dc36db88` adoption). Final path-scoped log check found that committed update;
+reference**, re-adopted from newer commit **`22a48134`** (replaces prior
+`4f22bd30` adoption). Final path-scoped log check found that committed update;
 no waiting/fallback was needed. That host file was read in full after its commit. It owns placement, host/selection APIs,
 840 px measured-content split, minima/gutter, dock/app-view expansion, phone
 history/back, focus/Escape, attention priority, canonical provenance and migration
@@ -977,7 +1117,23 @@ keeps the captured ~420 width, applies narrow fallback if either minimum fails,
 and restores the captured width after transient splitter adjustments. Selector
 uses the shared accessible tabs, never a second rail. §6.3's 360 Chat and 420
 dock frames now match the host/Canvas header, selector, working Close Operator,
-app replacement and Back behavior. Browser supplies no competing geometry.
+app replacement and Back behavior. Browser supplies no competing geometry. The newer H3 **Canvas-only** compact
+rule is also adopted: measured pane <640 px **or** viewport height <600 px uses
+compact Canvas; otherwise fuller. This does not alter Browser control geometry.
+Shared fixtures retain H5's 390×844, 430 portrait, 600–639 / 640–744 panes,
+800×360 (≥200 px Canvas stage), 820×1180, 1000 content→568 pane and 360×800
+Diagram/Page/Floor rows (136 px Operator chrome + 8 padding; ≥420 px stage).
+Assert renamed **Close Operator** and Show code/About this page labels; no
+independent feature-specific host constants.
+
+New H5 Phase 0 acceptance is adopted too: 0105's minimum maintenance lease/fence/
+recovery schema, independent durable intent/high-water, all-Ask startup/recovery
+gate and thread-only deletion/reconciliation must pass with later Canvas tables/
+flags absent. Delete stays disabled before that gate; never fall back to physical
+legacy deletion. Browser cannot activate against a stale replica/recovery epoch.
+Combined Browser order remains 0100–0105. Canvas-only requires 0100 + 0105 but no
+0101–0104; test only-0100–0105 and 0100+0105-only recovery, missing-0100 refusal,
+then later additive Browser upgrade. No renderer dependency or duplicate migration.
 
 * Snapshot `status` enum exactly `queued|starting|active|paused|closed|failed`;
   `id=task_id`, thread_id=task.conversation_id, user_id=initiator, run_id=current
@@ -1012,7 +1168,8 @@ app replacement and Back behavior. Browser supplies no competing geometry.
   valid sid; accidental stream loss pauses and needs Resume; planned authenticated
   rotation does not. Popout/redock needs fresh join, control never transferred by
   panelBus. Explicit Resume/Take over required after leave; no automatic agent
-  resumption. “You left the browser. The agent paused. [Continue]”.
+  resumption. “You left the browser. The agent paused.” [Continue] for public/reviewed steps;
+  private no-adapter uses Take over again (tablet/computer) or the phone instruction.
 * Browser admits **only cookie-authenticated `panel_web`** in v1. Native
   `panel_mobile` Bearer and `panel_voice` (including delegation), Telegram,
   background and legacy sources return BROWSER_ATTENDED_ONLY. Safari/iPhone/iPad
@@ -1034,7 +1191,8 @@ site; Sites review / Saved logins / Save to project files (nested unsaved-login,
 delete-login, remove-access confirms register above their owner and Escape =
 Cancel); review sheet (Escape = Keep paused); Pause browser and return to Chat?
 confirm (Escape = Keep browser open); Browser → Chat or Back to app; Operator.
-Public take-over confirmation registers above Browser; Escape = Cancel. Confirm
+Public take-over, Ask Joe to finish, hand-off outcome and Pause agent
+confirmations register above their owner layer; Escape = Cancel, consumed once. Confirm
 never falls through to pane exit. Sites review Close closes only that sheet,
 never Browser/Operator. Review Close/Keep paused hides the decision without
 approving/resuming; pending action remains frozen only until its original TTL.
@@ -1070,16 +1228,34 @@ to shared thread privacy.
 Join with owner_review validates Joe's cookie sid/ai/task-area rights, returns
 this claim and viewer, then shows **“‹ Back · Abigail's browser · Larson bath”**,
 no view selector. Watch from In use uses this same layer with action_id=null;
-new review appears within it, not another history entry. Native/browser Back,
-‹ Back and Close return to Joe's untouched selection; Escape = **Keep paused**,
-never Resume or approval. On Watch of an active task, Escape first requests
-owner-authorized **pause** without acquiring control; fence agent/undispatched
-commands, then close the layer when acknowledged. Failure keeps it visible with
-the pause error/Stop options; no claim of pause without acknowledgment. During Joe control, run the leave/pause confirm first;
+new review appears within it, not another history entry. Native/browser Back, ‹ Back, Close and Escape on Watch with **no Joe control
+and no open review** close only Joe's viewer and restore his untouched selection;
+Abigail's task/control/attendance are unchanged. **Escape = Keep paused** applies
+to the actual review sheet only, never turns a passive Watch exit into a pause.
+An explicit **[Pause agent]** opens **“Pause Abigail's agent? She'll need to tap
+Continue. [Pause agent] [Cancel]”** (Escape = Cancel). Confirm uses owner-authorized
+pause without acquiring control, fences agent/undispatched commands and stales
+pending review; staff see **“Joe paused the agent. [Continue]”**. Only staff's
+explicit attended Continue can resume; not Joe's leave or viewer presence.
+Pause failure keeps the confirmation visible with Try again/Cancel, no false
+acknowledgment. During Joe control, run the leave/pause confirm first;
 release Joe's control and pause, never transfer to staff/agent. Without control,
 leaving revokes only Joe's viewer; pending review stays frozen until expiry,
 staff attendance remains independent. After a terminal decision, Back only
 closes the layer; it cannot undo or retry an effect.
+
+**Owner-layer placement.** At ≥1024 docked (1280 desktop / 1180 iPad landscape),
+explicit owner Open review/Watch invokes H1 expansion: one header **“‹ Back ·
+Abigail's browser · Larson bath”** spans the captured ~420 dock and replaced app
+view. Left column contains trusted task status/review card with sticky 48 px
+buttons; right pane contains the live/review image and authorized take-over
+controls. No staff Chat or second Operator header/selector. Dock width stays
+unchanged; ‹ Back/browser Back restores app route/scroll and Joe's own chat/Canvas.
+Apply H1 minima/gutter; if either minimum fails, use narrow view. In pop-out
+measured width ≥840 use this same owner split under one header (at 840, 348/12/480);
+below 840 use the 360 single-view arrangement. Pop-out owner entry saves Joe's
+selection/one top owner history entry, never an app expansion or global dock write.
+Joe's takeover works in the right pane; passive Watch never acquires it.
 
 Use `(os)` **`/today?browser=<taskId>&review=<actionId>`** (Watch omits review),
 not `/panel`: `app/panel/page.tsx` renders shell-free PanelWindow whose
@@ -1104,7 +1280,8 @@ counts only as Joe's review presence.
 Own-task screens retain the shipped **Operator** header; the cross-person owner
 layer and keyboard-open compact mode use their explicit exceptions below. Below 1024 viewport the
 66dvh drawer expands to full-height for Browser and covers MobileTabBar; safe-area
-insets and visualViewport keyboard resize apply. Sheet chevron/× disabled in content with “Return to Chat to close Operator.”
+insets and visualViewport keyboard resize apply. Hide sheet chevron; keep the
+working × labeled Close Operator, with H3 leave/history behavior.
 Host geometry/selector placement
 are governed exclusively by §6.2; illustrative wide geometry never overrides it.
 No address bar in v1. Trusted site label is canonical origin, not page title.
@@ -1125,13 +1302,13 @@ persists when Browser needs attention; attention never steals Canvas/Chat focus.
 │                                    │
 │ Browser · city.example              │
 │ Reading the permit page             │ ← fixed controller event, not page text
-│ [Open browser]                     │
+│ [Show browser]                     │
 │ Opened city.example                 │
 │ Filled 6 fields                     │
 │ Waiting for you to sign in          │
 │                                    │
 │ Agent turn finished.                │
-│ Browser is paused. [Open browser]   │
+│ Browser is paused. [Show browser]   │
 │ Message…                           │
 │ [Attach] [Browser] [Mic]            │ ← new 44 px Browser beside Attach
 └────────────────────────────────────┘
@@ -1147,10 +1324,10 @@ paused/ended-run/review states keep it. Matching **420 resting dock Chat** frame
 │ [Agent ▾] [Larson bath] [History] +         │
 │ Browser · Agent is working              ›  │ ← 44 px
 │ Browser · city.example                     │
-│ Reading the permit page [Open browser]     │
+│ Reading the permit page [Show browser]     │
 │ Opened city.example                        │
 │ Agent turn finished. Browser is paused.   │
-│ [Open browser]                             │
+│ [Show browser]                             │
 │ Message…                                  │
 │ [Attach] [Browser] [Mic]                   │
 └────────────────────────────────────────────┘
@@ -1213,11 +1390,13 @@ full proposed addresses and who supplied them. Initial URL is required before
 Open. **“Facts this task may send”** is informational, with each exact value and
 recipient, never a reusable permission. Do **not** adopt a blanket task-wide fact
 release: it would weaken the security-verified per-request, value/recipient/grant
-binding. Company tasks show **“Each lookup with job details needs Joe's OK.”**
-Staff on a company task without reviewed steps see **“Joe has to OK each page you
-send on this site, usually within a minute. Let him know before you start.”**
-Phase 1 adds **“This version reads public pages only. Sending job details isn't
-available yet.”**; no company lookup release before Phase 3.
+binding. In Phase 1 show **only “This version reads public pages only. Sending
+job details isn't available yet.”**; hide company lookup/page approval guidance
+while dispatch is unavailable (also Phase 2). Phase 3 company tasks show **“Each
+lookup with job details needs Joe's OK.”** Staff on a company task without
+reviewed steps also see **“Joe has to OK each page you send on this site, usually
+within a minute. Let him know before you start.”** Never show these alongside the
+public-only warning. No company lookup release before Phase 3.
 
 A typed name must resolve to a proposed exact HTTPS address, shown before Add;
 no silent search-result admission. Staff need line uses real permission labels;
@@ -1267,7 +1446,7 @@ controls in place of image and takeover (see §6.4).
 │ ‹ Chat                  Browser                               │
 │ city.example · Larson bath                                    │
 │ [‹] [›] [Reload]       [city.example] [Payment window]          │ ← max two tabs
-│ You're in control            [Give back to agent] [Stop]      │
+│ You're in control            [Done] [Stop]      │
 │ Keys go to the website · Esc to stop                           │ ← capture only
 │ ┌───────────────────────────────────────────────────────────┐ │
 │ │ Private — login or account details. Remote image.           │ │
@@ -1291,12 +1470,12 @@ host split threshold). Focus moves to remote input only by explicit control.
 
 At **820×1180 with the soft keyboard open**, collapse Operator/content chrome,
 selector, back/history/tabs, separate state/capture bars and 56 px toolbar to
-one **44 px** trusted row: **city.example · You're in control · [Give back to
-agent]**. Image contains/letterboxes into all remaining height; Your answers is
+one **44 px** trusted row: **city.example · You're in control · [Done]**. Image contains/letterboxes into all remaining height; Your answers is
 one horizontally scrolling row of ≥44 px **[Address ▸] [Scope ▸] [License # ▸]**
 chips directly above the keyboard. Chip opens the confirmed value + Type it in
-that same strip. Keyboard close restores prior chrome/scroll; Give back first
-closes capture/keyboard. Escape still exits capture before outer host handling.
+that same strip. Keyboard close restores prior chrome/scroll; Done first
+closes capture/keyboard and leaves the private task paused. Phase 4 reviewed-step
+contexts alone substitute Give back to agent and its continuation confirm. Escape still exits capture before outer host handling.
 **Type it never focuses a local editable field and must not open the soft
 keyboard**; it uses committed remote text with existing private control checks.
 Touch a remote field to request keyboard explicitly via Keyboard, not by chip
@@ -1335,8 +1514,9 @@ otherwise the host uses narrow Browser with ‹ Chat, never squeezed columns.
 **Send-this-page versus final submit, at 360:** agent waits paused; no model turn
 held busy. Field/value manifest and attachments shown, private values human-only.
 Company draft saves/Next/autosave also release company data: **Joe** approves.
-Personal own-account login/contact and named delegated login-only are the only
-staff self-approval categories; neither releases company form data. A site/page
+Personal own-account login/contact and reviewed named delegated login-only are
+the only staff self-approval categories (login-only in Phase 2, contact only with
+dispatch enabled, delegated login-only not before Phase 4); neither releases company form data. A site/page
 calling a save “nonbinding” cannot downgrade company authority.
 
 ```text
@@ -1355,7 +1535,8 @@ Mid-form, title = text-heading       Final card, distinct title + warning
 Place under image in full-height pane; opening review uses full-height sheet
 with sticky 48 px decision buttons. Phase 1 has **no working bypass**:
 “This version can only read pages. This button sends information to the site.
-[Take over] [Close]”. Take over can inspect/prepare locally but Phase 1 **still
+[Take over] [Close]” on tablet/computer. Phone: **“This version reads public pages
+only. Sending information isn't available yet. [Close]”**; no Take over button. Take over can inspect/prepare locally but Phase 1 **still
 blocks all network writes**, including POST search; explain “Sending information
 isn't available in this version.” A final card says “This version stops here.
 Nothing was submitted. [Close]”.
@@ -1390,8 +1571,11 @@ bath”** [Open review]. For final pay use **“Abigail needs your OK in the nex
 minute: Pay $125.00 to City of Fargo · Larson bath”**. Deep link
 **`/today?browser=<taskId>&review=<actionId>`**, `(os)` PanelHost owner top layer
 §6.2, never staff chat or PanelWindow; `/engine/permissions` links here too.
-Native iOS app opening it shows **“Open in Safari to review this.”** No native
-Bearer decision or Telegram approve button.
+Native iOS app opening it shows **“Open in Safari to review this. [Open in
+Safari]”**, a **48 px** button opening the exact same canonical HTTPS URL, retaining
+both UUIDs and no tokens. No native Bearer decision or Telegram approve button.
+The link keeps its original deadline through login (§4.1); signed-out notice is
+only “Sign in to open the review.”
 
 ```text
 360 owner top layer — no Operator selector or staff chat
@@ -1413,6 +1597,38 @@ Bearer decision or Telegram approve button.
 └──────────────────────────────────┘
 ```
 
+```text
+1280 owner layer — 1180 landscape / ≥840 measured pop-out use same split
+┌────────────────────────────────────────────────────────────────────────────┐
+│ ‹ Back · Abigail's browser · Larson bath                                    │
+├────────────────────────────────────┬───────────────────────────────────────┤
+│ Status: Waiting for Joe             │ city.example                          │
+│ Send page 4 to city.example         │ [Review image / authorized live view] │
+│ Larson bath · confirmed answers     │                                       │
+│ Expires in 0:48                     │                                       │
+│ [Send once]                        │                                       │
+│ [Don't send]                       │                                       │
+│ (sticky 48 px buttons)              │                                       │
+└────────────────────────────────────┴───────────────────────────────────────┘
+   ~420 dock, unchanged                 replaced app view (no staff chat)
+
+360 Watch — no open review, no Joe control
+┌──────────────────────────────────┐
+│ ‹ Back · Abigail's browser        │
+│ Larson bath                      │
+│ Agent is working · city.example   │
+│ [Authorized live image / private  │
+│  view requires separate access]   │
+│ [Pause agent]                    │
+│ Take over on a tablet or computer │
+└──────────────────────────────────┘
+```
+
+Watch Back/Escape/Close leaves Abigail working (§6.2); Pause agent is deliberate.
+Take-over is never available on Joe's phone. For 360 view/review give a dismissible
+one-time tip: **“Turn your phone sideways for a bigger view.”** Owner copy uses
+the configured owner's display name, with Joe as this plan's concrete example.
+
 Display header **“‹ Back · Abigail's browser · Larson bath”**; wraps on 360.
 Countdown ticks each second without animation; reduced motion suppresses pulse
 but retains textual seconds (a 60 s review cannot use whole-minute-only copy).
@@ -1424,12 +1640,14 @@ reviewed pre-click adapter card (Phase 4) has **up to 5 min**: notification
 Both are distinct variants, never 5 min for a generic held flow.
 
 On generic lapse before consume/transmission staff see **“Joe didn't answer in
-time. Nothing was sent. Click the button on the page again to ask Joe again.”**
-Plus **[Ask Joe again]**, which reveals/focuses that instruction/current page;
-it **never replays** the expired request. Final variants: **“Joe didn't answer
-in time. Nothing was {submitted | paid | signed}. [Ask Joe again]”**, with the
-same click-again instruction. Adapter pre-click re-ask builds a fresh snapshot,
-no click until approval. Old action/grant/token stays terminal. Joe expired link:
+time. Nothing was sent. To ask again, click the button on the page again.
+[Back to the page]”**. This control returns to the current page/instruction;
+it does not notify Joe or replay the expired request. Final variants: **“Joe
+didn't answer in time. Nothing was {submitted | paid | signed}. To ask again,
+click the button on the page again. [Back to the page]”**. On phone, explain
+that the new deliberate click needs iPad/computer take-over. Reserve **[Ask Joe
+again]** for Phase 4 pre-click adapters where it actually builds a fresh snapshot
+and alerts Joe, with no click until approval. Old action/grant/token stays terminal. Joe expired link:
 **“This review expired at 2:41 PM. Nothing was paid. Abigail can ask again.”**;
 already decided: **“You already said don't pay.”** / **“Already paid — Receipt
 saved.”** (only verified receipt). Use exact verb for sends/submits/signatures.
@@ -1438,15 +1656,49 @@ Staff after deny **“Joe said don't pay.”** / after approve **“Joe approved
 paying now…”**, then definitive or unknown outcome; submission/sign/send use the
 same exact template verbs. Joe own denial uses “Not paid.” / “Not sent.” etc.
 
-**One bell item + one editable Telegram item per task**, dedupe by task ID,
-pointing to latest action; each re-ask updates them and their review URL rather
-than creating another ping. Initial request alerts once; subsequent pages/re-asks
-edit the same message silently (bell marks latest revision unread), including
-expired/cancelled/denied/executing/confirmed/unknown outcomes. Never leave “needs
-your OK” after decision/lapse. If Telegram edit fails, bell is authoritative;
-no burst of replacement messages, show notification-delivery warning to staff.
-A saved old URL still resolves its own immutable action/outcome, never a newer
-approval. Staff must tell Joe before multi-page work; no longer implicit TTL.
+**One live bell item + one live Telegram item per task**, keyed by task ID,
+pointing to the latest immutable action. **Every new pending decision alerts**,
+including later pages and real adapter re-asks: bell moves to top/unread with
+normal alert; Telegram deletes the prior message then sends a fresh one (never
+an edit for a new decision). Follow-up: **“Abigail needs your OK in the next
+minute: Send page 4 to city.example · Larson bath”**. Only existing-decision
+outcome/status changes edit silently: approved, denied, expired, cancelled,
+confirmed, unknown (executing is the same approved decision). Never leave needs-
+your-OK after decision/lapse. An old URL resolves only its immutable outcome.
+
+Verified `lib/providers/telegram.ts:61` selects editMessageText versus sendMessage;
+`lib/notify-owner.ts:273` explicitly treats edits as silent, while ordinary sends
+can be parked by quiet hours. Add a **browser-specific**, owner-chat-only replace
+operation (deleteMessage then sendMessage, URL-only Open review button rather than
+an approve callback). Existing provider exposes only callback-data buttons: add a
+typed, allowlisted same-origin URL-button variant, never arbitrary hrefs. Serialize
+per task with notification revision/action ID and a durable delivery outbox in
+0102. New decisions send immediately while both required people are attended,
+without the ordinary quiet-hour/hourly parking path; no changed policy for other
+notifications or ordinary hand-offs. Recheck action/deadline before deletion/send;
+never deliver a queued expired approval as pending or extend its request deadline.
+Cancellation racing delivery sends/edits only the winning current outcome.
+
+Track old/new message IDs and confirmed provider results. Delete absent counts
+as deleted; other deletion failure keeps the old message outcome-only (remove
+review link), raises staff delivery warning and retries deletion bounded by the
+same deadline before sending replacement. Send failure after deletion leaves bell
+authoritative with **“Couldn't alert Joe on Telegram. Ask him to open SJC OS.”**
+Unknown send outcome is reconciled/flagged, never blindly resent into duplicate
+pings. Do not claim guaranteed one-message cleanup during provider failure. Only
+one actionable current notification/review can exist; stale buttons cannot act.
+No unbounded retries or task bursts; no credentials/private page strings/images/
+request bodies in previews. Use trusted job/action facts as before.
+
+**Keep Joe on the review.** After a confirmed send, owner layer remains open:
+**“Sent. Waiting for Abigail's next page. [‹ Back]”** (final outcomes retain their
+exact verified copy). On the **same task's** next pending action replace content
+in place without a history push; reauthorize/rebind action-specific claim and
+fetch fresh snapshot/epochs. Move focus to its heading and assertively announce
+**“New request from Abigail: Send page 4”**. Never automatically approve or carry
+a grant/token/control to the next page. A saved old URL still resolves its own
+action; in-place follow is the visible current task subscription, not reinterpretation
+of a stale link. Returning Back closes Joe's layer only.
 
 If initiator absent: **“Abigail left the browser. It can't be paid until they
 open it again. [Remind Abigail]”**, Pay disabled with inline reason. Remind is
@@ -1499,6 +1751,59 @@ Save success: “Login saved. Your password isn't sent to the agent.” Validati
 Never echo password/error payload; volatile form state only. Unsaved navigation:
 “This login hasn't been saved. Leave without saving?”
 
+**V1 Ask Joe to finish — separate task, not shared control (Phase 2).** On
+Delegated site unsupported show **[Ask Joe to finish]**. It opens confirmation
+**“Joe will see this task's job, sites and your answers. [Ask Joe] [Cancel]”**.
+Staff review/edit the explicit person-confirmed business answer list before Ask
+Joe; no passwords, usernames, OTPs, account/card secrets, page observations, staff
+messages/attachments or browser CLI transcript can enter it. Only already
+confirmed answer IDs/revisions, job, sites and purpose from the trusted task are
+snapshotted; bounded schema and provenance checks reject unknown/private facts.
+Cancel changes nothing. Ask Joe uses cookie/CSRF/idempotency + fresh staff task/
+record access; atomically creates one active hand-off, fences staff commands,
+cancels undispatched review and releases/closes its browser slot. Executing or
+unknown action must be reconciled first; never pass possible execution to Joe
+as a fresh attempt. Staff task stays paused, with no automatic resumption:
+**“Sent to Joe. He'll finish this in his own browser. [Close browser]”**.
+Closing staff's view does not cancel the separate hand-off; no staff attendance
+is required for Joe's independent task.
+
+Joe gets a normal bell/Telegram notice (ordinary quiet-hour policy, **no one-minute
+review deadline**): **“Abigail asked you to finish on city.example · Larson bath”
+[Open]**. Link **`/today?browserHandoff=<handoffId>`** is not a grant. GET merely
+shows an authorized invitation. Open/accept via cookie+CSRF POST opens Joe's
+**Sites review**, prefilled for a **new Joe-owned task in a new private chat**:
+**“Finish for Abigail: Apply for Larson permit”**. Same job and proposed sites;
+**Your answers** contains the immutable confirmed snapshot labelled **“From
+Abigail”** with source revision. Copy no staff chat/transcript, cookies/profile,
+frames, vault secret, control capability, approval or owner grant. Joe reviews
+sites/read manifests and answers anew, then Open browser explicitly admits a
+fresh attended panel_web browser-profile turn. No automatic run at notification,
+GET, acceptance or login. New task has Joe's own immutable task/run/thread
+identities, may fill his authorized login privately, and needs his exact approval
+for **every** company commitment/data release per decision 6. Named staff use of
+a login never becomes staff password visibility or company authority.
+
+Acceptance checks fresh Joe ai/job/areas; lost job/access shows generic unavailable.
+One accepted hand-off yields exactly one new Joe-owned conversation and reserved
+destination task UUID, even under double Open/reload. Until Joe taps Open browser,
+its Sites review is a draft on the hand-off, **not a live browser_tasks row**.
+That tap revalidates the draft and atomically admits browser_tasks using the
+reserved UUID; if Joe already has a live browser, keep the draft and explain he
+must finish/stop it first. Only then request normal FIFO capacity. Thus no second
+live task/person, queued browser at acceptance, or new schema state is implied. Decline uses **[Don't finish]**; accepted task has
+**[Mark finished] [Didn't finish]** with confirmation. A terminal verified workflow
+result may propose Mark finished, never assume a permit issued. Closing/idle/crash
+alone leaves hand-off pending so Joe can reopen/reconcile; never silently report
+success or retry an uncertain final step. Explicit Joe outcome records exactly
+**“Joe finished this.”** / **“Joe didn't finish this.”** as a fixed staff task
+event (not a copied Joe transcript); staff sees the same on reopen. These are
+human-reported hand-off outcomes, not payment/submission/issuance proof. Any
+receipt reaches staff only through job files Joe explicitly saves with current
+file ACLs; delegated/private raw evidence stays Joe-only (§8.2), while a separate
+safe-facts receipt may be saved for staff. Outcome never resumes staff's old task.
+Re-ask after a terminal hand-off needs fresh staff confirmation and snapshot.
+
 **First-fill mapping (Joe or own-login user on tablet/computer):** context already
 private before picking. No model selectors. Service issues candidate field handles,
 person taps field; navigation/form fingerprint change invalidates choice.
@@ -1517,8 +1822,8 @@ Open SJC OS on your iPad or computer, then Operator › Browser.
 
 Delegated staff **cannot** pick fields/view this page. Joe configures reviewed
 adapter mapping privately; unsupported site refuses delegated use (§5.2). Staff
-see **“From Joe · not usable on this site yet”** and Ask Joe/own-account options
-in v1. The **delegated staff control pane ships with the first adapter, Phase 4**:
+see **“From Joe · not usable on this site yet”** and **[Ask Joe to finish]** /
+own-account options in v1 (§6.4 hand-off above). The **delegated staff control pane ships with the first adapter, Phase 4**:
 fixed steps/status and person-confirmed answers only, no image/arbitrary input.
 Its login-only card is **“Sign in to city.example with Joe's saved login?
 [Sign in once] [Don't sign in]”**. Delegated 2FA/CAPTCHA: **“This site wants a
@@ -1527,7 +1832,8 @@ Notification **“Abigail needs you to finish signing in to city.example · Lars
 bath”** opens In use's same owner top layer on tablet/computer; phone shows
 **“Take over on a tablet or computer.”** Unsupported v1 site asks Joe to finish
 in his own task, not staff takeover or a hidden unreviewed adapter.
-No generic give-back can turn a private/delegated context into public.
+Done cannot turn a private/delegated context public; Phase 4 reviewed-step
+Give back cannot do so either.
 
 **Private download Save sheet (360), only after §8.2 mandatory sanitizer:**
 
@@ -1565,22 +1871,22 @@ fixed-schema safe business output (§5.2), not those artifacts.
 | Page loading | “Loading city.example…” with last frame labeled “Earlier view” | Stop loading; 30 s tool timeout |
 | Agent live | “Agent is working” | Take over / Stop browser |
 | Taking over | “Finishing the last step…” | Stop if safe; input disabled until fence acknowledged |
-| Person live | “You're in control. The agent is paused.” | Give back to agent / Stop browser |
+| Person live | “You're in control. The agent is paused.” | V1 Done / Stop browser; Phase 4 reviewed steps alone show Give back to agent |
 | Other controller | “You're in control on your other device. [Take over here]” or “Joe is in control.” | Take over here when authorized; no passive input |
 | Multiple viewers | “You're watching. {You on iPad / Joe} is in control.” | Take over, subject to explicit replacement |
 | Private/model | “Private — login or account details. The agent can't see this page.” | Human view continues; private adapter actions only |
 | Login missing | “No saved login for this site.” | Save a login / Take over (phone: use tablet/computer) |
 | Fill blocked | “This page doesn't match the saved login's site.” | View saved site / Cancel; no override fill |
 | 2FA/CAPTCHA | “Take over to finish signing in.” | Take over; phone instruction |
-| Unsupported private portal | “This site needs you for the next step.” | Take over; agent can prepare business data in chat |
+| Unsupported private portal | Tablet/computer: “This site needs you for the next step.” Phone: “This site needs you for the next step. Open SJC OS on your iPad or computer to take over.” | Take over only on tablet/computer; agent prepares confirmed Your answers |
 | Final review loading | “Preparing your review. Nothing has been submitted.” | Cancel; no final action until screenshot+summary valid |
 | Await final | Ready to submit/pay/sign + exact summary | Exact once / Don't …; server enforces role |
 | Page changed | “The page changed. Review the new version before submitting.” | Review again; old button removed |
 | Owner pending | §6.3 single Waiting for Joe template, exact action/verb/countdown | Staff See request / Cancel request; Joe Open review |
-| Approval expired | §6.3 short-window lapse/click-again copy; owner expired link includes time/outcome | Ask Joe again; never replay; consumed/uncertain instead unknown |
+| Approval expired | §6.3 exact generic lapse/click-again copy; owner expired link includes time/outcome | Back to the page; no ping/replay. Ask Joe again only Phase 4 pre-click adapter; consumed/uncertain instead unknown |
 | Review denied | “Not submitted.” / “Not paid.” / “Not signed.” / “Not sent.” | Edit in take-over / Stop browser |
-| Confirmed result | “Submitted. Reference: {reference}.” / “Paid $125.00. Receipt saved.” | Open receipt / Continue; only after verified evidence |
-| Unknown result | “The site may have received it. Check the site before trying again.” | Open site in read-only / Take over; no Retry submit |
+| Confirmed result | “Submitted. Reference: {reference}.” / “Paid $125.00. Receipt saved.” | Open receipt / Continue only public/reviewed steps, otherwise private paused controls; only after verified evidence |
+| Unknown result | “The site may have received it. Check the site before trying again.” | Open site in read-only / Take over (phone: iPad/computer instruction); no Retry submit |
 | Site blocked | “This site isn't allowed for this task: {origin}.” | Review site / Cancel; never grant from page text |
 | Internal address blocked | “This address can't be opened in the browser.” | Choose another site; no owner bypass in feature |
 | File received | “Downloaded. Check the file before saving.” | Review / Save to project files / Delete |
@@ -1588,7 +1894,7 @@ fixed-schema safe business output (§5.2), not those artifacts.
 | File rejected | “This file type isn't supported.” / “File is too large. Maximum 25 MB.” | Delete / Choose another file |
 | Upload review | “Send plan.pdf to city.example?” | Joe: Send once / Don't send; staff §6.3 waiting template for company upload |
 | Offline/view lost | “Connection lost. Browser paused.” | Reconnect; no offline input queue |
-| Reconnected | “Connected. Review the page before continuing.” | Resume / Take over / Stop browser |
+| Reconnected | “Connected. Review the page before continuing.” | Resume only public/reviewed steps; private no-adapter Take over again / Stop browser (phone instruction) |
 | Idle close | “Browser closed after 5 minutes without activity.” | Open again; forms may need re-entry |
 | Resource cap | “Browser stopped because the server is busy. Your saved files are safe.” | Close; Joe checks host before restart |
 | Crash | “Browser stopped. Check the site before repeating a final step.” | Open again; private state may require sign-in |
@@ -1596,7 +1902,7 @@ fixed-schema safe business output (§5.2), not those artifacts.
 | Auth expired | “Sign in again to continue.” | Sign in; blank private image immediately |
 | Access removed | “Your access changed. Browser stopped.” | Close; erase frame DOM/object URLs |
 | Service unavailable | “Couldn't connect to the browser.” | Try again / Close; never launch a second service |
-| Start/run ended | “Agent turn finished. Browser is paused.” | Continue / Take over / Stop browser |
+| Start/run ended | “Agent turn finished. Browser is paused.” | Public: Continue / Take over / Stop browser; private no-adapter: §5.2 paused reason, Take over again / Stop browser (public-takeover reason also offers fresh browser); no Continue |
 | Stop complete | “Browser closed.” | Return to chat; durable file/review links remain |
 
 Additional required states (same table semantics):
@@ -1614,12 +1920,16 @@ Additional required states (same table semantics):
 | Frozen review | “The page is locked while this review is open.” |
 | Idle warning | “Browser closes in 60 seconds. [Keep open]”; pending review suspends idle countdown until expiry |
 | Mid-form save | “Send this page to city.example? This saves your answers on the site. It is not the final submit.” Joe [Send once] [Don't send]; Take over only Joe's own task on tablet/computer; staff §6.3 waiting template |
-| Phase 1 write | “This version can only read pages. This button sends information to the site. [Take over] [Close]”; no write allowed via takeover |
-| Attendance lost | “You left the browser. The agent paused. [Continue]” |
+| Phase 1 write | Tablet/computer: “This version can only read pages. This button sends information to the site. [Take over] [Close]”. Phone: “This version reads public pages only. Sending information isn't available yet. [Close]”; no write via takeover |
+| Attendance lost | “You left the browser. The agent paused.” [Continue] only for public/reviewed steps; private no-adapter Take over again or phone instruction |
 | View paused locally | “Live view paused. The agent may still be working. [Resume live view]” |
-| Delegated site unsupported | “This site can't safely share a login yet. Ask Joe to finish, or sign in with your own account.” |
+| Delegated site unsupported | “This site can't safely share a login yet. Ask Joe to finish, or sign in with your own account.” **[Ask Joe to finish]** → §6.4 confirm and separate-task hand-off |
+| Staff hand-off paused | “Sent to Joe. He'll finish this in his own browser. [Close browser]”; outcome “Joe finished this.” / “Joe didn't finish this.”, no automatic resume |
+| Joe paused staff agent | “Joe paused the agent. [Continue]”; explicit attended staff Continue only |
+| Joe waits for next page | “Sent. Waiting for Abigail's next page. [‹ Back]”; next pending decision replaces in place with §6.3 focus/announcement |
+| Private login Done | “Browser paused. The agent can't see pages you signed in to. Finish the form yourself — your answers are below. [Take over again] [Stop browser]” |
 | Public-page takeover confirm | §5.2 exact confirm + Joe-only Don't ask again; Cancel preserves public state |
-| Public-page private / give-back | “Private — you took over. The agent can't see this page.” / “The agent can't read this page anymore. [Open a fresh browser] [Keep paused]” |
+| Public-page private / Done | “Private — you took over. The agent can't see this page.” / “The agent can't read this page anymore. [Open a fresh browser] [Keep paused]” |
 | Delegated login approval | “Sign in to city.example with Joe's saved login? [Sign in once] [Don't sign in]”; reviewed adapter only |
 | Delegated 2FA/CAPTCHA | “This site wants a code. Joe has to finish signing in on an iPad or computer. [Ask Joe]”; notification §6.3/§6.4, no staff takeover |
 | Lookup review | “Look up 123 Main St on city.example? This sends the job address to the site.” Joe [Send once] [Don't send]; staff full waiting template |
@@ -1636,7 +1946,7 @@ state changes, never each frame. Reduced motion keeps content frames updating bu
 stops pulse dots/transitions; Pause live view is always available, stops presentation
 only, not attendance/agent. Persistent capture bar immediately above image: “Keys
 go to the website · Esc to stop”. Focus order: back-to-chat, site/history, state,
-Take over/Give back, Keyboard, Page controls, Zoom, Pause live view, Stop, answers.
+Take over/Done (Phase 4 reviewed steps: Give back), Keyboard, Page controls, Zoom, Pause live view, Stop, answers.
 On review appearance, move focus to card heading; preserve prior target for return.
 No remote keyboard capture until person explicitly selects it.
 
@@ -1696,7 +2006,7 @@ the review from the current page; require a new person click if the live request
 was lost. Server must never “test click” a final button against a live site just
 to discover its behavior. Unknown bodies, ambiguous submission semantics or
 multiple unbounded mutation requests mean **Take over / unsupported**, not an
-unreviewed macro. V1 pre-click adapters allow **one** final request per review. Any earlier
+unreviewed macro. The later Phase 4 pre-click adapter contract allows **one** final request per review. Any earlier
 prepare/save request is a separate exact review/action; read-only prerequisites
 need their own read manifest. No multi-mutation macro or wildcard subordinate
 approval; reject a second mutation even if sent to the same endpoint.
@@ -1724,7 +2034,9 @@ Company requests send only after the exact immutable snapshot Joe approved.
 Generic no-adapter final-looking **model** click stops before the event; no
 pre-click automation is authorized by an origin review. Show **“This site needs
 you for the next step. Take over and click the button on the page; nothing is
-sent until the request is reviewed.”** Person's deliberate click is real task
+sent until the request is reviewed.”** Phone variant: **“This site needs you for
+the next step. Open SJC OS on your iPad or computer to take over.”** Hide the
+unavailable phone Take over control. Person's deliberate click is real task
 intent, never a controller test click. Gate collects its actual request with
 upstream closed, then creates the buffered card and ≤60 s review. Staff always
 wait for Joe. Generic Joe personal/company clicks also show that exact card
@@ -1988,7 +2300,7 @@ facts instead use §6.3 **Look up … [Send once] [Don't send]**, owner-required
 `kind=lookup` action and exact grant/consume path even for GET. Public-read
 confirmation cannot release company facts. Phase 1 rejects company/private
 values outright; Phase 3 permits one exact action-bound release; no blanket fact
-allowance or reusable business read entry. Own personal contact/login still uses
+allowance or reusable business read entry. Own personal contact/login (subject to the Phase 2 login-only and later flag gates) still uses
 its distinct exact action, not resource approval.
 
 For company read proposals, stage an immutable **pending** manifest revision,
@@ -2023,7 +2335,8 @@ adapter or person-reviewed read manifest to path segments, query keys/values,
 headers, body and recipient. Each model-chosen URL with variable business data
 requires a person-reviewed release bound to exact values/recipient even if GET,
 image load, search or classified noncommitting. Company data release needs Joe;
-own personal login/contact can be approved by that person. Model cannot invent
+own personal login/contact can be approved by that person only under §13's
+phase/flag gates; Phase 2 admits only exact personal-login. Model cannot invent
 new query/path/header values from arbitrary SJC records merely because site allowed.
 
 | Request class | Allowed value/provenance policy |
@@ -2051,7 +2364,15 @@ hard links or page-chosen paths. Streaming max 25 MiB/file, 100 MiB/task,
 200 MiB feature; compressed transfer expansion ≤50 MiB and ratio ≤20. Encrypt at
 rest immediately (including public-site downloads until validated). V1 accepts
 PDF/PNG/JPEG only; reject HTML/SVG/archives/executables/macros/polyglots/unknowns.
-There is **no raw preview or filing before mandatory validation**.
+There is **no raw preview or filing before mandatory validation**. Network
+responses first pass §3.2's 192 MiB aggregate gate ledger/two 56 MiB response slots;
+file limits are not additional proxy RAM. Gate accepts identity encoding only,
+rejecting compressed transfer before buffering; the 50 MiB/20× expansion ceiling
+is an additional quarantine/validator defense, never permission to decode at the
+gate. Controller/quarantine pipes apply bounded backpressure; slow file readers
+retain the response reservation until drain/deadline. No download bypass, spill
+or raw history retention when a pool is full; possible interrupted approved write
+is unknown, never replayed.
 
 Proposed `sjcos-browser-validator.service`: separate UID/namespace, no network,
 DB/vault/CA keys, read-only executable root, no HOME, no-new-privileges/seccomp,
@@ -2293,7 +2614,7 @@ is RESTRICT unless explicitly listed below; no accidental cascade deleting audit
 
 | Table / migration | Fields and enforceable contract |
 |---|---|
-| `browser_tasks` (0100) | id, initiator_user_id→users, conversation_id→ai_conversations, project_id→projects NULL, lead_slug NULL, purpose varchar(500), required_areas text[], origins JSONB exact typed manifest, manifest_revision int>0, state enum queued/starting/active/paused/closed/failed, private bool, adapter_id text NULL, adapter_version text NULL, current_run_id→dev_agent_runs NULL (guarded pointer only), privacy_mode enum public/private/delegated_secret (CHECK private=(privacy_mode<>public)), initiating_web_session_id→web_sessions, bridge_nonce_seq bigint DEFAULT 0, controller_boot_id UUID NULL, queue_requested_at, queue_offer_expires_at, queue_expires_at, admission_reservation_id UUID NULL, document_epoch bigint>=0, control_epoch bigint>=0, controller_user_id→users NULL, controller_device_hash bytea NULL, control_token_hash bytea NULL, control_expires_at, last_activity_at, closed_at, failure_code. At most one of project/lead; task area list nonempty, valid keys; closed state requires closed_at. Partial UNIQUE(initiator_user_id) WHERE live state. Index(state,last_activity_at), (current_run_id), (conversation_id,created_at). Task state/epochs/presence are protected columns. |
+| `browser_tasks` (0100) | id, initiator_user_id→users, conversation_id→ai_conversations, project_id→projects NULL, lead_slug NULL, purpose varchar(500), required_areas text[], origins JSONB exact typed manifest, manifest_revision int>0, state enum queued/starting/active/paused/closed/failed, private bool, adapter_id text NULL, adapter_version text NULL, current_run_id→dev_agent_runs NULL (guarded pointer only), privacy_mode enum public/private/delegated_secret (CHECK private=(privacy_mode<>public)), vault_dependency enum none/fill/restore DEFAULT none, vault_login_id UUID NULL, vault_revision int NULL, vault_context_generation bigint NOT NULL DEFAULT 0 (guarded binding; none requires NULL login/revision; dependent requires both; sticky until fenced fresh-context replacement), initiating_web_session_id→web_sessions, bridge_nonce_seq bigint DEFAULT 0, controller_boot_id UUID NULL, queue_requested_at, queue_offer_expires_at, queue_expires_at, admission_reservation_id UUID NULL, document_epoch bigint>=0, control_epoch bigint>=0, controller_user_id→users NULL, controller_device_hash bytea NULL, control_token_hash bytea NULL, control_expires_at, last_activity_at, closed_at, failure_code. At most one of project/lead; task area list nonempty, valid keys; closed state requires closed_at. Partial UNIQUE(initiator_user_id) WHERE live state. Index(state,last_activity_at), (current_run_id), (conversation_id,created_at). Task state/epochs/presence are protected columns. |
 | `browser_commands` (0100) | UUID id, task_id, run_id, initiator_user_id, epoch, seq bigint, idempotency_key UUID, input_digest, safe operation enum, state accepted/running/succeeded/failed/unknown, safe_result JSONB, timestamps. UNIQUE(task_id,idempotency_key), UNIQUE(task_id,epoch,seq). Same key+different digest = conflict. Never stores literal text/input/password. Composite FK(task_id,run_id,initiator_user_id)→browser_task_runs, never current-run pointer. Web commands have viewer_id/web_session_id, idempotency_key+body_digest, stream/generation/frame/epoch/seq bindings; no input text persisted. |
 | `browser_logins` (0101) | id, owner_user_id, label varchar(80), canonical_origin varchar(255), tenant_binding NULL, required_areas[], field_mapping JSONB with trusted version/fingerprint, secret_ciphertext bytea, nonce/tag, wrapped_key+nonce/tag, key_id, crypto_schema, revision int>0, disabled_at, deleted_at, last_used_at. Encrypted plaintext holds username/password; metadata never username. Unique(owner_user_id,canonical_origin,label) WHERE deleted_at IS NULL. CHECK nonce/tag lengths 12/16; ciphertext/wrap nonempty; exact HTTPS origin parser validated in service and DB shape check. |
 | `browser_login_access` (0101) | login_id, user_id, granted_by_user_id, granted_at, revoked_at, revision. PK(login_id,user_id); grants only owner-of-entry Joe, no onward delegation, no broad roles. Enforced in owner web command, not direct agent writes. |
@@ -2316,6 +2637,8 @@ Additional 0100–0103 relations/fields (required, not implementation discretion
 | actions/artifacts/files additions (0102/0103) | action.review_mode buffered/preclick, request_deadline, approver_session_id, audit_consume_seq, request_digest/dispatched_flow_nonce nullable until actual bind, gate_generation, read_manifest_revision/digest, adapter_manifest_hmac, arm_command_id/arm_nonce_hash/armed_at/arm_deadline/click_dispatched_at, original-run association, last_verified_at; artifact sanitizer/version/signature/result/original encrypted hash + sanitized ciphertext hash; file ledger staging_handle, publish_digest, ready_at, tombstoned_at/deleted_at, expected_revision, encrypted display metadata. |
 | `browser_read_manifests` (0100) | manifest_id UUID UNIQUE, task_id, revision PK composite; v=1, task_origins_revision, canonical public entries JSONB or private encrypted entry payload/envelope, manifest_hmac, initial_entry_id, authorization_state pending/approved/denied/expired, release_action_id NULL, approved_by/session, created/expiry/revoked_at. Per-entry durable use counters/nonce uniqueness in `browser_read_uses` (task,revision,entry,flow_nonce UNIQUE); no content in use audit. Immutable approved revision; website publishes superseding revision, scoped service consume only. |
 | `browser_owner_views` (0100) | claim_id, viewing_owner_user_id/session, local_owned_conversation_id NULL, task_id, action_id NULL, immutable task principal/conversation/original run, revision/expiry/revoked_at. Website-only issue/read/revoke, no narrow access; never a conversation membership grant. |
+| `browser_handoffs` (0101) | id, source_task/initiator/conversation, confirmed_answer_snapshot (bounded typed business facts and revisions only), source_manifest_revision, purpose/project/sites snapshot, recipient_owner_id, state pending/accepted/finished/not_finished, destination_task_id_reserved UUID UNIQUE NULL, destination_task FK NULL until admission, destination_conversation NULL, accepted_at/outcome_at/revision. Website-only; one nonterminal/source task, unique destination, immutable provenance, no model/narrow SELECT. Answer contents use purpose-separated `handoff_answers` envelope/AAD binding handoff/source/person/project/revision under §5.1; safe projection exposes status/IDs only. |
+| `browser_notification_deliveries` (0102) | task/action/notification_revision UNIQUE, kind pending/outcome, prior/current message IDs, provider operation id/state, deadline, bounded attempt/next_attempt, safe error code; task-serialized outbox fence against stale delivery. Website notification dispatcher only, no service/narrow direct access; no page text/secrets/approval tokens. |
 | `browser_audit_heads` / checkpoints (0100) | singleton locked seq/digest; checkpoint_id, through_seq, digest, key_id, signature, external_ack_id/time, retained boundary. No narrow direct writes; chain and independent anchor in §9.3. |
 
 Shared H5 assigns conversation/folder privacy and tombstones to **0105**.
@@ -2395,7 +2718,7 @@ DB login, not agent. All writes required by the feature map below.
 | `browser_read_consume(T,B,revision int,entry uuid,manifest_D bytea,request_D bytea,flow_nonce uuid,generation bigint,epoch bigint) → read proof` | service | recheck approved session/areas/value schema/expiry/budget; atomically increment use+unique nonce; company release requires action bind+consume, not this read-only function |
 | `browser_web_owner_view(T,A nullable,session uuid,local_thread uuid nullable,I) → OwnerBrowserReviewClaim` | website | Joe only; verify local thread belongs to Joe, derive immutable staff provenance; issue/refresh/revoke claim, no thread membership or transcript reads |
 | `browser_web_attach_run(T,R,V,expected_epoch bigint,I) → TaskSafe` | website | task/conversation/identity match, no pending action; immutable task_run+guarded pointer; capability row |
-| `browser_web_control(T,V,op text,epoch bigint,I,D) → TaskSafe` | website | take_over/give_back/resume/stop/fresh_browser/pause, session holder or explicit Joe review claim for pause; fresh_browser closes old private context, cancels undispatched cards and starts anonymous on same sites, refuses executing/unknown until reconciliation; irreversible private transition before takeover proof; epoch fence |
+| `browser_web_control(T,V,op text,epoch bigint,I,D) → TaskSafe` | website | take_over/done/give_back/resume/stop/fresh_browser/pause, done releases input and remains paused; give_back/resume of private task denied without Phase 4 reviewed steps; session holder or explicit Joe review claim for pause; fresh_browser closes old private context, cancels undispatched cards and starts anonymous on same sites, refuses executing/unknown until reconciliation; irreversible private transition before takeover proof; epoch fence |
 | `browser_web_input(T,V,frame uuid,epochs J,seq bigint,I,D) → proof` | website | private person-control/no-log input digest authorization; never stores text, delegated staff denied; exact stream generation checked |
 | `browser_web_capability(T,R,V,server_kind text,process_binding J,I) → hash/expiry` | website | trusted launcher only after run attachment; mint/revoke wrapper registration, one slot/kind, bound process start/cgroup; no user-supplied run impersonation |
 | `browser_web_prepare(T,V,R,ref text,kind text,I,D) → proof` / `browser_web_decide(A,V,revision int,decision text,I,D) → ActionSafe` | website | prepare binds controlled human input/ended original run without reviving MCP; exact web review/session/role, lock task→action→grant; approve/deny, create one-use exact grant/token + audit atomically; exact linked company read revision activates within same transaction; never generic decideGrant |
@@ -2408,16 +2731,18 @@ DB login, not agent. All writes required by the feature map below.
 | `browser_web_file_authorize(file_id text,session uuid,method text,range J,I) → proof` | website | human-cookie project reader/HEAD/Range rights, no model/signed URL; ≤5 s one-use |
 | `browser_authorize(T,R,K) → TaskSafe` | service | current browser run/capability/session/areas/flags; no arbitrary user argument |
 | `browser_read_state(T,K,scope text) → TaskSafe/ActionSafe/FileSafe` | service | task-scoped state projection; scope enum task/action/files, immutable associated run |
-| `browser_read_secret(T,object uuid,purpose text,proof uuid) → envelope J` | service/reader | purpose/mode-specific proof; login/profile only controller and current use grant, saved_file only reader with human proof or Joe-approved exact portal upload; no generic decrypt oracle |
+| `browser_read_secret(T,object uuid,purpose text,proof uuid) → envelope J` | service/reader | purpose/mode-specific proof; login/profile only controller and current use grant, handoff_answers only controller with exact one-use Joe web invitation proof (or source snapshot encrypt proof, never CLI/model), saved_file only reader with human proof or Joe-approved exact portal upload; no generic decrypt oracle |
 | `browser_command_begin(T,R,K,I,epoch bigint,seq bigint,op text,D) → command uuid/state` / `browser_command_finish(command uuid,B,result text) → state` | service | strict model op+bindings; safe enums only; cannot approve/alter identities; dedupe |
-| `browser_enter_private(T,B,expected_epoch bigint,mode text) → TaskSafe` | service | public→private/delegated only; drop observations under lock before any input; cannot revert |
+| `browser_enter_private(T,B,expected_epoch bigint,mode text) → TaskSafe` | service | public→private/delegated only; drop observations under lock before any input; manual none dependency allowed with vault off; cannot revert |
+| `browser_vault_bind(T,B,generation bigint,login uuid,revision int,op text,proof uuid) → TaskSafe` | service | exact authorized fill/restore only while vault enabled; lock context, persist sticky dependency before secret read, reject changing login/revision/generation; disable transition revokes proofs/closes dependent contexts, never manual-none contexts |
+| `browser_web_handoff(T,session uuid,expected_revision int,answer_refs J,I,D) → handoff id` / `browser_web_handoff_accept(handoff uuid,session uuid,I) → destination IDs` / `browser_web_handoff_outcome(handoff uuid,session uuid,revision int,outcome text,I) → safe state` | website | staff source owns task/confirmed facts; derive Joe recipient, atomically pause/fence source+snapshot, reject executing/unknown; Joe-only fresh record access on accept/outcome, exactly one new Joe-owned thread/reserved destination UUID + hand-off draft (no live task until Open), web-bound ciphertext encrypt/decrypt proofs; no run or grant minted; transactional fixed source outcome event |
 | `browser_action_create(T,R,auth J,snapshot J,artifact uuid,I) → ActionSafe` / `browser_action_stale(A,B,revision int,code text) → ActionSafe` | service | auth is live MCP capability or web preparation proof for ended original run; derive classification, immutable digest; pending→stale only; never accepts approved_by/token/grant supplied by service |
 | `browser_arm_action(T,A,token_hash bytea,snapshot_D bytea,adapter_D bytea,read_revision int,B,epochs J,I) → command/arm_nonce/deadline` | service | approved pre-click only; one approved click reservation, ≤10 s, approval audit already durable; does not consume token/grant, cannot rearm |
 | `browser_click_begin(command uuid,arm_nonce bytea,B,epochs J) → click proof` | service | one CAS mark click_dispatched_at after arm, before actual click; verify session/presence/approval evidence/deadline; duplicate returns state but no new dispatch proof, crash never retries |
 | `browser_bind_consume_action(T,A,token_hash bytea,snapshot_D bytea,actual_request_D bytea,flow_nonce uuid,listener_generation bigint,read_revision int,read_D bytea,arm_command uuid NULL,arm_nonce bytea NULL,B,epochs J) → command uuid/consume_seq` | service | buffered exact match or armed manifest-validated actual bind + one atomic consume; SQL checks mode/nullability, freshness, immutable fields and one flow; no approval authority |
 | `browser_action_result(A,B,result text,evidence J) → ActionSafe` | service | executing→succeeded/failed/unknown only; safe bounded evidence, transactional audit; no retry/approve |
 | `browser_artifact_put(T,B,kind text,envelope J,metadata J,I) → artifact uuid` / `browser_artifact_transition(artifact uuid,B,next text,code text) → FileSafe` | service | only review_image/quarantine/sanitized, sizes/AAD/expiry/source/task checked; quarantined→validated/rejected/tombstoned, no direct ready project file |
-| `browser_login_used(T,login uuid,revision int,B,result text) → bool` / `browser_save_profile(T,login uuid,revision int,envelope J) → revision` | service | authorized current login use; last_used/audit or profile upsert, immutable person/origin/credential revision |
+| `browser_login_used(T,login uuid,revision int,B,result text) → bool` / `browser_save_profile(T,login uuid,revision int,envelope J) → revision` | service | authorized current login use; last_used/audit or profile upsert, immutable person/origin/credential revision; vault enabled + sticky dependency proof required before decrypt/fill/restore/save |
 | `browser_file_publish(file_id text,staging uuid,D,B) → proof` | reader | pending ledger bound hash, publish/fsync then proof; no arbitrary path/contents/provenance changes |
 | `browser_runtime_transition(T,B,epoch bigint,next text,code text) → TaskSafe` / `browser_run_end(T,R,disposition text,B) → TaskSafe` | service | exact §3.4 transitions/fencing; normal end preserves card, unexpected death closes; no authority upgrade |
 | `browser_maintenance_claim(B,limit int) → jobs` / `browser_maintenance_finish(job uuid,B,result text,proof J) → bool` | service/reader | boot-bound lease, ≤25 jobs; expiry/revocation/purge/reconcile/tombstone/delete only from prederived jobs, no new outside dispatch; can operate without old MCP capability |
@@ -2486,7 +2811,11 @@ queries in general audit/logs. Owner-view claims expire within 5 min/session,
 revoke on exit/logout, purge at expiry+24 h; never persist private frames or
 local Chat draft in them.
 
-Live frames: memory only, erased on replacement/disconnect. Review images/body
+Live frames: memory only, erased on replacement/disconnect. Hand-off confirmed-
+answer ciphertext/draft expires after 30 days or thread deletion, whichever first;
+purge through the guarded cleanup path and disable pending acceptance. Retain only
+IDs/fixed outcome/audit after expiry; a new hand-off requires fresh confirmation.
+Joe-owned chat/thread deletion follows H5 fences and never revives an old draft. Review images/body
 manifests: encrypted private artifacts, delete after outcome or expiry + **24 h**,
 never ordinary project files/backups of temp dirs. Quarantine: delete on reject,
 or at session close + 1 h, absolute 24 h; total disk quota enforced. Commands
@@ -2615,7 +2944,7 @@ protects a route. Permission/identity is reread, not request body user IDs.
 
 | Method and path under `/api/agent-browser` | Request / response; authorization beyond common guard |
 |---|---|
-| POST `/tasks` | `{conversation_id:uuid,task_kind:'public_research'\|'permit'\|'invoice'\|'purchase',purpose,project_id?:uuid,lead_slug?:string,origins:[{origin,role:'document'\|'identity'\|'resource'}],initial_url:string,read_proposal:{v:1,entries:[{url,role,source,static_rule_id?:string}]},adapter_id?:string,idempotency_key}` → `{task:Task}`. Person initiator only, conversation owned by signed-in person, areas derived from task_kind/record (not caller selectable), origins and exact initial/read proposals reviewed via §8.1, never origin-only authority. Staff cannot reduce catalog requirements. No run launched until Open. |
+| POST `/tasks` | `{conversation_id:uuid,task_kind:'public_research'\|'permit'\|'invoice'\|'purchase',purpose,project_id?:uuid,lead_slug?:string,handoff_id?:uuid,origins:[{origin,role:'document'\|'identity'\|'resource'}],initial_url:string,read_proposal:{v:1,entries:[{url,role,source,static_rule_id?:string}]},adapter_id?:string,idempotency_key}` → `{task:Task}`. Person initiator only, conversation owned by signed-in person, areas derived from task_kind/record (not caller selectable), origins and exact initial/read proposals reviewed via §8.1, never origin-only authority. Staff cannot reduce catalog requirements. Optional handoff_id is Joe-only accepted draft; server verifies reserved destination UUID/source, consumes draft once, never caller identity. No run launched until Open. |
 | GET `/tasks/[taskId]` | `{task,active_run_id,available_controls,pending_action,downloads,queue_position}` safe UI metadata; owner cross-user explicit review mode, staff own only. |
 | POST `/tasks/[taskId]/sites` | `{origin,role,expected_revision,idempotency_key}` → revised Task. Initiator/owner present; validated site; invalidate old observations/actions. |
 | GET `/tasks/[taskId]/reads` | Protected human-only manifest/candidates, current revision/digest/expiry; no model raw private values. |
@@ -2623,7 +2952,7 @@ protects a route. Permission/identity is reread, not request body user IDs.
 | POST `/tasks/[taskId]/start` | `{idempotency_key}` → `{task,run_id}`. Creates browser-profile panel_web run and capacity request, preserves task identity; no unattended path. |
 | GET `/sessions/[taskId]/events` | SSE §6; authorized viewer, max streams, no URL token. Initial state sent immediately, every 5 s fresh auth; private frames only to explicitly joined authorized human viewer; delegated-secret frames Joe-only, staff receive fixed-schema controls/status instead. |
 | POST `/sessions/[taskId]/presence` | `{viewer_id,device_secret,visible:boolean,host_context:{kind:'initiator',conversation_id}\|{kind:'owner_review',claim_id},expected_epoch,idempotency_key}` → `{present_until}`; bounded 5 s heartbeat, no arbitrary expiry. Initiator host_context must match own task conversation; owner context validates Joe claim/session/local thread without staff conversation admission. Visibility false revokes that viewer presence; task pauses only if no valid initiator viewer remains. Browser pane visibility alone is irrelevant. |
-| POST `/sessions/[taskId]/control` | `{action:'take_over'\|'give_back'\|'resume'\|'stop'\|'fresh_browser'\|'pause',viewer_id,device_secret,expected_epoch,idempotency_key}` → `{task,control_token?:string,expires_at?:ISO}`. Token only to owning human device; never query/log/persist. Resume requires explicit confirmation. |
+| POST `/sessions/[taskId]/control` | `{action:'take_over'\|'done'\|'give_back'\|'resume'\|'stop'\|'fresh_browser'\|'pause',viewer_id,device_secret,expected_epoch,idempotency_key}` → `{task,control_token?:string,expires_at?:ISO}`. Token only to owning human device; never query/log/persist. Done keeps private paused; Give back/private Resume only with Phase 4 reviewed steps and explicit confirmation. |
 | POST `/sessions/[taskId]/input` | Discriminated input body specified below + viewer/device, control_token, stream_id, stream_generation, frame_id, document_epoch, control_epoch, seq, idempotency_key. Returns `{accepted_seq}`. Holder only, CSRF, dedupe/stale/rate checks; no recording text or queuing offline. All manual input goes through `/private-input` after irreversible transition; `/input` accepts no manual payload (422 PRIVATE_INPUT_REQUIRED), retained only for reviewed content-free adapter controls. No field-type detection switch. |
 | POST `/sessions/[taskId]/private-input` | Full strict manual Input body below → `{accepted_seq}`; permanent private transition/no-log memory-only for **all** manual input, not just passwords; staff delegated context always denied. |
 | GET `/actions/[actionId]` | UI-only protected review snapshot + image route, current status/revision/expiry/role plus review_mode/server_deadline/decided_at/outcome. Initiator sees task; Joe can explicitly join for owner review with owner claim; expiry never redirects into staff conversation. Delegated staff response excludes all screenshot/body/page strings/artifact links, exposes only fixed status and person-confirmed facts. Never model fetch. |
@@ -2636,11 +2965,38 @@ protects a route. Permission/identity is reread, not request body user IDs.
 | POST `/logins/[loginId]/access` | `{user_ids:uuid[],expected_revision}`; Joe's own entry only, active staff/areas checked; replace/revoke access with close+purge. Response metadata only. |
 | POST `/internal/command` | **Not public HTTP**: controller Unix-socket protocol with signed envelopes. App-only methods approval/fill input cannot be invoked with MCP capability. Controller reverse health/results bridge, if HTTP needed, binds loopback and verifies signature+nonce+body with a dedicated secret; no public proxy route. |
 
+**Shell/login/mobile routing prerequisite.** `/today` handles browser/review/Watch
+using §4.1's narrow validated return helper across proxy, LoginPage, LoginForm and
+auth action; never treat layout auth as sufficient. `/today?browserHandoff=<uuid>`
+is Joe-only invitation display; unauthorized/signed-out opens only generic sign-in/
+Today, with the normal durable notification available after login. It is not added
+to the review/Watch return allowlist. Neither shell GET nor invitation starts a run.
+
+Read-only mobile evidence: `/home/joe/sjcos-mobile/app.json` defines custom scheme
+sjcosmobile and no associatedDomains for web review links. `src/components/today/
+targets.ts:247–278` maps relative `/today?...` to native home, losing query;
+`src/lib/operator-markdown.ts:53–63` also maps Today to app, and `OperatorPanel.tsx:
+155–159` uses openBrowserAsync for web links. Implement a browser-review/Watch
+special case **before** generic Today mapping in both, including destination,
+notification and Operator link entry points. Show the 48 px **Open in Safari**
+button with exact canonical HTTPS URL via external `Linking.openURL`, not
+openBrowserAsync/in-app web view (do not claim this is implemented). This opens
+the OS's external browser, Safari when configured; real iOS acceptance must verify
+Safari/existing cookie session. No universal-link/app reopen loop or URL rewrite
+losing query; no Bearer injection, session exchange, approval callback or token in
+link. If native cannot route the link safely, retain it as a web link rather than
+falling through to plain native Today. Changes to mobile belong to later build,
+not this plan-only task.
+
 Additional public route operations (same cookie-only/CSRF guards):
 
 | Method/path | Strict body → result |
 |---|---|
 | GET `/csrf` | Same-origin/no-store; issues random CSRF bound to sid and viewer nonce in memory; verify double-submit token + server binding, expires ≤30 min/session |
+| POST `/tasks/[taskId]/handoffs` | `{expected_revision,confirmed_answer_refs:[{id,revision}],idempotency_key}` → `{handoff_id,state:'pending'}`; confirmed staff source only; server snapshots §6.4 allowlist, pauses/closes source, not a final-step approval. |
+| GET `/handoffs/[handoffId]` | Joe cookie/record access only, bounded prefill invitation/status; source staff can GET only fixed status via their own task; never transcript. |
+| POST `/handoffs/[handoffId]/accept` | `{idempotency_key}` → `{conversation_id,task_id,state}`; Joe only, one new Joe-owned chat/reserved task UUID + Sites review draft, no live browser_tasks row until Open; no launch or reused staff state. |
+| POST `/handoffs/[handoffId]/outcome` | `{outcome:'finished'\|'not_finished',expected_revision,idempotency_key}` → `{state}`; Joe only, reject unresolved executing/unknown action, fixed source event; no staff transcript/receipt copy. |
 | POST `/tasks/[taskId]/join` | `{mode:'initiator'\|'owner_review',local_thread_id?:uuid,action_id?:uuid,idempotency_key}` → `{viewer_id,device_secret,expires_at,task,owner_review_claim?:OwnerBrowserReviewClaim}`; device identity minted server-side, owner join does not take control; local_thread_id must be Joe-owned or absent, derives all staff provenance; owner layer never selects staff thread |
 | POST `/tasks/[taskId]/leave` | `{viewer_id,device_secret,idempotency_key}` → `{left:true}`; revoke only own joined device |
 | POST `/tasks/[taskId]/field-mapping` | `{login_id,expected_revision,observation_epoch,username_candidate,password_candidate,idempotency_key}` → `{mapping_revision}`; service-generated candidate handles, own login/Joe private picker only |
@@ -2695,7 +3051,7 @@ JCS bytes signed HMAC-SHA256 with independent web/service direction keys;
 ≤5 s expiry, nonce once, sequence monotonic per connection generation, 64 KiB
 JSON max except explicit bounded binary stream. Web methods whitelist
 `admit|join|leave|presence|sites|control|manual_input|login_encrypt|login_mapping|
-review_decide|file_save|file_read|health`; MCP methods exactly §10.1 tools;
+review_decide|file_save|file_read|handoff_encrypt|handoff_read|health`; MCP methods exactly §10.1 tools;
 maintenance `reconcile|purge|checkpoint` only trusted service. Each payload uses
 above route/DB schemas, never a generic pass-through CDP or arbitrary URL.
 Model capability cannot call web methods. Service-origin callbacks are limited
@@ -2797,7 +3153,11 @@ Build schema 0100–0102 additively (vault/action schema may exist while disable
 manifest/new login support, runtime pins, systemd/network setup spec, browser
 profile/source checks and RPC contracts; no app control exposed. Implement/test
 network containment and permission enforcement before operating a real site.
-All flags off. Backup/restore fixture verifies encrypted state cannot decrypt
+All flags off. Accept H5 at 22a48134: 0105 thread-only maintenance, synchronous
+independent journal/high-water and recovery-epoch startup gate pass with only
+0100–0105 and with 0100+0105-only (no later Canvas tables/flags); fail replication,
+in-flight deletion, stale replica and primary loss closed for all Ask launches.
+No Browser access before that evidence. Backup/restore fixture verifies encrypted state cannot decrypt
 without independent key and restore defaults to off.
 
 Named tests:
@@ -2821,10 +3181,36 @@ Named tests:
 
 Gate: reviewed pinned Playwright target-barrier patch + mitmdump addon/dispatcher
 attestations, static census of all resume/worker paths and exact parser/options;
+actual response-memory/backpressure fixture below, including parser allocations;
 no unmodified-runtime fallback. Then signed-off namespace/proxy sandbox fixture, not just
 Playwright route mocks. Actual isolated test checks no egress/CDP from host,
 namespace scan, DNS/UDP/IPv6/QUIC bypass attempts, dropped interception closes
 context, and secrets absent from journald/CLI/app error outputs.
+
+* `tests/browser-response-budget.test.mjs` (coordinator-only actual pinned
+  mitmdump addon/dispatcher namespace fixture): both contexts, up to eight
+  connection candidates each, two 25 MiB responses held by slow readers, concurrent
+  fully buffered held request bodies/reviews, repeated slot contention and
+  sequential completions. Exercise declared/unknown/chunked/short/oversize and
+  slow responses, non-identity compression/bombs rejected before decode, parser
+  copy paths, disconnect/controller loss and exception/finally cleanup. Assert
+  global 56/112/24 MiB pool maxima and at most two 56 MiB response reservations;
+  full ledgers zero after terminal flows, no retained completed bodies/cache,
+  RSS/cgroup peak **≤336 MiB inside 384 MiB**, baseline ≤144 MiB, no OOM or latch.
+  Packet capture proves buffer refusal before upstream/consume for unstarted
+  work, actual downstream backpressure and safe 503/closed-response failure
+  without unapproved bytes; a consumed interrupted write remains unknown with
+  no retry/refund. Mock counter tests alone cannot pass this gate. Re-run as
+  Phase 1 supervisor/admission acceptance with capped Chromium contexts; do not
+  increase process/slice limits to pass.
+* `tests/browser-login-return.test.mjs`: absent/expired/legacy-sid cookie from
+  review or Watch, wrong password/retry, authenticated /login shortcut and proxy
+  renewal, fresh sid+server join, deadline expiring during sign-in. Assert exact
+  canonical same-origin path survives all four auth surfaces, neutral notice and
+  no pre-auth staff/job data. Reject absolute/protocol-relative URLs, Host spoof,
+  backslashes, percent/double-encoded delimiters/traversal, fragments, duplicate/
+  extra keys, nested returnTo, wrong paths/UUIDs and oversize inputs; no open
+  redirect, GET control/approval, replay or legacy sign-in redirect loop.
 
 ### Phase 1 — smallest useful public browser
 
@@ -2832,7 +3218,8 @@ Enable `browser.enabled` for Joe pilot, then named staff with areas. Public
 contexts **start anonymous/public**; desktop/iPad take-over makes them
 **permanently private before any input**, even without vault/login code. Live
 view, phone viewing, queue,
-stop/idle/crash, generic review card. Vault/final dispatch/upload/download saves
+stop/idle/crash, generic review card. Vault dependency remains none, including
+manual-private take-over and Done. Vault/final dispatch/upload/download saves
 remain off. Any final/unknown write is blocked; card says **“This version stops
 here. Nothing was submitted. [Close]”**. A disabled release feature
 has honest copy, not a Submit button that appears to work. Staff parity (ordinary
@@ -2852,16 +3239,29 @@ public tasks) is part of this phase's acceptance, not an unplanned owner-only v1
   controls and live-region behavior. Deterministic rendered component tests.
 * `tests/browser-private.test.mjs` Phase 1 cases: public→take-over permanent
   privacy before first pointer/wheel/key/IME/Type it, concurrent observation/frame
-  cancel+drain, no-log/HMAC input, deceptive textbox/focus swap, handback/no-adapter
-  paused, public confirmation/Don't ask again and fresh anonymous reset. Runtime
+  cancel+drain, no-log/HMAC input, deceptive textbox/focus swap, Done/no-adapter
+  keeps paused, public confirmation/Don't ask again and fresh anonymous reset. Runtime
   hostile-page canary typed by person on public page must reach **no** model,
-  log, transcript, image/error/receipt channel, including after navigation/handback.
+  log, transcript, image/error/receipt channel, including after navigation/Done.
   Actual revision 1248 fixture gates first take-over, not just mocked state tests.
 * `tests/browser-read-manifest-db.test.mjs`: first adapter-free exact navigation,
   later link confirmation, canonical query/path edits, resource discovery default
   blocked, expired/changed revision and parent epoch, session/area removal, use
   budget races, static/encoded-value exfil to already-allowed origin; origins
   alone insufficient. Phase 1 refuses all company-value lookups, even GET.
+
+* `tests/browser-flags-db.test.mjs` Phase 1 matrix: owner/staff anonymous
+  public→manual-private with vault/files/final flags all false works, privacy
+  barrier still precedes every input and Done stays paused; manual-none remains
+  private on repeated vault-off checks. No decrypt/fill/restore/profile-save,
+  company lookup/save_page/upload/submit/pay/sign, unknown or personal_contact
+  release can pass disabled flags via model, direct input, SQL, web or gate.
+* Mobile link acceptance (read-only fixtures + later coordinator device check):
+  relative/absolute review and Watch links in Today, destination/notification and
+  Operator entries retain UUIDs before generic native Today mapping, 48 px Open
+  in Safari opens same canonical URL externally and uses web cookies/login return;
+  no native Bearer approval, openBrowserAsync, app loop or lost query. Phase 3
+  activation depends on this; no claim native already supports the route.
 
 * `tests/browser-submit-guard.test.mjs`: Submit/Pay/Sign, Enter, hidden JS button,
   misspelled/non-English label, mutating GET, autosave, beacon, iframe/popup,
@@ -2880,8 +3280,30 @@ Activate 0101 vault code; apply 0103 files provenance/recovery migration and all
 reader guards **before** any private download can be saved. Extend Phase 1's
 already-private take-over with vault filling, encrypted per-person restore,
 quarantine and human file save; do not defer privacy itself to this phase.
-No final outside business dispatch yet. Login submit works only through direct
-person approval; ownership/company financial rules still apply to all input.
+No final outside business dispatch yet. Exact personal-login submit alone works
+through direct person approval with final dispatch off; company lookup/save/upload/
+submit/pay/sign remain blocked. Named delegated login-only requires Phase 4's
+reviewed adapter; named access may already be saved. Ownership/company financial
+rules apply to all input. Ship §6.4's separate Joe-task hand-off in this phase,
+independent of Phase 4's research runbook/first city adapter.
+
+* `tests/browser-staff-handoff-db.test.mjs`: unsupported row button/confirm/
+  Cancel, only confirmed business facts snapshotted under handoff_answers AAD,
+  staff paused and slot released, normal Joe notice + Open to Sites review/new
+  Joe-owned chat/task with From Abigail answers. Duplicate Open/reload creates
+  one destination; no launch on GET/accept; Joe busy/queue/draft and access loss.
+  Reject forged staff/source/answer revision, page secret/unknown provenance,
+  password/transcript/attachment/cookie/grant copying and executing/unknown source.
+  Fixed Joe finished/didn't finish outcome exactly once to source, no resume or
+  raw receipt share; crash leaves pending for reconciliation. Source staff may
+  leave without revoking Joe's separate attendance; decision 6 gates all final
+  business dispatch, still disabled in Phase 2.
+* `tests/browser-flags-db.test.mjs` Phase 2 extensions: persist fill/restore binding
+  **before** secret read, inject flag-off before decrypt/during fill/after restore;
+  revoke proof and close dependent owner/delegated contexts ≤5 s, no private→public
+  transition. Manual-none private survives vault-off; fresh context alone resets
+  dependency after old context destruction. Only exact personal-login exception
+  with direct-person approval works; no company values or account mutation.
 
 * `tests/browser-vault.test.mjs`: AES-GCM known fixture/tamper/tag/AAD/wrong
   user/origin/revision/key, nonce uniqueness, rotation CAS/partial failure,
@@ -2890,7 +3312,7 @@ person approval; ownership/company financial rules still apply to all input.
   fake reveal control, console/network error, DOM/accessibility snapshots,
   stale prefill frame buffer, tracing/HAR, actor switch, cached screenshots,
   private profile restore. Assert no private bytes reach **any** model output,
-  transcript/tool log/receipt, including after navigation/hand-back. Private
+  transcript/tool log/receipt, including after navigation/Done. Private
   contexts cannot be made public; no assumed regex secrecy proof.
 * `tests/browser-files-db.test.mjs`: streamed size/magic/polyglot/bomb rejection,
   cross-project selection, hash change while upload pending, symlink/traversal,
@@ -2927,8 +3349,31 @@ before enabling dispatch. Still no chosen city automation and no unattended use.
   grants, mismatched target/run/context, generic approveGrant/Telegram routes,
   service direct SQL/function abuse, cross-staff review, payment staff takeover,
   one grant consumed once. Exact company lookup grant and generic ≤60 s expired/
-  decided links/bell/Telegram edits and safe click-again re-ask included.
+  decided links, pending re-alert/outcome-only edits and safe click-again recovery
+  included (no generic Ask Joe again button).
   Agent-declared nonbinding cannot downgrade Pay/Sign.
+* `tests/browser-notifications.test.mjs`: five staff pages plus genuine adapter
+  re-ask each move the single bell item top/unread and use deleteMessage→sendMessage
+  with alert, one actionable Telegram message/task. Outcome-only editMessageText
+  is silent. Test delete/send failures/ambiguous acceptance, races with cancellation,
+  expiry/old revisions, owner-chat-only deletion/allowlisted URL buttons, no generic
+  approve callback/quiet-hour parking of live decisions and no duplicate burst.
+  Render exact page-4 notification, expired/denied/unknown copy and delivery warning.
+* `tests/browser-owner-review.test.mjs`: after send Joe stays at Sent. Waiting for
+  Abigail's next page; same-task next decision replaces in place with one history
+  entry, heading focus + assertive New request from Abigail: Send page 4. Old link
+  stays immutable, fresh action-specific claim/approval/grant/presences required;
+  no carried approval/control or automatic click. Watch all four exits without
+  control/review leave staff running; explicit Pause agent confirm/cancel/failure
+  yields Joe paused the agent/Continue for staff only. Review Escape remains Keep
+  paused, controlled exit still confirms/fences. At 360/1280/1180 and ≥840/<840
+  pop-out: correct layout, no staff chat, Joe draft/scroll/focus restored.
+* `tests/browser-flags-db.test.mjs` Phase 3 extensions: disable final flag before
+  create/approve/arm/bind/consume/transmit; deny every company kind including
+  lookup/save_page GET, upload/submit/pay/sign and unknown; cancellation never
+  replays on enable, consumed/possible transmission is unknown. Combine vault/
+  files/staff/global flag transitions with manual-none vs vault-dependent state.
+
 * `tests/browser-dispatch.test.mjs`: crash before approval, after commit, after
   token consume, before/after transmission and before receipt; unknown never
   auto-retries/refunds. Request pause TTL vs card expiry, late approval, bounded
@@ -2952,7 +3397,7 @@ recipient; only a verified remote receipt yields Paid.
 ### Required regression and runtime gate additions by phase
 
 Each named file runs singly against disposable fixtures. These extend, not
-replace, the above tests and make every round-1/round-2 fix falsifiable:
+replace, the above tests and make every round-1/round-2/round-3 fix falsifiable:
 
 | Phase / named file | Required cases |
 |---|---|
@@ -2964,9 +3409,9 @@ replace, the above tests and make every round-1/round-2 fix falsifiable:
 | 1 `tests/browser-multiturn-db.test.mjs` | Turn 1 action FK survives turn 2; ended-run card can dispatch only via valid web review, old model capability rejected; successful wait vs crash vs Stop vs 5 min inactivity / ≤60 s generic review expiry; simultaneous resume/approval one winner, old grant/run never rewritten. Crash at each consume/transmission boundary produces unknown without replay. |
 | 1 `tests/browser-routes.test.mjs` | Cookie-only rejects Bearer-only, absent/development secret blocks feature; JWT expires during SSE; sid logout/replacement/revocation fences devices. Swapped conversation, copied device secret with wrong sid, wrong stream generation/frame after reconnect/navigation, same seq different body; one of two devices hides vs both; Joe joins private view without control. Planned rotation preserves attendance; accidental lost stream pauses. |
 | 1 `tests/browser-supervisor.test.mjs` | Serialized simultaneous admission, unavailable/incomplete accounting, outside-budget workload discovered; controller killed before latch write, marker survives reboot, ExecStopPost failure, OOM counter and persistent latch, root-only reset; pressure during executing action→unknown, queue reconciliation; temp/disk/connection/CPU ceilings; safe cleanup/reader while latched. |
-| 1 `tests/panel-content-pane.test.mjs` + `tests/browser-ui.test.mjs` importing `tests/fixtures/ask-pane-host.mjs` (shared with Canvas) | 360/820/1280 + 420 dock at wide viewport and 1180 iPad landscape; content switching in both directions, composer retained, no duplicate rails, temporary expansion/back, popout/redock, Browser attention never steals Canvas and Canvas never steals takeover/review, Chat/Canvas switching preserves attendance; confirmed exit during take-over releases control and pauses; panel close/thread change/background pauses. |
+| 1 `tests/panel-content-pane.test.mjs` + `tests/browser-ui.test.mjs` importing `tests/fixtures/ask-pane-host.mjs` (shared with Canvas) | 360/820/1280 + 420 dock at wide viewport and 1180 iPad landscape; owner-layer 1280 dock/1180 iPad/≥840 pop-out split and <840 pop-out single view, passive Watch exit vs explicit pause, current-task next-review replacement; H3/H5 compact Canvas and recovery fixtures adopted at 22a48134; content switching in both directions, composer retained, no duplicate rails, temporary expansion/back, popout/redock, Browser attention never steals Canvas and Canvas never steals takeover/review, Chat/Canvas switching preserves attendance; confirmed exit during take-over releases control and pauses; panel close/thread change/background pauses. |
 | 1 `tests/browser-ui.test.mjs` | All §6 wireframes/states: start fields derived areas, grouped resource sites, In use owner/staff privacy, mid-form versus final, phone owner review/presence/countdown, one action, token sizes/44–48–56 targets, reduced motion, live accessible name, focus capture/review return and Pause live view behavior. |
-| 1 `tests/browser-private.test.mjs` (Phase 2 extends same file) | Public→takeover permanently private **before first pointer/key/IME/Type it**; deceptive text box, focus swap, concurrent public observation/frame cancellation/draining and handback/fresh reset gate Phase 1. Phase 2: restored state starts private. Delegated staff account-settings/reveal/plaintext/image/encoded reflection, download/export/upload all denied; unsupported adapter refuses, fresh per-person login separate. Joe-only view still absent from every model channel. |
+| 1 `tests/browser-private.test.mjs` (Phase 2 extends same file) | Public→takeover permanently private **before first pointer/key/IME/Type it**; deceptive text box, focus swap, concurrent public observation/frame cancellation/draining and Done/fresh reset gate Phase 1. Phase 2: restored state starts private. Delegated staff account-settings/reveal/plaintext/image/encoded reflection, download/export/upload all denied; unsupported adapter refuses, fresh per-person login separate. Joe-only view still absent from every model channel. |
 | 1 `tests/panel-content-pane.test.mjs` + `tests/browser-routes.test.mjs` owner-layer cases | Joe with unrelated Chat/Canvas open reviews Abigail's action via /today deep link, reloads, uses Back/Escape/Close and returns unchanged draft/scroll/focus; null local thread returns Today. No staff conversation/message/attachment/run-poll request or reciprocal transcript copy; staff attendance independent; expired/decided link resolves safe outcome. Cross-session claim, wrong local thread, logout, staff impersonation and unauthorized private image fail closed. |
 | 2 `tests/browser-vault.test.mjs` | Cross-purpose/record/action/file substitution, JCS byte fixtures/domain prefixes, wrong data/wrap AAD, key counter limits, CAS rewrap/partial rotation/restore, plaintext provisioning path absent from host+app backup inventory. |
 | 2 `tests/browser-file-validator.test.mjs` | Valid malicious PDF actions/JS/embedded payloads/forms, polyglots, decompression/pixel/page bombs, malformed parser input, sanitizer/scan crash/timeouts/stale signatures; reject without raw preview/save; original and sanitized hashes distinct, rebuilt PDF has no active content; bounded no-network/no-key sandbox. |
@@ -3025,10 +3470,23 @@ resource/admission latch live in owner-only configuration. Environment
 `SJC_BROWSER_ENABLED=0` is an overriding emergency off switch, not a model input.
 Service rechecks effective flags at admission/every action; live kill switch
 invalidates controls/approvals and closes contexts within 5 s. Staff flag off
-closes only staff tasks. Vault flag off prevents restore/fill and closes private
-contexts; final-steps off cancels undispatched business submit/pay/sign/upload actions,
-never replays them later. Personal or named delegated login-only Sign in in Phase 2 has its own strictly typed
-direct-person approval path; it cannot authorize a business write or charge.
+closes only staff execution contexts; accepted independent Joe hand-offs keep
+Joe's own authorization and do not transfer staff attendance. Vault flag off denies
+login/profile decrypt/fill/restore/profile save and closes **only vault-dependent**
+fill/restore contexts (§5.2 sticky binding), including delegated_secret. Anonymous
+manual-only private contexts (dependency none) continue with no model observation;
+privacy never becomes public and Phase 1 never needs vault enabled. Files and
+final dispatch flags still apply inside them. Final-steps off denies creation,
+approval, arm, bind/consume and transmission and cancels all undispatched
+**company-release kinds: lookup/save_page/upload/submit/pay/sign**, including
+company GET/Next/autosave, plus unknown-category releases. Every flag-sensitive
+function and independent gate rechecks; no delayed replay when enabled later.
+Consumed or possibly transmitted actions stay unknown for reconciliation.
+Phase 2's only write exception while final steps are off is a strictly typed,
+exact **personal-login** direct-person Sign in; Phase 4 may add reviewed named
+delegated **login-only** under its own gates. Neither exception authorizes
+personal_contact/company account change, business values, write or charge.
+Unsupported/ambiguous login refuses; no broad phase/name-based exemption.
 Phase 1 permits neither login submits nor any other outside writes.
 File flag off denies new download/upload/save; existing authorized project files
 still readable by people. No historical backfill of browser profiles/tasks.
@@ -3069,7 +3527,11 @@ its feature flag. Recheck all branch migration allocations before merge.
    a separate SJC_DIST_DIR production build, side-port service in MemoryMax=8G,
    checks and stops it in the same turn, without touching live `.next`.
    This planning task does none of those operations and never calls systemctl.
-7. Enable phases in order; public owner+staff pilot first, then vault/files,
+7. Set Telegram's link setting to open reviews in Safari so Joe uses his signed-in
+   Safari session rather than Telegram's own browser; verify the neutral login
+   return flow for the first legacy-JWT reauthentication and the native 48 px
+   external Open in Safari button. No native token exchange.
+8. Enable phases in order; public owner+staff pilot first, then vault/files,
    then final approvals. Confirm real device layouts, all guards, resource
    measurements and cleanup. Keep later flags off until each gate passes.
 
@@ -3112,6 +3574,25 @@ Sanitizer and human-only reader plus reserved-ID lifecycle preserve provenance
 through trash/restore/rollback. All ten security regression groups in §12 remain
 release gates; the 10/10 review is not runtime acceptance.
 
+### Round-3 security preservation
+
+The round-3 security judge scored 10/10 with no required fixes. All ten §13
+boundaries and §12 runtime gates above remain mandatory. New pending notifications
+are only alerts with IDs/trusted facts, never approval capability; outcome edits
+and stale-link resolution cannot extend TTL or replay. The login-return allowlist
+permits two canonical relative shapes only; fresh cookie sid, Joe task/record
+rights, CSRF POST join, attendance, exact grant and independent audit are still
+required. Done and passive Watch exit grant no control/observation; explicit pause
+and reviewed Phase 4 continuation preserve epochs/private restrictions. Separate
+hand-off copies only confirmed business facts, encrypted at rest, into a fresh
+Joe-owned draft; no staff chat/history/cookies/password/artifacts/grants cross.
+Manual-only privacy with vault off never becomes public; sticky vault-use binding
+still closes contexts on revocation. All company releases remain blocked with
+final dispatch off. Bounded nonstreaming response collection changes resource
+admission only: full-request freeze/consume/audit precedes upstream bytes, no
+proxy passthrough, decoder, file-reader or SSRF exception. Consumed interrupted
+writes stay unknown without retries/refunds. Full item mapping follows below.
+
 ## 14. Remaining business decisions and known limits
 
 No new business question is introduced; no business answer blocks the generic build. Decisions 1–9 govern this
@@ -3138,7 +3619,7 @@ that existing infrastructure already provides them. PDF filing stays off if the
 bounded mandatory sanitizer/scanner gate cannot be met.
 
 Planning verification: reread source anchors and all reviews/owner decisions,
-checked plan consistency and file ownership only. Re-read every cited repo
+checked plan consistency, exact-copy/number sweeps and file ownership only. Re-read every cited repo
 file:line in this plan and the round-2 reviews, including Playwright's cached
 1.64.1 target/resume/Fetch paths, PanelWindow's pop-out claim, trash FK/restore,
 role bootstrap/harness, session/runner/grant and serving paths; reviewed official
@@ -3198,9 +3679,9 @@ future acceptance gates. Security had no required round-2 item.
 
 | Lens + item | Changed sections / resolution |
 |---|---|
-| Design 1 | §3.3–3.4, §6.3/6.5, §7.1/7.3, §12: generic ≤60 s review, notification/countdown/lapse/click-again, one edited notification/task, staff Sites warning. |
+| Design 1 | §3.3–3.4, §6.3/6.5, §7.1/7.3, §12: generic ≤60 s review, notification/countdown/lapse/click-again, one live notification/task (round 3: new pending alerts; outcomes edit), phase-gated staff Sites warning. |
 | Design 2 | §6.2–6.4, §10.2: /today shell deep link/Back; /logins in (os), all Saved logins entry points; no pop-out claim. |
-| Design 3 | §1, §5.2, §6.1/6.3/6.5, §10.2, §12: public take-over confirm/reason/fresh-browser handback; permanent privacy gates Phase 1. |
+| Design 3 | §1, §5.2, §6.1/6.3/6.5, §10.2, §12: public take-over confirm/reason/fresh-browser reset after Done; permanent privacy gates Phase 1. |
 | Design 4 | §1, §5.2, §6.4–6.5, §7.2, §12 Phase 4: unsupported sharing warning, exact Sign in once card, Joe-only 2FA/CAPTCHA, delegated pane ships with first adapter. |
 | Design 5 | §1, §6.3/6.5, §8.2: Don't send/Not sent on every lookup/page/upload; extra Take over only Joe's own tablet/computer task. |
 | Design 6 | §6.3/6.5, §7.2, §8.1, §9.1–9.2, §10.1–10.2, §12: exact lookup card/grant; no blanket Facts release; Sites says each lookup needs Joe. |
@@ -3217,3 +3698,30 @@ future acceptance gates. Security had no required round-2 item.
 | Engineering 5 | §8.2, §9.1–9.2, §12 Phase 2: exact managed FK scan exemption coordinated with Canvas, human-only trash adapter, reserved-ID/null-link/trash/relink/purge/reader reconciliation; zero narrow browser-table reads. |
 | Engineering 6 | §6.2–6.3, §9.1–9.2, §10.2, §12: Joe/session owner claim distinct from immutable staff provenance; preserve Joe Chat; shell link/reload/Back and cross-person isolation tests; take-over exit releases control/pauses. |
 | Security 1–10 (no required fixes) | §13 Round-2 security preservation, §12 regressions: all ten 10/10 boundaries retained; stronger network/actual-flow/file lifecycle mechanisms, unchanged owner/private/audit authority. |
+
+
+## Appendix — Round-3 fixes
+
+Numbering follows each round-3 review's required list. All tests remain future
+release gates, not runtime results. Security required no repair; its ten 10/10
+guarantees in §13 remain normative for every row.
+
+| Item | Changed sections / concrete fix | §13 security preservation |
+|---|---|---|
+| Design 1 | §6.2–6.3/6.5, §9.1, §12 Phase 3: every new pending page/re-ask alerts; one bell + live Telegram item, delete then fresh send, outcome-only silent edits; Joe stays for next page, in-place replacement/focus/announcement. | Notification URL is not a grant; trusted facts only, immutable old action/TTL, fresh action claim/approval/consume/audit and both presences, no replay; provider failures cannot approve. |
+| Design 2 | §2/4.1/6.3/10.2/12/13: proxy + login form/action + authenticated shortcuts carry only validated relative review/Watch paths; neutral sign-in notice, native 48 px Open in Safari, Telegram Safari setup. | Exact same-origin pathname/key/UUID allowlist, no open redirect or pre-auth data, fresh cookie sid+Joe/record ACL+CSRF POST join; GET/link/Bearer grants no control/approval or TTL extension. |
+| Design 3 | §6.2/6.5, §12 owner fixtures: Watch Escape/Back/‹ Back/Close only leave viewer; explicit Pause agent confirm and staff Joe paused the agent/Continue. | Display claim never becomes control; pause authorizes fresh owner operation/epoch fence, no automatic staff resume or substitute attendance; actual review Escape still Keep paused. |
+| Design 4 | §1/6.3/6.5/12: generic expiry says To ask again, click the button on the page again + Back to the page; Ask Joe again reserved for real Phase 4 pre-click re-ask. | Lost request/grant stays terminal; no replay, no new pending alert without a new snapshot, consumed/uncertain outcome remains unknown. |
+| Design 5 | §1/5.2/6.1/6.3/6.5/9.2/10.2/12: v1 Done + reason-specific private paused copy; Give back/Let the agent continue only Phase 4 reviewed steps; no first-person vault promise. | Private before input and permanent after Done; capture/control/epochs fenced, no model observation, fresh browser destroys old identity/state; blind continuation only reviewed steps. |
+| Design 6 | §1/5.1–5.2/6.4–6.5/9.1–9.2/10.2/12 Phase 2: complete Ask Joe to finish button/confirm, paused staff, normal notice, new Joe-owned Sites review/chat/task with From Abigail answers, fixed outcomes. | Only explicit confirmed bounded business facts cross via purpose-separated envelope; no staff transcript/password/pixels/cookies/artifacts/grants; fresh attended Joe identity and exact approval for each company commitment/release (decisions 5–6). |
+| Design 7 | §6.2–6.3/12: 1280 owner frame + 360 Watch; ≥1024 dock expands under one header, ~420 status/review left + image right; ≥840 pop-out same split, narrow otherwise. | Geometry grants no access/control; immutable staff provenance vs separate Joe claim/session, no staff transcript load, private image authorization and guarded exit unchanged; Joe's own view restored. |
+| Design 8 | §6.3/6.5/7.2/12: stale disabled-chevron/× sentence removed, working Close Operator; unsupported phone iPad/computer instruction, Phase 1 only public-read Sites warning (Phase 3 approval guidance hidden earlier). | No phone input bypass, no Phase 1 business-release authority, close still fences control/attendance/streams and all guards remain server-side. |
+| Engineering 1 | §5.2/9.1–9.2/10.2/12 Phases 1–3/13: sticky authoritative vault dependency independent of privacy, manual-none context allowed with vault off; all company kinds including lookup/save_page denied/cancelled with final flag off. | Disable still revokes secret proofs/closes fill/restore contexts; manual mode remains private/no-model, no Phase 1 writes; only exact Phase 2 personal-login exception, decision 6/exact grants/audit unchanged. |
+| Engineering 2 | §3.2–3.3/8.2/12 Phases 0–1: 192 MiB ledger (56 request + 112 response + 24 transport), ≤2×56 MiB response reservations, ≤144 MiB baseline + 48 headroom inside 384 cap; copies/history/encoding/slow-client/refusal and actual pinned fixture specified. | Requests remain full-buffer gated before upstream, reserve before consume, no compression decoder/passthrough/SSRF/file bypass, buffers dropped on all terminal paths; consumed interrupted write unknown/no retry, OOM latch last resort. |
+| Security (10/10; no required fixes) | §13 Round-3 security preservation plus per-item notes above; all ten regression groups in §12 retained. | No weaker credential, history, outbound authority, independent gate, cookie/device, narrow-role, crypto, tamper-evidence or hostile-file boundary; runtime acceptance still mandatory. |
+
+Host adoption of `22a48134` (newer than `4f22bd30`) is recorded in §6.2 after
+the final path-scoped commit check; no
+other agent's plan or host file is edited/staged by this revision. Business
+question remains only the deferred first portal (§14): recommend the city with
+the next real application after generic acceptance; no answer blocks this plan.

@@ -47,6 +47,8 @@ import type { Principal } from "./commands/principal";
 import { dispatchIntentsNow } from "./dispatch/db";
 import { fileCommsWorkItem, linkHref, linkIds, matchPhoneToRecord, readTendlcState, type CommsLinkType } from "./comms-shared";
 import { reportCommsFailure } from "./comms-health";
+import { companyLineNumber, lineVisibilityClause, outboundNumberFor, routeForNumber, type Viewer } from "./phone-lines";
+import { emit } from "./notify";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -83,6 +85,8 @@ export interface SmsThreadSummary {
   /** Joe blocked this number: texts are kept but never unread / pushed, and
    *  nothing is sent to it. */
   blockedAt: string | null;
+  /** Our number this conversation is on (phone_lines, 0110). */
+  businessNumber: string | null;
 }
 
 export interface SmsMedia {
@@ -105,7 +109,7 @@ export interface SmsMessage {
   sentBy: string | null;
 }
 
-const THREAD_COLS = `id, phone, contact_name, link_type, link_slug, unread, last_message_at, opted_out, opted_out_at, blocked_at`;
+const THREAD_COLS = `id, phone, contact_name, link_type, link_slug, unread, last_message_at, opted_out, opted_out_at, blocked_at, business_number`;
 interface ThreadRow {
   id: number;
   phone: string;
@@ -117,6 +121,7 @@ interface ThreadRow {
   opted_out: boolean;
   opted_out_at: Date | null;
   blocked_at: Date | null;
+  business_number: string | null;
 }
 // node-pg hands timestamptz back as a Date; the client treats these as ISO
 // strings (blockedAt.slice(0, 10)), so a raw Date crashed /messages the moment
@@ -133,6 +138,7 @@ const toThread = (r: ThreadRow): SmsThreadSummary => ({
   optedOut: r.opted_out,
   optedOutAt: isoOrNull(r.opted_out_at),
   blockedAt: isoOrNull(r.blocked_at),
+  businessNumber: r.business_number,
 });
 
 const MSG_COLS = `id, direction, body, status, created_at, media, error_detail, failure_kind, keyword, sent_by`;
@@ -163,14 +169,27 @@ const toMsg = (r: MsgRow): SmsMessage => ({
 
 // ─── Reads ───────────────────────────────────────────────────────────────────
 
-export async function getSmsThreads(): Promise<SmsThreadSummary[]> {
+/** Conversations the viewer may read in full: the owner sees every line; a
+ *  team member sees the company lines and their own (lib/phone-lines.ts).
+ *  No viewer = system read (everything). */
+export async function getSmsThreads(viewer?: Viewer | null): Promise<SmsThreadSummary[]> {
+  const vis = viewer ? lineVisibilityClause(viewer, "business_number", 1) : { sql: "true", params: [] };
   const { rows } = await query<ThreadRow>(
-    `SELECT ${THREAD_COLS} FROM sms_threads ORDER BY last_message_at DESC NULLS LAST, id DESC`,
+    `SELECT ${THREAD_COLS} FROM sms_threads WHERE ${vis.sql} ORDER BY last_message_at DESC NULLS LAST, id DESC`,
+    vis.params,
   );
   return rows.map(toThread);
 }
 
-export async function getSmsThread(id: number): Promise<{ thread: SmsThreadSummary; messages: SmsMessage[] } | null> {
+/** May this viewer open this thread (and reply / link / block on it)? */
+export async function smsThreadVisibleTo(viewer: Viewer, id: number): Promise<boolean> {
+  const vis = lineVisibilityClause(viewer, "business_number", 2);
+  const row = await queryOne<{ id: number }>(`SELECT id FROM sms_threads WHERE id = $1 AND ${vis.sql}`, [id, ...vis.params]);
+  return row !== null;
+}
+
+export async function getSmsThread(id: number, viewer?: Viewer | null): Promise<{ thread: SmsThreadSummary; messages: SmsMessage[] } | null> {
+  if (viewer && !(await smsThreadVisibleTo(viewer, id))) return null;
   const t = await queryOne<ThreadRow>(`SELECT ${THREAD_COLS} FROM sms_threads WHERE id = $1`, [id]);
   if (!t) return null;
   const { rows } = await query<MsgRow>(`SELECT ${MSG_COLS} FROM sms_messages WHERE thread_id = $1 ORDER BY created_at, id`, [id]);
@@ -178,8 +197,12 @@ export async function getSmsThread(id: number): Promise<{ thread: SmsThreadSumma
 }
 
 /** Threads with an inbound message awaiting a reply (nav badge). */
-export async function getUnreadSmsCount(): Promise<number> {
-  const row = await queryOne<{ n: string }>(`SELECT count(*)::text AS n FROM sms_threads WHERE unread = true AND blocked_at IS NULL`);
+export async function getUnreadSmsCount(viewer?: Viewer | null): Promise<number> {
+  const vis = viewer ? lineVisibilityClause(viewer, "business_number", 1) : { sql: "true", params: [] };
+  const row = await queryOne<{ n: string }>(
+    `SELECT count(*)::text AS n FROM sms_threads WHERE unread = true AND blocked_at IS NULL AND ${vis.sql}`,
+    vis.params,
+  );
   return Number(row?.n ?? 0);
 }
 
@@ -228,17 +251,25 @@ async function autoLinkThread(threadId: number, phone: string): Promise<void> {
   }
 }
 
-/** Get or create the thread for a counterparty number. */
+/** Get or create the thread for a counterparty number on one of our lines
+ *  (one conversation per counterparty per line since 0110). No line given =
+ *  the company's main line. A new thread inherits the record link, and the
+ *  opt-out / block state, from the same person's threads on other lines. */
 export async function upsertSmsThread(phone: string, contactName?: string | null, businessNumber?: string | null): Promise<number> {
   const key = threadKey(phone);
+  const line = businessNumber || (await companyLineNumber()) || smsConfig()?.fromNumber || null;
   const row = await queryOne<{ id: number }>(
-    `INSERT INTO sms_threads (phone, contact_name, business_number)
-     VALUES ($1, $2, $3)
-     ON CONFLICT (phone) DO UPDATE
-       SET contact_name = COALESCE(sms_threads.contact_name, EXCLUDED.contact_name),
-           business_number = COALESCE(sms_threads.business_number, EXCLUDED.business_number)
+    `INSERT INTO sms_threads (phone, contact_name, business_number, link_type, link_slug, opted_out, opted_out_at, blocked_at)
+     SELECT $1, COALESCE($2, o.contact_name), $3, o.link_type, o.link_slug, COALESCE(o.opted_out, false), o.opted_out_at, o.blocked_at
+       FROM (SELECT 1) one
+       LEFT JOIN LATERAL (
+         SELECT contact_name, link_type, link_slug, opted_out, opted_out_at, blocked_at
+           FROM sms_threads WHERE phone = $1 ORDER BY last_message_at DESC NULLS LAST, id DESC LIMIT 1
+       ) o ON true
+     ON CONFLICT (phone, (COALESCE(business_number, ''))) DO UPDATE
+       SET contact_name = COALESCE(sms_threads.contact_name, EXCLUDED.contact_name)
      RETURNING id`,
-    [key, contactName?.trim() || null, businessNumber ?? smsConfig()?.fromNumber ?? null],
+    [key, contactName?.trim() || null, line],
   );
   const id = row!.id;
   await autoLinkThread(id, key);
@@ -271,7 +302,10 @@ export interface InboundResult {
  *  is not pushed. */
 export async function recordInboundSms(ev: ParsedMessagingEvent): Promise<InboundResult> {
   if (!ev.from) throw new Error("inbound message has no sender");
-  const businessNumber = ev.to[0] ?? smsConfig()?.fromNumber ?? null;
+  const businessNumber = ev.to[0] ?? (await companyLineNumber()) ?? smsConfig()?.fromNumber ?? null;
+  // A team member's own line: their text, their bell — not Joe's push.
+  const route = await routeForNumber(businessNumber);
+  const lineOwner = route?.assignedUserId ?? null;
   const keyword = classifyKeyword(ev.text);
   const threadId = await upsertSmsThread(ev.from, null, businessNumber);
 
@@ -323,23 +357,39 @@ export async function recordInboundSms(ev: ParsedMessagingEvent): Promise<Inboun
   const link = await threadLinkIds(threadId);
   const href = "/messages";
 
+  // STOP / START cover the person on every line, not just the one they texted:
+  // the conservative reading, and one rule for every send path.
   if (keyword === "opt_out") {
-    await query(`UPDATE sms_threads SET opted_out = true, opted_out_at = now() WHERE id = $1`, [threadId]);
+    await query(`UPDATE sms_threads SET opted_out = true, opted_out_at = now() WHERE phone = (SELECT phone FROM sms_threads WHERE id = $1)`, [threadId]);
     if (!blocked) await notifyOwner({ kind: "sms_inbound", title: `${link.name} opted out of texts (${ev.text.trim().toUpperCase()})`, href });
   } else if (keyword === "opt_in") {
-    await query(`UPDATE sms_threads SET opted_out = false, opted_in_at = now() WHERE id = $1`, [threadId]);
+    await query(`UPDATE sms_threads SET opted_out = false, opted_in_at = now() WHERE phone = (SELECT phone FROM sms_threads WHERE id = $1)`, [threadId]);
     if (!blocked) await notifyOwner({ kind: "sms_inbound", title: `${link.name} opted back in to texts`, href });
   } else if (keyword === "help") {
     // Carrier-mandated: HELP is answered even from a blocked number.
     await sendHelpReply(threadId, ev.from);
   } else if (!blocked) {
     const preview = ev.text.trim().replace(/\s+/g, " ").slice(0, 120) || (ev.media.length ? `(${ev.media.length} attachment${ev.media.length === 1 ? "" : "s"})` : "(empty)");
-    await notifyOwner({
-      kind: "sms_inbound",
-      title: `Text from ${link.name}${link.linkType ? ` (${link.linkType})` : ""}`,
-      body: preview,
-      href: linkHref(link.linkType, link.linkSlug) ?? href,
-    });
+    if (lineOwner) {
+      await emit({
+        kind: "mention",
+        tag: "Text",
+        icon: "chat",
+        accent: "accent",
+        title: `Text from ${link.name}${link.linkType ? ` (${link.linkType})` : ""} on your line`,
+        subline: preview,
+        href: `/messages?thread=${threadId}`,
+        audienceUserId: lineOwner,
+        ref: `sms_thread:${threadId}`,
+      });
+    } else {
+      await notifyOwner({
+        kind: "sms_inbound",
+        title: `Text from ${link.name}${link.linkType ? ` (${link.linkType})` : ""}`,
+        body: preview,
+        href: linkHref(link.linkType, link.linkSlug) ?? href,
+      });
+    }
     // From someone on a job or lead: wake the operating agent (only while the
     // agent.event_wakeups policy is on). Best-effort.
     if (link.projectId || link.leadId) {
@@ -415,11 +465,42 @@ export interface SendSmsInput {
   /** 'owner' or 'mcp:<agent>' — for the audit line. */
   actor: string;
   contactName?: string | null;
+  /** Which of our numbers it goes out from (lib/phone-lines.ts). Replies pass
+   *  the thread's own line; a new text passes the sender's line. Omitted = the
+   *  company's main line. Must be an active texting line. */
+  from?: string | null;
 }
 
 export type SendSmsResult =
   | { ok: true; threadId: number; messageId: number; providerId: string; summary: string }
   | { ok: false; error: string; threadId?: number; blocked?: "opted_out" | "blocked" | "not_configured" | "grant" | "invalid_number" | "unknown" };
+
+/** The line a text goes out from: the one asked for when it is an active
+ *  texting line of ours, else the company line. Asking for a number that isn't
+ *  ours (or is switched off for texts) is refused, never silently swapped. */
+async function resolveSendingLine(asked: string | null | undefined): Promise<{ ok: true; number: string } | { ok: false; error: string }> {
+  if (asked) {
+    const norm = normalizeE164(asked);
+    if (!norm.ok) return { ok: false, error: `Sending line: ${norm.error}` };
+    const route = await routeForNumber(norm.e164);
+    const company = await companyLineNumber();
+    if (norm.e164 === company) return { ok: true, number: norm.e164 };
+    if (!route) return { ok: false, error: `${norm.e164} is not one of the business lines (Settings › Phone lines); nothing was sent.` };
+    const line = await queryOne<{ sms_enabled: boolean }>(`SELECT sms_enabled FROM phone_lines WHERE id = $1`, [route.lineId]);
+    if (!line?.sms_enabled) return { ok: false, error: `Texting is switched off for ${route.label || norm.e164} (Settings › Phone lines); nothing was sent.` };
+    return { ok: true, number: norm.e164 };
+  }
+  const company = await companyLineNumber();
+  if (company) return { ok: true, number: company };
+  const env = smsConfig()?.fromNumber;
+  return env ? { ok: true, number: env } : { ok: false, error: notConfiguredError() };
+}
+
+/** The line a NEW text from this login goes out from (their own line, else the
+ *  company's). Replies use the thread's line instead. */
+export async function sendingLineForUser(userId: string | null | undefined): Promise<string | null> {
+  return outboundNumberFor(userId, "sms");
+}
 
 /** THE outbound path. Spends the grant, checks opt-out, records the message,
  *  hands it to Telnyx, and turns every failure into a work item. */
@@ -438,10 +519,15 @@ export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
   const covers = await checkGrantCovers(input.grantId, "send_sms", { kind: "phone", id: to, to });
   if (!covers.ok) return { ok: false, error: covers.error, blocked: "grant" };
 
-  const threadId = await upsertSmsThread(to, input.contactName, cfg.fromNumber);
+  const from = await resolveSendingLine(input.from);
+  if (!from.ok) return { ok: false, error: from.error, blocked: "not_configured" };
+  const threadId = await upsertSmsThread(to, input.contactName, from.number);
+  // Opt-out / block on ANY of this person's threads stops the send.
   const thread = await queryOne<{ opted_out: boolean; opted_out_at: string | null; contact_name: string | null; blocked: boolean }>(
-    `SELECT opted_out, opted_out_at::text AS opted_out_at, contact_name, blocked_at IS NOT NULL AS blocked FROM sms_threads WHERE id = $1`,
-    [threadId],
+    `SELECT bool_or(opted_out) AS opted_out, max(opted_out_at)::text AS opted_out_at,
+            (SELECT contact_name FROM sms_threads WHERE id = $1) AS contact_name, bool_or(blocked_at IS NOT NULL) AS blocked
+       FROM sms_threads WHERE phone = $2`,
+    [threadId, to],
   );
   if (thread?.blocked) {
     return { ok: false, error: `Blocked: ${thread.contact_name || to} is a blocked number. Unblock it on /messages first; nothing was sent.`, threadId, blocked: "blocked" };
@@ -455,7 +541,7 @@ export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
   const msg = await queryOne<{ id: number }>(
     `INSERT INTO sms_messages (thread_id, direction, body, status, from_number, to_number, sent_by, grant_id, retry_of_id)
      VALUES ($1, 'out', $2, 'queued', $3, $4, $5, $6, $7) RETURNING id`,
-    [threadId, text, cfg.fromNumber, to, input.actor.slice(0, 80), input.grantId, input.retryOfId??null],
+    [threadId, text, from.number, to, input.actor.slice(0, 80), input.grantId, input.retryOfId??null],
   );
   const messageId = msg!.id;
 
@@ -470,7 +556,7 @@ export async function sendSms(input: SendSmsInput): Promise<SendSmsResult> {
       targetKind: "phone",
       targetId: to,
       recipient: to,
-      payload: { to, text, message_id: messageId, thread_id: threadId, _auth: { action: "send_sms", target_kind: "phone", target_id: to, to } },
+      payload: { to, from: from.number, text, message_id: messageId, thread_id: threadId, _auth: { action: "send_sms", target_kind: "phone", target_id: to, to } },
       grantId: input.grantId,
       principal,
     }),
@@ -520,13 +606,15 @@ export async function sendHelpReply(threadId: number, to: string): Promise<void>
   const cfg = smsConfig();
   if (!cfg) return;
   const text = readTendlcState()?.helpMessage ?? helpMessageFrom(process.env as Record<string, string | undefined>);
+  // Answer from the line they texted.
+  const line = (await queryOne<{ business_number: string | null }>(`SELECT business_number FROM sms_threads WHERE id = $1`, [threadId]))?.business_number ?? cfg.fromNumber;
   const msg = await queryOne<{ id: number }>(
     `INSERT INTO sms_messages (thread_id, direction, body, status, from_number, to_number, sent_by)
      VALUES ($1, 'out', $2, 'queued', $3, $4, 'system:help') RETURNING id`,
-    [threadId, text, cfg.fromNumber, to],
+    [threadId, text, line, to],
   );
   try {
-    const sent = await sendTelnyxMessage(cfg, { to, text });
+    const sent = await sendTelnyxMessage(cfg, { to, text, from: line });
     await query(`UPDATE sms_messages SET provider_sid = $2, status = $3, updated_at = now() WHERE id = $1`, [msg!.id, sent.id, sent.toStatus ?? "queued"]);
     await query(`UPDATE sms_threads SET last_message_at = now(), last_outbound_at = now() WHERE id = $1`, [threadId]);
   } catch (err) {
@@ -558,16 +646,17 @@ export async function sendOptInConfirmation(
   const norm = normalizeE164(phone);
   if (!norm.ok) return { ok: false, error: norm.error };
   const to = norm.e164;
-  const threadId = await upsertSmsThread(to, contactName, cfg.fromNumber);
-  await query(`UPDATE sms_threads SET opted_out = false, opted_in_at = now() WHERE id = $1`, [threadId]);
+  const line = (await companyLineNumber()) ?? cfg.fromNumber;
+  const threadId = await upsertSmsThread(to, contactName, line);
+  await query(`UPDATE sms_threads SET opted_out = false, opted_in_at = now() WHERE phone = $1`, [to]);
   const text = OPTIN_CONFIRMATION as string;
   const msg = await queryOne<{ id: number }>(
     `INSERT INTO sms_messages (thread_id, direction, body, status, from_number, to_number, sent_by)
      VALUES ($1, 'out', $2, 'queued', $3, $4, $5) RETURNING id`,
-    [threadId, text, cfg.fromNumber, to, `system:optin:${source}`.slice(0, 80)],
+    [threadId, text, line, to, `system:optin:${source}`.slice(0, 80)],
   );
   try {
-    const sent = await sendTelnyxMessage(cfg, { to, text });
+    const sent = await sendTelnyxMessage(cfg, { to, text, from: line });
     await query(`UPDATE sms_messages SET provider_sid = $2, status = $3, updated_at = now() WHERE id = $1`, [msg!.id, sent.id, sent.toStatus ?? "queued"]);
     await query(`UPDATE sms_threads SET last_message_at = now(), last_outbound_at = now() WHERE id = $1`, [threadId]);
     return { ok: true };

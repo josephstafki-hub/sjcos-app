@@ -1,4 +1,5 @@
 import { formatUsPhone } from "@/lib/comms/phone";
+import { RecordConversations } from "@/components/comms/RecordConversations";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -454,6 +455,7 @@ export default async function SubDetailPage({
   // ── Notes panel — editable owner notes + AI summary ────────────────────────
   const notesPanel = (
     <div className="flex max-w-[680px] flex-col gap-3.5">
+      <RecordConversations kind="sub" slug={sub.slug} />
       <SubNotes slug={sub.slug} notes={sub.notes} />
       <div>
         <Eyebrow muted>AI summary</Eyebrow>

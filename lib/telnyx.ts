@@ -86,10 +86,10 @@ export interface SentMessage {
 
 export async function sendTelnyxMessage(
   cfg: SmsConfig,
-  input: { to: string; text: string; mediaUrls?: string[] },
+  input: { to: string; text: string; mediaUrls?: string[]; /** One of our lines (lib/phone-lines.ts); default the env number. */ from?: string | null },
 ): Promise<SentMessage> {
   const out = await telnyxRequest<{ data?: { id?: string; to?: { status?: string }[] } }>(cfg.apiKey, "POST", "/messages", {
-    from: cfg.fromNumber,
+    from: input.from || cfg.fromNumber,
     to: input.to,
     text: input.text,
     messaging_profile_id: cfg.messagingProfileId,
@@ -263,6 +263,68 @@ export async function probeMessagingProfile(apiKey: string, profileId: string): 
   } catch (e) {
     return { ok: false, error: (e as Error).message };
   }
+}
+
+/** Is this number on our Telnyx account and wired the way the app needs it?
+ *  For Settings › Phone lines, before a ported number becomes the main line:
+ *  texts need it on the messaging profile (and the 10DLC campaign), calls need
+ *  it on the Call Control app. Each part answers yes / no / couldn't check. */
+export interface NumberReadiness {
+  onAccount: boolean | null;
+  status: string | null;
+  texting: boolean | null;
+  calling: boolean | null;
+  campaign: boolean | null;
+  problems: string[];
+}
+
+export async function probePhoneNumber(
+  apiKey: string,
+  number: string,
+  want: { messagingProfileId: string | null; callControlAppId: string | null },
+): Promise<NumberReadiness> {
+  const r: NumberReadiness = { onAccount: null, status: null, texting: null, calling: null, campaign: null, problems: [] };
+  try {
+    const out = await telnyxRequest<{ data?: { phone_number?: string; status?: string; connection_id?: string | null; messaging_profile_id?: string | null }[] }>(
+      apiKey,
+      "GET",
+      `/phone_numbers?filter[phone_number]=${encodeURIComponent(number)}`,
+      undefined,
+      10_000,
+    );
+    const row = (out?.data ?? []).find((d) => d.phone_number === number) ?? null;
+    r.onAccount = row !== null;
+    if (!row) {
+      r.problems.push("Not on the Telnyx account yet (still porting, or typed wrong).");
+      return r;
+    }
+    r.status = row.status ?? null;
+    if (row.status && row.status !== "active") r.problems.push(`Telnyx shows it as "${row.status}", not active.`);
+    if (want.messagingProfileId) {
+      r.texting = row.messaging_profile_id === want.messagingProfileId;
+      if (!r.texting) r.problems.push("Not on the SJC OS messaging profile, so texts from it will fail.");
+    }
+    if (want.callControlAppId) {
+      r.calling = row.connection_id === want.callControlAppId;
+      if (!r.calling) r.problems.push("Not on the SJC OS Call Control app, so calls to it won't reach the app.");
+    }
+  } catch (e) {
+    r.problems.push(`Couldn't check the number with Telnyx: ${(e as Error).message}`);
+    return r;
+  }
+  try {
+    const a = await tendlcApi.assignment(apiKey, number);
+    const campaignId = (a as { campaignId?: string; data?: { campaignId?: string } })?.campaignId ?? (a as { data?: { campaignId?: string } })?.data?.campaignId;
+    r.campaign = Boolean(campaignId);
+    if (!r.campaign) r.problems.push("Not on the 10DLC texting campaign yet, so carriers may block its texts.");
+  } catch (e) {
+    if (e instanceof TelnyxError && e.status === 404) {
+      r.campaign = false;
+      r.problems.push("Not on the 10DLC texting campaign yet, so carriers may block its texts.");
+    }
+    // Anything else: leave campaign unknown rather than guess.
+  }
+  return r;
 }
 
 export async function probeCallControlApp(apiKey: string, appId: string): Promise<{ ok: true; name: string } | { ok: false; error: string }> {

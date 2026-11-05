@@ -44,18 +44,30 @@ function threadTitle(t: SmsThreadSummary): string {
   return t.contactName?.trim() || t.phone;
 }
 
+/** Our numbers, for the "texting from" lines (Settings › Phone lines). */
+export interface MessagesLines {
+  /** What a new text from this login goes out from (their line, else the main line). */
+  sendingFrom: { formatted: string; label: string } | null;
+  /** Business number → short name ("SJC main line", "Abigail's line"). */
+  names: Record<string, string>;
+}
+
 export function MessagesClient({
   threads: initialThreads, initialThreadId,
   linkOptions,
   configured,
   voiceConfigured,
+  lines,
 }: {
   threads: SmsThreadSummary[];initialThreadId?:number;
   linkOptions: SmsLinkOptions;
   configured: boolean;
   problems: string[];
   voiceConfigured: boolean;
+  lines?: MessagesLines;
 }) {
+  const lineName = (n: string | null | undefined) => (n ? lines?.names[n] ?? n : null);
+  const manyLines = Object.keys(lines?.names ?? {}).length > 1;
   // Follows the server: a new inbound text refreshes the page (LiveUpdates)
   // and the rail re-sorts / shows its unread dot.
   const [threads, setThreads] = useServerState(initialThreads);
@@ -230,6 +242,7 @@ export function MessagesClient({
                   optedOut: false,
                   optedOutAt: null,
                   blockedAt: null,
+                  businessNumber: null,
                 },
                 ...prev,
               ],
@@ -269,13 +282,13 @@ export function MessagesClient({
           {t.blockedAt && <Chip kind="flag">blocked</Chip>}
           {t.optedOut && <Chip kind="flag">opted out</Chip>}
         </div>
-        <div className="text-meta text-ink-3">{fmtWhen(t.lastMessageAt)}</div>
+        <div className="text-meta text-ink-3">{fmtWhen(t.lastMessageAt)}{manyLines && t.businessNumber ? ` · ${lineName(t.businessNumber)}` : ""}</div>
       </div>
     </button>
   );
 
   return (
-    <div className="flex h-full min-h-0 flex-col [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-focus [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-focus"><div className="border-b border-rule-soft px-4 py-5 @2xl/page:px-5"><PageHeader title="Messages" meta="Text conversations with clients, subs and vendors." /></div><div className="flex min-h-0 flex-1">
+    <div className="flex h-full min-h-0 flex-col [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-focus [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-focus"><div className="border-b border-rule-soft px-4 py-5 @2xl/page:px-5"><PageHeader title="Messages" meta={lines?.sendingFrom ? `Text conversations with clients, subs and vendors. You text from ${lines.sendingFrom.formatted}${lines.sendingFrom.label ? ` (${lines.sendingFrom.label})` : ""}.` : "Text conversations with clients, subs and vendors."} /></div><div className="flex min-h-0 flex-1">
       {/* Thread rail */}
       <aside
         className={`w-full flex-none flex-col border-r border-rule bg-paper-2 @3xl/page:w-[300px] ${
@@ -343,6 +356,11 @@ export function MessagesClient({
               <Phone className="size-3.5 text-ink-3" strokeWidth={1.5} />
               <span className="text-subheading font-semibold text-ink">{threadTitle(selected)}</span>
               <span className="text-meta text-ink-3">{selected.phone}</span>
+              {selected.businessNumber && (
+                <span className="text-meta text-ink-3" title="Replies go out from the line this conversation is on">
+                  · on {lineName(selected.businessNumber)}
+                </span>
+              )}
               {selected.optedOut && (
                 <Chip kind="flag">opted out{selected.optedOutAt ? ` ${selected.optedOutAt.slice(0, 10)}` : ""}</Chip>
               )}
@@ -557,6 +575,12 @@ export function MessagesClient({
             )}
 
             <div className="mt-4 flex flex-col gap-3">
+              {lines?.sendingFrom && (
+                <div className="text-meta text-ink-3">
+                  From · <span className="font-mono text-ink-2">{lines.sendingFrom.formatted}</span>
+                  {lines.sendingFrom.label ? ` (${lines.sendingFrom.label})` : ""}
+                </div>
+              )}
               <div>
                 <label className="text-meta text-ink-3">To · phone</label>
                 <input

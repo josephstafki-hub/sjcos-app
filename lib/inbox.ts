@@ -1197,9 +1197,20 @@ function smsLinkHref(type: string | null, slug: string | null): string | undefin
 
 /** SMS channel: two-way texts from sms_threads/sms_messages (lib/sms.ts). */
 async function loadSmsThreads(): Promise<ChannelBuild> {
+  // A team member's own phone line is theirs (and Joe's) to read in full; the
+  // rest of the team sees its summaries on the records (lib/phone-lines.ts).
+  let vis: { sql: string; params: unknown[] } = { sql: "true", params: [] };
+  try {
+    const [{ getCurrentUser }, { lineVisibilityClause }] = await Promise.all([import("./dal"), import("./phone-lines")]);
+    const viewer = await getCurrentUser();
+    if (viewer) vis = lineVisibilityClause(viewer, "t.business_number", 1);
+  } catch {
+    /* no request (background draft run): system read */
+  }
   const { rows } = await query<{
     id: string;
     phone: string;
+    business_number: string | null;
     contact_name: string | null;
     link_type: string | null;
     link_slug: string | null;
@@ -1208,15 +1219,16 @@ async function loadSmsThreads(): Promise<ChannelBuild> {
     last_body: string | null;
     last_dir: "in" | "out" | null;
   }>(
-    `SELECT t.id::text AS id, t.phone, t.contact_name, t.link_type, t.link_slug,
+    `SELECT t.id::text AS id, t.phone, t.business_number, t.contact_name, t.link_type, t.link_slug,
             t.unread, t.last_message_at, m.body AS last_body, m.direction AS last_dir
        FROM sms_threads t
        LEFT JOIN LATERAL (
          SELECT body, direction FROM sms_messages
           WHERE thread_id = t.id ORDER BY created_at DESC, id DESC LIMIT 1
        ) m ON true
-      WHERE t.blocked_at IS NULL
+      WHERE t.blocked_at IS NULL AND ${vis.sql}
       ORDER BY t.last_message_at DESC NULLS LAST, t.id DESC`,
+    vis.params,
   );
   if (!rows.length) return { threads: [], readerEntries: [] };
 
@@ -1307,7 +1319,7 @@ async function loadSmsThreads(): Promise<ChannelBuild> {
         tag: `SMS · ${name}`,
         channel: "sms",
         subject: name,
-        replyLabel:`To ${formatPhone(r.phone)} · ` + (process.env.SMS_FROM_NUMBER ? `Text from the SJC number ${formatPhone(process.env.SMS_FROM_NUMBER)}` : "Text from the SJC number"),
+        replyLabel:`To ${formatPhone(r.phone)} · ` + ((r.business_number ?? process.env.SMS_FROM_NUMBER) ? `Text from ${formatPhone((r.business_number ?? process.env.SMS_FROM_NUMBER)!)}` : "Text from the SJC number"),
         messages,
         actionHref: href,
         actionLabel: href ? "Open linked record" : undefined,

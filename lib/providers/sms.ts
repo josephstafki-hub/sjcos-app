@@ -11,6 +11,8 @@ import { classifyTransportError, outboundDisabled, recordFakeSend, type Provider
 
 export interface SmsPayload {
   to: string; // +E.164
+  /** Our line it goes out from (lib/phone-lines.ts); absent = the env number. */
+  from?: string;
   text: string;
   mediaUrls?: string[];
   [k: string]: unknown;
@@ -18,7 +20,7 @@ export interface SmsPayload {
 
 export interface SmsTransport {
   configured(): Promise<boolean> | boolean;
-  send(msg: { to: string; text: string; mediaUrls?: string[] }): Promise<{ id: string; toStatus: string | null }>;
+  send(msg: { to: string; text: string; mediaUrls?: string[]; from?: string | null }): Promise<{ id: string; toStatus: string | null }>;
   /** GET /messages/{id} → delivery status, or null when Telnyx has no such message. */
   status?(id: string): Promise<{ status: string } | null>;
 }
@@ -41,7 +43,8 @@ export function makeSmsProvider(transport: SmsTransport = defaultTransport): Pro
       if (outboundDisabled()) return recordFakeSend("sms", payload, ctx);
       if (!(await transport.configured())) return { responseClass: "permanent", error: "SMS is not configured (SMS_* env).", transmitted: false };
       try {
-        const out = await transport.send({ to, text, mediaUrls: payload.mediaUrls });
+        const from = typeof payload.from === "string" && E164.test(payload.from) ? payload.from : null;
+        const out = await transport.send({ to, text, mediaUrls: payload.mediaUrls, from });
         const st = out.toStatus ?? "queued";
         return { responseClass: TELNYX_FINAL_OK.test(st) ? "confirmed" : "accepted", providerRef: out.id, providerState: st, transmitted: true };
       } catch (err) {
@@ -74,7 +77,7 @@ const defaultTransport: SmsTransport = {
     const [{ smsConfigFrom }, { sendTelnyxMessage }] = await Promise.all([import("../comms/env"), import("../telnyx")]);
     const cfg = smsConfigFrom();
     if (!cfg) throw Object.assign(new Error("SMS is not configured."), { status: 400 });
-    return sendTelnyxMessage(cfg, { to: msg.to, text: msg.text, mediaUrls: msg.mediaUrls });
+    return sendTelnyxMessage(cfg, { to: msg.to, text: msg.text, mediaUrls: msg.mediaUrls, from: msg.from });
   },
   async status(id) {
     const [{ smsConfigFrom }, { telnyxRequest, TelnyxError }] = await Promise.all([import("../comms/env"), import("../telnyx")]);

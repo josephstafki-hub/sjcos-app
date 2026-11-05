@@ -1,4 +1,5 @@
 import { formatUsPhone } from "@/lib/comms/phone";
+import { RecordConversations } from "@/components/comms/RecordConversations";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -394,7 +395,12 @@ export default async function LeadDetailPage({
     Overview: overview,
     Ops: ops ? <RecordOps ops={ops} /> : null,
     Tasks: <LeadTasks slug={lead.slug} tasks={tasks} />,
-    Conversation: conversationPanel,
+    Conversation: (
+      <div className="flex max-w-[640px] flex-col gap-4">
+        <RecordConversations kind="lead" slug={lead.slug} />
+        {conversationPanel}
+      </div>
+    ),
     ...(showEstimate ? { "Rough estimate": estimatePanel } : {}),
     "Floor plan": <DesignsStrip scope={{ leadSlug: lead.slug }} designs={planDesigns} />,
     Documents: (

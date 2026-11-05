@@ -1790,6 +1790,18 @@
         "SELECT"
       ]
     },
+    "phone_lines": {
+      "note": "business phone numbers; written only from Settings › Phone lines (website). Inbound routing for narrow logins goes through phone_line_route()",
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
     "plan_cost_rules": {
       "sjcos_agent": [
         "SELECT"
@@ -2982,7 +2994,8 @@
         "DELETE"
       ],
       "sjcos_worker": [
-        "SELECT"
+        "SELECT",
+        "INSERT"
       ],
       "sjcos_readonly": [
         "SELECT"

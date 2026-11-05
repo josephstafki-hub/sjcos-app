@@ -477,3 +477,76 @@ Disposable clusters were stopped, including the isolated baseline check.
 - No visual verification. Coordinator should check web/mobile own-thread rail,
   cross-account denial, deletion-disabled and paused/error copy, question and
   permission prompt flow, attachment reuse rejection and phone TTS behavior.
+
+## Round-2 server corrections (2026-11-05; supersedes earlier privacy/recovery acceptance)
+
+- Engineering 1: filing no longer grants the Ask upload tree to an unbound MCP
+  client. A construction-time stdio context is captured separately from tool
+  input; HTTP and background clients get none. The website validates the exact
+  live run/person/thread/profile/start/revocation tuple. Ask source ownership
+  and attachment membership are checked before byte reads; the journal lock
+  spans reading and copying into Unsorted/Files. Canonical Ask paths override
+  configured shared ancestor roots and symlink aliases. Denials use fixed
+  `THREAD_UNAVAILABLE`/`ASK_PAUSED` envelopes without paths/titles.
+- Engineering 2: A1 now requires explicit deployment bootstrap, with protected
+  identity outside DB and journal restore/loss sets. `identity.json` plus the
+  exclusive, fsynced `deletion-enabled.json` bind deployment UUID to ledger UUID.
+  Missing state never bootstraps during a request. Missing/partial/invalid
+  authority config is permissive only for an explicitly bootstrapped,
+  never-enabled installation with entirely absent authority configuration.
+  Missing identity, conflicting ledger or an ever-enabled restore pauses until
+  verified current replay. Nested journal/protected directories are refused.
+- Security 1: Express permission uses fixed reason text. 0105 redacts historical
+  automatic excerpts, including unbound legacy rows. Bridge list/check/perform
+  filter private grants by current captured person and live thread before
+  serialization/ordering/limits, including expired checks. Website grant lists
+  likewise show only that person's private grants. No Joe override.
+- Security 2: 0105 materializes run-only source links and applies FORCE RLS to
+  grants/replies: narrow SQL sees shared business rows only. Source links cannot
+  be detached/reattached, and an invisible source is refused rather than inferred
+  shared. Reply/grant/decision lookup and answer mutation require the captured
+  person to own the live thread, with the journal fence held through Telegram.
+  Private recording requires authenticated owner=self/live/recovery-ready;
+  delivery also validates the stored reply/thread association. The unattended
+  sweep selects shared rows only. Tombstone replay immediately erases reply
+  bodies/answers and grant reason/scope/audit, and revokes the grant; replay on a
+  restored DB repeats the erasure. Shared business replies still work.
+
+**0105 was edited in place; it is NOT applied on live. Rebuild any existing QA
+DB before acceptance (its migration checksum changed). No live/QA DB was touched.**
+The manifest records row-level restrictions; narrow table privileges were not
+broadened. Generator output pasted into 0105:
+
+```sql
+SELECT sjcos_grant('sjcos_agent', 'SELECT', 'owner_grants');
+SELECT sjcos_grant('sjcos_worker', 'SELECT, INSERT, UPDATE', 'owner_grants');
+SELECT sjcos_grant('sjcos_readonly', 'SELECT', 'owner_grants');
+SELECT sjcos_grant('sjcos_agent', 'SELECT', 'owner_replies');
+SELECT sjcos_grant('sjcos_worker', 'SELECT, INSERT, UPDATE', 'owner_replies');
+SELECT sjcos_grant('sjcos_readonly', 'SELECT', 'owner_replies');
+```
+
+Before rollout, ops must provision the protected state for a demonstrably new,
+never-enabled installation with
+`node scripts/ask-deployment-bootstrap.mjs --new-install`. Default location is
+`~/.local/state/sjcos-ask-deployment`, outside the checkout and journal volume;
+a separately protected persistent volume may be configured. Retain/reconnect
+that identity on restore. NEVER run bootstrap to repair a restored deployment;
+recover its protected volume instead. Loss/replacement of all independent
+protected evidence by the filesystem administrator remains outside the app's
+threat boundary. No provisioning, deployment, service or authority enablement
+was performed here. Browser runtime remains Phase 0b, outside this work.
+
+The new `ask-r2-server-db` file records expectations before implementation and
+executes real filing/grant route code, actual grant/reply/storage-stage SQL,
+non-superuser website identity and all three narrow `session_user` logins.
+Filesystem storage/provider/session seams are controlled: the filing byte reader
+is real, with a counted store callback and real stage/attachment rows; no HTTP
+server, real Telegram send or browser was used. Its actual pg_dump/psql restore
+matrix restores a pre-latch DB, removes the journal directory and keeps protected
+state: absent, partial, wrong and unreachable authorities never call back;
+intact current authority replays the tombstone first, with the flag off.
+
+Final validation for this correction is recorded in
+`phase0-privacy-leak-HANDOFF.md` below the prior-round inventory. That earlier
+119-function classification is historical, not the current completeness claim.

@@ -31,3 +31,17 @@ test('background sweep is imported only by its secret-authenticated cron route',
  for(const dir of ['lib','app','mcp','scripts'])walk(dir);
  for(const file of files.filter(f=>f!=='app/api/cron/agent-retries/route.ts'&&f!=='lib/thread-folder-maintenance.ts'))assert.doesNotMatch(readFileSync(root+file,'utf8'),/(?:from\s*|import\s*(?:\(\s*)?|require\s*\(\s*)["\'][^"\']*thread-folder-maintenance/,file);
 });
+
+// R2 counterexamples, expectations before scanner execution.
+test('R2 attachment readers, grant excerpts, reply derivatives and composed names require explicit review',()=>{
+ for(const source of [
+  'query("SELECT reason FROM owner_grants")',
+  'const table="ai_"+"messages"; db.query("SELECT body FROM "+table)',
+  'query("SELECT * FROM "+["ai","messages"].join("_"))',
+  'query("SELECT * FROM private_chat_view")',
+  'query("SELECT title,subline FROM notifications")',
+  'query("UPDATE owner_replies SET answer=$1")',
+  'const root=path.join(cwd,"uploads","ai-chat"); readFile(file)',
+  'async function readHandedFiles(paths){return paths.map(readFile)}',
+ ]){const hits=scanSource('lib/new.ts',source);assert.ok(hits.length,source);assert.ok(violations({hits,sources:{}},{entries:[],sources:{}}).length,source);}
+});

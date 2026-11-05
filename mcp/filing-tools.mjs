@@ -48,7 +48,7 @@ export function registerFilingTools(server, { json, filingCall, strippedDollarEr
       .array(z.string())
       .max(10)
       .optional()
-      .describe("Files you were handed instead of an email: the absolute path of a file Joe dropped into the Ask window (uploads/ai-chat/…). The app reads and stores it; nothing outside the allowed folders is read."),
+      .describe("Files you were handed instead of an email. Ask uploads (uploads/ai-chat/…) must be attached to your own current live chat in an attended Ask run. Unbound and HTTP clients cannot file Ask uploads. Separately configured shared filing folders remain available."),
     body_text: z.string().optional().describe("Only when there is no Gmail id: the email/document text. Re-staging a document with body_text rewrites its email copy."),
     attachments: z
       .array(z.object({ filename: z.string(), mime_type: z.string(), base64: z.string() }))

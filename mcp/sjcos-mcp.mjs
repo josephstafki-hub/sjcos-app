@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {createPrivateBridgeContext} from '../lib/ask-private-transport.mjs';
 import { COMPLIANCE_SOURCE, CENTRAL_TODAY } from "../lib/compliance-source.mjs";
 // SJC OS — MCP server (AI-agnostic).
 //
@@ -279,8 +280,8 @@ async function biddingCall(action, payload = {}) {
  * Gmail message, stores the email + attachments as files, and logs the cost.
  * Internal records only; nothing is sent.
  */
-async function filingCall(action, payload = {}) {
-  return internalCall("filing", action, payload, "Is the sjcos service running?");
+async function filingCall(action, payload = {}, context = null) {
+  return internalCall("filing", action, {...payload,context}, "Is the sjcos service running?");
 }
 
 /**
@@ -288,7 +289,7 @@ async function filingCall(action, payload = {}) {
  * PERFORM a granted send. The route spends the grant atomically for the exact
  * action + target before anything transmits (lib/agent-sends.ts).
  */
-async function grantsCall(action, payload = {}) {
+async function grantsCall(action, payload = {}, context = null) {
   // A22 gate: a PERSON behind the agent must be allowed to release this send.
   //   no person   → unchanged: the owner grant alone decides (claude.ai /
   //                 Hermes / plain stdio clients, where Joe minted the grant)
@@ -305,7 +306,7 @@ async function grantsCall(action, payload = {}) {
       if (!gate.ok) return { ok: false, error: gate.reason };
     }
   }
-  return internalCall("owner-grants", action, payload, "Is the sjcos service running?");
+  return internalCall("owner-grants", action, {...payload,context}, "Is the sjcos service running?");
 }
 
 /** principalMaySpendGrant (lib/authority/mcp-gate.ts) over our pool. Loaded
@@ -434,6 +435,9 @@ export const SERVER_INSTRUCTIONS = [
 ].join("\n\n");
 
 function buildServer({transportKind}) {
+const privateContext=createPrivateBridgeContext({transportKind,httpActive:()=>!!principalStore.getStore()});
+const boundFilingCall=(action,payload)=>filingCall(action,payload,privateContext());
+const boundGrantsCall=(action,payload)=>grantsCall(action,payload,privateContext());
 const interactionAdapter=createInteractionAdapter({transportKind,config:envValue,httpActive:()=>!!principalStore.getStore()});
 const server = new McpServer({ name: "sjcos", version: "1.0.0" }, { instructions: SERVER_INSTRUCTIONS });
 
@@ -2945,7 +2949,7 @@ server.registerTool(
   // Owner-granted sends + the request/check/list tools around them. These are
   // the only tools that can reach a real inbox, and each one needs an owner
   // grant id for its exact target. See mcp/grants-tools.mjs.
-  registerGrantTools(server, { json, grantsCall, rows });
+  registerGrantTools(server, { json, grantsCall:boundGrantsCall, rows });
 
   // SMS threads + phone calls, READ ONLY here (texting and dialing are the
   // granted send_sms / place_call tools above). See mcp/comms-tools.mjs.
@@ -2995,7 +2999,7 @@ server.registerTool(
 
   // Emailed invoices / receipts / rebates: file the sure ones to a job (or
   // overhead), stage the rest in Joe's Unsorted tray. See mcp/filing-tools.mjs.
-  registerFilingTools(server, { json, filingCall, strippedDollarError });
+  registerFilingTools(server, { json, filingCall:boundFilingCall, strippedDollarError });
 
   // Binary files (PDF plan sets, photos, xlsx/docx/csv) into a project's
   // Files: create → signed PUT or base64 parts → commit (size + sha256

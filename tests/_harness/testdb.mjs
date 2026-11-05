@@ -1,3 +1,4 @@
+import {bootstrapDeployment} from '../../lib/ask-deployment-state.mjs';
 // Disposable PostgreSQL harness (A00).
 //
 // Boots a throwaway Postgres 16 cluster owned by the current user (initdb +
@@ -33,6 +34,13 @@ export const REPO = path.resolve(__dirname, "..", "..");
 const PG_BIN = process.env.PG_BIN ?? "/usr/lib/postgresql/16/bin";
 // SJC_TEST_CLUSTER_TAG lets parallel workstreams keep separate clusters.
 const STATE_FILE = path.join(tmpdir(), `sjc-testdb-${process.env.USER ?? "user"}${process.env.SJC_TEST_CLUSTER_TAG ? `-${process.env.SJC_TEST_CLUSTER_TAG}` : ""}.json`);
+
+// A test process represents an explicitly new deployment. Never use the
+// real protected state directory, and never bootstrap during request handling.
+const askDeploymentDir=mkdtempSync(path.join(tmpdir(),'sjc-test-deployment-'));
+process.env.SJC_ASK_DEPLOYMENT_STATE_DIR=askDeploymentDir;
+await bootstrapDeployment(askDeploymentDir);
+process.once('exit',()=>rmSync(askDeploymentDir,{recursive:true,force:true}));
 
 export class ProductionTargetError extends Error {}
 

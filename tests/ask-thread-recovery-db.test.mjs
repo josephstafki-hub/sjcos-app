@@ -1,3 +1,4 @@
+import {bootstrapDeployment} from '../lib/ask-deployment-state.mjs';
 import test from 'node:test';
 import {execFileSync} from 'node:child_process';
 import pg from 'pg';
@@ -13,6 +14,7 @@ import {recoverThreads,deleteThread,maintainThreads,acquireLease,checkLease,with
 // compare-and-swap. Fault injection changes availability/receipts, not ledger rows.
 async function fixture(fn){
  const dir=await mkdtemp(path.join(tmpdir(),'sjc-journal-')),remote=await mkdtemp(path.join(tmpdir(),'sjc-authority-'));
+ const deploymentDir=path.join(remote,'deployment');await bootstrapDeployment(deploymentDir);
  const id=randomUUID();const file=path.join(remote,'current.json');let failed=false,corrupt=false,wrong=false,stale=false,race=false;
  await writeFile(file,JSON.stringify([]),{mode:0o600});
  const authority={id,async read(){if(failed)throw Error('authority unavailable');const all=JSON.parse(await readFile(file,'utf8'));const head=validateChain(all);return {ledger_id:wrong?randomUUID():id,...head,entries:corrupt?[{bad:true}]:stale?all.slice(0,-1):all,...(race?{sequence:head.sequence+1}:{})};},async advance(expected,entries){
@@ -20,7 +22,7 @@ async function fixture(fn){
   validateChain(entries);const f=await open(file,'w');try{await f.writeFile(JSON.stringify(entries));await f.sync();}finally{await f.close();}
   return this.read();
  }};
- try{return await fn({dir,authority,fault:(name,value=true)=>{({failed:v=>failed=v,corrupt:v=>corrupt=v,wrong:v=>wrong=v,stale:v=>stale=v,race:v=>race=v})[name](value);}});}finally{await rm(dir,{recursive:true,force:true});await rm(remote,{recursive:true,force:true});}
+ try{return await fn({dir,deploymentDir,authority,fault:(name,value=true)=>{({failed:v=>failed=v,corrupt:v=>corrupt=v,wrong:v=>wrong=v,stale:v=>stale=v,race:v=>race=v})[name](value);}});}finally{await rm(dir,{recursive:true,force:true});await rm(remote,{recursive:true,force:true});}
 }
 for(const [name,ids] of [['shared_canvas_phase0',[100,105]]])test(`thread-only recovery ${name}`,async t=>withMigrationSubset(`recovery_${name}`,ids,async({url,db,apply})=>{
  await apply();process.env.SJC_CANVAS_ENABLED='0';process.env.SJC_ASK_THREAD_DELETE_ACCEPTED='1';

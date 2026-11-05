@@ -1,4 +1,5 @@
 import "server-only";
+import {privatePerson} from "@/lib/ask-private-bridge.mjs";
 import { withAskJournal } from "@/lib/ask-thread-journal.mjs";
 import { pool } from "@/lib/db";
 import { askFailure } from "@/lib/thread-access";
@@ -136,7 +137,7 @@ async function promptFor(r: RecordedReply, text: string): Promise<string> {
 
 /** Route Joe's recorded reply and tell him where it went. Never throws. */
 export async function deliverOwnerReply(r: RecordedReply & { chatId: string; messageId: number }, text: string): Promise<void | AskFailure> {
-  if(r.route==='session'&&r.conversationId){
+  if(r.conversationId){
    try{return await withAskJournal(pool,()=>deliverOwnerReplyImpl(r,text));}catch(error){return askFailure(error);}
   }
   return deliverOwnerReplyImpl(r,text);
@@ -145,10 +146,13 @@ async function deliverOwnerReplyImpl(r: RecordedReply & {chatId:string;messageId
   const pulledLine = r.pulled ? `Pulled "${r.title}".` : r.priorStatus ? `"${r.title}" was already ${r.priorStatus}.` : "";
   let ack: string;
   try {
-    if (r.route === "session" && r.conversationId) {
+    if (r.conversationId) {
       const target=await threadPrincipal();
       if(target.role!=='owner')throw Error('ASK_THREAD_UNAVAILABLE');
       await requireThreadAccess(r.conversationId,target);
+      const stored=await queryOne(`SELECT id FROM owner_replies WHERE id=$1 AND conversation_id=$2 AND EXISTS(
+        SELECT 1 FROM ai_conversations c WHERE c.id=conversation_id AND c.owner_user_id=$3 AND c.deleted_at IS NULL)`,[r.id,r.conversationId,target.id]);
+      if(!stored)throw Error('ASK_THREAD_UNAVAILABLE');
       const prompt = await promptFor(r, text);
       const conv = await threadQueryOne<{ title: string | null }>(`SELECT title FROM ai_conversations WHERE id = $1`, [r.conversationId]);
       const latest = await threadQueryOne<{ id: string; agent: string; status: string }>(
@@ -174,12 +178,13 @@ async function deliverOwnerReplyImpl(r: RecordedReply & {chatId:string;messageId
       await query(`UPDATE owner_replies SET state = 'delivered', run_id = $2, delivered_at = now() WHERE id = $1`, [r.id, runId]);
       ack = `Got it. ${pulledLine} Your note went to ${name}${thread} (${how}). You'll get its answer here.`;
     } else {
-      await query(`UPDATE owner_replies SET state = 'delivered', delivered_at = now() WHERE id = $1`, [r.id]);
+      const shared=await query(`UPDATE owner_replies SET state = 'delivered', delivered_at = now() WHERE id = $1 AND conversation_id IS NULL RETURNING id`, [r.id]);
+      if(!shared.rows.length)return {ok:false,code:'THREAD_UNAVAILABLE'};
       ack = `Got it. ${pulledLine} No chat is attached to that ${r.workItemId ? "draft" : "request"}, so the operating agent takes your note (within a few minutes). Its answer comes here.`;
     }
   } catch (err) {
     // A private Ask denial must never be rerouted to an unbound operating run.
-    if(r.route==='session'&&r.conversationId)return askFailure(err);
+    if(r.conversationId||String((err as Error).message).startsWith('ASK_'))return askFailure(err);
     // The chat couldn't take it (run refused, Hermes down…): hand it to the
     // operating agent instead so the note never just sits.
     const msg = (err as Error).message;
@@ -221,21 +226,33 @@ export async function replyToOwner(input: {
   text: string;
   outcome: ReplyOutcome;
   agent: string;
-}): Promise<{ ok: true; sent: boolean; owner_reply_id: string | null } | { ok: false; error: string }> {
+}): Promise<{ ok: true; sent: boolean; owner_reply_id: string | null } | { ok: false; error: string } | AskFailure> {
+  try{return await withAskJournal(pool,async()=>{
   const text = input.text.trim();
   if (!text) return { ok: false, error: "Say something — the message is sent to Joe as written." };
   const isUuid = (v: string | null | undefined) => !!v && /^[0-9a-f-]{36}$/i.test(v);
-  type Row = { id: string; decision_id: string | null; work_item_id: string | null; chat_id: string | null; message_id: string | null };
+  type Row = { conversation_id:string|null; id: string; decision_id: string | null; work_item_id: string | null; chat_id: string | null; message_id: string | null };
   const reply = isUuid(input.ownerReplyId)
-    ? await queryOne<Row>(`SELECT id, decision_id, work_item_id, chat_id, message_id::text AS message_id FROM owner_replies WHERE id = $1`, [input.ownerReplyId])
+    ? await queryOne<Row>(`SELECT conversation_id, id, decision_id, work_item_id, chat_id, message_id::text AS message_id FROM owner_replies o WHERE id = $1 AND (conversation_id IS NULL OR EXISTS(SELECT 1 FROM ai_conversations c WHERE c.id=o.conversation_id AND c.owner_user_id=$2 AND c.deleted_at IS NULL))`, [input.ownerReplyId,privatePerson()])
     : isUuid(input.grantId) || isUuid(input.decisionId)
       ? await queryOne<Row>(
-          `SELECT id, decision_id, work_item_id, chat_id, message_id::text AS message_id FROM owner_replies
-            WHERE (grant_id = $1::uuid OR decision_id = $2::uuid) ORDER BY created_at DESC LIMIT 1`,
-          [isUuid(input.grantId) ? input.grantId : null, isUuid(input.decisionId) ? input.decisionId : null],
+          `SELECT conversation_id, id, decision_id, work_item_id, chat_id, message_id::text AS message_id FROM owner_replies o
+            WHERE (grant_id = $1::uuid OR decision_id = $2::uuid) AND (conversation_id IS NULL OR EXISTS(SELECT 1 FROM ai_conversations c WHERE c.id=o.conversation_id AND c.owner_user_id=$3 AND c.deleted_at IS NULL)) ORDER BY created_at DESC LIMIT 1`,
+          [isUuid(input.grantId) ? input.grantId : null, isUuid(input.decisionId) ? input.decisionId : null,privatePerson()],
         )
       : null;
-  if (input.ownerReplyId && !reply) return { ok: false, error: `No owner reply ${input.ownerReplyId}.` };
+  if(input.ownerReplyId&&!reply)return {ok:false as const,code:"THREAD_UNAVAILABLE" as const};
+  if(!reply&&(input.grantId||input.decisionId)){
+    // A business card without a recorded reply may still be answered. Do
+    // not turn a missing/foreign private reply into this fallback delivery.
+    const allowed=await queryOne(`SELECT 1 WHERE
+      (EXISTS(SELECT 1 FROM owner_grants g WHERE g.id=$1::uuid AND g.conversation_id IS NULL)
+       OR ($1::uuid IS NULL AND EXISTS(SELECT 1 FROM decisions d WHERE d.id=$2::uuid)))
+      AND NOT EXISTS(SELECT 1 FROM owner_grants g WHERE (g.id=$1::uuid OR g.decision_id=$2::uuid) AND g.conversation_id IS NOT NULL)
+      AND NOT EXISTS(SELECT 1 FROM owner_replies o WHERE (o.grant_id=$1::uuid OR o.decision_id=$2::uuid) AND o.conversation_id IS NOT NULL)`,
+      [isUuid(input.grantId)?input.grantId:null,isUuid(input.decisionId)?input.decisionId:null]);
+    if(!allowed)return {ok:false as const,code:"THREAD_UNAVAILABLE" as const};
+  }
   const decisionId = reply?.decision_id ?? (isUuid(input.decisionId) ? input.decisionId! : null);
   const workItemId = reply?.work_item_id ?? null;
   const d = decisionId
@@ -249,11 +266,12 @@ export async function replyToOwner(input: {
   if (id != null) await rememberReplyTarget(runDirect, { chatId: ownerChat(), messageId: id, decisionId, workItemId, ownerReplyId: reply?.id ?? null, kind: "agent_answer" }).catch(() => undefined);
   if (reply) {
     await query(
-      `UPDATE owner_replies SET state = 'answered', answer_kind = $2, answer = $3, answered_at = now() WHERE id = $1 AND state <> 'answered'`,
-      [reply.id, input.outcome, text.slice(0, 4000)],
+      `UPDATE owner_replies SET state = 'answered', answer_kind = $2, answer = $3, answered_at = now() WHERE id = $1 AND state <> 'answered' AND (conversation_id IS NULL OR EXISTS(SELECT 1 FROM ai_conversations c WHERE c.id=owner_replies.conversation_id AND c.owner_user_id=$4 AND c.deleted_at IS NULL))`,
+      [reply.id, input.outcome, text.slice(0, 4000),privatePerson()],
     );
   }
-  return { ok: true, sent: id != null, owner_reply_id: reply?.id ?? null };
+  return { ok: true as const, sent: id != null, owner_reply_id: reply?.id ?? null };
+  });}catch(error){return askFailure(error);}
 }
 
 /** Safety net (dispatch cron): a delivered reply whose turn ended without a
@@ -267,7 +285,7 @@ export async function sweepUnansweredReplies(): Promise<{ relayed: number; faile
     `SELECT id, route, conversation_id, trigger_id, message_id::text AS message_id, decision_id, work_item_id, created_at::text AS created_at,
             created_at < now() - interval '24 hours' AS old
        FROM owner_replies
-      WHERE state = 'delivered' AND created_at < now() - interval '1 minute'
+      WHERE conversation_id IS NULL AND state = 'delivered' AND created_at < now() - interval '1 minute'
       ORDER BY created_at LIMIT 20`,
   );
   for (const r of rows) {

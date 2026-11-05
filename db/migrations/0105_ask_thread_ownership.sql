@@ -174,3 +174,73 @@ CREATE POLICY ask_unowned_background_insert ON ai_conversations FOR INSERT WITH 
 -- SELECT sjcos_grant('sjcos_readonly', 'SELECT', 'ai_messages');
 -- ask_canvas_maintenance prints no grants: website only.
 -- Worker interaction UPDATE and message DELETE remain intentionally withheld.
+
+-- R2 derivative privacy. 0105 is not applied on live; rebuild disposable QA.
+-- Remove every historical automatic prompt excerpt, even unbound legacy rows.
+UPDATE owner_grants SET reason='Express permission given in the Ask window.'
+ WHERE reason LIKE 'Express permission given in the Ask window for:%';
+-- Materialize the source link before policies: a run-only reference is private
+-- too. Mixed legacy links stay private and cannot be reattached by a caller.
+UPDATE owner_grants g SET conversation_id=r.conversation_id FROM dev_agent_runs r
+ WHERE r.id=g.run_id AND g.conversation_id IS NULL AND r.conversation_id IS NOT NULL;
+UPDATE owner_replies o SET conversation_id=COALESCE(g.conversation_id,r.conversation_id)
+ FROM owner_grants g LEFT JOIN dev_agent_runs r ON r.id=g.run_id
+ WHERE g.id=o.grant_id AND o.conversation_id IS NULL;
+UPDATE owner_replies o SET conversation_id=r.conversation_id FROM dev_agent_runs r
+ WHERE r.id=o.run_id AND o.conversation_id IS NULL AND r.conversation_id IS NOT NULL;
+UPDATE owner_replies SET body='[deleted]',answer=NULL,state='failed',error=NULL
+ WHERE conversation_id IN (SELECT id FROM ai_conversations WHERE deleted_at IS NOT NULL);
+UPDATE owner_grants SET reason='Private Ask permission',scope='{}',audit='[]',status='revoked'
+ WHERE conversation_id IN (SELECT id FROM ai_conversations WHERE deleted_at IS NOT NULL);
+CREATE OR REPLACE FUNCTION bind_ask_derivative() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+DECLARE linked uuid; granted uuid;
+BEGIN
+ IF TG_OP='UPDATE' AND (NEW.conversation_id IS DISTINCT FROM OLD.conversation_id OR
+   (TG_TABLE_NAME='owner_grants' AND NEW.run_id IS DISTINCT FROM OLD.run_id)) THEN
+   RAISE EXCEPTION 'private source link immutable' USING ERRCODE='42501';
+ END IF;
+ SELECT conversation_id INTO linked FROM dev_agent_runs WHERE id=NEW.run_id;
+ -- SECURITY DEFINER does not override our session_user-based source RLS.
+ -- An invisible source must be refused, never reclassified as shared NULL.
+ IF NEW.run_id IS NOT NULL AND NOT FOUND THEN RAISE EXCEPTION 'Ask source unavailable' USING ERRCODE='42501'; END IF;
+ IF TG_TABLE_NAME='owner_replies' THEN
+  SELECT conversation_id INTO granted FROM owner_grants WHERE id=NEW.grant_id;
+  IF NEW.grant_id IS NOT NULL AND NOT FOUND THEN RAISE EXCEPTION 'Ask source unavailable' USING ERRCODE='42501'; END IF;
+  IF TG_OP='UPDATE' AND (NEW.grant_id IS DISTINCT FROM OLD.grant_id OR NEW.decision_id IS DISTINCT FROM OLD.decision_id) THEN
+   RAISE EXCEPTION 'private source link immutable' USING ERRCODE='42501';
+  END IF;
+ END IF;
+ IF linked IS NOT NULL AND NEW.conversation_id IS NOT NULL AND linked<>NEW.conversation_id OR
+    granted IS NOT NULL AND NEW.conversation_id IS NOT NULL AND granted<>NEW.conversation_id THEN
+  RAISE EXCEPTION 'private source link mismatch' USING ERRCODE='42501';
+ END IF;
+ NEW.conversation_id:=COALESCE(NEW.conversation_id,linked,granted);
+ RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION bind_ask_derivative() FROM PUBLIC;
+CREATE TRIGGER a_bind_ask_derivative BEFORE INSERT OR UPDATE ON owner_grants FOR EACH ROW EXECUTE FUNCTION bind_ask_derivative();
+CREATE TRIGGER a_bind_ask_derivative BEFORE INSERT OR UPDATE ON owner_replies FOR EACH ROW EXECUTE FUNCTION bind_ask_derivative();
+CREATE TRIGGER guard_ask_grant_write BEFORE INSERT OR UPDATE OR DELETE ON owner_grants FOR EACH ROW EXECUTE FUNCTION guard_ask_thread_write();
+CREATE TRIGGER guard_ask_reply_write BEFORE INSERT OR UPDATE OR DELETE ON owner_replies FOR EACH ROW EXECUTE FUNCTION guard_ask_thread_write();
+CREATE OR REPLACE FUNCTION ask_derivative_visible(thread uuid) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $$
+ SELECT thread IS NULL OR (session_user=ask_website_login() AND EXISTS(
+  SELECT 1 FROM ai_conversations c WHERE c.id=thread AND ask_private_visible(c.owner_user_id)
+  AND (c.deleted_at IS NULL OR nullif(current_setting('sjcos.ask_actor',true),'') IS NULL)))
+$$;
+REVOKE ALL ON FUNCTION ask_derivative_visible(uuid) FROM PUBLIC;
+DO $$ DECLARE r text; BEGIN FOREACH r IN ARRAY ARRAY['sjcos_agent','sjcos_worker','sjcos_readonly'] LOOP
+ IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=r) THEN EXECUTE format('GRANT EXECUTE ON FUNCTION ask_derivative_visible(uuid) TO %I',r); END IF;
+END LOOP; END $$;
+ALTER TABLE owner_grants ENABLE ROW LEVEL SECURITY;
+ALTER TABLE owner_grants FORCE ROW LEVEL SECURITY;
+ALTER TABLE owner_replies ENABLE ROW LEVEL SECURITY;
+ALTER TABLE owner_replies FORCE ROW LEVEL SECURITY;
+CREATE POLICY ask_grant_private ON owner_grants USING(ask_derivative_visible(conversation_id)) WITH CHECK(ask_derivative_visible(conversation_id));
+CREATE POLICY ask_reply_private ON owner_replies USING(ask_derivative_visible(conversation_id)) WITH CHECK(ask_derivative_visible(conversation_id));
+-- Matching manifest generator output (table privileges unchanged; RLS narrows rows).
+SELECT sjcos_grant('sjcos_agent', 'SELECT', 'owner_grants');
+SELECT sjcos_grant('sjcos_worker', 'SELECT, INSERT, UPDATE', 'owner_grants');
+SELECT sjcos_grant('sjcos_readonly', 'SELECT', 'owner_grants');
+SELECT sjcos_grant('sjcos_agent', 'SELECT', 'owner_replies');
+SELECT sjcos_grant('sjcos_worker', 'SELECT, INSERT, UPDATE', 'owner_replies');
+SELECT sjcos_grant('sjcos_readonly', 'SELECT', 'owner_replies');

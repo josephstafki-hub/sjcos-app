@@ -1,3 +1,6 @@
+import {withPrivateRunner} from "@/lib/ask-private-bridge.mjs";
+import {pool} from "@/lib/db";
+import {askFailure} from "@/lib/thread-access";
 // Internal bridge (MCP → app) for Unsorted documents. The MCP server runs in
 // its own process and can't reach Gmail or the blob store's TS helpers, so its
 // filing tools land here (mcp/filing-tools.mjs). Bearer-gated with CRON_SECRET
@@ -79,66 +82,68 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: "Invalid JSON body" }, { status: 400 });
   }
   try {
-    switch (String(body.action ?? "")) {
-      case "stage":
-        return NextResponse.json(await stageFromEmail(stageInput(body)));
+    return await withPrivateRunner(pool, body.context, async () => {
+      switch (String(body.action ?? "")) {
+        case "stage":
+          return NextResponse.json(await stageFromEmail(stageInput(body)));
 
-      // Sure of the destination: stage (pulls the email + attachments) and file in one go.
-      case "file_email": {
-        const target = targetOf(body);
-        if (typeof target === "string") return NextResponse.json({ ok: false, error: target });
-        const staged = await stageFromEmail({ ...stageInput(body), whyUnsure: "" });
-        if (!staged.ok) return NextResponse.json(staged);
-        if (staged.status === "filed" || staged.status === "dismissed") {
-          const doc = await getDoc(runDirect, staged.id);
-          return NextResponse.json({ ok: true, id: staged.id, already: true, status: doc?.status, filed_to: doc?.filed_to, project_slug: doc?.filed_project_slug, note: "Already put away earlier — nothing changed." });
+        // Sure of the destination: stage (pulls the email + attachments) and file in one go.
+        case "file_email": {
+          const target = targetOf(body);
+          if (typeof target === "string") return NextResponse.json({ ok: false, error: target });
+          const staged = await stageFromEmail({ ...stageInput(body), whyUnsure: "" });
+          if (!staged.ok) return NextResponse.json(staged);
+          if (staged.status === "filed" || staged.status === "dismissed") {
+            const doc = await getDoc(runDirect, staged.id);
+            return NextResponse.json({ ok: true, id: staged.id, already: true, status: doc?.status, filed_to: doc?.filed_to, project_slug: doc?.filed_project_slug, note: "Already put away earlier — nothing changed." });
+          }
+          const filed = await fileDocument(staged.id, target, fileOpts(body));
+          return NextResponse.json(filed.ok ? { ...filed, files: "files" in staged ? staged.files : 0, skipped_attachments: "skipped_attachments" in staged ? staged.skipped_attachments : [] } : { ...filed, id: staged.id, note: "The document is in the Unsorted tray; fix the input and file it with file_unsorted_document." });
         }
-        const filed = await fileDocument(staged.id, target, fileOpts(body));
-        return NextResponse.json(filed.ok ? { ...filed, files: "files" in staged ? staged.files : 0, skipped_attachments: "skipped_attachments" in staged ? staged.skipped_attachments : [] } : { ...filed, id: staged.id, note: "The document is in the Unsorted tray; fix the input and file it with file_unsorted_document." });
+
+        case "file": {
+          const target = targetOf(body);
+          if (typeof target === "string") return NextResponse.json({ ok: false, error: target });
+          return NextResponse.json(await fileDocument(Number(body.id), target, fileOpts(body)));
+        }
+
+        case "reply":
+          return NextResponse.json(await replyOnDocument(Number(body.id), String(body.message ?? ""), Boolean(body.give_back)));
+
+        case "list": {
+          const allowed: DocStatus[] = ["pending", "needs_agent", "filed", "dismissed"];
+          const prefix = str(body.source_ref_prefix)?.trim() ?? "";
+          // Checking an importer's own keys ("homedepot:") means every status by default.
+          const fallback: DocStatus[] = prefix ? allowed : ["pending", "needs_agent"];
+          const wanted = (Array.isArray(body.statuses) ? body.statuses : fallback).map(String).filter((s): s is DocStatus => (allowed as string[]).includes(s));
+          const statuses = wanted.length ? wanted : fallback;
+          const limit = Math.min(Math.max(Number(body.limit) || 50, 1), 200);
+          const offset = Math.max(Number(body.offset) || 0, 0);
+          const [docs, total] = await Promise.all([
+            listDocsByStatus(runDirect, statuses, limit, { offset, sourceRefPrefix: prefix }),
+            countDocsByStatus(runDirect, statuses, { sourceRefPrefix: prefix }),
+          ]);
+          const next_offset = offset + docs.length < total ? offset + docs.length : null;
+          const documents = body.brief
+            ? docs.map((d) => ({
+                id: d.id, source_ref: d.source_ref, status: d.status, doc_kind: d.doc_kind, vendor: d.vendor_label, amount_cents: d.amount_cents,
+                doc_date: d.doc_date, doc_number: d.doc_number, files: d.attachment_file_ids.length + (d.email_file_id ? 1 : 0),
+                filed_project_slug: d.filed_project_slug,
+              }))
+            : docs;
+          return NextResponse.json({ ok: true, total, offset, next_offset, documents });
+        }
+
+        case "get": {
+          const doc = await getDoc(runDirect, Number(body.id));
+          return NextResponse.json(doc ? { ok: true, document: doc } : { ok: false, error: "No such document." });
+        }
+
+        default:
+          return NextResponse.json({ ok: false, error: `Unknown action "${String(body.action)}"` }, { status: 400 });
       }
-
-      case "file": {
-        const target = targetOf(body);
-        if (typeof target === "string") return NextResponse.json({ ok: false, error: target });
-        return NextResponse.json(await fileDocument(Number(body.id), target, fileOpts(body)));
-      }
-
-      case "reply":
-        return NextResponse.json(await replyOnDocument(Number(body.id), String(body.message ?? ""), Boolean(body.give_back)));
-
-      case "list": {
-        const allowed: DocStatus[] = ["pending", "needs_agent", "filed", "dismissed"];
-        const prefix = str(body.source_ref_prefix)?.trim() ?? "";
-        // Checking an importer's own keys ("homedepot:") means every status by default.
-        const fallback: DocStatus[] = prefix ? allowed : ["pending", "needs_agent"];
-        const wanted = (Array.isArray(body.statuses) ? body.statuses : fallback).map(String).filter((s): s is DocStatus => (allowed as string[]).includes(s));
-        const statuses = wanted.length ? wanted : fallback;
-        const limit = Math.min(Math.max(Number(body.limit) || 50, 1), 200);
-        const offset = Math.max(Number(body.offset) || 0, 0);
-        const [docs, total] = await Promise.all([
-          listDocsByStatus(runDirect, statuses, limit, { offset, sourceRefPrefix: prefix }),
-          countDocsByStatus(runDirect, statuses, { sourceRefPrefix: prefix }),
-        ]);
-        const next_offset = offset + docs.length < total ? offset + docs.length : null;
-        const documents = body.brief
-          ? docs.map((d) => ({
-              id: d.id, source_ref: d.source_ref, status: d.status, doc_kind: d.doc_kind, vendor: d.vendor_label, amount_cents: d.amount_cents,
-              doc_date: d.doc_date, doc_number: d.doc_number, files: d.attachment_file_ids.length + (d.email_file_id ? 1 : 0),
-              filed_project_slug: d.filed_project_slug,
-            }))
-          : docs;
-        return NextResponse.json({ ok: true, total, offset, next_offset, documents });
-      }
-
-      case "get": {
-        const doc = await getDoc(runDirect, Number(body.id));
-        return NextResponse.json(doc ? { ok: true, document: doc } : { ok: false, error: "No such document." });
-      }
-
-      default:
-        return NextResponse.json({ ok: false, error: `Unknown action "${String(body.action)}"` }, { status: 400 });
-    }
+    });
   } catch (e) {
-    return NextResponse.json({ ok: false, error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+    return NextResponse.json(askFailure(e), { status: 503 });
   }
 }

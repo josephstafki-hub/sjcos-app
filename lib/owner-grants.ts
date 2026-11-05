@@ -15,6 +15,7 @@
 //     Decision notification; Joe approves/denies on /engine/permissions.
 
 import { query, queryOne } from "@/lib/db";
+import {privatePerson} from "@/lib/ask-private-bridge.mjs";
 import { announceDecision } from "@/lib/decisions/notify";
 import { runDirect, sessionPrincipal, withTransaction } from "@/lib/commands/db";
 import type { Principal } from "@/lib/commands/principal";
@@ -59,13 +60,33 @@ export async function getGrant(id: string): Promise<OwnerGrant | null> {
 }
 
 export async function listGrants(limit = 60): Promise<OwnerGrant[]> {
+  const {threadPrincipal}=await import("@/lib/thread-access");
+  const {withAskJournal}=await import("@/lib/ask-thread-journal.mjs");
+  const {pool}=await import("@/lib/db");
+  const person=await threadPrincipal();
+  return withAskJournal(pool,async()=>{
   const { rows } = await query<OwnerGrant>(
-    `SELECT ${COLS} FROM owner_grants
+    `SELECT ${COLS} FROM owner_grants g WHERE g.conversation_id IS NULL OR EXISTS(
+      SELECT 1 FROM ai_conversations c WHERE c.id=g.conversation_id AND c.owner_user_id=$2 AND c.deleted_at IS NULL)
       ORDER BY (status = 'requested') DESC, created_at DESC
       LIMIT $1`,
-    [limit],
+    [limit,person.id],
   );
   return rows;
+  });
+}
+
+// Bridge reads are separate from trusted send/owner-command reads. Filter
+// before ordering/limits and serialization, including expired check results.
+export async function getBridgeGrant(id:string):Promise<OwnerGrant|null>{
+ if(!/^[0-9a-f-]{36}$/i.test(id))return null;
+ return queryOne<OwnerGrant>(`SELECT ${COLS} FROM owner_grants g WHERE id=$1 AND
+  (g.conversation_id IS NULL OR EXISTS(SELECT 1 FROM ai_conversations c WHERE c.id=g.conversation_id AND c.owner_user_id=$2 AND c.deleted_at IS NULL))`,[id,privatePerson()]);
+}
+export async function listBridgeGrants(limit=40):Promise<OwnerGrant[]>{
+ return (await query<OwnerGrant>(`SELECT ${COLS} FROM owner_grants g WHERE
+  (g.conversation_id IS NULL OR EXISTS(SELECT 1 FROM ai_conversations c WHERE c.id=g.conversation_id AND c.owner_user_id=$2 AND c.deleted_at IS NULL))
+  ORDER BY (status='requested') DESC,created_at DESC LIMIT $1`,[limit,privatePerson()])).rows;
 }
 
 /** Owner mints a grant directly (Ask checkbox or /engine/permissions). */
@@ -114,10 +135,10 @@ export async function createGrant(input: {
 /** Run-scoped "do what I asked in this message" grant from the Ask window's
  *  Express-permission checkbox. Short-lived: it covers one Claude turn (the
  *  runner's own timeout is 8 min). */
-export async function mintRunGrant(runId: string, conversationId: string | null, prompt: string): Promise<OwnerGrant> {
+export async function mintRunGrant(runId: string, conversationId: string | null, _prompt: string): Promise<OwnerGrant> {
   return createGrant({
     actions: ["*"],
-    reason: `Express permission given in the Ask window for: "${prompt.replace(/\s+/g, " ").slice(0, 240)}"`,
+    reason: "Express permission given in the Ask window.",
     requestedBy: "owner",
     conversationId,
     runId,

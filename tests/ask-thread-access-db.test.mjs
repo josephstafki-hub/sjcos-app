@@ -109,6 +109,7 @@ test('owner reply delivery fences the title before routing or relaying another p
  const stubs={
   'server-only':{},'@/lib/db':{query,queryOne:async(sql)=>{await query(sql);return null;}},
   '@/lib/ask-thread-journal.mjs':{withAskJournal:async(_pool,fn)=>fn()},
+  '@/lib/ask-private-bridge.mjs':{privatePerson:()=>null},
   '@/lib/thread-access':{askFailure:()=>({ok:false,code:'THREAD_UNAVAILABLE'}),threadPrincipal:async()=>({id:'joe',role:'owner'}),requireThreadAccess:async()=>{denied++;throw Error('ASK_THREAD_UNAVAILABLE');},threadQueryOne:async()=>{privateReads++;throw Error('must not reach private read');}},
   '@/lib/commands/db':{runDirect:run,withTransaction:async fn=>fn(run)},
   '@/lib/providers/telegram':{defaultTransport:{}},'@/lib/providers/types':{outboundDisabled:()=>true},

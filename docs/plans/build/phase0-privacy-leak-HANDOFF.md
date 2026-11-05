@@ -300,3 +300,78 @@ Coordinator-only visual checks remain: Joe and Abigail separately open `/panel`,
 History, Show archived, staff Cmd-K QA search and the `/today` dock/mobile rail;
 confirm each payload/list/count/status contains only that person's threads.
 No browser, server or build was started here. No deploy was performed.
+
+## Round-2 derivative and filesystem correction (supersedes prior acceptance)
+
+The previous source-only audit missed the real filing filesystem reader and
+incorrectly treated private prompt/answer copies as business-only. Current
+boundaries and restore/bootstrap operations are detailed in `phase0-B-HANDOFF.md`
+(round-2 correction). Migration 0105 changed in place, unapplied on live;
+existing QA databases need rebuilding. Narrow privileges remain unchanged;
+FORCE RLS now partitions private grants/replies from shared business rows.
+
+| Surface | Current authorization |
+|---|---|
+| Filing Ask paths, including shared ancestor roots/aliases | Captured stdio tuple validated against active attended run/person/live same-owner thread; exact attached path before byte read, journal spans copy. No unbound/HTTP/foreign/deleted access. |
+| Grant excerpts/list/check | Fixed Express reason and historical redaction. Before limit/serialization, shared rows or captured person's live thread; expired foreign checks identical to missing. Owner's website list preserves own grants. |
+| Owner reply lookup/mutation/delivery | Person/live-thread predicates before lookup/update; journal held through send; private recording checks authenticated owner; shared fallback cannot substitute for missing private reply. |
+| Private reply/copy raw SQL | Agent/worker/readonly actual session identities cannot SELECT private body/answer or grant reason/scope/audit even with forged actor GUC. Source-link triggers refuse invisible source or reattachment. |
+| Deletion and restore replay | Immediately redact private reply body/answer and grant reason/scope/audit; revoke grant; tombstoned replies cannot deliver. Shared-only unattended sweep stops automatic private answer copying. |
+| Protected deployment latch | Explicit bootstrap outside DB/journal loss sets; monotonic fsynced ledger binding before deletion. Missing identity/config, restore-before-latch, wrong/unreachable authority pause until replay. |
+
+The maintained scanner now inventories **223 function/source entries, 366
+SQL/conservative fragments across 99 files**: **97 fenced, 76 trusted-background,
+50 not-private**. JSON contains per-entry explanations and source/query hashes.
+It includes owner_grants, owner_replies, notifications and Telegram target
+carriers; literal concatenation and array-join table names; conservative unknown
+table expressions; non-SQL upload/reader/closed-transport sources; and database
+SQL definitions/migrations. New counterexamples all fail without explicit
+review. Fixed/whitelisted business table expressions and owner-only import /
+backup / migration CLIs are classified separately. Private reply helpers are
+no longer blanket "not-private". A green scan detects changes to reviewed code;
+it is NOT runtime authorization, proof of all possible indirect data flows,
+whole-program string evaluation or arbitrary ORM/view semantic resolution.
+
+All test files ran individually, sequentially in tagged disposable clusters
+`SJC_TEST_CLUSTER_TAG=p0r2srv-<ts>`, with EXIT traps that stopped the cluster on
+success/failure. No exit 137, install, browser, Next process, live/QA DB/service
+access, deploy or subagent. Panel-owned files were not edited/staged.
+
+| Test file (`tests/<name>.test.mjs`) | Final pass | Fail / skip |
+|---|---:|---:|
+| ask-r2-server-db | 11 | 0 / 0 |
+| ask-thread-recovery-db | 43 | 0 / 0 |
+| ask-server-boundaries-db | 8 | 0 / 0 |
+| ask-private-query-scan | 5 | 0 / 0 |
+| ask-thread-access-db | 33 | 0 / 0 |
+| ask-folder-privacy-db | 11 | 0 / 0 |
+| ask-backfill-db | 3 | 0 / 0 |
+| db-roles-manifest-db | 6 | 0 / 0 |
+| db-roles-paths-db | 3 | 0 / 0 |
+| grant-supersede-db | 1 | 0 / 0 |
+| unsorted-docs-db | 2 | 0 / 0 |
+| mcp-unsorted-upload-db | 2 | 0 / 0 |
+| portal-telegram-db | 3 | 0 / 0 |
+| grant-gate | 9 | 0 / 0 |
+| mcp-team-tools | 13 | 0 / 0 |
+| canvas-rollout-db | 3 | 0 / 0 |
+
+Total final validation: **156 passed, zero failed/skipped across 16 files**.
+The two legacy FIN_TEST_DATABASE_URL consumers initially skipped without that
+variable; rerun with an explicitly minted disposable harness URL: 1/1 and 2/2.
+One initial access test failed because its VM fixture lacked the new bridge
+import; the fixture now supplies the no-bound-person seam, preserving all its
+assertions. No product failure was reclassified as success.
+
+Final typecheck via the prescribed flock/nice command: **exit 0**.
+`node scripts/db-roles-scan.mjs --diff`: **exit 0**, all differences explicitly
+withheld (owner-control writes; website-only private interaction UPDATE/message
+DELETE; maintenance/session state; payment authorizations, QBO and mailbox
+credentials). No worker privilege expansion. Both real-DB role files pass;
+matching generator lines are in 0105 and the server handoff.
+
+Coordinator checks remain Joe/staff own-only rail/history/archived/search/Today,
+plus staff MCP grant list/check and denied foreign filing. Production restore /
+loss/authority acceptance and protected deployment-state provisioning remain ops
+work; no runtime Browser or actual deployed authority-service certification is
+claimed by the fixture tests.

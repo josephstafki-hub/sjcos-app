@@ -2,36 +2,137 @@
   "version": 1,
   "note": "Manually reviewed privacy inventory. Query and full source hashes require explicit review on changes. No file-wide query wildcard. not-private entries explain business metadata/aggregate/conservative non-SQL matches.",
   "sources": {
+    "lib/accounting/qbo/https.ts": "afb9c1021ccce50aa049de389b602e14d114283ef9748cde733d7d49374725e1",
     "lib/actions/ai-chat.ts": "f5c821ca2562c800851de64e36a6425f88f2c5f03ae30da51b7b2115f7d5a416",
+    "lib/actions/approvals.ts": "ab3fc636f391d3d882bc3909bf6f595c3c7be06b3ef292ee1ede8da381d4ea4e",
+    "lib/actions/dev-agents.ts": "8c521f338936cd94abc7dbc7170fa43caf78ed8251b7c8fea8fe0e913e34eb06",
+    "lib/actions/engine.ts": "0ad6a0242d760c500d0710349bef0a3f75fefe7bec1ba81648d33e9d52a9037d",
+    "lib/actions/inbox.ts": "3368ff5320dbaea6ed6e8f3f2ce19a74be2c4667d1ce62f5bf15c4b46f0ae78e",
+    "lib/actions/notifications.ts": "f9698f6d52646004c16e5ca29a7542499a1d28db2edc5914211c3044cd7015f9",
     "lib/actions/panel-review.ts": "2a69b85f6dc7655ef5e7e3dc54fed3d4b2548711625a612066a33d98d926b499",
+    "lib/actions/selections.ts": "b83e2be933f031d62af3996712cd1e6db57b49623566fd461d893209d39e541e",
     "lib/agent-interactions.ts": "b3c9c62363c44be68a954cf635accb6c331f033e36099fd0bf1dd36a0e17517f",
     "lib/agent-runtime/context.ts": "278796cd05d6cdd7daedae6ac779654a3a5b76fd4d42c5c70aa2f6515d8dc702",
+    "lib/agent-runtime/worker.ts": "cda55fbf4bf8c2a8644a17836b4b395b23a8889f15ec9c7b6b49f03aa6bcb971",
+    "lib/agent-sends.ts": "0b4246843f2148177f5df5e6498ee66379415c4147d05b4cd915e75e561feb7f",
     "lib/ai-chat.ts": "3ce216a36019763bfdedd24f1d808a233c9b59abf050d565416cc457252374a8",
+    "lib/approvals.ts": "03630df90df52f4117fa3108714abe5d18121551586d021b14c4014a6a8fcbb5",
+    "lib/ask-private-bridge.mjs": "586fb7ecd55b01a8a002b36967e99572f8535607dd3ea91b93a868555d46d5aa",
+    "lib/ask-private-transport.mjs": "526f608724370f95444e33c5612c0e74433d58c43a161bda8d2a0bde820caab5",
     "lib/ask-run-admission.ts": "f07318d9ee3666da83dd659a20c257cbf30b12a5b0f3fd51a1e0b359019188a4",
     "lib/ask-thread-journal-interactions.mjs": "bb7cc8fc617e99d1eea8131a590f4089fec6be00e065ec16624fb7dcba67be55",
-    "lib/ask-thread-journal.mjs": "b12e3e94d1581e1f6d2ade39f59b398ffd6d412926382afa5b1c71f4d823fae1",
+    "lib/ask-thread-journal.mjs": "0b15e5536e97072fdfd3e83b91b20f2c0b2f76cdcbfa29e8e1608070ce713814",
+    "lib/attachments.ts": "22837ed0d5a1e347a6b08dc1f45cb5670a042daeead7084d42e7db311471d5d5",
     "lib/authority/usage.ts": "0e86785e1c48d24d132c974f2f612985dccb225e5b2baeb947cac19d35252cf1",
-    "lib/decisions/owner-replies.ts": "c0a207660a5046f4af785e5e10359948ad31e4284c97619e04335199dc567455",
+    "lib/bidding.ts": "0de197af352cc857144caf150eb212c47fed701814236be194a5f63888c470af",
+    "lib/budget-writes.ts": "24225a7a4b85020d74ce139762c54a8cf6ec8987f77a6a9114946333a07c9f24",
+    "lib/client-activity.ts": "905a522ab52c677467520803d706263e04242be4813fa70243e5ea45e3644f8e",
+    "lib/decisions/grants.ts": "167df99eb9fd8f072c5a840eda9c8303132e76bf0dd992b52b91856340249d02",
+    "lib/decisions/owner-replies.ts": "294b48add8b5547a26559b09bee19f222f266debb743367d0c1b890bc19a7e11",
+    "lib/decisions/resolve.ts": "e83ebbdd5fbe3e96318060c9de363352be24210a854769eaf13819f7522d3fef",
+    "lib/dev-agents-meta.ts": "eababf3bfdf6ed4b0f5bc09bd9c85276538428148529580d9ac13ba3b45e5d28",
     "lib/dev-agents.ts": "04919b77226d1759e20af95a580b507410547f6b8fc62de839e1d95001e6e061",
+    "lib/dispatch/authority.ts": "5ff3b250e52717c56ff8ddd4d563ae9c41c1412b885df5a759e316feb1c82284",
+    "lib/dispatch/effects.ts": "83635e3c42d1a98d919f64ea75da48dfb35b5071398b1a41b8f22424b83b7385",
+    "lib/file-trash.ts": "f511a3d0b5545330b425f1da8b41060ec4d4ec2325285922c1c61e4138110091",
+    "lib/grant-execution.ts": "00b28bac59ffb40c2184ef780ce7874d657cc94b92545058fcaf8b575361d0fd",
     "lib/measure/baseline.ts": "3c3afd48d4d34bcecadd93bee90fcdae37042cf20a56de6dba392eb8aca6c31a",
     "lib/measure/cases.ts": "130d79c27bf30cbe5923238736c19bed4901884a33a344cbb206e718d75aa36f",
+    "lib/notifications.ts": "ae57dcd88908d8e3ae7ad762bd30bdd96d2ccf37b92fc0f1ee57216aaaafa2de",
+    "lib/notify-owner.ts": "b5f45812271abc4031c384fc5bbbbe7a9db55c89b65d1c47e7594c56c70b4b01",
+    "lib/notify.ts": "caec10b29bad5e8574db0c871b4599b79fd45aa241b2c5da1a4e707cb42e8797",
     "lib/orchestrator/activity.ts": "a00b374c9614b2122d7deceecb7897d579e877ee736b99e8464c35f89e411036",
     "lib/orchestrator/effects.ts": "6b177e744a9446efd0ef0a5922bb87df322ece27c3053a6507ad553042359309",
     "lib/orchestrator/ladder.ts": "703ffc7a9e967c055675ecfa03b561fe124c470b5de66b65acabde832c41fe88",
     "lib/orchestrator/proposals.ts": "1beae0211f1e0dbb8315681f92b0251ab2d82ac3e91f17f37b268598c7ac45d8",
     "lib/orchestrator/thread.ts": "5ba641e41aa357edebc089f398e98ff67be9ae4cd3b83c00680f8dfb6b4109ab",
     "lib/orchestrator/voice.ts": "21d93168dd348caaee551a4538394e110e2055fd15a08ee00012867ba81e9d90",
-    "lib/owner-reply-delivery.ts": "1714459969a85a52e4e8dc509a111b37b0f0104e883643706166d765dd4bf51c",
+    "lib/overhead/overhead.ts": "d0f5010300b77a7f5b9bb714bd5971dac437d43538a5bcf11371c055916b01ac",
+    "lib/owner-grants.ts": "6b32a1e63c61cb24a113594946cc988db0ec33c02c989e23d6c864e77e0e0a44",
+    "lib/owner-reply-delivery.ts": "cc77defa3513260105ba096f4f8af2c19f7542e66fceea45a151410bedca9c57",
     "lib/panel-search.ts": "9c447bd0320be9f9b0e19c2dc4fc98dd5115bece914d83c19db42bd6bd6f4600",
+    "lib/payments/owner-alert.ts": "f78d97b97e9a340d6eaa83c7ea1e67f8ddec97f4e5575e48a8ae9f770cb174b2",
     "lib/run-focus.ts": "653f2d48e2ff665d26b5da1a1675ad98c4f16c611440677c529d725c8a16d4cc",
     "lib/run-steers.ts": "2aa61011144ea0e82e8367a0fc0227d1323c8e00794fdaa536804f5460f9a2ba",
     "lib/thread-access.ts": "b7f7c0ef210752d7d49b50655c50dca6161d60357ff1b328fe7d3559d8e9cf3d",
     "lib/thread-folder-maintenance.ts": "5f61ac07eb05eed99b531334ef66a9c123ea0922300e22e45f42504d8d5e9136",
     "lib/thread-folders.ts": "119b0a7594f7e3f9c7b301a0cce363b02a435802df3f0a793c7aa40c52d52344",
+    "lib/unsorted-docs.ts": "751f7081fdb2c801b0eeeaf99b57d96953c35a3b2bcc0c94743fd00b3c24fff1",
+    "lib/work-item-edit.ts": "a79d9a015becccf3cdf70f0bf3c9b146cc72fa85a2d1450d7ad7c71154868635",
+    "lib/workflow/agreement.ts": "33f61f5607cf64bc98c0d2011a9bba1888dbc413927c627814cdc1e24e3d6063",
+    "lib/workflow/construction-start.ts": "3b1f71eb03a6f6421e4a8b3f8ffe4e162b38bd9c7ab4968ddace6258441f10a8",
+    "app/api/cron/_lib/guard.ts": "de6409edc6d2006f99049395c3ee5523c7f3cad663f210bee4e0aafaf8f3584a",
     "app/api/internal/canvas-maintenance/route.ts": "149d93f2d35ec25b5faaf1aa1832bc2a45b1d7e7eadd6fe9b8262755937633dc",
-    "scripts/run-claude-agent.mjs": "f6b9b6c4843922569488761f3276dcca1c15a3a20b89a01722c7004a4b45cf6a"
+    "app/api/internal/runbooks/route.ts": "bfaca6e6354525f15fc5fe8ae57843cf7e49e53225efa2a6923ca1a2c5d6ac73",
+    "app/api/mobile/notifications/route.ts": "b1124dbd71c5e7c036c2b46c0e9064976f71a1b17f76e2e5091fcb91d5085481",
+    "mcp/chatgpt-tools.mjs": "582dd530abd140cdd1c8821c417b5579cd7e08b05fc5784374847e50e1e62218",
+    "mcp/filing-tools.mjs": "68ed40273aae6d2b04fe8591352ee6119095fe34f7d161576e5a1fde7b8dfd7f",
+    "mcp/project-tools.mjs": "9cb8deacdc68efd39d657c9960910b5b71e4100b4738bd15972af53b27788f43",
+    "mcp/sjcos-mcp.mjs": "e378d686533542c1993267ec0a5a4ade4c34046de4d2a9af11424d151142ed5e",
+    "scripts/backup.mjs": "48b8649b5b8e5c581d505341cdbc0d0e58d9718b72824ad3e4e02565892c5541",
+    "scripts/import-brain-archives.mjs": "5e18f0b3c6c2bce35b0f4e47dc33893631c2dd7b8b7a2f443b875d48ccc7ed6c",
+    "scripts/import-review.mjs": "4877b5ccc6d7820a12f1be11008e1452c485f139fbaef340777c3663e154ffb0",
+    "scripts/import-subs-csv.mjs": "4f8d0998050f9be771fe63d33563c4c5b4d2c40d9f642623df585a22e4128977",
+    "scripts/import-temp-leads.mjs": "86eac3f8c6cb86deb77ccfbc43a3e4333af513e5b44bbd79db36f17fb7c07026",
+    "scripts/import-undo.mjs": "4b3b0a790c53840c877b3a6919ad4c9a3d14b9e7d77b0140f1f6b37fe8061869",
+    "scripts/restore.mjs": "be39086b2cf46749b8045724e6b83a837589cedc2cee2661d530070c5ad501d6",
+    "scripts/run-claude-agent.mjs": "f6b9b6c4843922569488761f3276dcca1c15a3a20b89a01722c7004a4b45cf6a",
+    "scripts/upsert-inbox-work-items.mjs": "56911a0a95a56d5e5dd73eb5515d32d12975d2a2883babae33158fea36f15fd5",
+    "db/apply-notifications-v2.mjs": "66531e20627ab485faf41d7f3bf5ac82e470bada32d4eba7722e265beabd7739",
+    "db/apply-orchestration-p1.mjs": "3f7b9a9fe555834d565985b7bccb66be4331513887f285f44219624e0597c224",
+    "db/apply-orchestration-p2.mjs": "72a87b0b3ea0eb48df3c88889e4f8d4f800788ec62ccceab72dfa3e19d7a5020",
+    "db/apply-orchestration-p3.mjs": "f9c197367c1bc523c442d07ac2e77e1750cdac5611b79b99680545773e8d1114",
+    "db/apply-orchestration-p4.mjs": "d3d35ea4339b2fc1c82dffd90a31baeaa8b09c059a467da23dd45f29f2edcb49",
+    "db/apply-orchestration-p5.mjs": "23022b8f3cd9cf4da4424cdc7bb6aa9045a18ca57c4491f2746d5ccacd17ad42",
+    "db/apply-owner-grants.mjs": "5622c26bc1cbbae12338b7639f8b8e7ae7557d9b1641953c45786d83a0e09023",
+    "db/apply-run-steers.mjs": "772bc7f024c21c8f64d1d28b027418920460800eca73d45fbcfdbc05ded2dab2",
+    "db/apply-staff-separation.mjs": "0d981bd929e1f906a62833496ac08397a145191e7b81c259be3d33c08381653f",
+    "db/apply-thread-folders.mjs": "6f14e7279348f1663ca02fde3b52e00f13194fe8a32941dd75f2e5b0881eb68b",
+    "db/migrations/0001_foundation_commands_decisions_actions.sql": "4c78318f2a170b244e5206f94f4a2752fa52aa4038525c389072e6b8c0cf220f",
+    "db/migrations/0009_access.sql": "07ffbbe3555f9b69969de5c51c046d71796270dd4e784997ae33dde5d875f76f",
+    "db/migrations/0021_agent_runtime.sql": "49faad2439316aa6d4a6dfedefe0247f6564f3be04f591c41b3be2a7d5e2e99b",
+    "db/migrations/0034_telegram_replies.sql": "2e1a07a2a2a4501959cb4523ee48f0b53e660035b1d3501ecb80b63bf6498659",
+    "db/migrations/0041_telegram_draft_replies.sql": "26ba384716407eb19b7aa220685f2b2e6a24de9875d1da62bcdc194e6be3fd54",
+    "db/migrations/0055_panel_run_instruction_versions.sql": "8c9e2c762b9e4f7ec7f6265f11eaac6ab97b9da52d558cd8ab066914543cc18b",
+    "db/migrations/0058_panel_run_history.sql": "f42d6399a6d142979731a5dd6774a804cec45e40a0c7615dad716d23309f41ac",
+    "db/migrations/0060_db_roles.sql": "fbd0efeb23fed602640eabe5d42c4694b98b1509c30d9c3feaa1d5ce9132ce24",
+    "db/migrations/0062_portal_telegram.sql": "85878f8cf90c1ec4731c51ec5cd45ff1409ebc1ef3a5bf9e902394e90780155e",
+    "db/migrations/0100_ask_launch_sessions_browser_core.sql": "dd0deca0d6bc5ec0ea573fe6214d62889d238027e5d91a69256d0b4aa2d99f04",
+    "db/migrations/0105_ask_thread_ownership.sql": "2669c17eb4a7a83427cd1e67b72baf8c64853112e7af4db84d2380a5cbbe2f42",
+    "db/schema.sql": "8af22913669451c5f4dbb3aad8da113a06b022924ac7db326ea506f81fa79e79",
+    "db/seed.sql": "fe0fa36f0ade311fe5d64ae7d878e249977ab3f653e29d9b24178dba87745400"
   },
   "entries": [
+    {
+      "file": "lib/accounting/qbo/https.ts",
+      "function": "listChanges",
+      "queries": [
+        "3858e4665f7ee6043880b9dc3db6c50b621031c8b52f57cbe3e6482bd0c2083e"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review."
+    },
+    {
+      "file": "lib/accounting/qbo/https.ts",
+      "function": "findBy",
+      "queries": [
+        "dee0a197de45fed2c108c5098438f8d26cc7fa206354f2c61929aad3933c24fc"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review."
+    },
+    {
+      "file": "lib/actions/ai-chat.ts",
+      "function": "<private-files>",
+      "queries": [
+        "f5c821ca2562c800851de64e36a6425f88f2c5f03ae30da51b7b2115f7d5a416"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Non-SQL private-source inventory: upload root/reader or closed transport consumer. Application extraction uses withThreadAttachmentAccess; filing tools route through bound private bridge; MCP context captured at server construction and HTTP disabled. Metadata/type imports do not read bytes."
+    },
     {
       "file": "lib/actions/ai-chat.ts",
       "function": "sendMessageActionImpl",
@@ -84,6 +185,66 @@
       "explanation": "Each public action uses askBoundary and exact requireThreadAccess before ID reads/writes; runtime INSERT uses admitAskRun or the internal owned-thread continuation. No independent RPC SQL."
     },
     {
+      "file": "lib/actions/approvals.ts",
+      "function": "pollNotificationCenter",
+      "queries": [
+        "7f9afd838640c867385aab576a8eb36b2259e7d71edc3254258d0fcf6dd6ec52"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed intentional business event/card producer or audience-scoped consumer; no automatic Ask prompt/answer source. Approval grant data is a deliberately staged business send, never an Express prompt excerpt; automatic excerpts removed by 0105."
+    },
+    {
+      "file": "lib/actions/dev-agents.ts",
+      "function": "pendingGrants",
+      "queries": [
+        "45869e086c31a9a0102889a27872087756f222bef26f106be9297736bc9b3afc"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "pendingGrants is called only after exact requireRunThreadAccess on authenticated poll; query constrained to that run/thread before limit."
+    },
+    {
+      "file": "lib/actions/engine.ts",
+      "function": "createWorkItem",
+      "queries": [
+        "cbb4ce6a49ba0edcc6f3c3088254afa0c556833391c1311bc45722525c7cd1c4"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review."
+    },
+    {
+      "file": "lib/actions/inbox.ts",
+      "function": "linkThread",
+      "queries": [
+        "cbc5a8ecbc6823d74587e2187f88502d333d47369ae672627844f91ee7f15c51"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review."
+    },
+    {
+      "file": "lib/actions/notifications.ts",
+      "function": "markAllNotificationsRead",
+      "queries": [
+        "6aeb32392d724df488a9f0e2cdc83d98a45e4421d163d8a2cb07fdedaf05d146"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed intentional business event/card producer or audience-scoped consumer; no automatic Ask prompt/answer source. Approval grant data is a deliberately staged business send, never an Express prompt excerpt; automatic excerpts removed by 0105."
+    },
+    {
+      "file": "lib/actions/notifications.ts",
+      "function": "markNotificationRead",
+      "queries": [
+        "43c3d9bf48c7792e2370eeb220f96aef9d584cded56fcb031e0e2199f2996cde"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed intentional business event/card producer or audience-scoped consumer; no automatic Ask prompt/answer source. Approval grant data is a deliberately staged business send, never an Express prompt excerpt; automatic excerpts removed by 0105."
+    },
+    {
       "file": "lib/actions/panel-review.ts",
       "function": "loadRunReviewImpl",
       "queries": [
@@ -93,6 +254,16 @@
       "classification": "fenced",
       "reason": "fenced-by-helper",
       "explanation": "askBoundary + requireRunThreadAccess precede run and run_effects reads; staff effects remain area restricted."
+    },
+    {
+      "file": "lib/actions/selections.ts",
+      "function": "nextSort",
+      "queries": [
+        "204af30baac5617b53a16c399856b3b0a3799e3067d3d82a457f3b607d49b06e"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review."
     },
     {
       "file": "lib/agent-interactions.ts",
@@ -127,6 +298,17 @@
     },
     {
       "file": "lib/agent-runtime/context.ts",
+      "function": "authoritySection",
+      "queries": [
+        "79eb391bc2303f51fbe653ef56637bc1fa8da3801fcac7a8c1b443fa1e0bc064",
+        "c276983b7d9b34c189021e53c8fc269fdfc3cf9726f6355fc115fa990afb3970"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review."
+    },
+    {
+      "file": "lib/agent-runtime/context.ts",
       "function": "verifiedOwnerReplyOf",
       "queries": [
         "9714c63604b4c45471df7ff7b2702a4f9237249a947a49b51769e946d0ffa02c"
@@ -134,6 +316,36 @@
       "classification": "trusted-background",
       "reason": "trusted-background",
       "explanation": "Only runtime trigger context reads a verified owner business reply ID; conversation_id IS NULL prevents private-thread reply ingestion."
+    },
+    {
+      "file": "lib/agent-runtime/worker.ts",
+      "function": "dailyCostCap",
+      "queries": [
+        "c14387cbec7809a29d837666421ee15daab31594c750da3396e2bdb4ae4da393"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review."
+    },
+    {
+      "file": "lib/agent-sends.ts",
+      "function": "releaseIssue",
+      "queries": [
+        "769b73aebf139afb34dfa513ec2d0ef7a881544e9240347616d6052d67f8c56c"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Reviewed grant approval/dispatch/business context core; website command or narrow background role subject to 0105 derivative RLS. Explicit staged-send business data and action/target metadata; not private prompt excerpts or copied run answers. MCP private reads use separate person-bound bridge."
+    },
+    {
+      "file": "lib/ai-chat.ts",
+      "function": "<private-files>",
+      "queries": [
+        "3ce216a36019763bfdedd24f1d808a233c9b59abf050d565416cc457252374a8"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Non-SQL private-source inventory: upload root/reader or closed transport consumer. Application extraction uses withThreadAttachmentAccess; filing tools route through bound private bridge; MCP context captured at server construction and HTTP disabled. Metadata/type imports do not read bytes."
     },
     {
       "file": "lib/ai-chat.ts",
@@ -220,6 +432,36 @@
       "explanation": "Lists explicitly filter current actor and live threads. ID operations requireThreadAccess; creation stamps the actor and validates folder ownership. threadQuery supplies actor transaction and journal fence."
     },
     {
+      "file": "lib/approvals.ts",
+      "function": "listPendingApprovals",
+      "queries": [
+        "f152356abfdc79ae5aea88c36292469263222fc617367ccd0f81f542eb76e3d3"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed intentional business event/card producer or audience-scoped consumer; no automatic Ask prompt/answer source. Approval grant data is a deliberately staged business send, never an Express prompt excerpt; automatic excerpts removed by 0105."
+    },
+    {
+      "file": "lib/ask-private-bridge.mjs",
+      "function": "withPrivateRunner",
+      "queries": [
+        "54aaddd9d920e09a727a296fcdfe0d8086d4fcf36d7fcf407a727940e708e1d1"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "withAskJournal spans callback; immutable stdio tuple validated against live same-person thread, live attended run, profile, timestamp and revocation before any bridge content read."
+    },
+    {
+      "file": "lib/ask-private-transport.mjs",
+      "function": "<private-files>",
+      "queries": [
+        "526f608724370f95444e33c5612c0e74433d58c43a161bda8d2a0bde820caab5"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Non-SQL private-source inventory: upload root/reader or closed transport consumer. Application extraction uses withThreadAttachmentAccess; filing tools route through bound private bridge; MCP context captured at server construction and HTTP disabled. Metadata/type imports do not read bytes."
+    },
+    {
       "file": "lib/ask-run-admission.ts",
       "function": "admitAskRun",
       "queries": [
@@ -258,6 +500,8 @@
       "function": "replay",
       "queries": [
         "2ef31d44345a41d03a481a10ac1287746d6d4e35d76c820c0ddda8d97c7f5a99",
+        "2b3e712f4d9fe780301567c5e1456695ce4c31f4b7cf055585ac9909754bb892",
+        "083d7c5e847c4147c11b7e4c23091412f6c7215f8cc5c80fe06cb7fc7d2885ba",
         "1f3adf642c0a9d76574ff0bab3b149e73973002a787d8b56801dc773054b23c3"
       ],
       "classification": "trusted-background",
@@ -290,6 +534,16 @@
       "explanation": "Journal recovery/replay/purge under the OS lock, independent durability and maintenance lease; trusted internal website identity, no user payload returned."
     },
     {
+      "file": "lib/attachments.ts",
+      "function": "<private-files>",
+      "queries": [
+        "22837ed0d5a1e347a6b08dc1f45cb5670a042daeead7084d42e7db311471d5d5"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Non-SQL private-source inventory: upload root/reader or closed transport consumer. Application extraction uses withThreadAttachmentAccess; filing tools route through bound private bridge; MCP context captured at server construction and HTTP disabled. Metadata/type imports do not read bytes."
+    },
+    {
       "file": "lib/authority/usage.ts",
       "function": "admitRun",
       "queries": [
@@ -300,48 +554,164 @@
       "explanation": "Global operational quota aggregate only (run count/cap verdict), no title, text, person, thread ID, per-folder count or per-thread activity. Not a source-chat reader."
     },
     {
+      "file": "lib/bidding.ts",
+      "function": "sendBidPackageOp",
+      "queries": [
+        "53525f48f576d7acba98a3ef203192c52df523985cbb939193f0ba1e2f40ea9c"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Reviewed grant approval/dispatch/business context core; website command or narrow background role subject to 0105 derivative RLS. Explicit staged-send business data and action/target metadata; not private prompt excerpts or copied run answers. MCP private reads use separate person-bound bridge."
+    },
+    {
+      "file": "lib/budget-writes.ts",
+      "function": "resolveTarget",
+      "queries": [
+        "510280eeba2d99f26b256016dd9f38bd97426068b89ca601d2c72e53022ef718"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review."
+    },
+    {
+      "file": "lib/client-activity.ts",
+      "function": "logPortalVisit",
+      "queries": [
+        "b83e41480a4377ccd3d8f141076c66ef72afd1c01038b49464973e365784fd15"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review."
+    },
+    {
+      "file": "lib/decisions/grants.ts",
+      "function": "stageGrantDecision",
+      "queries": [
+        "f8a9a90bc7b20c252aaec7cc5b6bfb617737070decdea93bcef7f30f3eb6822d"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Reviewed grant approval/dispatch/business context core; website command or narrow background role subject to 0105 derivative RLS. Explicit staged-send business data and action/target metadata; not private prompt excerpts or copied run answers. MCP private reads use separate person-bound bridge."
+    },
+    {
+      "file": "lib/decisions/grants.ts",
+      "function": "settleGrantFromDecision",
+      "queries": [
+        "03f60394dfa838ac635b1a535aff11dbec71f8aee78a7fbb1e44b1e29aa1d805"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Reviewed grant approval/dispatch/business context core; website command or narrow background role subject to 0105 derivative RLS. Explicit staged-send business data and action/target metadata; not private prompt excerpts or copied run answers. MCP private reads use separate person-bound bridge."
+    },
+    {
+      "file": "lib/decisions/grants.ts",
+      "function": "settleDecisionFromGrant",
+      "queries": [
+        "1f7c5a5c3933a5b32d6a5859a06dd351a4791accec8c2fbf3e58324d847022d2"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Reviewed grant approval/dispatch/business context core; website command or narrow background role subject to 0105 derivative RLS. Explicit staged-send business data and action/target metadata; not private prompt excerpts or copied run answers. MCP private reads use separate person-bound bridge."
+    },
+    {
+      "file": "lib/decisions/grants.ts",
+      "function": "supersedeEarlierGrantRequests",
+      "queries": [
+        "fd006b1e918d585406946d31f6b06b76a353dbd66a8307879a6b39d4f3482d3e"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Reviewed grant approval/dispatch/business context core; website command or narrow background role subject to 0105 derivative RLS. Explicit staged-send business data and action/target metadata; not private prompt excerpts or copied run answers. MCP private reads use separate person-bound bridge."
+    },
+    {
+      "file": "lib/decisions/owner-replies.ts",
+      "function": "findReplyTarget",
+      "queries": [
+        "cf40557911a54fbde72cd07db6b9f68938a9e36029ebf7ba8b099b4ab88cfd7c",
+        "5ea88f896dd12eb9777513fb81eb0ca092cb6b9417a94f13f9fbd5aeeb19a116",
+        "fe9bbaccf435a0bf2fcbf400964616f51fba7407037f1fdbb850f14dcbb37ed0"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Recording private replies checks authenticated human owner, active self live thread and recovery-ready before mutations; DB guard serializes tombstones. Draft closure is business-only; grant closure constrains same live conversation. Target IDs/explicit business card content are not automatic transcript excerpts."
+    },
+    {
       "file": "lib/decisions/owner-replies.ts",
       "function": "recordOwnerReply",
       "queries": [
         "14fb6d4a29146fec9a2c748dee962c8fb58b018e77b9f0e81c39aa5fd2922cd8",
+        "ee179bf67ecb91436fbb331f1b97316040394e4b47b724a82334dc798f879b02",
         "e0dbbf05f0fa522a251e2299f029b5c5f9cdf6ed1e655649b2b105552bfd7e45",
-        "ad88b1c6f79f245795de3a2ed6ee8c23b5eb238caa2770f412cbcb064ae08f2b"
+        "ad88b1c6f79f245795de3a2ed6ee8c23b5eb238caa2770f412cbcb064ae08f2b",
+        "74c9ce61e2cfa706dee3a7934e4c47d322edcb68ab88b855556f47843bc5ee12"
       ],
-      "classification": "not-private",
-      "reason": "owner-health-opaque-ids",
-      "explanation": "Business decision/draft replies explicitly written by Joe for business agents, not captured chat transcript. Queries use opaque chat IDs solely to choose delivery; private routing subsequently requires self access. No private title/messages/session selected."
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Recording private replies checks authenticated human owner, active self live thread and recovery-ready before mutations; DB guard serializes tombstones. Draft closure is business-only; grant closure constrains same live conversation. Target IDs/explicit business card content are not automatic transcript excerpts."
     },
     {
       "file": "lib/decisions/owner-replies.ts",
       "function": "recordDraftReply",
       "queries": [
         "159aa7d7fa4ce5c1b536a0f507ddf747ed18871b2fac591757929e992d4da981",
+        "ee179bf67ecb91436fbb331f1b97316040394e4b47b724a82334dc798f879b02",
         "40b1913a632e979efc3fa3848793ee0a360c788668daa7db4dd4be262321fde1",
-        "ad88b1c6f79f245795de3a2ed6ee8c23b5eb238caa2770f412cbcb064ae08f2b"
+        "ad88b1c6f79f245795de3a2ed6ee8c23b5eb238caa2770f412cbcb064ae08f2b",
+        "95053ac15a21ada5b206b9510e2a8da2423820cbd825873b56a7e138637d818b"
       ],
-      "classification": "not-private",
-      "reason": "owner-health-opaque-ids",
-      "explanation": "Business decision/draft replies explicitly written by Joe for business agents, not captured chat transcript. Queries use opaque chat IDs solely to choose delivery; private routing subsequently requires self access. No private title/messages/session selected."
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Recording private replies checks authenticated human owner, active self live thread and recovery-ready before mutations; DB guard serializes tombstones. Draft closure is business-only; grant closure constrains same live conversation. Target IDs/explicit business card content are not automatic transcript excerpts."
+    },
+    {
+      "file": "lib/decisions/owner-replies.ts",
+      "function": "rememberReplyTarget",
+      "queries": [
+        "e51fa7d95b6a59d1a5846ab6a8743e470681f39ff31922dc1a2ac14eb238ff6e"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Recording private replies checks authenticated human owner, active self live thread and recovery-ready before mutations; DB guard serializes tombstones. Draft closure is business-only; grant closure constrains same live conversation. Target IDs/explicit business card content are not automatic transcript excerpts."
     },
     {
       "file": "lib/decisions/owner-replies.ts",
       "function": "closeRepliesRevisedByDraft",
       "queries": [
-        "b8174bd545c545b1af5705e3017fbed633844a9d1a92a5f96688e4ea3436a695"
+        "9e554cdcb19a03c912e13467db79fa1ca6575dfed99df50e87fe64cc6d982d08"
       ],
-      "classification": "not-private",
-      "reason": "owner-health-opaque-ids",
-      "explanation": "Business decision/draft replies explicitly written by Joe for business agents, not captured chat transcript. Queries use opaque chat IDs solely to choose delivery; private routing subsequently requires self access. No private title/messages/session selected."
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Recording private replies checks authenticated human owner, active self live thread and recovery-ready before mutations; DB guard serializes tombstones. Draft closure is business-only; grant closure constrains same live conversation. Target IDs/explicit business card content are not automatic transcript excerpts."
     },
     {
       "file": "lib/decisions/owner-replies.ts",
       "function": "closeRepliesRevisedBy",
       "queries": [
-        "809d65b46e0b726a6b8385f09b20f08937d37fc543b97040b415415b92779019"
+        "e71b782ada9ef1275cca235a036d8704b7d1985a44f4f31861e5b8fa722cbe55"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Recording private replies checks authenticated human owner, active self live thread and recovery-ready before mutations; DB guard serializes tombstones. Draft closure is business-only; grant closure constrains same live conversation. Target IDs/explicit business card content are not automatic transcript excerpts."
+    },
+    {
+      "file": "lib/decisions/resolve.ts",
+      "function": "revokeDecisionEverywhere",
+      "queries": [
+        "b03bcf94b358abe5bd8f514dae92dd664c214ac5284c8660ebf94c8964b8883e"
       ],
       "classification": "not-private",
       "reason": "owner-health-opaque-ids",
-      "explanation": "Business decision/draft replies explicitly written by Joe for business agents, not captured chat transcript. Queries use opaque chat IDs solely to choose delivery; private routing subsequently requires self access. No private title/messages/session selected."
+      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review."
+    },
+    {
+      "file": "lib/dev-agents-meta.ts",
+      "function": "<private-files>",
+      "queries": [
+        "eababf3bfdf6ed4b0f5bc09bd9c85276538428148529580d9ac13ba3b45e5d28"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Non-SQL private-source inventory: upload root/reader or closed transport consumer. Application extraction uses withThreadAttachmentAccess; filing tools route through bound private bridge; MCP context captured at server construction and HTTP disabled. Metadata/type imports do not read bytes."
     },
     {
       "file": "lib/dev-agents.ts",
@@ -440,9 +810,111 @@
       "explanation": "Human thread launches use admitAskRun/requireThreadAccess; poll and stop requireRunThreadAccess. Internal unbound background branches cannot bind a private thread. Poll reaper explicitly scopes current actor/live thread."
     },
     {
+      "file": "lib/dispatch/authority.ts",
+      "function": "verifyAuthority",
+      "queries": [
+        "c25d7f93c8659df35fc7d1f0850636b94cc0a001b72993b9df4c127f2163d8bd"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Reviewed grant approval/dispatch/business context core; website command or narrow background role subject to 0105 derivative RLS. Explicit staged-send business data and action/target metadata; not private prompt excerpts or copied run answers. MCP private reads use separate person-bound bridge."
+    },
+    {
+      "file": "lib/dispatch/authority.ts",
+      "function": "getGrantRun",
+      "queries": [
+        "6b52018cc577855d798cd330c5b1b2726e0400e1419b1e45d8ab91b5ea270e8b"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Reviewed grant approval/dispatch/business context core; website command or narrow background role subject to 0105 derivative RLS. Explicit staged-send business data and action/target metadata; not private prompt excerpts or copied run answers. MCP private reads use separate person-bound bridge."
+    },
+    {
+      "file": "lib/dispatch/authority.ts",
+      "function": "consumeGrantRun",
+      "queries": [
+        "6843cb04252f773a3c556725b940fa74aa24ceb6aaae63b518213f134582f3fc"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Reviewed grant approval/dispatch/business context core; website command or narrow background role subject to 0105 derivative RLS. Explicit staged-send business data and action/target metadata; not private prompt excerpts or copied run answers. MCP private reads use separate person-bound bridge."
+    },
+    {
+      "file": "lib/dispatch/authority.ts",
+      "function": "refundGrantUseRun",
+      "queries": [
+        "f1c47c8888acbd2205d9a096c0c058b2c39298fb31ced6ea5e5789980d024f72"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Reviewed grant approval/dispatch/business context core; website command or narrow background role subject to 0105 derivative RLS. Explicit staged-send business data and action/target metadata; not private prompt excerpts or copied run answers. MCP private reads use separate person-bound bridge."
+    },
+    {
+      "file": "lib/dispatch/authority.ts",
+      "function": "recordGrantResultRun",
+      "queries": [
+        "f531c8368cf77cb707494c5fd3af2cff5fb63b804d4ac647eeb8600b0fd28dc8"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Reviewed grant approval/dispatch/business context core; website command or narrow background role subject to 0105 derivative RLS. Explicit staged-send business data and action/target metadata; not private prompt excerpts or copied run answers. MCP private reads use separate person-bound bridge."
+    },
+    {
+      "file": "lib/dispatch/effects.ts",
+      "function": "notify",
+      "queries": [
+        "8fee0afc31799ca2ec48a995be1b5b9789b62a1b9c376ca8499da553e39c420e"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review."
+    },
+    {
+      "file": "lib/file-trash.ts",
+      "function": "fileReferences",
+      "queries": [
+        "dcc356103e8a69bdcb8a104442a18054471c1c1b4ef0da6cb753a694ec24e797"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review."
+    },
+    {
+      "file": "lib/grant-execution.ts",
+      "function": "setResult",
+      "queries": [
+        "ac008290f43d7ab17484b392bdadd83a8aba99550a0d6fd0aff2994d6f431d9a"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Reviewed grant approval/dispatch/business context core; website command or narrow background role subject to 0105 derivative RLS. Explicit staged-send business data and action/target metadata; not private prompt excerpts or copied run answers. MCP private reads use separate person-bound bridge."
+    },
+    {
+      "file": "lib/grant-execution.ts",
+      "function": "runStagedGrant",
+      "queries": [
+        "4b343ca2226c6977acd22339fcea5825c3d52b9c136a77f8e92fd4c1e7d6e33e"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Reviewed grant approval/dispatch/business context core; website command or narrow background role subject to 0105 derivative RLS. Explicit staged-send business data and action/target metadata; not private prompt excerpts or copied run answers. MCP private reads use separate person-bound bridge."
+    },
+    {
+      "file": "lib/grant-execution.ts",
+      "function": "sweepStagedGrants",
+      "queries": [
+        "4054cda6d12f1678427380cc6e0b0bb063fed823a87384bce6cadcd0ac95a1c2"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Reviewed grant approval/dispatch/business context core; website command or narrow background role subject to 0105 derivative RLS. Explicit staged-send business data and action/target metadata; not private prompt excerpts or copied run answers. MCP private reads use separate person-bound bridge."
+    },
+    {
       "file": "lib/measure/baseline.ts",
       "function": "baselineOwnerTouches",
       "queries": [
+        "12621ffd6021ecba45ec49f16a0c19cea0bf9bd43785d2355ecffce8635b3261",
+        "3e999c3be01fa48de2cae5b4b6c569ff5bf0343d9e2f17872a569ee605bb2992",
         "bca5a0bb2fbfaf86c880d4f82d3a98d94690a5bd12cd1e722482ff95ddf39d46"
       ],
       "classification": "not-private",
@@ -490,6 +962,83 @@
       "classification": "not-private",
       "reason": "owner-health-opaque-ids",
       "explanation": "Operations measurement and owner-touch accounting; private source tables contribute aggregate recorded cost/count only, never private chat contents or per-folder counts. Conservative scan also catches non-private measurement SQL fragments."
+    },
+    {
+      "file": "lib/notifications.ts",
+      "function": "sql",
+      "queries": [
+        "1740ec9ecc54e97ae42e784b2475f28fc172ca0c1734615cef27b437615967ef",
+        "6ffec1af630742cdacf522445d7a1c39d547f66c7d0d4df412a232b859210fe1"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed intentional business event/card producer or audience-scoped consumer; no automatic Ask prompt/answer source. Approval grant data is a deliberately staged business send, never an Express prompt excerpt; automatic excerpts removed by 0105."
+    },
+    {
+      "file": "lib/notify-owner.ts",
+      "function": "sendOwnerPushesNow",
+      "queries": [
+        "30d706515a9721eb2ba5903849531696c14316b4c1bf37111f89ce91839a8062",
+        "74c67b225cae404c43967b08006cef13f5d002156b574756838db63c1f28904d",
+        "21db4463e30e860f8206eca11781ef68952131abcc90f9814ec4149db5a4195a"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed intentional business event/card producer or audience-scoped consumer; no automatic Ask prompt/answer source. Approval grant data is a deliberately staged business send, never an Express prompt excerpt; automatic excerpts removed by 0105."
+    },
+    {
+      "file": "lib/notify-owner.ts",
+      "function": "runPushDrain",
+      "queries": [
+        "e40ca70e35cfed925415ba6f1fb33a3b0d8d2d06f06499e4cec0d87647b834f2",
+        "d678357d3c4e2d78fa649cd96ed6eed54ca6881492de669a391bc2cc0e91a4e0",
+        "f246b51d960ace37318c2e095a1d2a961d26064c28a5aee2bfd15c364faaba95",
+        "7666983731c7bfa4d9812d91c589bd0e014a0426bba169567924019df017ad81"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed intentional business event/card producer or audience-scoped consumer; no automatic Ask prompt/answer source. Approval grant data is a deliberately staged business send, never an Express prompt excerpt; automatic excerpts removed by 0105."
+    },
+    {
+      "file": "lib/notify-owner.ts",
+      "function": "unclaim",
+      "queries": [
+        "c251cf2c32adf9452b3957ff3a432bade6e60e5bd75afc2980d50c2093cf4d4a"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed intentional business event/card producer or audience-scoped consumer; no automatic Ask prompt/answer source. Approval grant data is a deliberately staged business send, never an Express prompt excerpt; automatic excerpts removed by 0105."
+    },
+    {
+      "file": "lib/notify.ts",
+      "function": "emit",
+      "queries": [
+        "c30988f8b5d95b59e386e16747414a7cc22971bbf99839bcbcd00ee873aecc47",
+        "c511d0d026ea0201e3d3028303490a2a6bb2a562e7a88c5cff0a1d0d33c80a89"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed intentional business event/card producer or audience-scoped consumer; no automatic Ask prompt/answer source. Approval grant data is a deliberately staged business send, never an Express prompt excerpt; automatic excerpts removed by 0105."
+    },
+    {
+      "file": "lib/notify.ts",
+      "function": "resolveNotifications",
+      "queries": [
+        "187497a662c49ea794f7250ab967156d57ef29c2f701a352fd5e3610ded055d0"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed intentional business event/card producer or audience-scoped consumer; no automatic Ask prompt/answer source. Approval grant data is a deliberately staged business send, never an Express prompt excerpt; automatic excerpts removed by 0105."
+    },
+    {
+      "file": "lib/notify.ts",
+      "function": "syncComplianceNotifications",
+      "queries": [
+        "a90a2dc3be2cb75ca2babd44afa0d80912803f3dc04f893f80c9e8556da55552"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed intentional business event/card producer or audience-scoped consumer; no automatic Ask prompt/answer source. Approval grant data is a deliberately staged business send, never an Express prompt excerpt; automatic excerpts removed by 0105."
     },
     {
       "file": "lib/orchestrator/activity.ts",
@@ -552,11 +1101,9 @@
         "6351d680e1a6fd603478563404c36a6f013c61813bff0f745e4bc7aef15e4625",
         "4b4c476e6a3aa9f0c251a0579618d64b49a1515af9c8cdf52b314a658a613b41",
         "a9a9e91149fddd8fc36ededee6a9762275ce222b418eb7dcd3a954707a69143a",
-        "6351d680e1a6fd603478563404c36a6f013c61813bff0f745e4bc7aef15e4625",
         "86376cefa48e5de4a8def521238fa561c9bf89a9826159b043f7bf12a3253f7a",
         "402c87bac5d73fe1d409287b1819781b95b0272a5620b7ca60379be2b375e18d",
-        "e72d18828018acbafbe494630daf1452a58f483bc265da7212edcf0a481b428b",
-        "6351d680e1a6fd603478563404c36a6f013c61813bff0f745e4bc7aef15e4625"
+        "e72d18828018acbafbe494630daf1452a58f483bc265da7212edcf0a481b428b"
       ],
       "classification": "trusted-background",
       "reason": "trusted-background",
@@ -599,7 +1146,6 @@
         "d22b7ca8181cc756792afd9d9987e5630a2da0c4f9d87165f700e796322a935c",
         "1cd967c4b8dfcd61db7fce398003a2459571efb428c6b103c4fa9f378d1152b7",
         "22b1aa757d422bcdb9f5d6de466db395616288203348f79e3a1fed9112e021ad",
-        "43c4719b5f8fb4bba3a9d51f2d4a74be14cd8ab99b114fc618be22e2d59a2baf",
         "43c4719b5f8fb4bba3a9d51f2d4a74be14cd8ab99b114fc618be22e2d59a2baf"
       ],
       "classification": "trusted-background",
@@ -641,14 +1187,85 @@
       "explanation": "spokenUpdateForRun requiresRunThreadAccess before prompt/answer/cache access; concierge accepts current supplied utterance, not stored foreign-thread history."
     },
     {
-      "file": "lib/owner-reply-delivery.ts",
-      "function": "markDraftCardPulled",
+      "file": "lib/overhead/overhead.ts",
+      "function": "checkOverheadAlert",
       "queries": [
-        "6b38026658323019c31db4165590471d9d331279855d67a3cc4c81620c05d4e3"
+        "aa509ad2eecb66e4ec8246b33f88d8ff7485cda29f46745d8fcaae01f8490086"
       ],
       "classification": "not-private",
       "reason": "owner-health-opaque-ids",
-      "explanation": "No private SQL: conservative string tracking captures Telegram UI text for shared business draft cards."
+      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review."
+    },
+    {
+      "file": "lib/owner-grants.ts",
+      "function": "getGrant",
+      "queries": [
+        "3c584d6b8a47b7648addb3d1dc7090f396394d02e1267dc232afa90d7755fb46"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Trusted website grant mint/approval/spend core; automatic prompt copying stopped, historical excerpts redacted by 0105, narrow raw SQL restricted by derivative RLS. Public MCP reads use separate scoped accessors."
+    },
+    {
+      "file": "lib/owner-grants.ts",
+      "function": "listGrants",
+      "queries": [
+        "102f8dbdeb581cf63875432edfc273b335299d1da2f0cad22910798fd1deca09"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Self/live-thread predicate before ordering/limit/serialization, current website person or validated private bridge scope; shared business grants separate."
+    },
+    {
+      "file": "lib/owner-grants.ts",
+      "function": "getBridgeGrant",
+      "queries": [
+        "86db8f551153d679bdb3847de8e162d0ff3eab82afbd67e5373deb278c066b5f"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Self/live-thread predicate before ordering/limit/serialization, current website person or validated private bridge scope; shared business grants separate."
+    },
+    {
+      "file": "lib/owner-grants.ts",
+      "function": "listBridgeGrants",
+      "queries": [
+        "520928752ad1bc6cc84801ee184267e0d7c486017d6eb87dc1531b0961b68417"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Self/live-thread predicate before ordering/limit/serialization, current website person or validated private bridge scope; shared business grants separate."
+    },
+    {
+      "file": "lib/owner-grants.ts",
+      "function": "createGrant",
+      "queries": [
+        "269452a34186751fe9d122f3e7c4c65e7a32a879f7f99ceb3fe3efe76d136128"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Trusted website grant mint/approval/spend core; automatic prompt copying stopped, historical excerpts redacted by 0105, narrow raw SQL restricted by derivative RLS. Public MCP reads use separate scoped accessors."
+    },
+    {
+      "file": "lib/owner-grants.ts",
+      "function": "decideGrant",
+      "queries": [
+        "bf71aa1902c6bf8ad54a6cc66d375da79796e1898e908a9c8e0bf545b497a513"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Trusted website grant mint/approval/spend core; automatic prompt copying stopped, historical excerpts redacted by 0105, narrow raw SQL restricted by derivative RLS. Public MCP reads use separate scoped accessors."
+    },
+    {
+      "file": "lib/owner-reply-delivery.ts",
+      "function": "markDraftCardPulled",
+      "queries": [
+        "cf2cab30397752613e3ac5d24f8ae4aaa762226ac7769650e099f004cc8bdc7b",
+        "6b38026658323019c31db4165590471d9d331279855d67a3cc4c81620c05d4e3"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Private delivery requires owner=self live thread under journal; reply command uses captured person predicates before lookup/update/Telegram, no missing-private fallback. Sweep explicitly selects conversation_id IS NULL and never copies private run answers. Shared business reply/target helpers carry intentional business data only."
     },
     {
       "file": "lib/owner-reply-delivery.ts",
@@ -656,63 +1273,86 @@
       "queries": [
         "b95c731d84f82c64ce22c9ef84d58a3ad9d732c7c9e665a85b950930960cf19d"
       ],
-      "classification": "not-private",
-      "reason": "owner-health-opaque-ids",
-      "explanation": "Shared business owner-grant request selected by its ID, not a private transcript; conservative scan also catches formatting strings."
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Private delivery requires owner=self live thread under journal; reply command uses captured person predicates before lookup/update/Telegram, no missing-private fallback. Sweep explicitly selects conversation_id IS NULL and never copies private run answers. Shared business reply/target helpers carry intentional business data only."
     },
     {
       "file": "lib/owner-reply-delivery.ts",
       "function": "deliverOwnerReplyImpl",
       "queries": [
+        "b87cce364a7b06ee00bb337a2e9e8cc192b594f991dbf78821d111ef92b64ef7",
         "97819ae128bc3ffb06e7aae06dcc59ac1d25fb1ca0a9349fb0c4ae6ce02a55b5",
         "5803d41d6d031586f9662efacde42b70aaa6c78c5c24f3a23bb665c731224fd0",
         "79d0bf1552d28b0ebc20bcaba852aa0353e995c4fa8ff1add83ff99fa0068529",
-        "4ea258f6847838a07466ccfbeb9a5c5ca22562fca6ebaa442b9530bdd0c7b159",
+        "e831cd74dc84273957cf1ee026b22956416b958fe0735fe899827846fb11a7ab",
         "ffc5ddd6bea7b2327ee3a06879c6521df501c51d0d2a2656d38769aeb6396a18",
         "eef02f6f77d64c4367937e54d0931274f0e3ec5680bcf1fa3ab8deaeb034b6d0",
         "b805806f53c5b38a4b8e6fad9efcc7c40cb7bcefdebf7009a033083dce39c131"
       ],
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Session route requires threadPrincipal owner plus requireThreadAccess(self), then journal/threadQuery; no private-denial fallback. Remaining writes update only the owner business reply being delivered."
+      "explanation": "Private delivery requires owner=self live thread under journal; reply command uses captured person predicates before lookup/update/Telegram, no missing-private fallback. Sweep explicitly selects conversation_id IS NULL and never copies private run answers. Shared business reply/target helpers carry intentional business data only."
     },
     {
       "file": "lib/owner-reply-delivery.ts",
       "function": "replyToOwner",
       "queries": [
-        "b9149352a069efc51cf04f63e22721d30fe1e984901bed07a1bdfe0a68d41faf",
-        "9302e1493fd04dce84423960f7ab605c150032ddf176c5426df36617e240f5ab",
+        "60ad015a14bb1cbb4899310161e252077e2691a2b3a72aa43d4b2e221079224a",
+        "23a2ac434fee4ae4425b0ade85140d58556baad3733dbe0745b214338ac9cd03",
+        "bfdf7f0c8963cbd36b12a8c5b405013602af3f7a2b8bb6f5792498bc26dbce93",
         "d010b656403c6a67ff942a08cc2b33cc48e4ea958b1e6335253d5593f3e3cc8c",
         "6b38026658323019c31db4165590471d9d331279855d67a3cc4c81620c05d4e3",
-        "6f2dda5c66a356456d6102b8107cfa25238f8b648a44f26da778920cdcca330a"
+        "09c08a2bd9ed59755c0b584ee8baec5c7970059a2eebd851db73cf8785a9ca0b"
       ],
-      "classification": "not-private",
-      "reason": "owner-health-opaque-ids",
-      "explanation": "Owner-authored business reply delivery metadata and Joe-only Telegram routing; private session title/run reads additionally require current owner=self thread access and journal, never blanket owner access. MCP reply selects decision/work-item routing metadata, not source chat content."
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Private delivery requires owner=self live thread under journal; reply command uses captured person predicates before lookup/update/Telegram, no missing-private fallback. Sweep explicitly selects conversation_id IS NULL and never copies private run answers. Shared business reply/target helpers carry intentional business data only."
     },
     {
       "file": "lib/owner-reply-delivery.ts",
       "function": "sweepUnansweredReplies",
       "queries": [
-        "e3c9b2d201fc0cc5d4de89ce680b613988a455b457dd380b5c36acd2952f72af",
+        "f047f98d332c09d6b4f8483833a962c8d09126938b9a2b108949b653f45035eb",
         "6620b9723ee8071c1d6c9062ee8d708bac0be4360c994db495c34f8b24adce53",
         "be1a66b21b6bfd9e30e6f83fcbd56c9204d199a7c19fedc990d76ab65bd3d3bc",
         "2632571b1acca628d376152fca58707d7705ffb9d2658a1c8d95a0503d5e4ea8",
         "3b60e52aeab2fa26f42e9947e7a7ac6007c2950b231243906fa4c420c5f6b03c"
       ],
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Secret dispatch cron reads reply routing metadata; private session branch requires self access and skips when no verified current person, so cron cannot forward staff/private transcripts. Unbound branch reads business trigger results only."
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Private delivery requires owner=self live thread under journal; reply command uses captured person predicates before lookup/update/Telegram, no missing-private fallback. Sweep explicitly selects conversation_id IS NULL and never copies private run answers. Shared business reply/target helpers carry intentional business data only."
     },
     {
       "file": "lib/panel-search.ts",
       "function": "searchPanelForUser",
       "queries": [
+        "1b4168046392cdc959eba6cd5392fa0073b22925f708a6da705ad4f849feea09",
         "9714fa287ce1c8379d8122483008a79694a7de0eb2f58caa9cc54163e0f03746"
       ],
       "classification": "fenced",
       "reason": "fenced-by-helper",
       "explanation": "Actor loaded by threadPrincipal must match authenticated web/bearer adapter user; SQL requires c.owner_user_id=$2 and live thread for both roles. Failure yields no chat hits."
+    },
+    {
+      "file": "lib/payments/owner-alert.ts",
+      "function": "stagePaymentAlert",
+      "queries": [
+        "12e0be7dc9dc1cd946b315f532aca2720c761800d476c3836c8a4a818afac67e"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review."
+    },
+    {
+      "file": "lib/run-focus.ts",
+      "function": "resolveRunEntity",
+      "queries": [
+        "3b41ac289ed0223afc6e36dbc09595e157a15873aa9644c8957ecfa359ad3f79"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review."
     },
     {
       "file": "lib/run-focus.ts",
@@ -852,6 +1492,16 @@
     },
     {
       "file": "lib/thread-access.ts",
+      "function": "<private-files>",
+      "queries": [
+        "b7f7c0ef210752d7d49b50655c50dca6161d60357ff1b328fe7d3559d8e9cf3d"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Non-SQL private-source inventory: upload root/reader or closed transport consumer. Application extraction uses withThreadAttachmentAccess; filing tools route through bound private bridge; MCP context captured at server construction and HTTP disabled. Metadata/type imports do not read bytes."
+    },
+    {
+      "file": "lib/thread-access.ts",
       "function": "requireThreadAccess",
       "queries": [
         "d9f7cf8b6a74c13084ba2b25afec11e4e042167240da1c283db6899b7431c58c"
@@ -909,6 +1559,26 @@
       "classification": "fenced",
       "reason": "fenced-by-helper",
       "explanation": "Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD."
+    },
+    {
+      "file": "lib/thread-folders.ts",
+      "function": "resolveEntity",
+      "queries": [
+        "d1eb0f236737ae1b53ccffe5d3aa5432a5f941f6485d8b703a80178f9fd2858e"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review."
+    },
+    {
+      "file": "lib/thread-folders.ts",
+      "function": "resolveMany",
+      "queries": [
+        "651618841e8e17f89c525a2de5f1a5da2da5fc4e0eaea4152c2136289b312cdd"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review."
     },
     {
       "file": "lib/thread-folders.ts",
@@ -1148,6 +1818,67 @@
       "explanation": "Per-person folders. Explicit actor SQL on lists, entity-folder joins, conflict lookups, counts and writes; exact thread/folder access checks before metadata or mutation. Per-actor poll sweep. Shared THREAD_SELECT fragment is consumed only with OWN_THREAD."
     },
     {
+      "file": "lib/unsorted-docs.ts",
+      "function": "<private-files>",
+      "queries": [
+        "751f7081fdb2c801b0eeeaf99b57d96953c35a3b2bcc0c94743fd00b3c24fff1"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Filing no longer trusts Ask root. Closed bridge journal scope spans exact attached-source person/thread check, byte read and shared copy; raw and canonical Ask roots take precedence over ancestor shared roots. No bound context denies before read/store."
+    },
+    {
+      "file": "lib/unsorted-docs.ts",
+      "function": "readHandedFiles",
+      "queries": [
+        "8173b67c3b5abb5caf5f34dcade821c4991455b2a7b86f7acc06e7462af22ccb"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Filing no longer trusts Ask root. Closed bridge journal scope spans exact attached-source person/thread check, byte read and shared copy; raw and canonical Ask roots take precedence over ancestor shared roots. No bound context denies before read/store."
+    },
+    {
+      "file": "lib/work-item-edit.ts",
+      "function": "editWorkItem",
+      "queries": [
+        "b83e41480a4377ccd3d8f141076c66ef72afd1c01038b49464973e365784fd15"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review."
+    },
+    {
+      "file": "lib/workflow/agreement.ts",
+      "function": "prepareAgreementOnAcceptance",
+      "queries": [
+        "9ef1ff32bf3b1fb3910cd9069844b81761fde0256ff4fa49c96829b95d2e490d"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review."
+    },
+    {
+      "file": "lib/workflow/construction-start.ts",
+      "function": "maybeStartConstruction",
+      "queries": [
+        "f382fb3500ae804aec881979554e81cf7ac77c991517903d5db7add4298fd56d",
+        "a2bccd5c88ab1568c8899f5a0c889bc80d5f2cf8da01676f16286c26eba61362"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review."
+    },
+    {
+      "file": "app/api/cron/_lib/guard.ts",
+      "function": "notifyOnce",
+      "queries": [
+        "8b33425f3e7e3d8ffedf80152cfde8dc1a107d61be3f1bdf6f016ac00e29222e"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review."
+    },
+    {
       "file": "app/api/internal/canvas-maintenance/route.ts",
       "function": "reportHealth",
       "queries": [
@@ -1156,6 +1887,167 @@
       "classification": "not-private",
       "reason": "owner-health-opaque-ids",
       "explanation": "Secret-authenticated maintenance health reports only opaque UUID/count/ready state; no private chat text. Conservative SQL scan also tracks fixed private-table absence checks."
+    },
+    {
+      "file": "app/api/internal/runbooks/route.ts",
+      "function": "slugToId",
+      "queries": [
+        "b83e41480a4377ccd3d8f141076c66ef72afd1c01038b49464973e365784fd15"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review."
+    },
+    {
+      "file": "app/api/mobile/notifications/route.ts",
+      "function": "GET",
+      "queries": [
+        "edb98ef998203b710d204066193302b8e19ba3547a0abf599fcc07701a2faa03",
+        "002c79b4b80138a6521ab39b712a3c4d5f0f82f68b151ca1e8856af63e38ef79"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed intentional business event/card producer or audience-scoped consumer; no automatic Ask prompt/answer source. Approval grant data is a deliberately staged business send, never an Express prompt excerpt; automatic excerpts removed by 0105."
+    },
+    {
+      "file": "mcp/chatgpt-tools.mjs",
+      "function": "registerChatgptTools",
+      "queries": [
+        "2e357cbe1e70bbb2f59bf4181ed04bb889c3f9c78e2402bca76b1053056ea466"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review."
+    },
+    {
+      "file": "mcp/filing-tools.mjs",
+      "function": "<private-files>",
+      "queries": [
+        "68ed40273aae6d2b04fe8591352ee6119095fe34f7d161576e5a1fde7b8dfd7f"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Non-SQL private-source inventory: upload root/reader or closed transport consumer. Application extraction uses withThreadAttachmentAccess; filing tools route through bound private bridge; MCP context captured at server construction and HTTP disabled. Metadata/type imports do not read bytes."
+    },
+    {
+      "file": "mcp/project-tools.mjs",
+      "function": "convertLead",
+      "queries": [
+        "debc0af066bd73a9e62e87639b198e4041252333e6eb9ef172259c2c3c665166"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review."
+    },
+    {
+      "file": "mcp/sjcos-mcp.mjs",
+      "function": "<private-files>",
+      "queries": [
+        "e378d686533542c1993267ec0a5a4ade4c34046de4d2a9af11424d151142ed5e"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Non-SQL private-source inventory: upload root/reader or closed transport consumer. Application extraction uses withThreadAttachmentAccess; filing tools route through bound private bridge; MCP context captured at server construction and HTTP disabled. Metadata/type imports do not read bytes."
+    },
+    {
+      "file": "mcp/sjcos-mcp.mjs",
+      "function": "slugToId",
+      "queries": [
+        "b83e41480a4377ccd3d8f141076c66ef72afd1c01038b49464973e365784fd15"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review."
+    },
+    {
+      "file": "mcp/sjcos-mcp.mjs",
+      "function": "writeAssignees",
+      "queries": [
+        "e10111ffbf969841b4c78365c0ba846f29f36ff5dca74e91f118983f78ec1eba"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review."
+    },
+    {
+      "file": "scripts/backup.mjs",
+      "function": "buildManifest",
+      "queries": [
+        "8c06010dd54282aa460677db5a0cfee8d25f278697e082b5c8fc7a036948063c"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Explicit operator-only import/backup/restore/role CLI, not a request-time arbitrary table reader; dynamic table names from reviewed catalog/snapshot or fixed business whitelist."
+    },
+    {
+      "file": "scripts/import-brain-archives.mjs",
+      "function": "uniqueSlug",
+      "queries": [
+        "12369316fc1b3722fca39e32057227a177030be1b98ef9bb473c8d90ee987b22"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Explicit operator-only import/backup/restore/role CLI, not a request-time arbitrary table reader; dynamic table names from reviewed catalog/snapshot or fixed business whitelist."
+    },
+    {
+      "file": "scripts/import-review.mjs",
+      "function": "main",
+      "queries": [
+        "5a9293ca77e1f69ccf057fd05596d82a06076a70a9504c4c94dae49acc04017f"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Explicit operator-only import/backup/restore/role CLI, not a request-time arbitrary table reader; dynamic table names from reviewed catalog/snapshot or fixed business whitelist."
+    },
+    {
+      "file": "scripts/import-subs-csv.mjs",
+      "function": "<private-files>",
+      "queries": [
+        "4f8d0998050f9be771fe63d33563c4c5b4d2c40d9f642623df585a22e4128977"
+      ],
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Explicit owner CLI import of user-supplied source, outside HTTP/MCP request boundary; filesystem administrator/operator shell isolation is not claimed."
+    },
+    {
+      "file": "scripts/import-temp-leads.mjs",
+      "function": "uniqueSlug",
+      "queries": [
+        "12369316fc1b3722fca39e32057227a177030be1b98ef9bb473c8d90ee987b22"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Explicit operator-only import/backup/restore/role CLI, not a request-time arbitrary table reader; dynamic table names from reviewed catalog/snapshot or fixed business whitelist."
+    },
+    {
+      "file": "scripts/import-undo.mjs",
+      "function": "allIds",
+      "queries": [
+        "7f84ec13cd0c1dc21d7a6555c70cff6d859dcbeca0d811b50a75ebf33d0acb3d"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Explicit operator-only import/backup/restore/role CLI, not a request-time arbitrary table reader; dynamic table names from reviewed catalog/snapshot or fixed business whitelist."
+    },
+    {
+      "file": "scripts/import-undo.mjs",
+      "function": "main",
+      "queries": [
+        "f2c7629c718aa9bcd8c17cabf3ec7ea114a91807ee2ca6f579bffcf2d8ab23af"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Explicit operator-only import/backup/restore/role CLI, not a request-time arbitrary table reader; dynamic table names from reviewed catalog/snapshot or fixed business whitelist."
+    },
+    {
+      "file": "scripts/restore.mjs",
+      "function": "<module>",
+      "queries": [
+        "48d139fb72b2ef4945773ae2013ebe18c78d7e1592ff3388f358dbc34cb63c35"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Explicit operator-only import/backup/restore/role CLI, not a request-time arbitrary table reader; dynamic table names from reviewed catalog/snapshot or fixed business whitelist."
     },
     {
       "file": "scripts/run-claude-agent.mjs",
@@ -1304,6 +2196,281 @@
       "classification": "trusted-background",
       "reason": "trusted-background",
       "explanation": "Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login."
+    },
+    {
+      "file": "scripts/upsert-inbox-work-items.mjs",
+      "function": "slugToId",
+      "queries": [
+        "b83e41480a4377ccd3d8f141076c66ef72afd1c01038b49464973e365784fd15"
+      ],
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review."
+    },
+    {
+      "file": "db/apply-notifications-v2.mjs",
+      "function": "<module>",
+      "queries": [
+        "8174439ae6ebf776e23970fabdc80d517541e9e3a714621fdea1edc542300d79",
+        "e540e0e17d5b914c096049f05d4d18478990851568043180517a6451aa8331e8",
+        "fffefa1a16684394871d2ba2da2e4ba6dcdec237690b203878c21b75efc139e9",
+        "3cdc49be5b1effe8f5e4505c6a7e6aa74975ce866417522226f84763f237040d",
+        "bdbedf29a9a8a408162b6f9a2947bb1e579b56ab706743ce9965c4886dfa4b90",
+        "cde372c763a63236a6cad34278fca8adc077fe4312f9bd1a798124550c422f92",
+        "d09167cdf166cc2573532cf65693108a40add900300b1a01da4d2f36dec92390",
+        "9d3a22d6663344eb704bc10e387e0a70713b7b4732b5c59dc3c1e4e4cbcfcad1",
+        "bf0cf033fd06c1220f34d87f48be0786be3764d7a36e07a34877d8c0931748bd",
+        "fb0a211a98c98b86b14477b031cc5d997d7f97fdb2e7c63517ccb31eac19ba23",
+        "aaa3186d46e819e28ff164acee0b803db8a86b8b1a79e97af17718032cf5ba66",
+        "c48086fc2f398aefcdfb8847f24c7c6e6bff758fd8018609a9eb3da72ba7e22a",
+        "86b34748072d99e4387015516a8de7a801de038bdb41933dcf21e533149e1195",
+        "35a53b3c68d2b7bd1c266caae983fd763e1dcfe452c58d56a5b827ab0749c5a6",
+        "009ed4482dbd4bcfa01431440a5568836ca76f43a059b320294f6b767977350b",
+        "38509bccda7537f6e623080712dd3c9c2f670d1ca89db63b0bf3f014966e0696",
+        "0942ae017c61db3c1b7a8c497429a5cfe8a8eee5aed5874613891301cd24a41b",
+        "d859f9ccd1230a2ab589d0122fdccaae6a4eee611e4c0c1b4f705aecf48a8e54"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers."
+    },
+    {
+      "file": "db/apply-orchestration-p1.mjs",
+      "function": "<module>",
+      "queries": [
+        "b175f35559b29288b170ded59f200e7d720ece8068207e73b07a3cb6033c7825",
+        "359f24c919d26f936b3b71a71902a4309359d404f2904e679a17a90d24cbd27a"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers."
+    },
+    {
+      "file": "db/apply-orchestration-p2.mjs",
+      "function": "<module>",
+      "queries": [
+        "836115273e71403640aa5613d414868555eb9b9871b065a074eb980dbd4f4adc",
+        "8af48171c21556a11aeab86a255ab345b99742935cf5acdcbf6fabf1ce99a66d",
+        "f8377c716687386daaef38bb153a5222d51f2229f430b622c78169318848167c"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers."
+    },
+    {
+      "file": "db/apply-orchestration-p3.mjs",
+      "function": "<module>",
+      "queries": [
+        "06db336b7ff91b83ef256ec9e8c802fb0a58a19bbd1351e3644414a58fcfea55"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers."
+    },
+    {
+      "file": "db/apply-orchestration-p4.mjs",
+      "function": "<module>",
+      "queries": [
+        "6e3b5e877b8dc312bacb06c22f39da0eb1852d53c21008fec2d9c4277c492862",
+        "6e33e9c099cae255e481da392ed8cae76c9d44c9095db10736755c7b3173ca09",
+        "839efb965154e74080652c4b510c8b59876b525b02499ab0b4e5905d7649662b",
+        "c7b7ddb02391b9c1023732d490c19743aafa848ab8fc35b8b8c44b2d792770f8"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers."
+    },
+    {
+      "file": "db/apply-orchestration-p5.mjs",
+      "function": "<module>",
+      "queries": [
+        "4815762ddc24a82009eef4df9f5f001d911843bec450b656f10690a80253d6d5",
+        "30145911a878c7930e3d38e97146926549957ae7d50b56cf6fea8f60f02ec71c",
+        "df6d78f57bb03c16b0ee6d80715689cba69475a569d70b97c427a7e0d43987ff",
+        "356bbbc2b075b9f701e41dc48d6e532c2cc05a9c2b6a2e475000d8a703490f5b",
+        "cbcb8a766a34e88240507c7240e249f42043539441e37a2ed8d3271e7116bd63"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers."
+    },
+    {
+      "file": "db/apply-owner-grants.mjs",
+      "function": "<module>",
+      "queries": [
+        "2f12c9c7697fe8d8f60d39f15d03f9789c14a415a30b062a0dfe463ebd38286a"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers."
+    },
+    {
+      "file": "db/apply-run-steers.mjs",
+      "function": "<module>",
+      "queries": [
+        "47e9475fa8d7e5b69d6842f6a5697cd70e97d9a4073cf9c3983ff875c15140c7",
+        "c445b04b19c0f23c1226a2acc2b30d10b9218292e22c5761c4a83e5abcac227c",
+        "1f999375cbd1a377cd8f817fadc8251cb43e4b54f23095cb5596f772c73d89da"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers."
+    },
+    {
+      "file": "db/apply-staff-separation.mjs",
+      "function": "<module>",
+      "queries": [
+        "29f833200b8f4e6f0cc937d3b00a4dd03bbaf64c9f85f07e9f2613d26762703d",
+        "1aa49d69f59d0b2ffcd557e94af4e96691fb84bc5c78dc8cb67598faaec259b0",
+        "4fe65bd59a54200eb5a5d2a5c993e6955166760f6ed75a9331eab04bbaf1cb7b"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers."
+    },
+    {
+      "file": "db/apply-thread-folders.mjs",
+      "function": "<module>",
+      "queries": [
+        "2b59b79dd6fda430c6f9edb07aeb87056d51936d09ffa12528611616073fe8a2",
+        "0f39f7cc111bc574be95efe1272a8d5e2b476d31431a5ee053124b691524eb84",
+        "dc6fbd29f8ae7621e5bb7d0f536df74e82802b5b8c12f70afa4ff34138a27db7",
+        "28cd744773296a43bd85516b2463dbf33bd7f1fb25f38d8df8078d39d79ceb4c",
+        "1b43d806db82fe7eab907a1ef6bac024e8c04eac817f1abd349e02404d531c9f"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers."
+    },
+    {
+      "file": "db/migrations/0001_foundation_commands_decisions_actions.sql",
+      "function": "<sql>",
+      "queries": [
+        "4c78318f2a170b244e5206f94f4a2752fa52aa4038525c389072e6b8c0cf220f"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers."
+    },
+    {
+      "file": "db/migrations/0009_access.sql",
+      "function": "<sql>",
+      "queries": [
+        "07ffbbe3555f9b69969de5c51c046d71796270dd4e784997ae33dde5d875f76f"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers."
+    },
+    {
+      "file": "db/migrations/0021_agent_runtime.sql",
+      "function": "<sql>",
+      "queries": [
+        "49faad2439316aa6d4a6dfedefe0247f6564f3be04f591c41b3be2a7d5e2e99b"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers."
+    },
+    {
+      "file": "db/migrations/0034_telegram_replies.sql",
+      "function": "<sql>",
+      "queries": [
+        "2e1a07a2a2a4501959cb4523ee48f0b53e660035b1d3501ecb80b63bf6498659"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers."
+    },
+    {
+      "file": "db/migrations/0041_telegram_draft_replies.sql",
+      "function": "<sql>",
+      "queries": [
+        "26ba384716407eb19b7aa220685f2b2e6a24de9875d1da62bcdc194e6be3fd54"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers."
+    },
+    {
+      "file": "db/migrations/0055_panel_run_instruction_versions.sql",
+      "function": "<sql>",
+      "queries": [
+        "8c9e2c762b9e4f7ec7f6265f11eaac6ab97b9da52d558cd8ab066914543cc18b"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers."
+    },
+    {
+      "file": "db/migrations/0058_panel_run_history.sql",
+      "function": "<sql>",
+      "queries": [
+        "f42d6399a6d142979731a5dd6774a804cec45e40a0c7615dad716d23309f41ac"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers."
+    },
+    {
+      "file": "db/migrations/0060_db_roles.sql",
+      "function": "<sql>",
+      "queries": [
+        "fbd0efeb23fed602640eabe5d42c4694b98b1509c30d9c3feaa1d5ce9132ce24"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers."
+    },
+    {
+      "file": "db/migrations/0062_portal_telegram.sql",
+      "function": "<sql>",
+      "queries": [
+        "85878f8cf90c1ec4731c51ec5cd45ff1409ebc1ef3a5bf9e902394e90780155e"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers."
+    },
+    {
+      "file": "db/migrations/0100_ask_launch_sessions_browser_core.sql",
+      "function": "<sql>",
+      "queries": [
+        "dd0deca0d6bc5ec0ea573fe6214d62889d238027e5d91a69256d0b4aa2d99f04"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers."
+    },
+    {
+      "file": "db/migrations/0105_ask_thread_ownership.sql",
+      "function": "<sql>",
+      "queries": [
+        "2669c17eb4a7a83427cd1e67b72baf8c64853112e7af4db84d2380a5cbbe2f42"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers."
+    },
+    {
+      "file": "db/schema.sql",
+      "function": "<sql>",
+      "queries": [
+        "8af22913669451c5f4dbb3aad8da113a06b022924ac7db326ea506f81fa79e79"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers."
+    },
+    {
+      "file": "db/seed.sql",
+      "function": "<sql>",
+      "queries": [
+        "fe0fa36f0ade311fe5d64ae7d878e249977ab3f653e29d9b24178dba87745400"
+      ],
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers."
     }
   ]
 }

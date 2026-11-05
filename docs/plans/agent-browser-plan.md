@@ -1523,7 +1523,7 @@ selector, each a 48 px row; it can widen to fit labels. No grabber, horizontal
 Operator header/selector, extra Browser title, toolbar or bottom action row.
 The center has exactly **48 px title** **“‹ Chat · {trusted origin} · ⋯”**, then
 **20 px meta** showing fixed state (“Agent is working”, “Paused” or **“Waiting
-for Joe · 0:48 left”**), then **“· Joe is watching.”** for staff while an owner viewer is joined, then **“· 2 windows”** when applicable — order: state · Joe is watching. · 2 windows. When the 20 px row runs out of room: drop “· 2 windows” first (it stays in ⋯), then use the short private state, then wrap the meta to two lines (stage recomputed, still ≥200). **“Joe is watching.” is never truncated or hidden.** The title can wrap
+for Joe · 0:48 left”**), then **“· Joe is watching.”** for staff while an owner viewer is joined, then **“· 2 windows”** when applicable — order: state · Joe is watching. · 2 windows. When the 20 px row runs out of room: drop “· 2 windows” first (it stays in ⋯), then use the short private state (its first sentence only, e.g. “Private — you took over.”), then — only reachable with enlarged/accessibility text sizes — wrap the meta to two lines and let the stage give up that extra line (≈184 px). The ≥200 px stage rule is checked at default text size. **“Joe is watching.” is never truncated or hidden.** The title can wrap
 the origin within its row; the full trusted origin remains accessible.
 
 **⋯** contains guarded **‹ / › / Reload**, **Saved logins**, and the window
@@ -2042,7 +2042,7 @@ Finish this in Safari on an iPad or computer. It stays in Browser › Asked to f
 ([Open in Safari] 48 px; external canonical invitation URL.)
 ```
 
-The phone invitation deliberately offers no Open/accept or Open browser:
+Both the Phone-web and Native-app invitations deliberately offer no Open/accept or Open browser:
 it cannot leave a login-paused task occupying capacity. On **820 iPad portrait**
 and **744 iPad mini portrait** in Safari, including Split View, show **[Open]
 [Don't finish]**; Open accepts into full-height Sites review using H1's narrow
@@ -3424,8 +3424,7 @@ shortcut. A hand-off notification is an invitation, never a native approval.
 Validate exactly the configured HTTPS origin and canonical UUID query shape;
 reject mixed review/hand-off keys, duplicates, extra keys and malformed IDs, and
 rebuild the safe destination (not arbitrary caller URL). Native hand-off landing
-shows §6.4's invitation/phone copy, Don't finish/Close, plus the 48 px Open in
-Safari button; no Open browser or task reservation. Do not route to plain Today
+shows §6.4's **Native app** invitation variant (“Finish this in Safari on an iPad or computer. …” with [Open in Safari] [Don't finish] [Close]), never the Phone-web “Finish this on your iPad” line; no Open browser or task reservation. Do not route to plain Today
 or mark an invitation accepted merely because the bell became read. The native
 shell has no new browser Bearer write: Don't finish opens this same invitation
 externally for cookie-authenticated confirmation; its button explains **“Open in
@@ -3792,7 +3791,7 @@ independent of Phase 4's research runbook/first city adapter.
   Pair the §6.2 device fixtures with these acceptance cases: **820 iPad portrait**
   and **744 iPad mini portrait**, including narrow Split View, accept into one
   full-height Sites draft without rotation; **800×360 phone landscape** and
-  native app show the phone invitation without accepting Open or launching.
+  native app show the matching §6.4 variant (800×360 Safari = Phone web; native app on iPhone or iPad = **Native app** variant) without accepting Open or launching. Check: the native screen never contains “on your iPad”.
   List Open still displays the invitation on every device. Screen/viewport hints
   grant no authority: all accept/launch operations still require the unchanged
   fresh cookie/CSRF/rights/admission checks, even if device hints are forged.
@@ -3960,7 +3959,7 @@ this plan revision. Preserve every existing H5 width/history/recovery case.
 
 | Viewport / case | Required expected result |
 |---|---|
-| **800×360 staff task with Joe watching + 2 windows** | Meta order state · Joe is watching. · 2 windows; overflow drops “· 2 windows”, then short private state, then wraps to two lines with stage recomputed ≥200; “Joe is watching.” always fully visible. |
+| **800×360 staff task with Joe watching + 2 windows** | Meta order state · Joe is watching. · 2 windows; overflow drops “· 2 windows”, then short private state, then (enlarged text only) wraps to two lines and the stage gives up that line (≈184 px); at default text size the meta fits on one line and stage ≥200; short private state = first sentence only (“Private — you took over.”); “Joe is watching.” always fully visible. |
 | **Native app on iPad (supportsTablet) hand-off** | Treated as phone rule; shows “Finish this in Safari on an iPad or computer. It stays in Browser › Asked to finish.” with [Open in Safari] [Don't finish] [Close]; no Open/accept. |
 | **800×360 own task, viewing / public paused / private paused** | H3's one ≥64 px strip, Close + four 48 px vertical tabs; no horizontal header/selector/grabber. Center title/meta **48/20**, **128 px** right column with state actions then Zoom/Pause live view and phone text (§6.3); guarded history/reload/window switch in ⋯, “· 2 windows” meta. Center stage **204 px ≥200** with 8 padding + 80 vertical safe areas, no extra bars. Phone has no remote takeover; same viewport on a computer retains authorized controls. |
 | **800×360 Joe's own review / staff waiting** | Same one strip and 48/20 center; ≥200 scrolling card region; right-column exact decision pair + Review image, or staff See request / Cancel request. Decisions pinned and visible without card/page scrolling, targets ≥48; long copy scrolls only in center. Escape Keep paused and original deadline/focus/role checks retained. |
@@ -4341,3 +4340,5 @@ rotation and iPad/phone input behavior on real devices before release.
 |---|---|
 | Design 1 — native app on iPad | §6.4 invitation split into phone-web and native-app variants; native copy “Finish this in Safari on an iPad or computer…” with [Open in Safari] [Don't finish] [Close]; §6.5 row updated; native-iPad fixture row added. Presentation only: device class never grants or removes authority (round-6 confirm). |
 | Design 2 — “Joe is watching.” in landscape | §6.3 meta order state · Joe is watching. · 2 windows with defined overflow (drop windows → short state → wrap, stage ≥200); never truncated; 800×360 fixture row added. Presentation only. |
+| Design R7-1 — wrap fallback arithmetic | §6.3 + fixture: two-line meta only with enlarged text; stage gives up the line (≈184 px); ≥200 checked at default text size; short private state = first sentence. |
+| Design R7-2 — native hand-off references | §10.2 native landing and §12 Phase 2 now point to §6.4's Native-app variant; Phase 2 check that the native screen never contains “on your iPad”. |

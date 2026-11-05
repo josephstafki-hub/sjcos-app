@@ -65,8 +65,8 @@ test('shared helper: current verified identity, quarantine, revocation, folders,
    for(const who of [3,4])await t.test(`portal ${who} cannot use thread helper`,async()=>{session={...session,userId:people[who]};await assert.rejects(exports.requireThreadAccess(ids[who]),/ACCESS_DENIED/);});
    session={...session,userId:people[1]};
    await t.test('inactive and revoked authenticated person refused',async()=>{
-    await c.query('UPDATE users SET active=false WHERE id=$1',[people[1]]);await assert.rejects(exports.requireThreadAccess(ids[1]),/ACCESS_DENIED/);await c.query('UPDATE users SET active=true WHERE id=$1',[people[1]]);
-    await c.query(`INSERT INTO session_revocations(user_id,revoked_before) VALUES($1,now()+interval '1 second')`,[people[1]]);await assert.rejects(exports.requireThreadAccess(ids[1]),/ACCESS_DENIED/);session.authAt+=10;
+    await c.query('UPDATE users SET active=false WHERE id=$1',[people[1]]);await assert.rejects(exports.requireThreadAccess(ids[1]),/SESSION_REVOKED/);await c.query('UPDATE users SET active=true WHERE id=$1',[people[1]]);
+    await c.query(`INSERT INTO session_revocations(user_id,revoked_before) VALUES($1,now()+interval '1 second')`,[people[1]]);await assert.rejects(exports.requireThreadAccess(ids[1]),/SESSION_REVOKED/);session.authAt+=10;
    });
    await t.test('all private reads/writes stop before query when journal gate closes',async()=>{blocked=true;await assert.rejects(exports.threadQuery('SELECT * FROM ai_messages'),/RECOVERY_REQUIRED/);await assert.rejects(exports.threadQuery(`UPDATE ai_conversations SET title='overwrite'`),/RECOVERY_REQUIRED/);blocked=false;});
    await t.test('same entity folder names/counts do not share threads between people',async()=>{
@@ -108,7 +108,8 @@ test('owner reply delivery fences the title before routing or relaying another p
  const run=async()=>[];
  const stubs={
   'server-only':{},'@/lib/db':{query,queryOne:async(sql)=>{await query(sql);return null;}},
-  '@/lib/thread-access':{threadPrincipal:async()=>({id:'joe',role:'owner'}),requireThreadAccess:async()=>{denied++;throw Error('ASK_THREAD_UNAVAILABLE');},threadQueryOne:async()=>{privateReads++;throw Error('must not reach private read');}},
+  '@/lib/ask-thread-journal.mjs':{withAskJournal:async(_pool,fn)=>fn()},
+  '@/lib/thread-access':{askFailure:()=>({ok:false,code:'THREAD_UNAVAILABLE'}),threadPrincipal:async()=>({id:'joe',role:'owner'}),requireThreadAccess:async()=>{denied++;throw Error('ASK_THREAD_UNAVAILABLE');},threadQueryOne:async()=>{privateReads++;throw Error('must not reach private read');}},
   '@/lib/commands/db':{runDirect:run,withTransaction:async fn=>fn(run)},
   '@/lib/providers/telegram':{defaultTransport:{}},'@/lib/providers/types':{outboundDisabled:()=>true},
   '@/lib/run-steers':{enqueueSteer:async()=>{routed++;}},'@/lib/dev-agents':{pingConversation:async()=>{routed++;}},

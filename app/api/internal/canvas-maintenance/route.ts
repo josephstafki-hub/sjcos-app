@@ -3,7 +3,7 @@ import { refreshSourcedWorkItem } from '@/lib/obligations/work-items';
 import { completeWorkItem } from '@/lib/completion/complete';
 import type { Run } from '@/lib/commands/core';
 import { pool } from '@/lib/db';
-import { maintainThreads, closeGate } from '@/lib/ask-thread-journal.mjs';
+import { maintainThreads } from '@/lib/ask-thread-journal.mjs';
 export const runtime='nodejs';
 export const dynamic='force-dynamic';
 async function reportHealth(failed:boolean){
@@ -11,12 +11,15 @@ async function reportHealth(failed:boolean){
   await c.query('BEGIN');
   const lock=(await c.query('SELECT pg_try_advisory_xact_lock(105005) AS ok')).rows[0];
   if(!lock.ok){await c.query('ROLLBACK');return;}
-  const state=(await c.query(`SELECT health_code,
+  const state=(await c.query(`SELECT health_code,deletion_enabled,recovery_ready,
    (heartbeat_at IS NULL OR heartbeat_at<now()-interval '15 minutes') AS late,
    (blocked_since<now()-interval '15 minutes' AND NOT recovery_ready) AS blocked,
    (SELECT count(*)::int FROM ai_conversations WHERE purged_at IS NULL AND purge_after<now()-interval '15 minutes' AND NOT purge_hold) AS overdue
    FROM ask_canvas_maintenance WHERE singleton`)).rows[0];
   const run:Run=async <T=Record<string,unknown>>(sql:string,params?:unknown[])=>(await c.query(sql,params)).rows as T[];
+  if(state.health_code==='JOURNAL_NOT_CONFIGURED'&&!state.deletion_enabled&&state.recovery_ready){
+   await c.query('COMMIT');return; // owner status JSON carries the warning, not an outage
+  }
   if(failed||state.late||state.blocked||state.overdue){
    await refreshSourcedWorkItem(run,{sourceKind:'maintenance',sourceId:'canvas-maintenance-health',provider:'sjcos',title:'Check chat recovery',body:`Chat recovery needs checking. Codes: ${failed?'RECOVERY_FAILED':state.blocked?'RECOVERY_BLOCKED':state.late?'HEARTBEAT_LATE':'PURGE_OVERDUE'}. Overdue count: ${state.overdue}.`,status:'waiting_on_human',priority:'high',createdBy:'canvas-maintenance',recurring:true,requiresApproval:false});
   }else{
@@ -32,5 +35,5 @@ export async function POST(req:Request){
  const wanted=`Bearer ${expected}`;
  if(!expected||Buffer.byteLength(supplied)!==Buffer.byteLength(wanted)||!timingSafeEqual(Buffer.from(supplied),Buffer.from(wanted)))return Response.json({error:'Unauthorized'},{status:401});
  try{const result=await maintainThreads(pool);await reportHealth(false);return Response.json(result);}
- catch{await closeGate(pool,'MAINTENANCE_FAILED');await reportHealth(true);return Response.json({error:'ASK_RECOVERY_REQUIRED'},{status:503});}
+ catch{await reportHealth(true);return Response.json({ok:false,code:'ASK_PAUSED'},{status:503});}
 }

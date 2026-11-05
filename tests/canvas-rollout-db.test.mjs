@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {withMigrationSubset} from './_harness/testdb.mjs';
 import {listMigrationFiles} from '../db/migrate.mjs';
 import {capabilities} from '../lib/ask-thread-journal.mjs';
-for(const [name,ids] of [['combined',[100,101,102,103,104,105]],['canvas_only',[100,105]]])test(`Phase 0 ${name}: real ordered ledger, flags off, no later Canvas relations`,()=>withMigrationSubset(name,ids,async({db,apply})=>{
+for(const [name,ids] of [['shared_canvas_phase0',[100,105]]])test(`Phase 0 ${name}: real ordered ledger, flags off, no later Canvas relations`,()=>withMigrationSubset(name,ids,async({db,apply})=>{
  for(const k of ['SJC_CANVAS_ENABLED'])process.env[k]='0';
  await apply();
  assert.deepEqual(await capabilities(db),{thread:true,canvas:false,files:false});
@@ -22,4 +22,9 @@ test('0105 without 0100 rolls back atomically, then additive 0100+0105 succeeds'
  await apply([100,105]);assert.equal((await capabilities(db)).thread,true);
  // Add every presently available Browser/Canvas migration, checksummed normally.
  await apply(listMigrationFiles().filter(f=>f.id>=100&&f.id<=109).map(f=>f.id));
+}));
+
+test('combined Browser matrix blocked: missing requests reject before applying any subset',()=>withMigrationSubset('blocked_combined',[100,101,102,103,104,105],async({db,apply})=>{
+ await assert.rejects(apply(),/Requested migrations do not exist: 101, 102, 103, 104/);
+ assert.equal((await db.query('SELECT count(*)::int AS n FROM schema_migrations WHERE id>=100')).rows[0].n,0);
 }));

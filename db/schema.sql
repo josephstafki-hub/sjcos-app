@@ -3894,6 +3894,7 @@ CREATE TABLE IF NOT EXISTS ask_canvas_maintenance (
  singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),
  lease_owner uuid, lease_expires_at timestamptz, fencing_token bigint NOT NULL DEFAULT 0,
  heartbeat_at timestamptz, recovery_epoch uuid, recovery_ready boolean NOT NULL DEFAULT false,
+ deletion_enabled boolean NOT NULL DEFAULT false,
  ledger_id uuid, checkpoint_sequence bigint NOT NULL DEFAULT 0 CHECK(checkpoint_sequence>=0),
  checkpoint_hash text, cursor_due_at timestamptz, cursor_id uuid,
  health_code text, blocked_since timestamptz DEFAULT now()

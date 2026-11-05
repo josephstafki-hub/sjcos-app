@@ -1,4 +1,5 @@
-import { requireRunThreadAccess } from "@/lib/thread-access";
+import { askBoundary, askFailure, requireRunThreadAccess } from "@/lib/thread-access";
+import { isAskFailure } from "@/lib/ask-result-codes";
 import { NextResponse } from "next/server";
 import { hasAccess } from "@/lib/api-auth";
 import { getCurrentUser } from "@/lib/dal";
@@ -15,7 +16,7 @@ export const dynamic = "force-dynamic";
 // GET /api/tts — availability probe so any client surface can self-gate its
 // speaker path without threading piperAvailable() down through props. Same
 // owner/sub session gate as POST; returns { available }.
-export async function GET() {
+async function getAvailability() {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   if (user.role !== "owner" && user.role !== "staff" && user.role !== "sub") {
@@ -24,7 +25,7 @@ export async function GET() {
   return NextResponse.json({ available: piperAvailable() });
 }
 
-export async function POST(req: Request) {
+async function speak(req: Request) {
   const user = await getCurrentUser();
   if (!user) return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   if (user.role !== "owner" && user.role !== "staff" && user.role !== "sub") {
@@ -44,7 +45,7 @@ export async function POST(req: Request) {
   // { runId }: speak a finished run's outcome — Claude condenses the agent's
   // written answer into a spoken update (cached in dev_agent_runs.spoken_answer).
   if (runId) {
-    if (!hasAccess(user, "ai")) return NextResponse.json({ error: "forbidden" }, { status: 403 });
+    if (!hasAccess(user, "ai")) return NextResponse.json({ok:false,code:"CHAT_OFF"}, { status: 403 });
     await requireRunThreadAccess(runId);
     const spoken = await spokenUpdateForRun(runId);
     if (!spoken) return NextResponse.json({ error: "Nothing to say for that run yet." }, { status: 422 });
@@ -57,3 +58,16 @@ export async function POST(req: Request) {
     headers: { "Content-Type": "audio/wav", "Cache-Control": "no-store" },
   });
 }
+
+async function speechResponse(run:()=>Promise<Response>){
+ try {
+ const user=await getCurrentUser();
+ if(!user)return NextResponse.json({ok:false,code:'SIGN_IN_AGAIN'},{status:401});
+ // Subcontractor daily-log speech is not an Ask surface. Its existing raw-text
+ // path remains available; speak() refuses any runId before private access.
+ const result=user.role==='sub'?await run():await askBoundary(run);
+ return isAskFailure(result)?NextResponse.json(result,{status:result.code==='ASK_PAUSED'?503:result.code==='THREAD_UNAVAILABLE'?404:result.code==='CHAT_OFF'?403:401}):result;
+ }catch(error){return NextResponse.json(askFailure(error),{status:503});}
+}
+export async function GET(){return speechResponse(getAvailability);}
+export async function POST(req:Request){return speechResponse(()=>speak(req));}

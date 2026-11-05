@@ -36,7 +36,7 @@ test('admitAskRun checks authentication, source, 0105 seam, profile, resume and 
  await apply([100]);
  const {appHooks}=await import('./phase0a-fixtures.mjs');appHooks();
  const {registerHooks}=await import('node:module');
- registerHooks({resolve(s,c,n){if(s==='@/lib/ask-thread-journal.mjs')return {url:'fixture:admission-journal',shortCircuit:true};return n(s,c);},load(u,c,n){if(u==='fixture:admission-journal')return {format:'module',source:`export const deleteThread=()=>{throw Error('unused deletion fixture')}; export async function withAskJournal(pool,fn){const r=await pool.query("SELECT to_regclass('ask_canvas_maintenance') AS name");if(!r.rows[0].name)throw Error('ASK_THREAD_PRIVACY_REQUIRED');return fn();}`,shortCircuit:true};return n(u,c);}});
+ registerHooks({resolve(s,c,n){if(s==='@/lib/ask-thread-journal.mjs')return {url:'fixture:admission-journal',shortCircuit:true};return n(s,c);},load(u,c,n){if(u==='fixture:admission-journal')return {format:'module',source:`export const deletionCapabilities=async()=>({deleteAvailable:false}); export const deleteThread=()=>{throw Error('unused deletion fixture')}; export async function withAskJournal(pool,fn){const r=await pool.query("SELECT to_regclass('ask_canvas_maintenance') AS name");if(!r.rows[0].name)throw Error('ASK_THREAD_PRIVACY_REQUIRED');return fn();}`,shortCircuit:true};return n(u,c);}});
  process.env.SESSION_SECRET='phase0a-test-secret-for-admission-32-or-more';
  const {admitAskRun}=await import('../lib/ask-run-admission.ts');
  const {encrypt}=await import('../lib/session.ts');
@@ -62,6 +62,9 @@ test('admitAskRun checks authentication, source, 0105 seam, profile, resume and 
   await assert.rejects(admitAskRun({...input,requestedProfile:'browser'},'panel_web'),/BROWSER_DISABLED/);
   const parent=await admitAskRun(input,'panel_web');
   const child=await admitAskRun({...input,continuationOfRunId:parent.id},'panel_web');assert.ok(child.id);
+  await assert.rejects(db.query('UPDATE dev_agent_runs SET principal_user_id=$2 WHERE id=$1',[parent.id,staff.id]),e=>e.code==='42501');
+  const background=(await db.query(`INSERT INTO dev_agent_runs(prompt,profile,launch_source) VALUES('background parent','business','background') RETURNING id`)).rows[0].id;
+  await assert.rejects(admitAskRun({...input,continuationOfRunId:background},'panel_web'),/invalid human turn continuation/);
   await assert.rejects(admitAskRun({...input,continuationOfRunId:parent.id},'panel_mobile'),/invalid human turn continuation/);
   await db.query(`UPDATE dev_agent_runs SET status='done' WHERE id=$1`,[parent.id]);
   await assert.rejects(admitAskRun({...input,continuationOfRunId:parent.id},'panel_web'),/invalid human turn continuation/);

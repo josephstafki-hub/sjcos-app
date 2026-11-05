@@ -3,17 +3,19 @@ import path from 'node:path';
 import type { QueryResult, QueryResultRow, PoolClient } from 'pg';
 import { pool } from '@/lib/db';
 import { readSession } from '@/lib/session';
-import { withAskJournal, deleteThread } from '@/lib/ask-thread-journal.mjs';
+import { withAskJournal, deleteThread, deletionCapabilities } from '@/lib/ask-thread-journal.mjs';
 
 /** Verified server session only; caller supplied IDs/roles never establish it. */
 export async function threadPrincipal() {
  const session=await readSession();
  const authAt=session?.authAt??session?.iat;
  if(!session?.userId||typeof authAt!=='number')throw Error('ASK_SIGN_IN_REQUIRED');
- const person=(await pool.query(`SELECT id,role FROM users u WHERE id=$1 AND active
-  AND (role='owner' OR (role='staff' AND 'ai'=ANY(permissions)))
-  AND NOT EXISTS(SELECT 1 FROM session_revocations r WHERE r.user_id=u.id AND r.revoked_before>to_timestamp($2))`,[session.userId,authAt])).rows[0];
- if(!person)throw Error('ASK_ACCESS_DENIED');return person as {id:string;role:'owner'|'staff'};
+ const person=(await pool.query(`SELECT id,role,active,permissions,
+ EXISTS(SELECT 1 FROM session_revocations r WHERE r.user_id=u.id AND r.revoked_before>to_timestamp($2)) AS revoked
+ FROM users u WHERE id=$1`,[session.userId,authAt])).rows[0];
+ if(!person||!person.active||person.revoked)throw Error('ASK_SESSION_REVOKED');
+ if(person.role!=='owner'&&!(person.role==='staff'&&person.permissions?.includes('ai')))throw Error('ASK_ACCESS_DENIED');
+ return person as {id:string;role:'owner'|'staff'};
 }
 /** The OS journal lock covers the entire transaction, including its commit.
  * RLS uses only this verified website actor; narrow session_user cannot spoof it.
@@ -47,12 +49,11 @@ export async function requireInteractionThreadAccess(id:string){
  if(!row?.run_id||!row.conversation_id)throw Error('ASK_THREAD_UNAVAILABLE');
  return requireRunThreadAccess(row.run_id);
 }
-export async function deleteOwnedThread(id:string){
- await requireThreadAccess(id);
+export async function deleteOwnedThread(id:string,operationId:string){
  // Recovery/deletion is opaque maintenance; recheck person and thread under
  // the journal lock in the command before writing the intent.
  const person=await threadPrincipal();
- return deleteThread(pool,id,undefined,undefined,person.id);
+ return deleteThread(pool,id,operationId,undefined,person.id);
 }
 
 /** Exact source ownership before opening an Ask upload or extracted sidecar.
@@ -71,3 +72,19 @@ export async function withThreadAttachmentAccess<T>(file:string,read:()=>Promise
   return read();
  });
 }
+
+/** Serialize fixed failure codes only. Internal exceptions/causes never cross
+ * a public action or RPC boundary. Keep the journal fence through callbacks. */
+export function askFailure(error: unknown): import('./ask-result-codes').AskFailure {
+ const message=error instanceof Error?error.message:String((error as {message?:unknown})?.message??'');
+ const code = /ASK_SIGN_IN_REQUIRED|ASK_COOKIE_REQUIRED|ASK_SESSION_REVOKED|NEXT_REDIRECT.*login/.test(message) ? 'SIGN_IN_AGAIN'
+  : /ASK_ACCESS_DENIED/.test(message) ? 'CHAT_OFF'
+  : /DELETE_NOT_READY|Chat deletion is not ready/.test(message) ? 'DELETE_NOT_READY'
+  : /ASK_THREAD_UNAVAILABLE|ASK_ATTACHMENT_UNAVAILABLE|ASK_RESUME_MISMATCH|invalid input syntax for type uuid/.test(message) ? 'THREAD_UNAVAILABLE'
+  : 'ASK_PAUSED';
+ return {ok:false,code};
+}
+export async function askBoundary<T>(callback:()=>Promise<T>, rethrow?:(error:unknown)=>boolean):Promise<T|import('./ask-result-codes').AskFailure>{
+ try{await threadPrincipal();return await withAskJournal(pool,callback);}catch(error){if(rethrow?.(error))throw error;return askFailure(error);}
+}
+export async function askThreadCapabilities():Promise<import('./ask-result-codes').AskThreadCapabilities>{return deletionCapabilities(pool);}

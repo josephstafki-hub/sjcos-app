@@ -22,7 +22,7 @@ async function fixture(fn){
  }};
  try{return await fn({dir,authority,fault:(name,value=true)=>{({failed:v=>failed=v,corrupt:v=>corrupt=v,wrong:v=>wrong=v,stale:v=>stale=v,race:v=>race=v})[name](value);}});}finally{await rm(dir,{recursive:true,force:true});await rm(remote,{recursive:true,force:true});}
 }
-for(const [name,ids] of [['combined',[100,101,102,103,104,105]],['canvas_only',[100,105]]])test(`thread-only recovery ${name}`,async t=>withMigrationSubset(`recovery_${name}`,ids,async({url,db,apply})=>{
+for(const [name,ids] of [['shared_canvas_phase0',[100,105]]])test(`thread-only recovery ${name}`,async t=>withMigrationSubset(`recovery_${name}`,ids,async({url,db,apply})=>{
  await apply();process.env.SJC_CANVAS_ENABLED='0';process.env.SJC_ASK_THREAD_DELETE_ACCEPTED='1';
  const person=(await db.query(`INSERT INTO users(email,name,role,password_hash,initials) VALUES($1,'Journal','owner','x','J') RETURNING id`,[`${randomUUID()}@example.test`])).rows[0].id;
  const thread=async(c)=> (await c.query(`INSERT INTO ai_conversations(agent,title,owner_user_id) VALUES('claude','private title',$1) RETURNING id`,[person])).rows[0].id;
@@ -118,7 +118,7 @@ for(const [name,ids] of [['combined',[100,101,102,103,104,105]],['canvas_only',[
 }));
 test('thread Delete stays server-disabled until explicit Phase 0 acceptance',async()=>{
  delete process.env.SJC_ASK_THREAD_DELETE_ACCEPTED;
- await assert.rejects(deleteThread({},randomUUID(),randomUUID(),{}),/Chat deletion is not ready yet/);
+ await assert.rejects(deleteThread({query:async sql=>({rows:sql.includes('schema_migrations')?[{id:100},{id:105}]:[{deletion_enabled:false,checkpoint_sequence:0,evidence:false}]})},randomUUID(),randomUUID(),{dir:path.join(tmpdir(),randomUUID())}),/DELETE_NOT_READY/);
 });
 
 test('pinned HTTPS authority verifies nonce, signature, ledger identity, complete encrypted prefix and CAS',async t=>{

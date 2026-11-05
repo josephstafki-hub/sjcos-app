@@ -1,3 +1,4 @@
+import { isAskFailure } from "../ask-result-codes.ts";
 import { z } from "zod";
 import { isRedirectError } from "next/dist/client/components/redirect-error.js";
 import { getURLFromRedirectError } from "next/dist/client/components/redirect.js";
@@ -33,16 +34,17 @@ export async function dispatchMobileAction(
   if (!action) return Response.json({ error: "Unknown action." }, { status: 404 });
   try {
     const user = await authenticate(req);
-    if (!user) return Response.json({ error: "Unauthorized" }, { status: 401 });
+    if (!user) return Response.json(action.area==="ai"?{ok:false,code:"SIGN_IN_AGAIN"}:{ error: "Unauthorized" }, { status: 401 });
     if ((action.ownerOnly && user.role !== "owner") ||
         (user.role !== "owner" && !(user.role === "staff" && user.permissions.includes(action.area)))) {
-      return Response.json({ error: "You don't have access to that." }, { status: 403 });
+      return Response.json(action.area==="ai"?{ok:false,code:"CHAT_OFF"}:{ error: "You don't have access to that." }, { status: 403 });
     }
     let body: unknown;
     try { body = await req.json(); }
     catch { return Response.json({ error: "Expected a JSON body." }, { status: 400 }); }
     try {
       const result = await action.invoke(body, user);
+      if(isAskFailure(result))return Response.json(result,{status:result.code==="ASK_PAUSED"?503:result.code==="SIGN_IN_AGAIN"?401:result.code==="CHAT_OFF"?403:409});
       if (typeof result === "object" && result !== null && "ok" in result && result.ok === false && "error" in result) {
         return Response.json({ error: result.error }, { status: 400 });
       }
@@ -52,7 +54,7 @@ export async function dispatchMobileAction(
         const path = getURLFromRedirectError(error);
         const pathname = new URL(path, "http://mobile.local").pathname;
         if (["/login", "/logout", ...authHomes(user)].includes(pathname)) {
-          return Response.json({ error: "You don't have access to that." }, { status: 403 });
+          return Response.json(action.area==="ai"?{ok:false,code:"CHAT_OFF"}:{ error: "You don't have access to that." }, { status: 403 });
         }
         return Response.json({ ok: true, redirect: path });
       }
@@ -62,6 +64,6 @@ export async function dispatchMobileAction(
     if (error instanceof z.ZodError) return Response.json({ error: error.issues[0]?.message ?? "Invalid input." }, { status: 400 });
     if (error instanceof MobileInputError) return Response.json({ error: error.message }, { status: 400 });
     console.error("[mobile-rpc] Action failed", name, error);
-    return Response.json({ error: "Something went wrong. Please try again." }, { status: 500 });
+    return Response.json(action.area==="ai"?{ok:false,code:"ASK_PAUSED"}:{ error: "Something went wrong. Please try again." }, { status: action.area==="ai"?503:500 });
   }
 }

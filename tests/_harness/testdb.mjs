@@ -276,7 +276,10 @@ export async function withMigrationSubset(name, featureIds, callback) {
   const {listMigrationFiles}=await import('../../db/migrate.mjs');
   await c.query(`CREATE TABLE schema_migrations(id integer PRIMARY KEY,name text NOT NULL,checksum text NOT NULL,applied_at timestamptz NOT NULL DEFAULT now())`);
   const apply=async ids=>{
-   for(const f of listMigrationFiles().filter(f=>ids.includes(f.id))){
+   const files=listMigrationFiles();
+   const missing=ids.filter(id=>!files.some(f=>f.id===id));
+   if(missing.length)throw Error(`Requested migrations do not exist: ${missing.join(', ')}`);
+   for(const f of files.filter(f=>ids.includes(f.id))){
     const old=(await c.query('SELECT checksum FROM schema_migrations WHERE id=$1',[f.id])).rows[0];
     if(old){if(old.checksum!==f.checksum)throw Error('migration checksum mismatch');continue;}
     await c.query('BEGIN');try{await c.query(f.sql);await c.query('INSERT INTO schema_migrations(id,name,checksum) VALUES($1,$2,$3)',[f.id,f.name,f.checksum]);await c.query('COMMIT');}catch(e){await c.query('ROLLBACK');throw e;}

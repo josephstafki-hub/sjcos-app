@@ -1,3 +1,4 @@
+import { isAskFailure } from "@/lib/ask-result-codes";
 import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { withTransaction, runDirect } from "@/lib/commands/db";
@@ -123,12 +124,13 @@ export async function POST(req: Request) {
     // that filed it (or the operating agent), and acknowledge.
     if (result.ownerReply) {
       const r = result.ownerReply;
+      const delivered=await deliverOwnerReply(r, String(update.message?.text ?? "").trim().slice(0, 4000));
+      if(isAskFailure(delivered))return NextResponse.json(delivered);
       if (r.pulled && r.decisionId) {
         const d = await getDecision(runDirect, r.decisionId).catch(() => null);
         if (d) await refreshTelegramCard(d, "Changes requested from Telegram — your note went to the agent.").catch(() => undefined);
       }
       if (r.pulled && r.workItemId) await markDraftCardPulled(r.workItemId, "Pulled back for changes — your note went to the agent. Its revised draft comes as a new card.").catch(() => undefined);
-      await deliverOwnerReply(r, String(update.message?.text ?? "").trim().slice(0, 4000));
     }
     // Joe answered a portal message from Telegram: it is already in the
     // thread (committed above). Refresh the pages that show it and confirm.

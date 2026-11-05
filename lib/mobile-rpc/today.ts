@@ -1,3 +1,4 @@
+import { isAskFailure } from "@/lib/ask-result-codes";
 import { withAskLaunchSource } from "@/lib/ask-run-admission";
 import { z } from "zod";
 import { defineAction, MobileInputError } from "./dispatch";
@@ -49,7 +50,9 @@ export const todayActions = {
       if (kind === "do" ? !card.checkable || card.lane !== "chat" : card.lane !== "deep") {
         throw new MobileInputError("That handoff isn't available for this item.");
       }
-      const conversationId = await newConversationAction(kind === "do" ? "hermes" : "qwen");
+      const created = await newConversationAction(kind === "do" ? "hermes" : "qwen");
+      if(isAskFailure(created))return created;
+      const conversationId=created.id;
       const turn = await withAskLaunchSource("panel_mobile", () => sendMessageAction(conversationId, kind === "do" ? doItDirective(card) : prepDirective(card),
         undefined, undefined, undefined, card.checkable ? card.id : undefined, false));
       return turn.ok ? { conversationId, turn } : turn;

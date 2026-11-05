@@ -83,7 +83,8 @@
       ],
       "sjcos_readonly": [
         "SELECT"
-      ]
+      ],
+      "note": "Worker UPDATE intentionally withheld: private Ask recovery/purge is website-only; imported journal code does not grant worker execution."
     },
     "agent_memories": {
       "sjcos_agent": [
@@ -212,7 +213,8 @@
       ],
       "sjcos_readonly": [
         "SELECT"
-      ]
+      ],
+      "note": "Worker DELETE intentionally withheld: private Ask retention purge is website-only; INSERT/UPDATE background grants do not authorize private chat maintenance."
     },
     "app_change_log": {
       "sjcos_agent": [

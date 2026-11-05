@@ -1,4 +1,8 @@
 import "server-only";
+import { withAskJournal } from "@/lib/ask-thread-journal.mjs";
+import { pool } from "@/lib/db";
+import { askFailure } from "@/lib/thread-access";
+import type { AskFailure } from "@/lib/ask-result-codes";
 
 // After-commit half of Telegram replies (lib/decisions/owner-replies.ts has
 // the in-transaction half). Everything Joe sees in the bot chat about a
@@ -131,15 +135,21 @@ async function promptFor(r: RecordedReply, text: string): Promise<string> {
 }
 
 /** Route Joe's recorded reply and tell him where it went. Never throws. */
-export async function deliverOwnerReply(r: RecordedReply & { chatId: string; messageId: number }, text: string): Promise<void> {
+export async function deliverOwnerReply(r: RecordedReply & { chatId: string; messageId: number }, text: string): Promise<void | AskFailure> {
+  if(r.route==='session'&&r.conversationId){
+   try{return await withAskJournal(pool,()=>deliverOwnerReplyImpl(r,text));}catch(error){return askFailure(error);}
+  }
+  return deliverOwnerReplyImpl(r,text);
+}
+async function deliverOwnerReplyImpl(r: RecordedReply & {chatId:string;messageId:number},text:string):Promise<void | AskFailure>{
   const pulledLine = r.pulled ? `Pulled "${r.title}".` : r.priorStatus ? `"${r.title}" was already ${r.priorStatus}.` : "";
   let ack: string;
   try {
     if (r.route === "session" && r.conversationId) {
-      const prompt = await promptFor(r, text);
       const target=await threadPrincipal();
       if(target.role!=='owner')throw Error('ASK_THREAD_UNAVAILABLE');
       await requireThreadAccess(r.conversationId,target);
+      const prompt = await promptFor(r, text);
       const conv = await threadQueryOne<{ title: string | null }>(`SELECT title FROM ai_conversations WHERE id = $1`, [r.conversationId]);
       const latest = await threadQueryOne<{ id: string; agent: string; status: string }>(
         `SELECT id, agent, status FROM dev_agent_runs WHERE conversation_id = $1 ORDER BY created_at DESC LIMIT 1`,
@@ -168,6 +178,8 @@ export async function deliverOwnerReply(r: RecordedReply & { chatId: string; mes
       ack = `Got it. ${pulledLine} No chat is attached to that ${r.workItemId ? "draft" : "request"}, so the operating agent takes your note (within a few minutes). Its answer comes here.`;
     }
   } catch (err) {
+    // A private Ask denial must never be rerouted to an unbound operating run.
+    if(r.route==='session'&&r.conversationId)return askFailure(err);
     // The chat couldn't take it (run refused, Hermes down…): hand it to the
     // operating agent instead so the note never just sits.
     const msg = (err as Error).message;

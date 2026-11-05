@@ -11,11 +11,21 @@ ALTER TABLE ai_conversations ADD COLUMN IF NOT EXISTS purged_at timestamptz;
 ALTER TABLE ai_conversations ADD COLUMN IF NOT EXISTS deletion_sequence bigint;
 ALTER TABLE ai_conversations ADD COLUMN IF NOT EXISTS purge_hold boolean NOT NULL DEFAULT false;
 ALTER TABLE ai_folders ADD COLUMN IF NOT EXISTS owner_user_id uuid REFERENCES users(id) ON DELETE RESTRICT;
--- Only the unique active owner inherits historical shared rows. Never guess staff.
-UPDATE ai_conversations SET owner_user_id=(SELECT min(id::text)::uuid FROM users WHERE role='owner' AND active)
- WHERE owner_user_id IS NULL AND (SELECT count(*) FROM users WHERE role='owner' AND active)=1;
+-- A1.2: recorded creators take priority; ambiguous/inactive evidence stays
+-- quarantined. Null principals are not evidence. Never rewrite an existing owner.
+UPDATE ai_conversations c SET owner_user_id=CASE
+ WHEN evidence.principals=1 THEN (SELECT id FROM users WHERE id=evidence.creator AND active)
+ WHEN evidence.principals=0 AND (SELECT count(*) FROM users WHERE role='owner' AND active)=1
+ THEN (SELECT min(id::text)::uuid FROM users WHERE role='owner' AND active)
+ ELSE NULL END
+ FROM (SELECT c0.id,count(DISTINCT r.principal_user_id) AS principals,
+       min(r.principal_user_id::text)::uuid AS creator
+       FROM ai_conversations c0 LEFT JOIN dev_agent_runs r ON r.conversation_id=c0.id GROUP BY c0.id) evidence
+ WHERE c.id=evidence.id AND c.owner_user_id IS NULL;
 UPDATE ai_folders SET owner_user_id=(SELECT min(id::text)::uuid FROM users WHERE role='owner' AND active)
  WHERE owner_user_id IS NULL AND (SELECT count(*) FROM users WHERE role='owner' AND active)=1;
+-- Shared legacy folders must not bind a staff-owned thread to Joe's folder.
+UPDATE ai_conversations c SET folder_id=NULL FROM ai_folders f WHERE c.folder_id=f.id AND c.owner_user_id IS DISTINCT FROM f.owner_user_id;
 DO $$ DECLARE n bigint; BEGIN SELECT count(*) INTO n FROM ai_conversations WHERE owner_user_id IS NULL; RAISE NOTICE '0105 quarantined legacy threads: %', n; END $$;
 DROP INDEX IF EXISTS ai_folders_entity_idx;
 CREATE UNIQUE INDEX ai_folders_entity_idx ON ai_folders(owner_user_id,entity_kind,entity_id) WHERE entity_id IS NOT NULL;
@@ -26,11 +36,23 @@ CREATE TABLE IF NOT EXISTS ask_canvas_maintenance (
  singleton boolean PRIMARY KEY DEFAULT true CHECK(singleton),
  lease_owner uuid, lease_expires_at timestamptz, fencing_token bigint NOT NULL DEFAULT 0,
  heartbeat_at timestamptz, recovery_epoch uuid, recovery_ready boolean NOT NULL DEFAULT false,
+ deletion_enabled boolean NOT NULL DEFAULT false,
  ledger_id uuid, checkpoint_sequence bigint NOT NULL DEFAULT 0 CHECK(checkpoint_sequence>=0),
  checkpoint_hash text, cursor_due_at timestamptz, cursor_id uuid,
  health_code text, blocked_since timestamptz DEFAULT now()
 );
 INSERT INTO ask_canvas_maintenance(singleton) VALUES(true) ON CONFLICT DO NOTHING;
+-- The latch cannot be cleared by a stale flag or an ordinary UPDATE. Journal
+-- and retained-shell evidence are independently rechecked by the server.
+CREATE OR REPLACE FUNCTION guard_ask_deletion_latch() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+BEGIN
+ IF TG_OP='DELETE' OR (OLD.deletion_enabled AND NOT NEW.deletion_enabled) THEN
+  RAISE EXCEPTION 'Ask deletion latch is permanent' USING ERRCODE='42501';
+ END IF;
+ RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION guard_ask_deletion_latch() FROM PUBLIC;
+CREATE TRIGGER guard_ask_deletion_latch BEFORE UPDATE OR DELETE ON ask_canvas_maintenance FOR EACH ROW EXECUTE FUNCTION guard_ask_deletion_latch();
 -- No FK to 0106+; the Phase 0 capability is thread-only.
 ALTER TABLE ai_conversations ADD CONSTRAINT ask_thread_retention CHECK (
  (deleted_at IS NULL AND purge_after IS NULL AND purged_at IS NULL AND deletion_sequence IS NULL) OR
@@ -141,3 +163,14 @@ DO $$ DECLARE tab text; BEGIN
 END $$;
 
 CREATE POLICY ask_unowned_background_insert ON ai_conversations FOR INSERT WITH CHECK (owner_user_id IS NULL AND nullif(current_setting('sjcos.ask_actor',true),'') IS NULL);
+
+-- Regenerated evidence (no privilege changes):
+-- node scripts/db-roles-sql.mjs agent_interactions ai_messages ask_canvas_maintenance
+-- SELECT sjcos_grant('sjcos_agent', 'SELECT, INSERT, UPDATE', 'agent_interactions');
+-- SELECT sjcos_grant('sjcos_worker', 'SELECT', 'agent_interactions');
+-- SELECT sjcos_grant('sjcos_readonly', 'SELECT', 'agent_interactions');
+-- SELECT sjcos_grant('sjcos_agent', 'SELECT', 'ai_messages');
+-- SELECT sjcos_grant('sjcos_worker', 'SELECT, INSERT, UPDATE', 'ai_messages');
+-- SELECT sjcos_grant('sjcos_readonly', 'SELECT', 'ai_messages');
+-- ask_canvas_maintenance prints no grants: website only.
+-- Worker interaction UPDATE and message DELETE remain intentionally withheld.

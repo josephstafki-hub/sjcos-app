@@ -1,3 +1,216 @@
+# Phase 0 round-2 server correction — A1 (2026-11-05)
+
+This section supersedes the pre-A1 backfill, all-Ask gate, combined-matrix and
+scan claims in the historical slice-B report below. Server implementation only;
+the parallel panel builder owns its own UI changes and verification.
+
+## Findings resolved
+
+1. **A1.1 / engineering 1 / design 4:** `withAskJournal` checks the migration
+   dependency, DB latch/checkpoint/retained deletion metadata, and local intent
+   bytes/marker under the same OS lock used by deletion. A never-enabled DB with
+   no deletion evidence admits ordinary Ask without an authority, records
+   `JOURNAL_NOT_CONFIGURED` as a warning, and refuses Delete with
+   `DELETE_NOT_READY`. An unsuccessful enable request with no deletion state
+   does not permanently disable Ask when that request is withdrawn. A bare
+   ledger binding is not deletion evidence. Enabling requires live verified
+   authority receipts; the DB latch cannot be cleared by UPDATE/DELETE, and a
+   fsynced local marker also persists the transition. Any intent (including a
+   partial append), tombstone, sequence or latch keeps the full recovery gate.
+   Restored/forged DB latch values cannot bypass remaining journal or retained
+   shell evidence. Recovery still verifies identity, signed freshness, prefix,
+   checkpoint and leases before admission. Configuration stays outside restores.
+   The local latch file is created once, without following symlinks.
+
+   Public chat/folder actions, run polls/stop/steer/interactions/approvals, run
+   review, mobile adapters, TTS/dictation, legacy Ask API and owner reply routing
+   return fixed typed failures; unknown causes map to `ASK_PAUSED`. A single
+   verified journal scope covers each callback, including provider/spawn/context
+   work. Auth/health metadata and the title-free delete retry command are the
+   deliberate exceptions to ordinary private reads. Subcontractor daily-log
+   speech/dictation remains independent of Ask. Owner replies cannot fall back
+   into an unbound operating run after a private-chat denial; Telegram propagates
+   that fixed failure before refreshing a card to claim successful delivery.
+   `/api/ai/status` exposes an owner-only, no-store warning/ready/paused envelope
+   without causes, titles, counts or configuration. Missing schema also yields a
+   controlled paused result. Maintenance reports the virgin warning without
+   opening a high-priority recovery outage, within the original 1.8-second
+   maintenance invocation budget.
+
+2. **Engineering 3 / design 6:** Delete accepts a caller UUID v4 `operationId`
+   through both `deleteConversationAction(id, operationId)` and `operator.delete`.
+   Retrying that same actor/thread/operation acknowledges `pending` after local
+   intent durability or `deleted` after committed replay, including lost
+   responses and reconstruction after primary-directory loss. It does not
+   require a live-thread read or expose general tombstones. Wrong actors and
+   conflicting operations get the same unavailable code, without a title.
+   A pending result never claims independent durability. No duplicate intent is
+   appended. Thread-list responses carry `capabilities.deleteAvailable`; mobile
+   allowed-actions lists also suppress Delete while unavailable.
+
+3. **Design 5:** chat-search rejection becomes an empty chat-result list; job,
+   lead, invoice and other record results still return.
+
+4. **A1.2 / engineering 5 case 30 / design 7:** 0105 now assigns a null-owned
+   historical thread to its unique active recorded run principal (staff
+   included), ignoring null principals. Only threads with no principal evidence
+   fall back to the unique active owner. Mixed/inactive evidence and no/multiple
+   fallback owners stay quarantined. Existing non-null owners are unchanged.
+   Legacy folder links across the resulting owner boundary are detached to
+   Unfiled, so a staff thread neither leaks Joe's folder nor becomes unwritable.
+   Fixtures cover owner/staff/null/mixed/inactive principals, zero/one/two active
+   owners and contradictory evidence on already-owned rows.
+
+5. **Engineering 5 / A1.3:** subset `apply()` rejects every nonexistent requested
+   migration ID before applying any requested migration. The real available
+   matrix is named **shared_canvas_phase0 (0100 + 0105)**. The test for the
+   missing 0101–0104 combined matrix asserts that it is blocked, not that the
+   combined migration set works. Recovery now runs once on that actual set,
+   rather than counting an identical subset twice. Its 43 passing assertions
+   replace the old duplicated 60 count; no security expectation was removed.
+   Maintained caller/SQL tests cover the server-side fresh review cases: owned
+   and foreign rail/message/run access; mobile rename/archive/reset/poll/stop/
+   steer/answer with no downstream work on denial; self positive controls;
+   review, TTS, owner reply and search fencing; strict injected-source refusal;
+   actual narrow-login GUC/voice/background attacks; immutable admitted identity
+   and background-parent continuation refusal; existing session/bridge attacks;
+   atomic shared dependency and the A1.2 legacy matrix.
+
+6. **Engineering 6:** worker `agent_interactions UPDATE` and `ai_messages DELETE`
+   are explicitly annotated as intentionally withheld website maintenance paths
+   reached by static import tracing. Worker privileges were not broadened.
+   Actual worker identity tests assert both missing privileges and real SQL
+   denial, as well as voice identity spoofing refusal. Regenerated evidence is
+   pasted as comments into 0105 and below.
+
+## Public action result integration
+
+`lib/ask-result-codes.ts` is unchanged. Failure is always `{ok:false,code}` for
+privacy/recovery/auth failures. Existing validation/domain refusals may still
+carry their fixed `error` text. Success envelopes:
+
+- listConversations: `{ok:true,conversations,capabilities}`;
+- listAllConversations / listArchivedThreads: `{ok:true,threads,capabilities}`;
+- listThreadRail: `{ok:true,rail,capabilities}`;
+- loadConversation: `{ok:true,conversation,capabilities}`;
+- newConversation: `{ok:true,id}`;
+- searchJobs: `{ok:true,jobs}`;
+- loadRunReview / listRunApprovals: `{ok:true,review}` / `{ok:true,grants}`;
+- Delete: `{ok:true,state:'pending'|'deleted'}`.
+
+Mutation/send/voice/poll successes keep their existing object fields. Mobile
+poll keeps its existing `{poll:...}` wrapper for ordinary run outcomes, but
+fixed Ask failures are top-level JSON (503 for `ASK_PAUSED`, never generic 500).
+
+## Verification
+
+Expectations were recorded before implementation; fresh fixtures were written
+before running them. Controlled session/provider seams are explicitly separate
+from actual SQL and caller bodies. No HTTP/browser/end-to-end claim is made.
+All invocations are single files, sequential, tagged `p0fixsrv-<timestamp>`, with
+an EXIT trap stopping/removing that tag's disposable cluster even on failure.
+Earlier fixture failures (new export seam, envelope adaptation, quoting and an
+overly broad test-only MobileInputError stand-in)
+were corrected; final runs are below. No exit 137 occurred.
+
+| File | Final pass / fail |
+| --- | ---: |
+| ask-backfill-db | 3 / 0 |
+| ask-thread-access-db | 33 / 0 |
+| ask-thread-recovery-db | 43 / 0 |
+| ask-server-boundaries-db | 8 / 0 |
+| ask-run-admission-db | 4 / 0 |
+| canvas-rollout-db | 3 / 0 |
+| web-sessions-db | 4 / 0 |
+| db-roles-manifest-db | 6 / 0 |
+| db-roles-paths-db | 3 / 0 |
+| panel-search | 5 / 0 |
+| mobile-rpc | 28 / 0 |
+
+Final locked typecheck: `flock /tmp/sjcos-tsc.lock nice -n 19 npx tsc --noEmit -p .`
+exit 0. Scan exit 0. Every printed diff has an explicit withholding annotation:
+
+```text
+## sjcos_agent (166 tables)
+  app_settings                     INSERT,UPDATE,DELETE   ← withheld on purpose: settings incl. pricing/markup and link tokens; agents read non-secret keys only (row security hides *.token)
+  authority_grants                 INSERT,UPDATE   ← withheld on purpose: who may approve what
+  lane_pauses                      INSERT,UPDATE,DELETE   ← withheld on purpose: Joe's kill switches
+  permission_audit                 INSERT   ← withheld on purpose: permission change log: website only
+  policies                         INSERT,UPDATE   ← withheld on purpose: Joe's automation switches
+  session_revocations              INSERT   ← withheld on purpose: sign-outs: website only
+  users                            SELECT,UPDATE,INSERT   ← withheld on purpose: logins and passwords: Joe's Settings › Team (website) or his own panel run only
+
+## sjcos_worker (147 tables)
+  agent_interactions               UPDATE   ← withheld on purpose: Worker UPDATE intentionally withheld: private Ask recovery/purge is website-only; imported journal code does not grant worker execution.
+  ai_messages                      DELETE   ← withheld on purpose: Worker DELETE intentionally withheld: private Ask retention purge is website-only; INSERT/UPDATE background grants do not authorize private chat maintenance.
+  app_settings                     INSERT,UPDATE   ← withheld on purpose: settings incl. pricing/markup and link tokens; agents read non-secret keys only (row security hides *.token)
+  ask_canvas_maintenance           UPDATE,SELECT   ← withheld on purpose: 0105 private recovery epoch/lease/checkpoint; website only. No narrow grants. Backup via pg_read_all_data.
+  authority_grants                 INSERT,UPDATE   ← withheld on purpose: who may approve what
+  lane_pauses                      INSERT,UPDATE,DELETE   ← withheld on purpose: Joe's kill switches
+  payment_authorizations           SELECT,INSERT   ← withheld on purpose: client payment authorizations: written only by the portal checkout (website); the worker reaches lib/payments/service.ts but never records one
+  permission_audit                 INSERT   ← withheld on purpose: permission change log: website only
+  policies                         INSERT,UPDATE   ← withheld on purpose: Joe's automation switches
+  qbo_connection                   INSERT,UPDATE,SELECT   ← withheld on purpose: QuickBooks OAuth connection; QBO sync runs inside the website (cron route)
+  session_revocations              INSERT,UPDATE   ← withheld on purpose: sign-outs: website only
+  user_email_accounts              SELECT,INSERT,UPDATE,DELETE   ← withheld on purpose: staff Gmail refresh tokens; only the website's own mailbox code reads them
+  users                            SELECT,UPDATE   ← withheld on purpose: logins and passwords: Joe's Settings › Team (website) or his own panel run only
+  web_sessions                     INSERT,SELECT,UPDATE   ← withheld on purpose: 0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data.
+```
+
+The shared settings/users/permission/revocation/authority/policy/lane entries
+are website-only owner controls. The worker's payment authorization is a portal
+write, QBO is a website cron path, staff mailbox tokens are website-only, and
+session/journal state is private website authority. These static import-path
+findings do not justify granting the worker those operations.
+
+Generated unchanged grants (`node scripts/db-roles-sql.mjs agent_interactions
+ai_messages ask_canvas_maintenance`):
+
+```sql
+SELECT sjcos_grant('sjcos_agent', 'SELECT, INSERT, UPDATE', 'agent_interactions');
+SELECT sjcos_grant('sjcos_worker', 'SELECT', 'agent_interactions');
+SELECT sjcos_grant('sjcos_readonly', 'SELECT', 'agent_interactions');
+SELECT sjcos_grant('sjcos_agent', 'SELECT', 'ai_messages');
+SELECT sjcos_grant('sjcos_worker', 'SELECT, INSERT, UPDATE', 'ai_messages');
+SELECT sjcos_grant('sjcos_readonly', 'SELECT', 'ai_messages');
+```
+
+`ask_canvas_maintenance` generates no grants. The agent's existing interaction
+privileges remain fenced by actual session identity + RLS; this change grants
+nothing new to any narrow login.
+
+## What Joe / the coordinator must do; not done here
+
+- **Rebuild all Phase 0 QA databases from the baseline and ordered migrations.**
+  0105 was deliberately edited in place because it is not live. Existing QA
+  checksums, latch schema and legacy owners are obsolete. Do not patch or fake
+  migration rows to reuse those databases. No live DB, `sjcos_qa_abc`, services,
+  deployment, build/start/dev, browser, package install or node_modules write
+  occurred in this work.
+- Tell Abigail before deploy: chats with a recorded sole active creator stay
+  with that person (including her two chats); new chats are private to their
+  creator. Mixed/inactive evidence is quarantined. Staff legacy chats linked
+  to Joe's shared folders start Unfiled. Verify the rebuilt QA ownership counts.
+- Ordinary Ask may ship with deletion never enabled and authority absent under
+  A1.1. Keep Delete off until independent authority provisioning/identity/key
+  pinning outside both restore sets, restore/loss drills, and deletion acceptance
+  are approved. Once enabled, preserve the durable directory/marker and authority
+  configuration across releases and restores; flags off cannot disable recovery.
+  No authority service was implemented or provisioned here.
+- **Browser Phase 0b deferred (engineering item 4, A1.3):** no 0101–0104 schema,
+  gate/addon/dispatcher, target-barrier patch/pins, namespace/packet/RSS/actual CLI
+  runtime evidence, or second Browser UI fixture consumer. Browser stays disabled;
+  these are required before Browser Phase 1, not blockers for Canvas Phase 1.
+- UI layout/hydration/focus/device captures remain the parallel builder and
+  coordinator's work. Check normal owner/staff chats without deletion enabled,
+  deliberately paused mode after enabling, record search during pause, Delete
+  disabled/capability copy, stable pending retry and title-free foreign denial
+  at the six requested widths. No visual verification was performed here.
+
+---
+
+# Historical slice-B report (pre-A1; superseded where noted above)
+
 # Phase 0 slice B — Ask ownership and thread recovery
 
 2026-11-05. Implementation only; no deployment, live DB, service changes,

@@ -64,6 +64,6 @@ export async function searchPanelForUser(user: CurrentUser, raw: string, records
          AND c.owner_user_id=$2 AND c.deleted_at IS NULL
        ORDER BY c.updated_at DESC LIMIT 12`,[pattern,user.id]);
     return rows.map(r=>({id:'thread:'+r.id,recordId:r.id,messageId:r.message_id??undefined,kind:'thread' as const,title:r.title,detail:[r.folder,r.status,r.body].filter(Boolean).join(' · '),href:`/panel?c=${r.id}${r.message_id?'&m='+r.message_id:''}`}));
-  })());
+  })().catch(()=>[]));
   return [...results,...(await Promise.all(searches)).flat()].slice(0,65);
 }

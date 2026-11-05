@@ -2,12 +2,12 @@
 
 import { admitAskRun, currentAskLaunchSource, type AskLaunchSource } from "@/lib/ask-run-admission";
 
+import type { AskFailure, AskResult, AskDeleteResult } from "@/lib/ask-result-codes";
 import { mkdir, writeFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { loadPanelContext, type PanelContextRef } from "@/lib/panel-context";
-import { requireAccess, requireRole } from "@/lib/dal";
-import { deleteOwnedThread, threadPrincipal, withThreadAttachmentAccess, requireThreadAccess, threadQuery as query, threadQueryOne as queryOne } from "@/lib/thread-access";
+import { askBoundary, askFailure, askThreadCapabilities, deleteOwnedThread, threadPrincipal, withThreadAttachmentAccess, requireThreadAccess, threadQuery as query, threadQueryOne as queryOne } from "@/lib/thread-access";
 import { hermesChat, startClaudeRun } from "@/lib/dev-agents";
 import { finalizeHermesAnswer } from "@/lib/orchestrator/effects";
 import { escalateToHermesLadder, runHermesLadder } from "@/lib/orchestrator/ladder";
@@ -66,24 +66,24 @@ import {
 // full conversation history); Claude returns a run id the client polls — its
 // detached runner persists the reply and resumes the CLI session.
 
-export async function listConversationsAction(
+async function listConversationsActionImpl(
   agent: PanelAgent,
   includeArchived = false,
 ): Promise<ConversationSummary[]> {
-  await requireAccess("ai");
+  await threadPrincipal();
   return listConversations(agent, includeArchived);
 }
 
 /** All threads across agents for the panel's thread rail/drawer. */
-export async function listAllConversationsAction(
+async function listAllConversationsActionImpl(
   includeArchived = false,
 ): Promise<ThreadListItem[]> {
-  await requireAccess("ai");
+  await threadPrincipal();
   return listAllConversations(includeArchived);
 }
 
-export async function loadConversationAction(id: string): Promise<ConversationDetail | null> {
-  await requireAccess("ai");
+async function loadConversationActionImpl(id: string): Promise<ConversationDetail | null> {
+  await threadPrincipal();
   return getConversation(id);
 }
 
@@ -91,11 +91,11 @@ export async function loadConversationAction(id: string): Promise<ConversationDe
  *  (docs/thread-folders-plan.md §3.6): a folder id, or a job whose folder is
  *  created on first use — otherwise Unfiled. The app view's route never files
  *  a thread on its own. */
-export async function newConversationAction(
+async function newConversationActionImpl(
   agent: PanelAgent,
   where?: { folderId?: string | null; entity?: FolderEntityRef | null },
 ): Promise<string> {
-  await requireAccess("ai");
+  await threadPrincipal();
   let folderId: string | null = where?.folderId ?? null;
   if (!folderId && where?.entity) folderId = await ensureFolderForEntity(where.entity).catch(() => null);
   return insertConversation(agent, "New chat", folderId);
@@ -113,11 +113,12 @@ const MAX_UPLOAD_BYTES = 25 * 1024 * 1024; // 25 MB per file
 
 export type UploadResult =
   | { ok: true; files: ChatAttachment[] }
-  | { ok: false; error: string };
+  | { ok: false; error: string }
+  | AskFailure;
 
 /** Persist uploaded files and return their on-disk absolute paths. */
-export async function uploadChatFilesAction(formData: FormData): Promise<UploadResult> {
-  await requireAccess("ai");
+async function uploadChatFilesActionImpl(formData: FormData): Promise<UploadResult> {
+  await threadPrincipal();
   const files = formData.getAll("files").filter((f): f is File => f instanceof File);
   if (!files.length) return { ok: false, error: "No files selected." };
   const person=await threadPrincipal();
@@ -138,7 +139,8 @@ export async function uploadChatFilesAction(formData: FormData): Promise<UploadR
 export type SendResult =
   | { ok: true; kind: "answer"; message: ChatMessage }
   | { ok: true; kind: "pending"; runId: string; userMessageId: string }
-  | { ok: false; error: string };
+  | { ok: false; error: string }
+  | AskFailure;
 
 /** Send a message in a conversation. `conversationId` may be a fresh one just
  *  created for the selected agent. `allowSends` is the Ask window's per-message
@@ -146,7 +148,7 @@ export type SendResult =
  *  grant (lib/owner-grants.ts) so Claude may perform the client-facing sends
  *  the message asks for. Deliberately not part of ClaudeOptions (which persist
  *  in panelStore) — permission must never outlive the message that gave it. */
-export async function sendMessageAction(
+async function sendMessageActionImpl(
   conversationId: string,
   prompt: string,
   pageContext?: string,
@@ -156,11 +158,11 @@ export async function sendMessageAction(
   allowSends?: boolean,
   contextRecords?: PanelContextRef[],
 ): Promise<SendResult> {
-  const user = await requireAccess("ai");
+  const user = await threadPrincipal();
+  await requireThreadAccess(conversationId);
   const explicitContext = await loadPanelContext(contextRecords ?? []);
   if (explicitContext) pageContext = [pageContext, explicitContext].filter(Boolean).join("\n\n");
   const text = prompt.trim();
-  await requireThreadAccess(conversationId);
   const files = sanitizeAttachments(attachments);
   for(const file of files)await withThreadAttachmentAccess(file.path,async()=>{});
   if (!text && !files.length) return { ok: false, error: "Ask something first." };
@@ -264,28 +266,21 @@ export async function sendMessageAction(
 
     return { ok: true, kind: "pending", runId, userMessageId: userMsg.id };
   } catch (err) {
-    // Save the failure as an assistant message so the thread reflects it.
-    const message = await insertMessage(
-      conversationId,
-      "assistant",
-      `⚠️ ${(err as Error).message}`,
-      { agent },
-    );
-    return { ok: true, kind: "answer", message };
+    return askFailure(err);
   }
 }
 
 /** "Fresh session": drop the thread's CLI session so the next Claude turn
  *  starts clean (full prompt, empty context) instead of resuming. The
  *  transcript stays — only Claude's own memory of it resets. */
-export async function resetClaudeSessionAction(conversationId: string): Promise<{ ok: boolean }> {
-  await requireAccess("ai");
+async function resetClaudeSessionActionImpl(conversationId: string): Promise<{ ok: boolean }> {
+  await threadPrincipal();
   await query(`UPDATE ai_conversations SET claude_session_id = NULL WHERE id = $1`, [conversationId]);
   return { ok: true };
 }
 
-export async function renameConversationAction(id: string, title: string): Promise<{ ok: boolean }> {
-  await requireAccess("ai");
+async function renameConversationActionImpl(id: string, title: string): Promise<{ ok: boolean }> {
+  await threadPrincipal();
   const t = title.replace(/\s+/g, " ").trim().slice(0, 80);
   if (t) await query(`UPDATE ai_conversations SET title = $2 WHERE id = $1`, [id, t]);
   return { ok: true };
@@ -293,11 +288,11 @@ export async function renameConversationAction(id: string, title: string): Promi
 
 /** Archive hides the thread (kept under "Show archived"); refused while a run
  *  is live. Restore un-hides it. */
-export async function archiveConversationAction(
+async function archiveConversationActionImpl(
   id: string,
   archived: boolean,
 ): Promise<{ ok: boolean; error?: string }> {
-  await requireAccess("ai");
+  await threadPrincipal();
   const r = await setThreadArchived(id, archived);
   return r.ok ? { ok: true } : { ok: false, error: r.error };
 }
@@ -306,119 +301,120 @@ export async function archiveConversationAction(
 // Thin owner-gated wrappers over lib/thread-folders.ts. The rail re-partitions
 // client-side (lib/thread-rail.ts) and reloads after each mutation.
 
-export async function listThreadRailAction(): Promise<ThreadRail> {
-  await requireAccess("ai");
+async function listThreadRailActionImpl(): Promise<ThreadRail> {
+  await threadPrincipal();
   return listThreadRail();
 }
 
-export async function listArchivedThreadsAction(): Promise<RailThread[]> {
-  await requireAccess("ai");
+async function listArchivedThreadsActionImpl(): Promise<RailThread[]> {
+  await threadPrincipal();
   return listArchivedThreads();
 }
 
 /** ✓ "I'm done with this" → Settled shelf. Refused while working/blocked. */
-export async function settleConversationAction(id: string): Promise<{ ok: boolean; error?: string }> {
-  await requireAccess("ai");
+async function settleConversationActionImpl(id: string): Promise<{ ok: boolean; error?: string }> {
+  await threadPrincipal();
   const r = await settleThread(id);
   return r.ok ? { ok: true } : { ok: false, error: r.error };
 }
 
 /** ↶ back to the active list, and auto-settle leaves it alone from now on. */
-export async function unsettleConversationAction(id: string): Promise<{ ok: boolean }> {
-  await requireAccess("ai");
+async function unsettleConversationActionImpl(id: string): Promise<{ ok: boolean }> {
+  await threadPrincipal();
   await unsettleThread(id);
   return { ok: true };
 }
 
-export async function pinConversationAction(id: string, pinned: boolean): Promise<{ ok: boolean }> {
-  await requireAccess("ai");
+async function pinConversationActionImpl(id: string, pinned: boolean): Promise<{ ok: boolean }> {
+  await threadPrincipal();
   await setThreadPinned(id, pinned);
   return { ok: true };
 }
 
 /** Move a thread into a folder (null = Unfiled). */
-export async function moveConversationAction(id: string, folderId: string | null): Promise<{ ok: boolean }> {
-  await requireAccess("ai");
+async function moveConversationActionImpl(id: string, folderId: string | null): Promise<{ ok: boolean }> {
+  await threadPrincipal();
   await moveThread(id, folderId);
   return { ok: true };
 }
 
 /** The "File under Larson kitchen?" chip: into that job's folder (created on
  *  first use). */
-export async function fileConversationUnderAction(
+async function fileConversationUnderActionImpl(
   id: string,
   entity: FolderEntityRef,
 ): Promise<{ ok: boolean; folderId: string | null }> {
-  await requireAccess("ai");
+  await threadPrincipal();
   const folderId = await fileThreadUnderEntity(id, entity);
   return { ok: folderId != null, folderId };
 }
 
-export async function createFolderAction(name: string): Promise<{ ok: boolean; id: string }> {
-  await requireAccess("ai");
+async function createFolderActionImpl(name: string): Promise<{ ok: boolean; id: string }> {
+  await threadPrincipal();
   return { ok: true, id: await createFolder(name) };
 }
 
 /** A folder for a job (project/lead page), created on first use. */
-export async function ensureEntityFolderAction(entity: FolderEntityRef): Promise<{ ok: boolean; id: string | null }> {
-  await requireAccess("ai");
+async function ensureEntityFolderActionImpl(entity: FolderEntityRef): Promise<{ ok: boolean; id: string | null }> {
+  await threadPrincipal();
   const id = await ensureFolderForEntity(entity);
   return { ok: id != null, id };
 }
 
-export async function renameFolderAction(id: string, name: string): Promise<{ ok: boolean }> {
-  await requireAccess("ai");
+async function renameFolderActionImpl(id: string, name: string): Promise<{ ok: boolean }> {
+  await threadPrincipal();
   await renameFolder(id, name);
   return { ok: true };
 }
 
 /** Jobs for the rail's picker (link a folder / new folder for a job). */
-export async function searchJobsAction(q: string): Promise<JobPick[]> {
-  await requireRole("owner");
+async function searchJobsActionImpl(q: string): Promise<JobPick[]> {
+  if((await threadPrincipal()).role!=="owner")throw Error("ASK_ACCESS_DENIED");
   return searchFolderEntities(q);
 }
 
 /** Link a folder to a job (null unlinks). A slug or uuid of a project / lead /
  *  vendor / sub. */
-export async function bindFolderAction(
+async function bindFolderActionImpl(
   id: string,
   entity: FolderEntityRef | null,
 ): Promise<{ ok: boolean; error?: string; existingFolderId?: string }> {
-  await requireAccess("ai");
+  await threadPrincipal();
   const r = await bindFolder(id, entity);
   return r.ok ? { ok: true } : { ok: false, error: r.error, existingFolderId: r.existingFolderId };
 }
 
 /** Manual folder order from a drag reorder in the rail. */
-export async function reorderFoldersAction(ids: string[]): Promise<{ ok: boolean }> {
-  await requireRole("owner");
+async function reorderFoldersActionImpl(ids: string[]): Promise<{ ok: boolean }> {
+  if((await threadPrincipal()).role!=="owner")throw Error("ASK_ACCESS_DENIED");
   await reorderFolders(ids.filter((id) => typeof id === "string").slice(0, 500));
   return { ok: true };
 }
 
-export async function setFolderCollapsedAction(id: string, collapsed: boolean): Promise<{ ok: boolean }> {
-  await requireAccess("ai");
+async function setFolderCollapsedActionImpl(id: string, collapsed: boolean): Promise<{ ok: boolean }> {
+  await threadPrincipal();
   await setFolderCollapsed(id, collapsed);
   return { ok: true };
 }
 
-export async function archiveFolderAction(id: string, archived: boolean): Promise<{ ok: boolean; error?: string }> {
-  await requireAccess("ai");
+async function archiveFolderActionImpl(id: string, archived: boolean): Promise<{ ok: boolean; error?: string }> {
+  await threadPrincipal();
   const r = await setFolderArchived(id, archived);
   return r.ok ? { ok: true } : { ok: false, error: r.error };
 }
 
 /** Delete the folder; its threads become Unfiled. */
-export async function deleteFolderAction(id: string): Promise<{ ok: boolean; error?: string }> {
-  await requireAccess("ai");
+async function deleteFolderActionImpl(id: string): Promise<{ ok: boolean; error?: string }> {
+  await threadPrincipal();
   const r = await deleteFolder(id);
   return r.ok ? { ok: true } : { ok: false, error: r.error };
 }
 
-export async function deleteConversationAction(id: string): Promise<{ ok: boolean }> {
-  await requireAccess("ai");
-  await deleteOwnedThread(id);
-  return { ok: true };
+export async function deleteConversationAction(id: string, operationId: string): Promise<AskDeleteResult> {
+  // Retry/status deliberately bypasses the ordinary read gate, using only the
+  // authenticated actor + opaque operation UUID; never load a title here.
+  try { return await deleteOwnedThread(id, operationId) as AskDeleteResult; }
+  catch(error) { return askFailure(error); }
 }
 
 // ─── Background turns ────────────────────────────────────────────────────────
@@ -535,7 +531,8 @@ async function startBackgroundTurn(t: BackgroundTurn): Promise<string> {
 
 export type VoiceTurnResult =
   | { ok: true; speak: string; ackMessageId: string; runId?: string; delegatedTo?: "hermes" | "qwen" }
-  | { ok: false; error: string };
+  | { ok: false; error: string }
+  | AskFailure;
 
 /**
  * A voice-mode turn: Claude answers out loud right away and, when the ask
@@ -545,12 +542,12 @@ export type VoiceTurnResult =
  * work, Claude reports. Works in any thread regardless of the rail pin: a
  * pinned Hermes/Qwen thread just fixes who the delegate is.
  */
-export async function voiceTurnAction(
+async function voiceTurnActionImpl(
   conversationId: string,
   transcript: string,
   pageContext?: string,
 ): Promise<VoiceTurnResult> {
-  const user = await requireAccess("ai");
+  const user = await threadPrincipal();
   const text = transcript.trim();
   if (!text) return { ok: false, error: "I didn't catch that." };
 
@@ -598,3 +595,44 @@ ${reply.delegate.task}`.trim(),
   });
   return { ok: true, speak: reply.speak, ackMessageId: ack.id, runId, delegatedTo: agent };
 }
+
+export async function listConversationsAction(...args: Parameters<typeof listConversationsActionImpl>): Promise<AskResult<{conversations: Awaited<ReturnType<typeof listConversationsActionImpl>>; capabilities: import("@/lib/ask-result-codes").AskThreadCapabilities}>> {
+ return askBoundary(async()=>{const value=await listConversationsActionImpl(...args);return {ok:true,conversations:value,capabilities:await askThreadCapabilities()};});
+}
+export async function listAllConversationsAction(...args: Parameters<typeof listAllConversationsActionImpl>): Promise<AskResult<{threads: Awaited<ReturnType<typeof listAllConversationsActionImpl>>; capabilities: import("@/lib/ask-result-codes").AskThreadCapabilities}>> {
+ return askBoundary(async()=>{const value=await listAllConversationsActionImpl(...args);return {ok:true,threads:value,capabilities:await askThreadCapabilities()};});
+}
+export async function loadConversationAction(...args: Parameters<typeof loadConversationActionImpl>): Promise<AskResult<{conversation: NonNullable<Awaited<ReturnType<typeof loadConversationActionImpl>>>; capabilities: import("@/lib/ask-result-codes").AskThreadCapabilities}>> {
+ return askBoundary(async()=>{const value=await loadConversationActionImpl(...args);if(!value)return {ok:false,code:"THREAD_UNAVAILABLE"} as AskFailure;return {ok:true,conversation:value,capabilities:await askThreadCapabilities()};});
+}
+export async function newConversationAction(...args: Parameters<typeof newConversationActionImpl>): Promise<AskResult<{id: Awaited<ReturnType<typeof newConversationActionImpl>>}>> {
+ return askBoundary(async()=>{const value=await newConversationActionImpl(...args);return {ok:true,id:value};});
+}
+export async function uploadChatFilesAction(...args: Parameters<typeof uploadChatFilesActionImpl>): Promise<Awaited<ReturnType<typeof uploadChatFilesActionImpl>> | AskFailure> { return askBoundary(()=>uploadChatFilesActionImpl(...args)); }
+export async function sendMessageAction(...args: Parameters<typeof sendMessageActionImpl>): Promise<Awaited<ReturnType<typeof sendMessageActionImpl>> | AskFailure> { return askBoundary(()=>sendMessageActionImpl(...args)); }
+export async function resetClaudeSessionAction(...args: Parameters<typeof resetClaudeSessionActionImpl>): Promise<Awaited<ReturnType<typeof resetClaudeSessionActionImpl>> | AskFailure> { return askBoundary(async()=>{await requireThreadAccess(args[0]);return resetClaudeSessionActionImpl(...args);}); }
+export async function renameConversationAction(...args: Parameters<typeof renameConversationActionImpl>): Promise<Awaited<ReturnType<typeof renameConversationActionImpl>> | AskFailure> { return askBoundary(async()=>{await requireThreadAccess(args[0]);return renameConversationActionImpl(...args);}); }
+export async function archiveConversationAction(...args: Parameters<typeof archiveConversationActionImpl>): Promise<Awaited<ReturnType<typeof archiveConversationActionImpl>> | AskFailure> { return askBoundary(async()=>{await requireThreadAccess(args[0]);return archiveConversationActionImpl(...args);}); }
+export async function listThreadRailAction(...args: Parameters<typeof listThreadRailActionImpl>): Promise<AskResult<{rail: Awaited<ReturnType<typeof listThreadRailActionImpl>>; capabilities: import("@/lib/ask-result-codes").AskThreadCapabilities}>> {
+ return askBoundary(async()=>{const value=await listThreadRailActionImpl(...args);return {ok:true,rail:value,capabilities:await askThreadCapabilities()};});
+}
+export async function listArchivedThreadsAction(...args: Parameters<typeof listArchivedThreadsActionImpl>): Promise<AskResult<{threads: Awaited<ReturnType<typeof listArchivedThreadsActionImpl>>; capabilities: import("@/lib/ask-result-codes").AskThreadCapabilities}>> {
+ return askBoundary(async()=>{const value=await listArchivedThreadsActionImpl(...args);return {ok:true,threads:value,capabilities:await askThreadCapabilities()};});
+}
+export async function settleConversationAction(...args: Parameters<typeof settleConversationActionImpl>): Promise<Awaited<ReturnType<typeof settleConversationActionImpl>> | AskFailure> { return askBoundary(async()=>{await requireThreadAccess(args[0]);return settleConversationActionImpl(...args);}); }
+export async function unsettleConversationAction(...args: Parameters<typeof unsettleConversationActionImpl>): Promise<Awaited<ReturnType<typeof unsettleConversationActionImpl>> | AskFailure> { return askBoundary(async()=>{await requireThreadAccess(args[0]);return unsettleConversationActionImpl(...args);}); }
+export async function pinConversationAction(...args: Parameters<typeof pinConversationActionImpl>): Promise<Awaited<ReturnType<typeof pinConversationActionImpl>> | AskFailure> { return askBoundary(async()=>{await requireThreadAccess(args[0]);return pinConversationActionImpl(...args);}); }
+export async function moveConversationAction(...args: Parameters<typeof moveConversationActionImpl>): Promise<Awaited<ReturnType<typeof moveConversationActionImpl>> | AskFailure> { return askBoundary(async()=>{await requireThreadAccess(args[0]);return moveConversationActionImpl(...args);}); }
+export async function fileConversationUnderAction(...args: Parameters<typeof fileConversationUnderActionImpl>): Promise<Awaited<ReturnType<typeof fileConversationUnderActionImpl>> | AskFailure> { return askBoundary(async()=>{await requireThreadAccess(args[0]);return fileConversationUnderActionImpl(...args);}); }
+export async function createFolderAction(...args: Parameters<typeof createFolderActionImpl>): Promise<Awaited<ReturnType<typeof createFolderActionImpl>> | AskFailure> { return askBoundary(()=>createFolderActionImpl(...args)); }
+export async function ensureEntityFolderAction(...args: Parameters<typeof ensureEntityFolderActionImpl>): Promise<Awaited<ReturnType<typeof ensureEntityFolderActionImpl>> | AskFailure> { return askBoundary(()=>ensureEntityFolderActionImpl(...args)); }
+export async function renameFolderAction(...args: Parameters<typeof renameFolderActionImpl>): Promise<Awaited<ReturnType<typeof renameFolderActionImpl>> | AskFailure> { return askBoundary(()=>renameFolderActionImpl(...args)); }
+export async function searchJobsAction(...args: Parameters<typeof searchJobsActionImpl>): Promise<AskResult<{jobs: Awaited<ReturnType<typeof searchJobsActionImpl>>}>> {
+ return askBoundary(async()=>{const value=await searchJobsActionImpl(...args);return {ok:true,jobs:value};});
+}
+export async function bindFolderAction(...args: Parameters<typeof bindFolderActionImpl>): Promise<Awaited<ReturnType<typeof bindFolderActionImpl>> | AskFailure> { return askBoundary(()=>bindFolderActionImpl(...args)); }
+export async function reorderFoldersAction(...args: Parameters<typeof reorderFoldersActionImpl>): Promise<Awaited<ReturnType<typeof reorderFoldersActionImpl>> | AskFailure> { return askBoundary(()=>reorderFoldersActionImpl(...args)); }
+export async function setFolderCollapsedAction(...args: Parameters<typeof setFolderCollapsedActionImpl>): Promise<Awaited<ReturnType<typeof setFolderCollapsedActionImpl>> | AskFailure> { return askBoundary(()=>setFolderCollapsedActionImpl(...args)); }
+export async function archiveFolderAction(...args: Parameters<typeof archiveFolderActionImpl>): Promise<Awaited<ReturnType<typeof archiveFolderActionImpl>> | AskFailure> { return askBoundary(()=>archiveFolderActionImpl(...args)); }
+export async function deleteFolderAction(...args: Parameters<typeof deleteFolderActionImpl>): Promise<Awaited<ReturnType<typeof deleteFolderActionImpl>> | AskFailure> { return askBoundary(()=>deleteFolderActionImpl(...args)); }
+export async function voiceTurnAction(...args: Parameters<typeof voiceTurnActionImpl>): Promise<Awaited<ReturnType<typeof voiceTurnActionImpl>> | AskFailure> { return askBoundary(async()=>{await requireThreadAccess(args[0]);return voiceTurnActionImpl(...args);}); }

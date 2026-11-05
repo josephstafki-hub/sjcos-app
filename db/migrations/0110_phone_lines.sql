@@ -13,7 +13,8 @@
 --                      assigned_user_id is that person's own line: their texts
 --                      and calls go out from it, its inbound calls ring their
 --                      cell, its texts notify them.
---   sms_threads        now one conversation per (counterparty, our number), so a
+--   sms_threads        one conversation per (counterparty, our number) once 0111
+--                      drops the old phone-only key, so a
 --                      client who texts both Joe's line and Abigail's line has two
 --                      threads; business_number says which line it is on.
 --                      summary / summary_at / summary_message_id hold the short
@@ -71,7 +72,9 @@ UPDATE sms_threads t
   FROM phone_lines l
  WHERE l.is_company_default AND t.business_number IS NULL;
 
-ALTER TABLE sms_threads DROP CONSTRAINT IF EXISTS sms_threads_phone_key;
+-- The old one-thread-per-number constraint stays until 0111, so the code
+-- running before the restart (ON CONFLICT (phone)) keeps working; the new code
+-- arbitrates on this index. Apply 0111 right after the new build is live.
 CREATE UNIQUE INDEX IF NOT EXISTS sms_threads_phone_line_key ON sms_threads (phone, (COALESCE(business_number, '')));
 CREATE INDEX IF NOT EXISTS idx_sms_threads_phone ON sms_threads (phone);
 CREATE INDEX IF NOT EXISTS idx_sms_threads_link ON sms_threads (link_type, link_slug) WHERE link_type IS NOT NULL;

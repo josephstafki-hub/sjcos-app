@@ -5,7 +5,11 @@ his Google Voice line into Telnyx later and wants to switch between the two. Als
 a number can be assigned to an employee's login, while client / lead / sub / supplier
 information stays shared across every account ("summaries would be fine").
 
-## The model (migration 0110)
+## The model (migrations 0110 + 0111)
+
+0110 is safe to apply while the previous build is still running. 0111 drops the old
+one-thread-per-number key and must be applied **after** the phone-lines build is
+live; until then Settings refuses to add a second number.
 
 - `phone_lines`: one row per number on the Telnyx account. Exactly one active row is
   the **main line** (`is_company_default`). A row with `assigned_user_id` is that

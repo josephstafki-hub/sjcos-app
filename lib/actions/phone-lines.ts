@@ -34,6 +34,15 @@ function pgMessage(err: unknown): string {
 
 export async function addPhoneLine(input: { number: string; label: string; assignedUserId?: string | null; notes?: string }): Promise<PhoneLineResult> {
   await requireRole("owner");
+  // 0111 not applied yet: the old one-thread-per-number key would make a second
+  // line's first text to an existing contact fail.
+  const oldKey = await queryOne<{ n: number }>(
+    `SELECT count(*)::int AS n FROM pg_constraint WHERE conname = 'sms_threads_phone_key' AND conrelid = 'sms_threads'::regclass`,
+  );
+  const lines = await queryOne<{ n: number }>(`SELECT count(*)::int AS n FROM phone_lines`);
+  if ((oldKey?.n ?? 0) > 0 && (lines?.n ?? 0) > 0) {
+    return { ok: false, error: "One database step is still pending (migration 0111). Ask for it to be applied, then add the number." };
+  }
   const norm = normalizeE164(input.number);
   if (!norm.ok) return { ok: false, error: norm.error };
   const label = input.label.trim().slice(0, 80);

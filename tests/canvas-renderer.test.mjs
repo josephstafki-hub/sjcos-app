@@ -102,3 +102,17 @@ test('fixed bootstraps execute and enforce the one-shot parent/nonce/port bounda
         assert.equal(disconnected, true);
     }
 });
+
+test('vendored Mermaid bundle bytes match the pinned digest and build a renderer document', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { MERMAID_ASSET_SHA256 } = await import('../lib/canvas-renderer.mjs');
+    const real = readFileSync(new URL('../' + MERMAID_ASSET_PATH, import.meta.url), 'utf8');
+    assert.equal(typeof MERMAID_ASSET_SHA256, 'string');
+    assert.equal(hash(real), MERMAID_ASSET_SHA256);
+    assert.ok(!/<\/script/i.test(real) && !real.includes('<!--') && !real.includes('sourceMappingURL'));
+    const { html, headers } = buildCanvasRendererDocument({ mermaidBundle: real, mermaidSha256: MERMAID_ASSET_SHA256 });
+    assert.ok(html.includes(real));
+    const csp = Object.entries(headers).find(([k]) => k.toLowerCase() === 'content-security-policy')[1];
+    assert.ok(csp.includes(`'sha256-${MERMAID_ASSET_SHA256}'`));
+    assert.ok(!csp.includes('allow-same-origin'));
+});

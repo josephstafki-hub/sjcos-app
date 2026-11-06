@@ -61,6 +61,7 @@ import { createServer as createHttpServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { assertTestDatabaseUrl, isNodeTest } from "../lib/test-db-guard.mjs";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -123,7 +124,11 @@ function databaseUrl() {
   return databaseUrlFor(DB_LOGIN, { envFile: path.join(__dirname, "..", ".env.local") });
 }
 
-const pool = new pg.Pool({ connectionString: databaseUrl(), max: 4 });
+const connectionString = isNodeTest()
+  ? (process.env.SJC_TEST_DATABASE_URL ?? process.env["DATABASE_URL" + (mcpLogin() === "owner" ? "" : "_AGENT")] ?? process.env.DATABASE_URL)
+  : databaseUrl();
+assertTestDatabaseUrl(connectionString);
+const pool = new pg.Pool({ connectionString, max: 4 });
 
 /** Read a key from env or .env.local (same fallback as databaseUrl). */
 function envValue(key) {

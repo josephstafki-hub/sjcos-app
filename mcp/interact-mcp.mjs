@@ -26,6 +26,7 @@ import {createContextAdapter,createContextForwarder,trackedInteractions} from ".
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
+import { assertTestDatabaseUrl, isNodeTest } from "../lib/test-db-guard.mjs";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -42,7 +43,11 @@ function databaseUrl() {
   return databaseUrlFor(mcpLogin(), { envFile: path.join(__dirname, "..", ".env.local") });
 }
 
-const pool = new pg.Pool({ connectionString: databaseUrl(), max: 2 });
+const connectionString = isNodeTest()
+  ? (process.env.SJC_TEST_DATABASE_URL ?? process.env["DATABASE_URL" + (mcpLogin() === "owner" ? "" : "_AGENT")] ?? process.env.DATABASE_URL)
+  : databaseUrl();
+assertTestDatabaseUrl(connectionString);
+const pool = new pg.Pool({ connectionString, max: 2 });
 
 const json = (data) => ({ content: [{ type: "text", text: JSON.stringify(data, null, 2) }] });
 /** The permission contract is raw JSON text (NOT pretty) — keep it separate. */

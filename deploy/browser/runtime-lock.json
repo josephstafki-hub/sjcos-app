@@ -1,0 +1,55 @@
+{
+  "format": 1,
+  "status": "candidate-not-installed-not-accepted",
+  "sources": {
+    "mitmproxy": {
+      "version": "12.3.1",
+      "wheel": "mitmproxy-12.3.1-py3-none-any.whl",
+      "sha256": "87afb808ac8d55383dbe6aa30eadeb0fedaeffd26210e7e23c25c9cd43bdb36a",
+      "metadata": "https://pypi.org/pypi/mitmproxy/12.3.1/json"
+    },
+    "unbound": {
+      "version": "1.26.2",
+      "source": "https://www.nlnetlabs.nl/downloads/unbound/unbound-1.26.2.tar.gz",
+      "sha256": "d8ee7aa6bbb3ff1be7d9e57637d0d0ec2f18273a8efff1a0afe2c665858b96f7"
+    },
+    "playwrightCore": {
+      "version": "1.64.1",
+      "upstreamBundleSha256": "829521b67ed7be90c7d6d6098ff39f2241562d47e4ad7ccab13710924a56001d",
+      "chromiumRevision": "1248"
+    }
+  },
+  "files": {
+    "deploy/browser/closed_dispatcher.py": "f60f792cb7c55c6693d343da5762c9de3a0e43f6b73ecbfefb1d34a82eade2aa",
+    "deploy/browser/containment.mjs": "69f73bb3ac73fe4827488cf638b62dd90da1d27e118bc15d9230151980960d9b",
+    "deploy/browser/egress_gate.py": "7c6e18d4091f1c3c0358c70e41d1e62edd9b577e3fe9d4d48d627d649255979a",
+    "deploy/browser/gate-options.conf": "8418b67b2c22383828c8dfccf9c9d75b884053b6226c8574fd28716596dcdf33",
+    "deploy/browser/launch_broker.py": "100a496e3906eb3e92f82ac31a2035181040aa83f2c82d1d88897a8888898f9a",
+    "deploy/browser/parser-contract.md": "fe7bc611ece153b32d6ac131dd2332d914460e0e90fe1cc7d022b938635c1c7c",
+    "deploy/browser/peercred.py": "4f6476d4a42e4ae256311de0ec1536ca0eb98efeb8e4533980ee8ba9e4b0ecd4",
+    "deploy/browser/playwright-resume-census.json": "ff62f54808111889e2fe2bdde974afd0c604eac6f71f9f5c594beac755a961b9",
+    "deploy/browser/playwright-target-barrier.spec.md": "045a4eb2bb4d7db47a9aa6029937b585ce77bd949be3633850d994099d24f4c5",
+    "deploy/browser/unbound.conf": "1076e0e124e8797c8c48fde393800b8a517a5d304a8dfb21e8c9b4e938b08125",
+    "lib/browser/acceptance.mjs": "8affcadc22c4255cdaba04b90b21703199b2296396ed7c241fce2fef85662fb5",
+    "lib/browser/cli-launch.mjs": "5e52da0f0c39d453c0119b5db2f8c45de57f34b5ac189df11dae6eb0e34c2d66",
+    "lib/browser/contracts.mjs": "551ac1d48439bae32e159adcd1becb60ab8cecc86bd05aef6ea96bf197e0b339",
+    "lib/browser/gate.mjs": "ed52b93fe01a4db819790b847c7307b5aed72ef47b7133009c8389656a57b7c2",
+    "lib/browser/network-policy.mjs": "dbf4e620ea43a345d27d8072a0834436b034bd4f66823a3605707ab83cdfd69d",
+    "lib/browser/pane-host.mjs": "d965fd1ef913608acb1692513c827063815dbd300496e64355bb324c37357bca",
+    "lib/browser/rendezvous-client.mjs": "d6cffe59824d69a64422a524ef476805be506dc8647da50c0e8c7b2b5acb5980",
+    "lib/browser/rendezvous.mjs": "b8e8ff3f0c602e9d5a2e7d2c86c2c8966422ff39809d6902fb1c87ce6cbdff71",
+    "lib/browser/response-budget.mjs": "7b222d2f7e6b39856138ebd7dce3acc03c178c682aa4228ba39d259c9a67a110",
+    "lib/browser/runtime-pins.mjs": "e4bd112c14dbbc605365dd24ff69d0f0c5c471978889f6735ed0accf5fcd9048",
+    "lib/browser/runtime-readiness.mjs": "03d2f6ea8165d93798c7f8fd81511a4a9fadcc55871ae9487d1e2c9d048bfbb4",
+    "lib/browser/startup.mjs": "149c796afe4110618ef4e2659fcb141d20e96859294300d011c959a8bc60171d",
+    "lib/browser/target-barrier.mjs": "48d758b85f0eb1c9b66f1684ece37fafc6906ce743b88155cd72f1d19a720e5c"
+  },
+  "acceptance": {
+    "parserPatchSha256": null,
+    "pythonTransitiveLockSha256": null,
+    "playwrightPatchSha256": null,
+    "patchedBundleSha256": null,
+    "signedAttestationSha256": null,
+    "releaseReady": false
+  }
+}

@@ -33,7 +33,7 @@ export function CanvasSaveDialog({data,onClose}:{data:CanvasGetResponse;onClose:
  useEffect(()=>{if(!needsAck){ackShown.current=false;return;}if(ackShown.current)return;ackShown.current=true;ackRow.current?.scrollIntoView({block:'nearest'});},[needsAck]);
  // R5-1: an error (e.g. the 10-minute acknowledgement expiry) can untick the row while the
  // taller footer covers it; bring it back into view whenever that happens.
- useEffect(()=>{if(error&&needsAck&&!ack)ackRow.current?.scrollIntoView({block:'nearest'});},[error,needsAck,ack]);
+ useEffect(()=>{if(error&&needsAck)ackRow.current?.scrollIntoView({block:'nearest'});},[error,needsAck]);
  const change=(next:string[])=>{reset();setSelected(next);};
  const acknowledge=async(checked:boolean)=>{
   reset();if(!checked||!p)return;const epoch=selection.current;setBusy(true);setError('');

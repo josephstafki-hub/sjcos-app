@@ -122,7 +122,7 @@ test('Save dialog layout: one scroller, full-height checklist rows, pinned Save 
   assert.match(src, /ref=\{ackRow\} className="[^"]*\bscroll-mb-28\b/);
   // R5-1: the error takes its own full-width line above Cancel/Save, and re-reveals the row.
   assert.match(src, /<p role="alert" className="basis-full text-body text-flag">/);
-  assert.match(src, /if\(error&&needsAck&&!ack\)ackRow\.current\?\.scrollIntoView\(\{block:'nearest'\}\)/);
+  assert.match(src, /if\(error&&needsAck\)ackRow\.current\?\.scrollIntoView\(\{block:'nearest'\}\)/);
   assert.match(src, /scrollIntoView\(\{block:'nearest'\}\)/);
   assert.match(src, /className="min-h-11 rounded-md border border-rule bg-paper px-3"[\s\S]{0,80}>Keep \{o\.label\} ticked</);
 });

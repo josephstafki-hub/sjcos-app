@@ -249,7 +249,7 @@
     "db/migrations/0110_phone_lines.sql": "1322ea39adada8c03752dfabac0e30d1cac538df6b04b744ab43de128144b914",
     "db/migrations/0111_sms_threads_per_line.sql": "35b409a9b3d2e0d1ea6bb4eda63d4d03dbb657b81200a112ebb0b46802b40e75",
     "db/migrations/0112_ask_phone_copy_privacy.sql": "54bcb27c61fbb30f36bdcd3d2e26187c0f304fbaa0d5e3730da38cfbd8f0122f",
-    "lib/canvas-floor.ts": "7133631661a8a7b7261e7d545f2621f4d13f3d578ac4c30810af770de89b27f5",
+    "lib/canvas-floor.ts": "32adda07426e590141187c95c4dae89c8f506afdb12009f87707f6936c9c69bd",
     "db/migrations/0114_canvas_floor_refs.sql": "8a774c0353e3fefd3663ff41229c19809bc3ed4f2657fc9b9056ac4e10595b86"
   },
   "entries": [
@@ -5749,7 +5749,7 @@
       "function": "mutation",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain. Phase 2 review: page preview and exports repeat source validation; source/code flag is separate from preview; immutable Save keeps existing audience and provenance checks. QA seeding remains restricted to explicit sjcos_qa_* databases. Phase 3: floor_plan no-op path updates only the caller\u2019s own canvas policy and records an unchanged request inside the same fenced mutation transaction.",
+      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain. Phase 2 review: page preview and exports repeat source validation; source/code flag is separate from preview; immutable Save keeps existing audience and provenance checks. QA seeding remains restricted to explicit sjcos_qa_* databases. Phase 3: floor_plan no-op path updates only the caller’s own canvas policy and records an unchanged request inside the same fenced mutation transaction.",
       "queries": [
         "652106ad89a8c5e2f0ca781f1bcf86820ee9d38a7df6bb3a0ba1d9ca29ec5c01",
         "7ee1761e152bbeb99bdc3a1d5d303c8394ffdd45308db5a142663b4d7fb70c8e",
@@ -7022,7 +7022,7 @@
       "function": "availability",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Owner Canvas transaction supplies current person, owned live thread, admitted run and current area checks (readFloorCanvas also rechecks canvas owner, design scope and areas); deletion preflight returns links only when every reference is the caller\u2019s own live canvas with current areas, otherwise a fixed generic refusal. Floor MCP uses captured currentPrincipal and rereads active area permissions.",
+      "explanation": "Owner Canvas transaction supplies current person, owned live thread, admitted run and current area checks (readFloorCanvas also rechecks canvas owner, design scope and areas); deletion preflight returns links only when every reference is the caller’s own live canvas with current areas, otherwise a fixed generic refusal. Floor MCP uses captured currentPrincipal and rereads active area permissions.",
       "queries": [
         "271146abab64d78b6c03b97d39856699b6568ed6e50e42940cf93c812233ee80"
       ]
@@ -7030,9 +7030,9 @@
     {
       "file": "lib/canvas-floor.ts",
       "function": "attachFloorCanvas",
-      "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Owner Canvas transaction supplies current person, owned live thread, admitted run and current area checks (readFloorCanvas also rechecks canvas owner, design scope and areas); deletion preflight returns links only when every reference is the caller\u2019s own live canvas with current areas, otherwise a fixed generic refusal. Floor MCP uses captured currentPrincipal and rereads active area permissions.",
+      "classification": "fenced",
+      "explanation": "Private reference insert is called only inside the authenticated Canvas transaction, after owned live thread, current-person/scope, admission (when a run is used), provenance and CAS checks. Same-design snapshot FK enforces identity; no narrow-role access is added.",
       "queries": [
         "63dc925beb73b5827b497e69139bc307d321f10eda10f443cc5a215f6638e858"
       ]
@@ -7040,9 +7040,9 @@
     {
       "file": "lib/canvas-floor.ts",
       "function": "floorVersionMeta",
-      "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Owner Canvas transaction supplies current person, owned live thread, admitted run and current area checks (readFloorCanvas also rechecks canvas owner, design scope and areas); deletion preflight returns links only when every reference is the caller\u2019s own live canvas with current areas, otherwise a fixed generic refusal. Floor MCP uses captured currentPrincipal and rereads active area permissions.",
+      "classification": "fenced",
+      "explanation": "Private reference lookup is an internal Canvas metadata helper. Its caller loads the owned live canvas/thread and rechecks current-person/area access in the authenticated Canvas transaction before returning metadata; this helper is not a public action.",
       "queries": [
         "c989c33e4e45d97334c03bc1c538c1d022114b8b057e5ede2820610d1b92ba96"
       ]
@@ -7050,9 +7050,9 @@
     {
       "file": "lib/canvas-floor.ts",
       "function": "readFloorCanvas",
-      "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Owner Canvas transaction supplies current person, owned live thread, admitted run and current area checks (readFloorCanvas also rechecks canvas owner, design scope and areas); deletion preflight returns links only when every reference is the caller\u2019s own live canvas with current areas, otherwise a fixed generic refusal. Floor MCP uses captured currentPrincipal and rereads active area permissions.",
+      "classification": "fenced",
+      "explanation": "Private snapshot read requires canvas owner_user_id to equal the current person, then asserts active owner/staff Projects plus scoped Leads and refuses templates, checks current design/canvas scope. Caller separately enforces live owned thread and canvas required areas. Successful reads share the full-designer edit gate and return canEdit=true; no denied target returns preview data.",
       "queries": [
         "a9a522be00ee7a6b5fea2017470c210e691e928fdf393c104bc90177d183ebc5"
       ]
@@ -7060,9 +7060,9 @@
     {
       "file": "lib/canvas-floor.ts",
       "function": "floorDeletionBlock",
-      "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Owner Canvas transaction supplies current person, owned live thread, admitted run and current area checks (readFloorCanvas also rechecks canvas owner, design scope and areas); deletion preflight returns links only when every reference is the caller\u2019s own live canvas with current areas, otherwise a fixed generic refusal. Floor MCP uses captured currentPrincipal and rereads active area permissions.",
+      "classification": "fenced",
+      "explanation": "Owner-DB web deletion preflight now runs after lockPlanDesign and assertFloorAccess with explicit full-designer template policy, in the same transaction as DELETE. Links/titles are returned only when every reference is owned/live/unheld with owned live thread and current required area/scope access; foreign, retained, held or revoked references use the fixed generic refusal and no links. No narrow SELECT privilege is added.",
       "queries": [
         "92daf3abd02a1de45ed72c7263b0df65d5c8110ff394ac51eecf4a684e281df9"
       ]

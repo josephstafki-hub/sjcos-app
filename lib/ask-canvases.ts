@@ -1,4 +1,5 @@
 import 'server-only';
+import {assertFloorAccess,prepareFloorCanvas,prepareFloorRestore,attachFloorCanvas,readFloorCanvas,floorVersionMeta,saveFloorVersion} from '@/lib/canvas-floor';
 import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import type { PoolClient } from 'pg';
 import { pool } from '@/lib/db';
@@ -88,7 +89,7 @@ async function availability(db: PoolClient, p: Person): Promise<Availability> {
     const flags = Object.fromEntries(rows.map(r => [r.key, r.value === true || r.value === 'true']));
     const staff = p.role === 'owner' || flags['canvas.staff_enabled'] === true;
     const master = process.env.SJC_CANVAS_ENABLED === '1' && staff && (await schemaCapabilities(db)).canvas;
-    const a = { master, diagrams: master && flags['canvas.diagrams_enabled'] === true, pages: master && flags['canvas.pages_enabled'] === true, floor: false, exports: master && (flags['canvas.diagrams_enabled'] === true || flags['canvas.pages_enabled'] === true) && flags['canvas.exports_enabled'] === true && (await schemaCapabilities(db)).files, staff, source: master && flags['canvas.source_enabled'] !== false };
+    const a = { master, diagrams: master && flags['canvas.diagrams_enabled'] === true, pages: master && flags['canvas.pages_enabled'] === true, floor: master && flags['canvas.floor_enabled'] === true && (await db.query("SELECT to_regclass('ask_canvas_floor_refs') IS NOT NULL AS ready")).rows[0].ready, exports: master && (flags['canvas.diagrams_enabled'] === true || flags['canvas.pages_enabled'] === true) && flags['canvas.exports_enabled'] === true && (await schemaCapabilities(db)).files, staff, source: master && flags['canvas.source_enabled'] !== false };
     return { revision: hash([a, rows]).slice(0, 24), ...a }; // Floor remains off; 0108 gates static exports.
 }
 function gate(a: Availability, kind?: string, write = false) { if (!a.master || !a.staff)
@@ -131,11 +132,11 @@ async function tx<T>(a: Actor, fn: (db: PoolClient, a: Actor) => Promise<T>): Pr
 async function human(): Promise<Actor> { const p = await threadPrincipal(); return { person: { ...p, permissions: [], name: '' }, runId: null, internal: false }; }
 async function load(db: PoolClient, a: Actor, id: string): Promise<Row> { uuid(id); const row = (await db.query(`SELECT c.*,p.slug AS project_slug,l.slug AS lead_slug FROM ask_canvases c LEFT JOIN projects p ON p.id=c.project_id LEFT JOIN leads l ON l.id=c.lead_id WHERE c.id=$1 AND c.owner_user_id=$2 AND c.deleted_at IS NULL FOR UPDATE OF c`, [id, a.person.id])).rows[0]; if (!row)
     fail('CANVAS_UNAVAILABLE'); await ownThread(db, a, row.conversation_id); if (!permitted(a.person, row.required_areas) || (row.project_id && !permitted(a.person, ['projects'])) || (row.lead_id && !permitted(a.person, ['leads'])))
-    fail('CANVAS_UNAVAILABLE'); return row; }
+    fail('CANVAS_UNAVAILABLE'); if(row.kind==='floor_plan')assertFloorAccess(a.person,{project_id:row.project_id,lead_slug:row.lead_slug}); return row; }
 async function version(db: PoolClient, c: Row, n: number): Promise<Row> { const row = (await db.query('SELECT v.*,u.name AS actor_name FROM ask_canvas_versions v JOIN users u ON u.id=v.actor_user_id WHERE canvas_id=$1 AND version=$2 AND purged_at IS NULL', [c.id, n])).rows[0]; if (!row)
-    fail('CANVAS_UNAVAILABLE'); return row; }
+    fail('CANVAS_UNAVAILABLE'); if(c.kind==='floor_plan')row.floor_design=await floorVersionMeta(db,c.id,n); return row; }
 function meta(c: Row): CanvasMeta { return { id: c.id, thread_id: c.conversation_id, user_id: c.owner_user_id, created_run_id: c.created_run_id, kind: c.kind, project_slug: c.project_slug ?? null, lead_slug: c.lead_slug ?? null, latest_version: c.latest_version, created_at: iso(c.created_at), updated_at: iso(c.updated_at) }; }
-function vm(v: Row): VersionMeta { return { version: v.version, title: v.title, summary: v.summary, change_note: v.change_note, actor: { id: v.actor_user_id, name: String(v.actor_name).slice(0, 120) }, run_id: v.run_id, created_at: iso(v.created_at), restored_from_version: v.restored_from_version, design: null }; }
+function vm(v: Row): VersionMeta { return { version: v.version, title: v.title, summary: v.summary, change_note: v.change_note, actor: { id: v.actor_user_id, name: String(v.actor_name).slice(0, 120) }, run_id: v.run_id, created_at: iso(v.created_at), restored_from_version: v.restored_from_version, design: v.floor_design ?? null }; }
 async function classify(db: PoolClient, a: Actor, threadId: string, parent: string[], labels: string[]) {
     const p = await conversationProvenance({ client: db, threadId });
     const complete = p.complete === true && Array.isArray(p.areas);
@@ -154,6 +155,12 @@ async function getIn(db: PoolClient, a: Actor, id: string, input: Row): Promise<
     const v = await version(db, c, input.version ?? c.latest_version);
     const canPreview = c.kind === 'diagram' && av.diagrams || c.kind === 'page' && av.pages;
     const result: CanvasGetResponse = { ok: true, canvas: meta(c), selected: vm(v), availability: av, capabilities: { preview: canPreview, code: av.source, download_formats: av.exports && canPreview ? (c.kind === 'page' ? ['html'] : ['svg', 'mmd']) : [], save: av.exports && canPreview && permitted(a.person,['projects']), restore: c.kind !== 'floor_plan' && canPreview, load_latest: false }, preview: canPreview ? { mode: c.kind === 'page' ? 'static_page' : 'diagram_renderer', href: c.kind === 'page' ? `/api/canvas/${id}/versions/${v.version}/preview` : '/api/canvas/renderer', renderer_version: v.renderer_version } : null };
+    if(c.kind==='floor_plan') {
+        const floor=await readFloorCanvas(db,a,c as any,v.version);
+        result.capabilities={preview:av.floor,code:false,download_formats:[],save:false,restore:av.floor,load_latest:av.floor&&floor.changed};
+        result.preview=av.floor?{mode:'floor',href:null,renderer_version:'1'}:null;
+        if(av.floor)result.floor=floor;
+    }
     if (input.include_source) {
         if (!av.source)
             fail('CANVAS_DISABLED');
@@ -183,28 +190,31 @@ async function mutation(db: PoolClient, a: Actor, action: 'show' | 'update' | 'r
         const current = await load(db, a, old.canvas_id);
         gate(av, current.kind);
         await classify(db, a, threadId, current.required_areas, []);
-        return mutationResult(current, await version(db, current, old.version), av);
+        return {...mutationResult(current, await version(db, current, old.version), av),changed:old.changed!==false};
     }
     let source = input.content, from: Row | undefined;
     if (c && input.restore_version) {
-        if (c.kind === 'floor_plan')
-            fail('UNSUPPORTED_KIND');
         from = await version(db, c, input.restore_version);
         source = { kind: c.kind, source: from.source_text };
     }
     if (c && input.base_version !== c.latest_version)
         fail('VERSION_CONFLICT', { latest_version: c.latest_version });
-    if (source?.kind === 'floor_plan')
-        fail('UNSUPPORTED_KIND');
     if (c && source?.kind !== c.kind)
         fail('INVALID_INPUT');
     gate(av, source?.kind, true);
-    const validated = validateCanvasContent(source);
+    const floor=source?.kind==='floor_plan' ? (from&&c ? await prepareFloorRestore(db,a,c as any,from.version) : await prepareFloorCanvas(db,a,source,c as any)) : null;
+    if(floor)source={kind:'floor_plan',source:floor.source};
+    const validated = floor ? null : validateCanvasContent(source);
 
     const policy = await classify(db, a, threadId, c?.required_areas ?? [], input.required_areas ?? []);
     const title = input.title ?? from?.title ?? (c ? (await version(db, c, c.latest_version)).title : undefined);
     const summary = input.summary ?? from?.summary;
-    const note = input.change_note ?? (from ? `Restored Version ${from.version}` : '');
+    const note = input.change_note ?? (from ? (floor?`Restored floor plan v${floor.snapshot.number}`:`Restored Version ${from.version}`) : '');
+    if(floor&&c&&!from&&(await floorVersionMeta(db,c.id,c.latest_version))?.snapshot_id===floor.snapshot.id) {
+        await db.query(`UPDATE ask_canvases SET required_areas=$2,baseline_hash=$3,classification_revision=classification_revision+1 WHERE id=$1`,[c.id,policy.areas,policy.baselineHash]);
+        await db.query(`INSERT INTO ask_canvas_requests(conversation_id,request_id,owner_user_id,actor_user_id,action,input_hash,effective_policy_hash,canvas_id,version,run_id,changed) VALUES($1,$2,$3,$3,$4,$5,$6,$7,$8,$9,false)`,[threadId,input.request_id,a.person.id,action,inputHash,policy.baselineHash,c.id,c.latest_version,a.runId]);
+        return {...mutationResult(c,await version(db,c,c.latest_version),av),changed:false};
+    }
     if (action === 'show') {
         let projectId = null, projectSlug = null;
         if (input.project_slug) {
@@ -216,7 +226,8 @@ async function mutation(db: PoolClient, a: Actor, action: 'show' | 'update' | 'r
             projectId = p.id;
             projectSlug = p.slug;
         }
-        c = (await db.query(`INSERT INTO ask_canvases(conversation_id,owner_user_id,created_run_id,kind,project_id,required_areas,baseline_hash) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING *`, [threadId, a.person.id, a.runId, source.kind, projectId, policy.areas, policy.baselineHash])).rows[0];
+        if(floor){if(input.project_slug&&input.project_slug!==(floor as any).project_slug)fail('CANVAS_UNAVAILABLE');projectId=floor.project_id;projectSlug=(floor as any).project_slug;}
+        c = (await db.query(`INSERT INTO ask_canvases(conversation_id,owner_user_id,created_run_id,kind,project_id,required_areas,baseline_hash,lead_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`, [threadId, a.person.id, a.runId, source.kind, projectId, policy.areas, policy.baselineHash,floor?.lead_id??null])).rows[0];
         c!.project_slug = projectSlug;
     }
     else {
@@ -225,7 +236,8 @@ async function mutation(db: PoolClient, a: Actor, action: 'show' | 'update' | 'r
     const n = action === 'show' ? 1 : c!.latest_version + 1;
     if (n > 100)
         fail('QUOTA_EXCEEDED', { limit: 100 });
-    const v = (await db.query(`INSERT INTO ask_canvas_versions(canvas_id,version,conversation_id,owner_user_id,actor_user_id,run_id,title,summary,change_note,source_text,source_bytes,source_sha256,provenance_revision,provenance_complete,provenance_manifest_hash,provenance_inputs,baseline_areas,baseline_hash,restored_from_version,canonical_content) VALUES($1,$2,$3,$4,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *`, [c!.id, n, threadId, a.person.id, a.runId, title, summary, note, source.source, Buffer.byteLength(source.source), hash(source.source), policy.revision, policy.complete, policy.manifestHash, JSON.stringify(policy.inputs), policy.areas, policy.baselineHash, from?.version ?? null, source.kind==='page'?JSON.stringify({html:validated.source,validator_version:validated.validator_version}):null])).rows[0];
+    const v = (await db.query(`INSERT INTO ask_canvas_versions(canvas_id,version,conversation_id,owner_user_id,actor_user_id,run_id,title,summary,change_note,source_text,source_bytes,source_sha256,provenance_revision,provenance_complete,provenance_manifest_hash,provenance_inputs,baseline_areas,baseline_hash,restored_from_version,canonical_content) VALUES($1,$2,$3,$4,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *`, [c!.id, n, threadId, a.person.id, a.runId, title, summary, note, source.source, Buffer.byteLength(source.source), hash(source.source), policy.revision, policy.complete, policy.manifestHash, JSON.stringify(policy.inputs), policy.areas, policy.baselineHash, from?.version ?? null, source.kind==='page'?JSON.stringify({html:validated!.source,validator_version:validated!.validator_version}):null])).rows[0];
+    if(floor){await attachFloorCanvas(db,c as any,n,floor.snapshot);v.floor_design=floor.design;}
     v.actor_name = a.person.name;
     c = (await db.query('UPDATE ask_canvases SET latest_version=$2,updated_at=clock_timestamp() WHERE id=$1 RETURNING *', [c!.id, n])).rows[0];
     await db.query(`INSERT INTO ask_canvas_requests(conversation_id,request_id,owner_user_id,actor_user_id,action,input_hash,effective_policy_hash,canvas_id,version,run_id) VALUES($1,$2,$3,$3,$4,$5,$6,$7,$8,$9)`, [threadId, input.request_id, a.person.id, action, inputHash, policy.baselineHash, c!.id, n, a.runId]);
@@ -293,6 +305,7 @@ export async function canvasVersions(id: string, input: unknown = {}): Promise<C
         const rows = (await db.query('SELECT v.*,u.name AS actor_name FROM ask_canvas_versions v JOIN users u ON u.id=v.actor_user_id WHERE canvas_id=$1 AND purged_at IS NULL AND ($2::int IS NULL OR version<$2) ORDER BY version DESC LIMIT $3', [id, p.before ?? null, (p.limit ?? 20) + 1])).rows;
         const out: CanvasVersionsResponse = { ok: true, versions: [], next_before: null, availability: av };
         for (const r of rows.slice(0, p.limit ?? 20)) {
+            if(c.kind==='floor_plan')r.floor_design=await floorVersionMeta(db,c.id,r.version);
             const v = vm(r);
             if (Buffer.byteLength(JSON.stringify({ ...out, versions: [...out.versions, v] })) > 15500)
                 break;
@@ -353,13 +366,13 @@ async function eventsIn(db: PoolClient, a: Actor, threadId: string, p: Row): Pro
     return { ok: true, events, cursor: cursor(a, threadId, 'after', nextHigh, nextHigh), next_before: events.length ? cursor(a, threadId, 'before', events[0].id, high) : null, has_more: rows.length > events.length, availability: av };
 }
 export async function canvasInternal(action: string, input: unknown, context: unknown): Promise<unknown> {
-    if (!['show', 'update', 'get', 'list', 'admit'].includes(action))
+    if (!['show', 'update', 'get', 'list', 'admit', 'floor_save'].includes(action))
         fail('INVALID_INPUT');
     const ctx = context as Row;
     if (!ctx || Object.keys(ctx).sort().join(',') !== 'principal_user_id,run_id,run_profile,run_started_s,transport' || ctx.transport !== 'runner_stdio' || ![ctx.run_id, ctx.principal_user_id].every(v => typeof v === 'string' && idPattern.test(v)) || !['operator', 'business'].includes(ctx.run_profile) || !Number.isSafeInteger(ctx.run_started_s) || ctx.run_started_s <= 0)
         fail('RUN_CONTEXT_REQUIRED');
     abuseLimit(ctx.principal_user_id);
-    const parsed = action === 'admit' ? input as Row : parse(action as 'show', input);
+    const parsed = action === 'admit' || action === 'floor_save' ? input as Row : parse(action as 'show', input);
     if (action === 'admit' && (!parsed || Object.keys(parsed).join(',') !== 'conversation_id' || typeof parsed.conversation_id !== 'string' || !idPattern.test(parsed.conversation_id)))
         fail('RUN_CONTEXT_REQUIRED');
     return withAskJournal(pool, async () => {
@@ -369,7 +382,7 @@ export async function canvasInternal(action: string, input: unknown, context: un
         let entered = false;
         try {
             return await withPrivateRunner(pool, { ...ctx, conversation_id: run.conversation_id }, async () => { entered = true; if (action === 'admit')
-                return { ok: true }; return tx<unknown>({ person: { id: ctx.principal_user_id, role: 'owner', permissions: [], name: '' }, threadId: run.conversation_id, runId: ctx.run_id, internal: true }, (db, a) => action === 'show' || action === 'update' ? mutation(db, a, action, parsed) : action === 'get' ? getIn(db, a, parsed.canvas_id, parsed) : listIn(db, a, run.conversation_id, parsed)); });
+                return { ok: true }; return tx<unknown>({ person: { id: ctx.principal_user_id, role: 'owner', permissions: [], name: '' }, threadId: run.conversation_id, runId: ctx.run_id, internal: true }, (db, a) => action === 'floor_save' ? saveFloorVersion(db,a,parsed) : action === 'show' || action === 'update' ? mutation(db, a, action, parsed) : action === 'get' ? getIn(db, a, parsed.canvas_id, parsed) : listIn(db, a, run.conversation_id, parsed)); });
         }
         catch (e) {
             if (!entered)
@@ -445,4 +458,15 @@ export async function canvasFileTransaction<T>(id: string, n: number, fn: (db: P
         await classify(db, a, c.conversation_id, c.required_areas, v.baseline_areas);
         return fn(db, a, c, v);
     });
+}
+
+export async function canvasFloorLatest(id:string,input:unknown):Promise<CanvasMutationResponse> {
+ const a=await human(),p=input as Row;
+ if(!p||Object.keys(p).sort().join(',')!=='base_version,expected_design_rev,request_id'||!Number.isSafeInteger(p.expected_design_rev)||p.expected_design_rev<0)fail('INVALID_INPUT');
+ return tx(a,async(db,a)=>{
+  const c=await load(db,a,id);if(c.kind!=='floor_plan')fail('INVALID_INPUT');
+  const v=await version(db,c,c.latest_version),design=await floorVersionMeta(db,c.id,c.latest_version);
+  const parsed=parse('update',{request_id:p.request_id,canvas_id:id,base_version:p.base_version,summary:v.summary,change_note:'Loaded latest floor plan',content:{kind:'floor_plan',design_id:design!.id,expected_design_rev:p.expected_design_rev}});
+  return mutation(db,a,'update',parsed,id);
+ });
 }

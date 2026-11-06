@@ -8,6 +8,9 @@
 // lib/actions/plan-publish.ts and plan-estimate.ts.
 
 import { revalidatePath } from "next/cache";
+import {pool} from '@/lib/db';
+import {savePlanSnapshot,restorePlanSnapshot,lockPlanDesign} from '@/lib/plan-version-writes';
+import {assertFloorAccess,floorDeletionBlock} from '@/lib/canvas-floor';
 import { query, queryOne } from "@/lib/db";
 import { requireAccess } from "@/lib/dal";
 import { getDesignerDefaults } from "@/lib/plan-designs";
@@ -162,12 +165,14 @@ export async function savePlanAsTemplate(id: number, name: string): Promise<{ ok
 }
 
 export async function deletePlanDesign(id: number): Promise<Result> {
-  await requireAccess("projects");
+  const user=await requireAccess("projects");
   const row = await queryOne<{ project_slug: string | null; lead_slug: string | null }>(
     `SELECT p.slug AS project_slug, d.lead_slug FROM plan_designs d LEFT JOIN projects p ON p.id = d.project_id WHERE d.id = $1`,
     [id],
   );
   if (!row) return { ok: false, error: "Design not found." };
+  const block=await floorDeletionBlock(pool,user,String(id));
+  if(block)return {ok:false,error:block.message};
   await query(`DELETE FROM plan_designs WHERE id = $1`, [id]);
   revalidatePath("/floor");
   if (row.project_slug) revalidatePath(`/projects/${row.project_slug}`);
@@ -181,14 +186,10 @@ export async function savePlanVersion(
   label: string,
 ): Promise<{ ok: true; versionId: number; number: number } | { ok: false; error: string }> {
   const user = await requireAccess("projects");
-  const src = await queryOne<{ doc: unknown }>(`SELECT doc FROM plan_designs WHERE id = $1`, [id]);
-  if (!src) return { ok: false, error: "Design not found." };
-  const row = await queryOne<{ id: string; number: number }>(
-    `INSERT INTO plan_design_versions (design_id, number, label, doc, created_by)
-     VALUES ($1, (SELECT COALESCE(MAX(number), 0) + 1 FROM plan_design_versions WHERE design_id = $1), $2, $3::jsonb, $4)
-     RETURNING id, number`,
-    [id, cleanName(label), JSON.stringify(migrateDoc(src.doc)), user.id],
-  );
+  const tx=await pool.connect();let row;
+  try{await tx.query('BEGIN');const d=await lockPlanDesign(tx,String(id));assertFloorAccess(user,d);row=await savePlanSnapshot(tx,String(id),user.id,cleanName(label));await tx.query('COMMIT');}
+  catch(e){await tx.query('ROLLBACK');return {ok:false,error:e instanceof Error?e.message:'Could not save floor plan.'};}finally{tx.release();}
+
   await revalidateDesign(id);
   return { ok: true, versionId: Number(row!.id), number: row!.number };
 }
@@ -197,29 +198,17 @@ export async function savePlanVersion(
  *  first saved as a version labelled "Before restore" so nothing is lost). */
 export async function restorePlanVersion(versionId: number): Promise<{ ok: true; rev: number } | { ok: false; error: string }> {
   const user = await requireAccess("projects");
-  const v = await queryOne<{ design_id: string; number: number; doc: unknown }>(
-    `SELECT design_id, number, doc FROM plan_design_versions WHERE id = $1`,
-    [versionId],
-  );
-  if (!v) return { ok: false, error: "Version not found." };
-  const designId = Number(v.design_id);
-  const live = await queryOne<{ doc: unknown }>(`SELECT doc FROM plan_designs WHERE id = $1`, [designId]);
-  if (!live) return { ok: false, error: "Design not found." };
-  await query(
-    `INSERT INTO plan_design_versions (design_id, number, label, doc, created_by)
-     VALUES ($1, (SELECT COALESCE(MAX(number), 0) + 1 FROM plan_design_versions WHERE design_id = $1), $2, $3::jsonb, $4)`,
-    [designId, `Before restoring v${v.number}`, JSON.stringify(migrateDoc(live.doc)), user.id],
-  );
-  const updated = await queryOne<{ rev: number }>(
-    `UPDATE plan_designs SET doc = $2::jsonb, rev = rev + 1, updated_at = now(), updated_by = $3 WHERE id = $1 RETURNING rev`,
-    [designId, JSON.stringify(migrateDoc(v.doc)), user.id],
-  );
+  const tx=await pool.connect();let designId:number,updated;
+  try{await tx.query('BEGIN');const v=(await tx.query('SELECT design_id FROM plan_design_versions WHERE id=$1',[versionId])).rows[0];if(!v)throw Error('Version not found.');
+   designId=Number(v.design_id);const d=await lockPlanDesign(tx,v.design_id);assertFloorAccess(user,d);updated=await restorePlanSnapshot(tx,String(versionId),d.rev,user.id);await tx.query('COMMIT');}
+  catch(e){await tx.query('ROLLBACK');return {ok:false,error:e instanceof Error?e.message:'Could not restore floor plan.'};}finally{tx.release();}
+
   await revalidateDesign(designId);
   return { ok: true, rev: updated!.rev };
 }
 
 export async function deletePlanVersion(versionId: number): Promise<Result> {
-  await requireAccess("projects");
+  const user=await requireAccess("projects");
   const v = await queryOne<{ design_id: string; published: string | null }>(
     `SELECT v.design_id, (SELECT id FROM project_floorplans f WHERE f.design_version_id = v.id LIMIT 1) AS published
        FROM plan_design_versions v WHERE v.id = $1`,
@@ -227,6 +216,8 @@ export async function deletePlanVersion(versionId: number): Promise<Result> {
   );
   if (!v) return { ok: false, error: "Version not found." };
   if (v.published) return { ok: false, error: "This version was published to the client — remove that floor plan first." };
+  const block=await floorDeletionBlock(pool,user,String(v.design_id),String(versionId));
+  if(block)return {ok:false,error:block.message};
   await query(`DELETE FROM plan_design_versions WHERE id = $1`, [versionId]);
   await revalidateDesign(Number(v.design_id));
   return { ok: true };

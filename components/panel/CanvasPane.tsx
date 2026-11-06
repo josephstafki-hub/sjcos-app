@@ -5,6 +5,7 @@ import type {AskPaneRenderContext} from './askPaneRegistry';
 const CanvasSaveDialog=lazy(()=>import('./CanvasSaveDialog').then(m=>({default:m.CanvasSaveDialog})));
 import {CanvasVersions} from './CanvasVersions';
 import {CanvasOverlay} from './canvas/CanvasOverlay';
+import {FloorCanvasPane} from './canvas/floor/FloorCanvasPane';
 import {PageStage} from './canvas/PageStage';
 import {DiagramStage} from './canvas/DiagramStage';
 import {canvasState,canvasServerState,subscribeCanvas,patchCanvas,loadCanvas,chooseCanvas,selectCanvasVersion,askCanvasChange,publishCanvases,updateCanvas} from './canvas/store';
@@ -45,6 +46,7 @@ export function CanvasPane({context,slot}:{context:AskPaneRenderContext;slot:'ti
  };
  const copyButton=<button disabled={!view.code} className="min-h-11 rounded border border-rule px-3" onClick={()=>void copy()}>Copy code</button>;
  const codeBlock=<>{isPage&&<p className="py-2 text-body">This page can show text, tables, and drawings. Ask Claude to change it.</p>}<p className="py-2 text-meta text-ink-3">{kindLabel} code · Untrusted text · Version {number}</p>{copyButton}<pre tabIndex={0} className="mt-2 overflow-auto whitespace-pre p-3 font-mono text-[13px] [font-variant-ligatures:none] [font-feature-settings:'liga'_0,'calt'_0]">{view.code?.code??'Loading code…'}</pre></>;
+ if(data?.canvas.kind==='floor_plan')return <FloorCanvasPane context={context} slot={slot} data={data}/>;
  if(slot==='title')return <div className="flex min-w-0 items-center"><button data-canvas-title className="h-11 min-w-0 flex-1 truncate px-2 text-left font-serif text-subheading" onClick={()=>sheet('picker')}>{view.error?'Canvas':v?.title??snapshot.label} ▾</button><button className="size-11 shrink-0 rounded" aria-label="Canvas actions" onClick={()=>sheet('menu')}>⋯</button></div>;
  if(slot==='meta')return view.error?<span/>:<span className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
   {id!=='empty'&&<span className="min-w-0 truncate">{kindLabel} · Version {number} of {latest}</span>}

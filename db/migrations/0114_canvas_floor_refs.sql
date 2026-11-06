@@ -80,12 +80,15 @@ BEGIN
   SELECT 1 FROM ask_canvas_floor_refs WHERE canvas_id=NEW.canvas_id AND version=NEW.version
  ) THEN RAISE EXCEPTION 'floor snapshot reference required';
  END IF;
- IF NEW.purged_at IS NULL AND (SELECT kind FROM ask_canvases WHERE id=NEW.canvas_id)='floor_plan' AND (
-  NEW.canonical_content IS NOT NULL OR NEW.source_text::jsonb IS DISTINCT FROM (
+ -- Nested IF: the JSON cast must never be evaluated for diagram/page rows
+ -- (SQL boolean operators do not guarantee short-circuit order).
+ IF NEW.purged_at IS NULL AND (SELECT kind FROM ask_canvases WHERE id=NEW.canvas_id)='floor_plan' THEN
+  IF NEW.canonical_content IS NOT NULL THEN RAISE EXCEPTION 'floor payload must contain only its saved reference'; END IF;
+  IF NEW.source_text::jsonb IS DISTINCT FROM (
    SELECT jsonb_build_object('kind','floor_plan','design_id',design_id::text,'snapshot_id',snapshot_id::text)
    FROM ask_canvas_floor_refs WHERE canvas_id=NEW.canvas_id AND version=NEW.version
-  )
- ) THEN RAISE EXCEPTION 'floor payload must contain only its saved reference'; END IF;
+  ) THEN RAISE EXCEPTION 'floor payload must contain only its saved reference'; END IF;
+ END IF;
  RETURN NULL;
 END $$;
 -- Deferred: the version and its reference must commit together, while the

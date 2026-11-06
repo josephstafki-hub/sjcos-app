@@ -1,5 +1,5 @@
 import { readSession } from "@/lib/session";
-import { validateBrowserReturnPath } from "@/lib/web-sessions";
+import { validateAppReturnPath, validateBrowserReturnPath } from "@/lib/web-sessions";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Logo } from "@/components/shell/Logo";
@@ -39,11 +39,12 @@ export default async function LoginPage({
   searchParams: Promise<{ invite?: string; returnTo?: string }>;
 }) {
   const { invite, returnTo: rawReturn } = await searchParams;
-  const returnTo = validateBrowserReturnPath(rawReturn);
+  const returnTo = rawReturn === undefined ? null : validateAppReturnPath(rawReturn);
+  const browserReturn = validateBrowserReturnPath(rawReturn);
   const user = await getCurrentUser();
   const session = await readSession();
-  if (user && (!returnTo || session?.sid)) redirect(returnTo ?? homeForRole(user.role, user.permissions));
-  const notice = returnTo ? "Sign in to open the review." : invite ? (INVITE_NOTICE[invite] ?? INVITE_NOTICE.failed) : null;
+  if (user && (!browserReturn || session?.sid)) redirect(returnTo ?? homeForRole(user.role, user.permissions));
+  const notice = browserReturn ? "Sign in to open the review." : returnTo ? "Sign in to return to your page." : invite ? (INVITE_NOTICE[invite] ?? INVITE_NOTICE.failed) : null;
 
   return (
     <div className="flex min-h-dvh items-center justify-center bg-paper px-4 py-8">

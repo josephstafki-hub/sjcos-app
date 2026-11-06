@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useVoiceAvailable } from "@/lib/use-voice-available";
+import { useVoiceAvailable, type VoiceAvailability } from "@/lib/use-voice-available";
 
 // Reusable dictation core, extracted from components/ui/VoiceButton.tsx so
 // voice-mode surfaces (lib/use-voice-round.ts) can share it. Records via
@@ -44,13 +44,15 @@ export function useDictation({
   onText,
   onError,
   onLevel,
+  availability,
 }: {
   onText: (text: string) => void;
   onError?: (message: string) => void;
   /** Live mic level 0..1 while recording (only when autoStop analysis runs). */
   onLevel?: (level: number) => void;
+  availability?: VoiceAvailability;
 }) {
-  const available = useVoiceAvailable();
+  const available = useVoiceAvailable(availability);
   const [state, setState] = useState<DictationState>("idle");
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);

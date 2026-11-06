@@ -7,7 +7,7 @@ import {
   PATH_HEADER,
   type Role,
 } from "@/lib/session-window";
-import { verifyWebSessionToken, renewWebSession, validateBrowserReturnPath, WEB_SESSION_ISSUER, WEB_SESSION_AUDIENCE } from "@/lib/web-sessions";
+import { verifyWebSessionToken, renewWebSession, validateAppReturnPath, validateBrowserReturnPath, WEB_SESSION_ISSUER, WEB_SESSION_AUDIENCE } from "@/lib/web-sessions";
 import { isOwnerOnlyPath, staffHome } from "@/lib/permissions";
 
 // Next 16 middleware (file name is `proxy.ts`). Optimistic auth: read the
@@ -160,8 +160,10 @@ export default async function proxy(req: NextRequest) {
   // only selects transport; it never grants permission to an action.
   if (req.method === "POST" && req.headers.has("Next-Action")) return next(req);
   const session = await readSession(req);
-  const returnPath = validateBrowserReturnPath(path === "/login" ? req.nextUrl.searchParams.get("returnTo") : path + req.nextUrl.search);
-  const needsSignin = !!returnPath && !session?.sid;
+  const rawReturn = path === "/login" ? req.nextUrl.searchParams.get("returnTo") : path + req.nextUrl.search;
+  const browserReturn = validateBrowserReturnPath(rawReturn);
+  const returnPath = rawReturn === null ? null : validateAppReturnPath(rawReturn);
+  const needsSignin = !!browserReturn && !session?.sid;
   // One re-sign per request at most, reused across whichever exit path we take.
   // Never on /logout: that route answers with its own Set-Cookie clearing the
   // session, and a renewal riding the same response is a coin-flip over which
@@ -173,8 +175,8 @@ export default async function proxy(req: NextRequest) {
     if (PUBLIC_PATHS.includes(path)) return NextResponse.next();
     const url = req.nextUrl.clone();
     url.pathname = "/login";
-    // Drop whatever query the old URL carried; the only param /login reads is
-    // the notice below, and forwarding a stale one would show the wrong copy.
+    // Rebuild the login query from the validated app return and portal notice;
+    // never copy raw page parameters into the login URL.
     url.search = "";
     if (returnPath) url.searchParams.set("returnTo",returnPath);
     if (LINK_CREDENTIAL_PATHS.some((p) => path === p || path.startsWith(p + "/"))) {
@@ -186,8 +188,10 @@ export default async function proxy(req: NextRequest) {
   // Authenticated hitting /login → straight to their home.
   if (path === "/login") {
     const url = req.nextUrl.clone();
-    url.pathname = returnPath ? "/today" : homeFor(session);
-    url.search = returnPath ? returnPath.slice(returnPath.indexOf("?")) : "";
+    const target = new URL(returnPath ?? homeFor(session), req.url);
+    url.pathname = target.pathname;
+    url.search = target.search;
+    url.hash = target.hash;
     return slide(NextResponse.redirect(url), fresh);
   }
 

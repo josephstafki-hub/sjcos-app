@@ -27,6 +27,34 @@ export function validateBrowserReturnPath(input: unknown): string | null {
   if (!task || !UUID.test(task) || (review !== null && !UUID.test(review))) return null;
   return `/today?browser=${task.toLowerCase()}${review ? `&review=${review.toLowerCase()}` : ''}`;
 }
+// Keep this list aligned with app/(os) pages; do not allow auth/API/portal routes.
+const APP_RETURN_ROUTE = /^(?:\/|\/(?:notifications|files|compliance|newsletter|cmdk|unsorted|ai|messages|catalog|money|today-preview|today|time|warranty|inbox|cost-book|workbench|site|marketing|schedule|calls|scan|chat)|\/(?:leads|subs|vendors|floor)(?:\/[^/]+)?|\/projects(?:\/[^/]+(?:\/scope)?)?|\/settings(?:\/(?:pricing|overhead|payments|accounting)|\/team\/[^/]+)?|\/engine(?:\/(?:permissions|decisions|capabilities|measure|ui|houzz-exit))?)$/;
+
+/** Ordinary sign-in return. Browser review authority uses its separate, narrow
+ * allowlist above. Return only app pages, with transient pane selectors removed. */
+export function validateAppReturnPath(input: unknown): string {
+  if (typeof input !== "string" || Buffer.byteLength(input) > 512) return "/today";
+  const unsafe = /[\\\s\p{Cc}\p{Cf}\u2044\u2215\u2216\u29f5\u29f8\ufe68\uff0f\uff3c]/u;
+  let decoded = input;
+  try {
+    // Inspect nested encoding too: no decoder downstream may reveal an unsafe path.
+    for (let depth = 0; ; depth++) {
+      if (unsafe.test(decoded) || !decoded.startsWith("/") || decoded.includes("//")) return "/today";
+      const path = decoded.split(/[?#]/, 1)[0];
+      if (!APP_RETURN_ROUTE.test(path) || path.includes(":") || path.split("/").some(part => part === "." || part === "..")) return "/today";
+      if (!decoded.includes("%")) break;
+      if (depth >= 4 || /%(?:2f|3f|23)/i.test(path)) return "/today";
+      decoded = decodeURIComponent(decoded);
+    }
+    const browser = validateBrowserReturnPath(input);
+    if (browser) return browser;
+    const url = new URL(input, "https://app.invalid");
+    // Validate the original pathname as well as its decoded versions.
+    if (url.origin !== "https://app.invalid" || !APP_RETURN_ROUTE.test(decodeURIComponent(url.pathname))) return "/today";
+    for (const key of ["c", "m", "browser", "review"]) url.searchParams.delete(key);
+    return url.pathname + url.search + url.hash;
+  } catch { return "/today"; }
+}
 export async function createWebSession(userId: string, authAt: number, maxAge: number, replacedSid?: string): Promise<WebSessionIdentity> {
   const c = await pool.connect();
   try {

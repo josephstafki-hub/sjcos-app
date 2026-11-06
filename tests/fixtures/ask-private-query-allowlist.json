@@ -249,7 +249,7 @@
     "db/migrations/0110_phone_lines.sql": "1322ea39adada8c03752dfabac0e30d1cac538df6b04b744ab43de128144b914",
     "db/migrations/0111_sms_threads_per_line.sql": "35b409a9b3d2e0d1ea6bb4eda63d4d03dbb657b81200a112ebb0b46802b40e75",
     "db/migrations/0112_ask_phone_copy_privacy.sql": "54bcb27c61fbb30f36bdcd3d2e26187c0f304fbaa0d5e3730da38cfbd8f0122f",
-    "lib/canvas-floor.ts": "32adda07426e590141187c95c4dae89c8f506afdb12009f87707f6936c9c69bd",
+    "lib/canvas-floor.ts": "a3f397de17690c8186253f947846ba8509994f05c87f053da8cbb1aacb9e3949",
     "db/migrations/0114_canvas_floor_refs.sql": "8a774c0353e3fefd3663ff41229c19809bc3ed4f2657fc9b9056ac4e10595b86"
   },
   "entries": [
@@ -7042,9 +7042,9 @@
       "function": "floorVersionMeta",
       "reason": "fenced-by-helper",
       "classification": "fenced",
-      "explanation": "Private reference lookup is an internal Canvas metadata helper. Its caller loads the owned live canvas/thread and rechecks current-person/area access in the authenticated Canvas transaction before returning metadata; this helper is not a public action.",
+      "explanation": "Internal metadata lookup joins the pinned snapshot to the current design name. Every returning caller first authorizes the owned live canvas/thread, current required areas and Projects/scoped Leads in the same authenticated Canvas transaction; prepareFloorCanvas additionally locks and authorizes the design before metadata lookup. Historical rows expose the current name only after those checks. Not a public action; no narrow-role grant is added.",
       "queries": [
-        "c989c33e4e45d97334c03bc1c538c1d022114b8b057e5ede2820610d1b92ba96"
+        "0a613ff665a7fc9ae87c0dd58217d6616f0e575ca7a52e1fd0f19923bbb8b811"
       ]
     },
     {

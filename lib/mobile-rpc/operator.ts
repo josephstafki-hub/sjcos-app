@@ -6,7 +6,7 @@ import { defineAction, MobileInputError } from "./dispatch";
 import * as chat from "@/lib/actions/ai-chat";
 import * as runs from "@/lib/actions/dev-agents";
 import * as grants from "@/lib/actions/owner-grants";
-import { operatorPageContext } from "./operator-reads";
+import { operatorRun,operatorCanvasEvents,operatorPageContext } from "./operator-reads";
 import { CLAUDE_MODEL_VALUES, CLAUDE_CONTEXT_VALUES, CLAUDE_MODE_VALUES, CLAUDE_EFFORT_OPTIONS } from "@/lib/dev-agents-meta";
 
 const id = z.uuid();
@@ -42,7 +42,8 @@ export function createOperatorActions(c = chat, r = runs, g = grants, pageContex
     } }),
     // Preserve PollResult's error/nextRunId envelope: the generic dispatcher would
     // otherwise reduce an error result to {error} and lose a follow-on run.
-    "operator.poll": fencedAction({ area: "ai", input: z.object({ runId: id }).strict(), run: async ({ runId }) => {const result=await r.pollAgentRun(runId);return isAskFailure(result)?result:{poll:result};} }),
+    "operator.canvasEvents": fencedAction({area:'ai',input:z.object({id,after:z.string().min(1).max(256).optional(),before:z.string().min(1).max(256).optional(),limit:z.number().int().min(1).max(20).optional()}).strict().refine(v=>!(v.after&&v.before)),run:({id,...input})=>operatorCanvasEvents(id,input)}),
+    "operator.poll": fencedAction({ area: "ai", input: z.object({ runId: id, after:z.string().min(1).max(256).optional() }).strict(), run: async ({ runId,after }) => {const result=await (r===runs?operatorRun(runId,after):r.pollAgentRun(runId));return isAskFailure(result)?result:{poll:result};} }),
     "operator.stop": fencedAction({ area: "ai", input: z.object({ runId: id }).strict(), run: ({ runId }) => r.stopAgentRun(runId) }),
     "operator.steer": fencedAction({ area: "ai", input: z.object({ runId: id, text: z.string().trim().min(1).max(8000) }).strict(), run: ({ runId, text }) => r.steerAgentRun(runId, text) }),
     "operator.answer": fencedAction({ area: "ai", input: z.object({ id, response: interactionResponse }).strict(), run: ({ id, response }) => r.answerInteractionAction(id, response) }),

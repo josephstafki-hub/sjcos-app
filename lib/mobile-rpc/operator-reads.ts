@@ -5,7 +5,7 @@ import { z } from "zod";
 import { getUserFromRequest, hasAccess } from "@/lib/api-auth";
 import { getCurrentUser, type CurrentUser } from "@/lib/dal";
 import * as chat from "@/lib/actions/ai-chat";
-import { pollAgentRun, listRunApprovals } from "@/lib/actions/dev-agents";
+import { listRunApprovals } from "@/lib/actions/dev-agents";
 import { loadRunReview } from "@/lib/actions/panel-review";
 import { getProject } from "@/lib/projects";
 import { getLead } from "@/lib/leads";
@@ -13,6 +13,9 @@ import { projectContext, leadContext } from "@/lib/page-context";
 import { AGENT_ORDER, AGENT_META, CLAUDE_DEFAULTS, CLAUDE_MODEL_OPTIONS, CLAUDE_CONTEXT_OPTIONS, CLAUDE_MODE_OPTIONS, CLAUDE_EFFORT_OPTIONS } from "@/lib/dev-agents-meta";
 import { resolveThreadStatus, STATUS_META, isThreadBusy, ms, type RailThread } from "@/lib/thread-rail";
 import { startersForRoute } from "@/components/panel/panelStarters";
+import {pollAgentRunWithCanvas,loadConversationWithCanvas} from '@/components/panel/canvas/run-actions';
+import {canvasEvents,canvasFailure} from '@/lib/ask-canvases';
+import {mobileCanvasFallback,appendCanvasLines} from './canvas-fallback';
 import { MobileInputError } from "./dispatch";
 
 export interface OperatorContext { type: "project" | "lead" | "vendor" | "sub"; slug: string }
@@ -72,13 +75,35 @@ export async function operatorRail(req: Request, user: CurrentUser) {
 }
 export async function operatorConversation(id: string) {
   z.uuid().parse(id);
-  const result = await chat.loadConversationAction(id);
+  const result = process.env.SJC_CANVAS_ENABLED==='1'?await loadConversationWithCanvas(id):await chat.loadConversationAction(id) as Awaited<ReturnType<typeof loadConversationWithCanvas>>;
   if(isAskFailure(result))return result;
   const {conversation,capabilities}=result;
-  return { ...conversation, capabilities, messages: conversation.messages.map(m => ({ ...m, createdAt: iso(m.createdAt)! })), allowedActions: threadActions.filter(action=>action!=="operator.delete"||capabilities.deleteAvailable) };
+  const cards=mobileCanvasFallback(result.canvas_changes);
+  const used=new Set<string>();
+  const messages=conversation.messages.map(m=>{
+    const matching=m.role==='assistant'?cards.filter(c=>c.run_id===m.runId&&!used.has(c.group_id)):[];
+    matching.forEach(c=>used.add(c.group_id));
+    return {...m,body:appendCanvasLines(m.body,matching),createdAt:iso(m.createdAt)!};
+  });
+  // An interrupted runner may never have written an assistant message.
+  for(const card of cards.filter(c=>!used.has(c.group_id)))messages.push({id:`canvas-${card.group_id}`,runId:card.run_id??undefined,role:'assistant',body:card.line,createdAt:card.at,costUsd:null,subjectWorkItemId:null,agent:null,attachments:null});
+  if(cards.length)messages.sort((a,b)=>a.createdAt.localeCompare(b.createdAt));
+  return { ...conversation, capabilities, ...(result.canvas_changes?{canvas_changes:result.canvas_changes,canvas_fallback:cards}:{}), messages, allowedActions: threadActions.filter(action=>action!=="operator.delete"||capabilities.deleteAvailable) };
 }
 export async function operatorArchived(req: Request, user: CurrentUser) { const result=await chat.listArchivedThreadsAction();if(isAskFailure(result))return result;return {capabilities:result.capabilities,threads:result.threads.map(t=>operatorThread(t,req,user,result.capabilities.deleteAvailable))}; }
-export async function operatorRun(id: string) { z.uuid().parse(id); return pollAgentRun(id); }
+export async function operatorRun(id: string, after?:string) {
+ z.uuid().parse(id);
+ const result=await pollAgentRunWithCanvas(id,after);
+ if(isAskFailure(result))return result;
+ const cards=mobileCanvasFallback(result.canvas_changes).filter(c=>c.run_id===id);
+ if(!result.canvas_changes)return result;
+ if(!result.ok)return {...result,error:appendCanvasLines(result.error,cards),canvas_fallback:cards};
+ if(result.status==='done')return {...result,answer:appendCanvasLines(result.answer,cards),canvas_fallback:cards};
+ return {...result,canvas_fallback:cards};
+}
+export async function operatorCanvasEvents(id:string,input:unknown={}){
+ try{z.uuid().parse(id);return await canvasEvents(id,input);}catch(e){return canvasFailure(e);}
+}
 export async function operatorRunReview(id: string) { z.uuid().parse(id); const review=await loadRunReview(id);if(isAskFailure(review))return review;const grants=await listRunApprovals(id);if(isAskFailure(grants))return grants;return {...review,...grants}; }
 export async function operatorJobs(req: Request) { const q = z.string().max(200).parse(new URL(req.url).searchParams.get("q") ?? ""); return chat.searchJobsAction(q); }
 export async function operatorConfig(req: Request, user: CurrentUser) {

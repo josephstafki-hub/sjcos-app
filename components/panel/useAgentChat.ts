@@ -34,6 +34,10 @@ import { adoptPanelSession, claimConversation, writePanelState } from "./panelSt
 import type { AskFailureCode } from "@/lib/ask-result-codes";
 import { askCall, askFailure } from "./askStatusCopy";
 
+import type {EventPage} from '@/lib/canvas-api-types';
+import {pollAgentRunWithCanvas,loadConversationWithCanvas,canvasRunPage} from './canvas/run-actions';
+import {drainCanvasPages} from './canvas/run-events';
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** Wall clock for run bookkeeping. Wrapped so calls inside the poll loop
  *  aren't mistaken for render-time impurity by the React compiler lint. */
@@ -136,6 +140,7 @@ export function useAgentChat({
   /** This tab's thread-rail scope (a folder id); new chats file under it. */
   const [folderScope, setFolderScopeState] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [canvasChanges, setCanvasChanges] = useState<EventPage | undefined>();
   const [activity, setActivity] = useState("");
   const [elapsed, setElapsed] = useState(0);
   /** When the turn being watched started (epoch ms). The timer counts from
@@ -195,6 +200,7 @@ export function useAgentChat({
     setNextHomeState(h);
   };
   const claim = () => {
+    setCanvasChanges(undefined);
     liveRef.current.alive = false;
     liveRef.current = { alive: true };
     return liveRef.current;
@@ -251,11 +257,20 @@ export function useAgentChat({
       startRun({ runId: nextRunId, agent: nextAgent, subjectId: subjectId ?? null, startedAt });
       await pollTurn(nextRunId, subjectId, live);
     };
+    let canvasCursor: string | undefined;
     for (let i = 0; i < 1440; i++) {
       await sleep(2000);
       if (!live.alive) return;
-      const p = await askCall(pollAgentRun(runId));
+      const p = await askCall(process.env.NEXT_PUBLIC_SJC_CANVAS_ENABLED==='1'?pollAgentRunWithCanvas(runId, canvasCursor):pollAgentRun(runId) as ReturnType<typeof pollAgentRunWithCanvas>);
       if (!live.alive) return;
+      if (p.canvas_changes) {
+        const apply = (page: EventPage) => { canvasCursor = page.cursor; setCanvasChanges(old => ({...page,events:[...new Map([...(old?.availability.revision===page.availability.revision?old.events:[]),...page.events].map(e=>[e.id,e])).values()]})); };
+        apply(p.canvas_changes);
+        if (!p.ok || p.status === 'done') {
+          await drainCanvasPages(p.canvas_changes, after => canvasRunPage(runId, after), apply, () => live.alive);
+          if (!live.alive) return;
+        }
+      }
       if (p.ok) relayFocus(p.focus);
       if (p.steers?.length) mergeSteers(p.steers);
       if (!p.ok) {
@@ -399,7 +414,7 @@ export function useAgentChat({
     setNotice("");
     setActivity("");
     try {
-      const loaded = await askCall(loadConversationAction(id));
+      const loaded = await askCall(process.env.NEXT_PUBLIC_SJC_CANVAS_ENABLED==='1'?loadConversationWithCanvas(id):loadConversationAction(id) as ReturnType<typeof loadConversationWithCanvas>);
       const detail = loaded && "conversation" in loaded ? loaded.conversation : loaded;
       if (!live.alive) return;
       if (!detail) { reportFailure("THREAD_UNAVAILABLE"); return; }
@@ -412,6 +427,7 @@ export function useAgentChat({
       setConversationTitle(detail.title || "New chat");
       setFolderName(detail.folderName);
       setMessages(detail.messages);
+      setCanvasChanges(loaded.canvas_changes);
       setClaudeSessionId(detail.claudeSessionId);
       setContextTokens(null);
       writePanelState({ conversationId: detail.id, agent: detail.agent });
@@ -807,6 +823,7 @@ export function useAgentChat({
   }, [pending, queuedNext]);
 
   return {
+    canvasChanges,
     agent,
     selectAgent,
     conversationId,

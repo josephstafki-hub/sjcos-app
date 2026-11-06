@@ -1,17 +1,18 @@
 'use client';
 import {useEffect,useLayoutEffect,useRef,useSyncExternalStore} from 'react';
 import dynamic from 'next/dynamic';
-import type {CanvasEventsResponse,CanvasListResponse,CanvasGetResponse} from '@/lib/canvas-api-types';
+import type {EventPage,CanvasEventsResponse,CanvasListResponse,CanvasGetResponse} from '@/lib/canvas-api-types';
 import {registerAskPane,setAskPaneScope,getAskPaneFeed,type AskPaneRegistration} from '../askPaneRegistry';
 import {canvasPanelIdentity} from './actions';
 import {canvasState,canvasServerState,subscribeCanvas,clearCanvas,updateCanvas,applyCanvasList,publishCanvases} from './store';
 import {canvasFetch,fixCanvasPrompt} from './state';
 const Pane=dynamic(()=>import('../CanvasPane').then(m=>m.CanvasPane),{ssr:false});
-export function useCanvasFeed({threadId,pending,activeRunId,blocked,prefill}:{threadId:string|null;pending:boolean;activeRunId:string|null;blocked:boolean;prefill:(text:string,id?:string,version?:number)=>void}){
+export function useCanvasFeed({changes,threadId,pending,activeRunId,blocked,prefill}:{changes?:EventPage;threadId:string|null;pending:boolean;activeRunId:string|null;blocked:boolean;prefill:(text:string,id?:string,version?:number)=>void}){
  const enabled=process.env.NEXT_PUBLIC_SJC_CANVAS_ENABLED==='1';
  const cursorRef=useRef<string|undefined>(undefined),beforeRef=useRef<string|null>(null),lastThread=useRef(threadId);
  if(lastThread.current!==threadId){lastThread.current=threadId;cursorRef.current=undefined;beforeRef.current=null;}
  const refresh=useRef<()=>void>(()=>{}),args=useRef({pending,activeRunId,prefill});args.current={pending,activeRunId,prefill};
+ const appliedChanges=useRef<EventPage | undefined>(undefined);
  const value=useSyncExternalStore(subscribeCanvas,canvasState,canvasServerState);
  useLayoutEffect(()=>{if(!enabled)return;clearCanvas();setAskPaneScope(null);},[enabled,threadId,blocked]);
  useEffect(()=>{
@@ -67,6 +68,17 @@ export function useCanvasFeed({threadId,pending,activeRunId,blocked,prefill}:{th
  };
  },[enabled,threadId,blocked]);
  useEffect(()=>{if(!enabled)return;const timer=setInterval(()=>refresh.current(),pending?2000:30000);refresh.current();return ()=>clearInterval(timer);},[enabled,pending]);
+ useEffect(()=>{
+  const scope=canvasState().scope;
+  if(!enabled||blocked||!changes||appliedChanges.current===changes||!scope||scope.threadId!==threadId||document.hidden)return;
+  if(changes.events.some(e=>e.thread_id!==threadId))return;
+  appliedChanges.current=changes;
+  // A new availability revision requires reauthorization of cached metadata/code.
+  if(canvasState().availability?.revision!==changes.availability.revision){updateCanvas({items:[],views:{},events:canvasState().events.map(e=>({id:e.id,thread_id:e.thread_id,run_id:e.run_id,actor_user_id:e.actor_user_id,at:e.at,group_id:e.group_id,kind:'unavailable' as const,canvas_id:e.canvas_id}))});publishCanvases();refresh.current();return;}
+  const events=[...new Map([...canvasState().events,...changes.events].map(e=>[e.id,e])).values()];
+  updateCanvas({events,availability:changes.availability});
+  refresh.current();
+ },[enabled,blocked,threadId,changes,value.scope]);
  const loadOlder=async()=>{
   const before=beforeRef.current,scope=canvasState().scope;if(!before||!scope||!threadId)return;
   try{const page=await canvasFetch<CanvasEventsResponse>(`/api/threads/${threadId}/canvas-events?limit=20&before=${encodeURIComponent(before)}`);

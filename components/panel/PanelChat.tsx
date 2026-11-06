@@ -183,7 +183,7 @@ export function PanelChat({
     },
   });
   const [canvasHint,setCanvasHint]=useState<{id:string;version:number}|null>(null);
-  const canvases=useCanvasFeed({threadId:chat.conversationId,pending:chat.pending,activeRunId:chat.activeRunId,blocked:!!chat.failureCode,prefill:(text,id,version)=>{
+  const canvases=useCanvasFeed({changes:chat.canvasChanges,threadId:chat.conversationId,pending:chat.pending,activeRunId:chat.activeRunId,blocked:!!chat.failureCode,prefill:(text,id,version)=>{
     setPrompt(text);setCanvasHint(id&&version?{id,version}:null);void Promise.resolve(onCanvasChat?.()).then(()=>requestAnimationFrame(()=>inputRef.current?.focus()));
   }});
   useEffect(()=>{if(canvases)updateCanvas({updating:chat.pending&&/\bupdate_canvas\b/.test(chat.activity)});},[!!canvases,chat.pending,chat.activity]);

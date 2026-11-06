@@ -55,7 +55,8 @@
       ],
       "sjcos_readonly": [
         "SELECT"
-      ]
+      ],
+      "note": "Phase 0 0105 FORCE RLS scopes automatic Ask copies to the source person; narrow session identities see background/business rows only. Website-only tombstone scrubbing adds no narrow grants."
     },
     "agent_instruction_versions": {
       "sjcos_agent": [
@@ -122,7 +123,8 @@
       ],
       "sjcos_readonly": [
         "SELECT"
-      ]
+      ],
+      "note": "Phase 0 0105 FORCE RLS scopes automatic Ask copies to the source person; narrow session identities see background/business rows only. Website-only tombstone scrubbing adds no narrow grants."
     },
     "agent_receipts": {
       "sjcos_agent": [
@@ -1654,7 +1656,8 @@
       ],
       "sjcos_readonly": [
         "SELECT"
-      ]
+      ],
+      "note": "Phase 0 0105 FORCE RLS scopes automatic Ask copies to the source person; narrow session identities see background/business rows only. Website-only tombstone scrubbing adds no narrow grants."
     },
     "orchestration_tasks": {
       "sjcos_agent": [
@@ -1665,7 +1668,8 @@
       ],
       "sjcos_readonly": [
         "SELECT"
-      ]
+      ],
+      "note": "Phase 0 0105 FORCE RLS scopes automatic Ask copies to the source person; narrow session identities see background/business rows only. Website-only tombstone scrubbing adds no narrow grants."
     },
     "overhead_subscriptions": {
       "sjcos_agent": [
@@ -2282,7 +2286,8 @@
       ],
       "sjcos_readonly": [
         "SELECT"
-      ]
+      ],
+      "note": "Phase 0 0105 FORCE RLS scopes automatic Ask copies to the source person; narrow session identities see background/business rows only. Website-only tombstone scrubbing adds no narrow grants."
     },
     "run_steers": {
       "sjcos_agent": [

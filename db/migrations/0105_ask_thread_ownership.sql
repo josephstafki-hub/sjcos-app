@@ -244,3 +244,169 @@ SELECT sjcos_grant('sjcos_readonly', 'SELECT', 'owner_grants');
 SELECT sjcos_grant('sjcos_agent', 'SELECT', 'owner_replies');
 SELECT sjcos_grant('sjcos_worker', 'SELECT, INSERT, UPDATE', 'owner_replies');
 SELECT sjcos_grant('sjcos_readonly', 'SELECT', 'owner_replies');
+
+-- R3: a reply about a business card is not permission to publish chat text.
+-- Store the body/answer only in owner_replies (FORCE RLS above); shared cards,
+-- events, intent errors and work items contain fixed status, not private copies.
+-- This also scrubs hook payloads and any historical execution fed by those
+-- payloads. Reused on tombstone replay before erasing the original reply.
+-- Historical background consumers may still be in flight. Once their
+-- contaminated payload is erased they are immutable audit shells, so a late
+-- worker/runner completion cannot put the private text back.
+ALTER TABLE agent_triggers ADD COLUMN IF NOT EXISTS ask_reply_erased boolean NOT NULL DEFAULT false;
+ALTER TABLE agent_executions ADD COLUMN IF NOT EXISTS ask_reply_erased boolean NOT NULL DEFAULT false;
+ALTER TABLE dev_agent_runs ADD COLUMN IF NOT EXISTS ask_reply_erased boolean NOT NULL DEFAULT false;
+CREATE OR REPLACE FUNCTION guard_ask_erased_copy() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+BEGIN
+ IF (TG_OP='UPDATE' AND OLD.ask_reply_erased) OR NEW.ask_reply_erased OR
+  (TG_TABLE_NAME='agent_executions' AND EXISTS(SELECT 1 FROM agent_triggers t WHERE t.id=(to_jsonb(NEW)->>'trigger_id')::uuid AND t.ask_reply_erased)) THEN
+  IF session_user<>ask_website_login() OR current_setting('sjcos.ask_purge',true) IS DISTINCT FROM 'yes' THEN
+   RAISE EXCEPTION 'erased Ask copy is fenced' USING ERRCODE='42501';
+  END IF;
+ END IF;
+ RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION guard_ask_erased_copy() FROM PUBLIC;
+CREATE TRIGGER guard_ask_erased_copy BEFORE INSERT OR UPDATE ON agent_triggers FOR EACH ROW EXECUTE FUNCTION guard_ask_erased_copy();
+CREATE TRIGGER guard_ask_erased_copy BEFORE INSERT OR UPDATE ON agent_executions FOR EACH ROW EXECUTE FUNCTION guard_ask_erased_copy();
+CREATE TRIGGER guard_ask_erased_copy BEFORE INSERT OR UPDATE ON dev_agent_runs FOR EACH ROW EXECUTE FUNCTION guard_ask_erased_copy();
+CREATE OR REPLACE FUNCTION erase_ask_reply_copies(thread uuid) RETURNS void
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+DECLARE decisions_ids uuid[]; work_ids uuid[]; trigger_ids uuid[]; prior_purge text;
+BEGIN
+ IF session_user<>ask_website_login() THEN RAISE EXCEPTION 'private Ask repair denied' USING ERRCODE='42501'; END IF;
+ prior_purge:=current_setting('sjcos.ask_purge',true);
+ PERFORM set_config('sjcos.ask_purge','yes',true);
+ SELECT array_agg(DISTINCT decision_id) INTO decisions_ids FROM (
+  SELECT decision_id FROM owner_replies WHERE conversation_id IS NOT NULL AND (thread IS NULL OR conversation_id=thread)
+  UNION SELECT decision_id FROM owner_grants WHERE conversation_id IS NOT NULL AND (thread IS NULL OR conversation_id=thread)
+ ) x WHERE decision_id IS NOT NULL;
+ SELECT array_agg(DISTINCT work_item_id) INTO work_ids FROM owner_replies
+  WHERE conversation_id IS NOT NULL AND (thread IS NULL OR conversation_id=thread) AND work_item_id IS NOT NULL;
+ SELECT array_agg(id) INTO trigger_ids FROM agent_triggers t WHERE
+  t.payload->>'decision_id'=ANY(SELECT unnest(decisions_ids)::text) OR
+  t.payload->>'work_item_id'=ANY(SELECT unnest(work_ids)::text) OR
+  EXISTS(SELECT 1 FROM unnest(decisions_ids) d WHERE t.ref LIKE 'decision:'||d::text||':%') OR
+  EXISTS(SELECT 1 FROM owner_replies r WHERE r.conversation_id IS NOT NULL AND (thread IS NULL OR r.conversation_id=thread) AND (t.id=r.trigger_id OR t.ref='owner_reply:'||r.id::text));
+ UPDATE decisions SET decision_note='Private Ask reply recorded.',hold_note=NULL WHERE id=ANY(decisions_ids) AND (decision_note IS NOT NULL OR hold_note IS NOT NULL);
+ UPDATE decision_events SET detail=detail-'note'-'reason' WHERE decision_id=ANY(decisions_ids);
+ UPDATE action_intents SET last_error='Private Ask request updated.' WHERE last_error IS NOT NULL AND
+  (decision_id=ANY(decisions_ids) OR grant_id IN (SELECT id FROM owner_grants WHERE conversation_id IS NOT NULL AND (thread IS NULL OR conversation_id=thread)));
+ UPDATE work_items SET blocked_reason='Changes requested in the private Ask chat.' WHERE id=ANY(work_ids) AND blocked_reason IS NOT NULL;
+ -- A historical worker may already have consumed the hook. Scrub its linked
+ -- detached background run as well as the execution log, retaining identities.
+ UPDATE dev_agent_runs SET ask_reply_erased=true,prompt='[deleted]',page_context=NULL,answer=NULL,activity=NULL,spoken_answer=NULL,session_id=NULL,
+  cancellation_requested=true,status=CASE WHEN status IN ('pending','running') THEN 'error' ELSE status END
+  WHERE conversation_id IS NULL AND id IN (SELECT dev_agent_run_id FROM agent_executions WHERE (trigger_id=ANY(trigger_ids) OR
+   EXISTS(SELECT 1 FROM unnest(decisions_ids) d WHERE trigger_ref LIKE 'decision:'||d::text||':%') OR
+   EXISTS(SELECT 1 FROM unnest(work_ids) w WHERE trigger_ref LIKE 'work_item:'||w::text||':%') OR
+   EXISTS(SELECT 1 FROM owner_replies r WHERE r.conversation_id IS NOT NULL AND (thread IS NULL OR r.conversation_id=thread) AND trigger_ref='owner_reply:'||r.id::text)));
+ -- A completed/cancelled trigger still retains its payload unless scrubbed.
+ UPDATE agent_triggers SET ask_reply_erased=true,payload=payload-'note'-'owner_reply'-'owner_reply_how'-'draft_text',last_error=NULL,
+  state='done',done_at=COALESCE(done_at,now()),lease_token=NULL,lease_until=NULL WHERE id=ANY(trigger_ids);
+ UPDATE agent_executions SET ask_reply_erased=true,tool_trace='[]',result_summary=NULL,blocked_reason=NULL,next_trigger=NULL,error=NULL,context_refs='[]',records_touched='[]',session_id=NULL
+  WHERE (trigger_id=ANY(trigger_ids) OR
+   EXISTS(SELECT 1 FROM unnest(decisions_ids) d WHERE trigger_ref LIKE 'decision:'||d::text||':%') OR
+   EXISTS(SELECT 1 FROM unnest(work_ids) w WHERE trigger_ref LIKE 'work_item:'||w::text||':%') OR
+   EXISTS(SELECT 1 FROM owner_replies r WHERE r.conversation_id IS NOT NULL AND (thread IS NULL OR r.conversation_id=thread) AND trigger_ref='owner_reply:'||r.id::text)) OR dev_agent_run_id IN (SELECT id FROM dev_agent_runs WHERE conversation_id=thread);
+ -- Thread deletion also erases the automatic run/ladder copies immediately.
+ -- Migration-wide NULL only scrubs known reply fan-out; live chats keep runtime.
+ IF thread IS NOT NULL THEN
+  UPDATE run_effects SET detail='{}',entity_id=NULL,entity_kind='deleted',action='deleted' WHERE run_id IN (SELECT id FROM dev_agent_runs WHERE conversation_id=thread);
+  UPDATE agent_pending_actions SET payload='{}',review_note=NULL,status='cancelled',entity_id=NULL,entity_kind='',kind='deleted' WHERE run_id IN (SELECT id FROM dev_agent_runs WHERE conversation_id=thread);
+  UPDATE orchestration_events SET note=NULL WHERE task_id IN (SELECT id FROM orchestration_tasks WHERE conversation_id=thread);
+  UPDATE orchestration_tasks SET task_prompt='[deleted]',status='cancelled' WHERE conversation_id=thread;
+ END IF;
+ PERFORM set_config('sjcos.ask_purge',COALESCE(prior_purge,''),true);
+END $$;
+REVOKE ALL ON FUNCTION erase_ask_reply_copies(uuid) FROM PUBLIC;
+-- During migration the installing website owns the tables. The test harness
+-- administrator represents that login until withSessionIdentity transfers them.
+SELECT erase_ask_reply_copies(NULL);
+DO $$ DECLARE tid uuid; BEGIN
+ FOR tid IN SELECT id FROM ai_conversations WHERE deleted_at IS NOT NULL LOOP
+  PERFORM erase_ask_reply_copies(tid);
+ END LOOP;
+END $$;
+
+-- R3 sweep: these are automatic run/chat copies, not filed business artifacts.
+-- FK joins alone do not inherit the source table's RLS for a SELECT * reader.
+ALTER TABLE run_effects ENABLE ROW LEVEL SECURITY;
+ALTER TABLE run_effects FORCE ROW LEVEL SECURITY;
+CREATE POLICY ask_effect_private ON run_effects USING(EXISTS(SELECT 1 FROM dev_agent_runs r WHERE r.id=run_id AND ask_derivative_visible(r.conversation_id))) WITH CHECK(EXISTS(SELECT 1 FROM dev_agent_runs r WHERE r.id=run_id AND ask_derivative_visible(r.conversation_id)));
+ALTER TABLE agent_pending_actions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE agent_pending_actions FORCE ROW LEVEL SECURITY;
+CREATE POLICY ask_pending_private ON agent_pending_actions USING(EXISTS(SELECT 1 FROM dev_agent_runs r WHERE r.id=run_id AND ask_derivative_visible(r.conversation_id))) WITH CHECK(EXISTS(SELECT 1 FROM dev_agent_runs r WHERE r.id=run_id AND ask_derivative_visible(r.conversation_id)));
+ALTER TABLE orchestration_tasks ENABLE ROW LEVEL SECURITY;
+ALTER TABLE orchestration_tasks FORCE ROW LEVEL SECURITY;
+CREATE POLICY ask_task_private ON orchestration_tasks USING(ask_derivative_visible(conversation_id)) WITH CHECK(ask_derivative_visible(conversation_id));
+ALTER TABLE orchestration_events ENABLE ROW LEVEL SECURITY;
+ALTER TABLE orchestration_events FORCE ROW LEVEL SECURITY;
+CREATE POLICY ask_event_private ON orchestration_events USING(EXISTS(SELECT 1 FROM orchestration_tasks t WHERE t.id=task_id)) WITH CHECK(EXISTS(SELECT 1 FROM orchestration_tasks t WHERE t.id=task_id));
+ALTER TABLE agent_executions ENABLE ROW LEVEL SECURITY;
+ALTER TABLE agent_executions FORCE ROW LEVEL SECURITY;
+CREATE POLICY ask_execution_private ON agent_executions USING(dev_agent_run_id IS NULL OR EXISTS(SELECT 1 FROM dev_agent_runs r WHERE r.id=dev_agent_run_id AND ask_derivative_visible(r.conversation_id))) WITH CHECK(dev_agent_run_id IS NULL OR EXISTS(SELECT 1 FROM dev_agent_runs r WHERE r.id=dev_agent_run_id AND ask_derivative_visible(r.conversation_id)));
+
+CREATE OR REPLACE FUNCTION guard_ask_runtime_source() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+DECLARE src uuid; tid uuid; oldsrc uuid; oldtid uuid;
+BEGIN
+ src:=COALESCE((to_jsonb(NEW)->>'run_id')::uuid,(to_jsonb(NEW)->>'dev_agent_run_id')::uuid);
+ oldsrc:=COALESCE((to_jsonb(OLD)->>'run_id')::uuid,(to_jsonb(OLD)->>'dev_agent_run_id')::uuid);
+ IF TG_OP='UPDATE' AND src IS DISTINCT FROM oldsrc THEN RAISE EXCEPTION 'private runtime source immutable' USING ERRCODE='42501'; END IF;
+ IF src IS NOT NULL THEN
+  SELECT conversation_id INTO tid FROM dev_agent_runs WHERE id=src;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Ask source unavailable' USING ERRCODE='42501'; END IF;
+ END IF;
+ IF TG_TABLE_NAME='orchestration_events' THEN
+  IF TG_OP='UPDATE' AND NEW.task_id IS DISTINCT FROM OLD.task_id THEN RAISE EXCEPTION 'private runtime source immutable' USING ERRCODE='42501'; END IF;
+  SELECT conversation_id INTO oldtid FROM orchestration_tasks WHERE id=NEW.task_id;
+  IF NOT FOUND THEN RAISE EXCEPTION 'Ask source unavailable' USING ERRCODE='42501'; END IF;
+  IF tid IS NOT NULL AND tid<>oldtid THEN RAISE EXCEPTION 'Ask source mismatch' USING ERRCODE='42501'; END IF;
+  tid:=oldtid;
+ END IF;
+ IF TG_TABLE_NAME IN ('agent_pending_actions','orchestration_tasks') THEN
+  oldtid:=(to_jsonb(NEW)->>'conversation_id')::uuid;
+  IF TG_OP='UPDATE' AND oldtid IS DISTINCT FROM (to_jsonb(OLD)->>'conversation_id')::uuid THEN RAISE EXCEPTION 'private runtime source immutable' USING ERRCODE='42501'; END IF;
+  IF tid IS NOT NULL AND oldtid IS DISTINCT FROM tid THEN RAISE EXCEPTION 'Ask source mismatch' USING ERRCODE='42501'; END IF;
+  tid:=COALESCE(tid,oldtid);
+ END IF;
+ IF tid IS NOT NULL AND EXISTS(SELECT 1 FROM ai_conversations WHERE id=tid AND owner_user_id IS NOT NULL) THEN
+  IF session_user<>ask_website_login() THEN RAISE EXCEPTION 'private runtime write denied' USING ERRCODE='42501'; END IF;
+  IF current_setting('sjcos.ask_purge',true) IS DISTINCT FROM 'yes' AND
+   (EXISTS(SELECT 1 FROM ai_conversations WHERE id=tid AND deleted_at IS NOT NULL) OR NOT EXISTS(SELECT 1 FROM ask_canvas_maintenance WHERE recovery_ready)) THEN
+   RAISE EXCEPTION 'Ask recovery/deletion fence' USING ERRCODE='42501';
+  END IF;
+ END IF;
+ RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION guard_ask_runtime_source() FROM PUBLIC;
+CREATE TRIGGER guard_ask_runtime_source BEFORE INSERT OR UPDATE ON run_effects FOR EACH ROW EXECUTE FUNCTION guard_ask_runtime_source();
+CREATE TRIGGER guard_ask_runtime_source BEFORE INSERT OR UPDATE ON agent_pending_actions FOR EACH ROW EXECUTE FUNCTION guard_ask_runtime_source();
+CREATE TRIGGER guard_ask_runtime_source BEFORE INSERT OR UPDATE ON orchestration_tasks FOR EACH ROW EXECUTE FUNCTION guard_ask_runtime_source();
+CREATE TRIGGER guard_ask_runtime_source BEFORE INSERT OR UPDATE ON orchestration_events FOR EACH ROW EXECUTE FUNCTION guard_ask_runtime_source();
+CREATE TRIGGER guard_ask_runtime_source BEFORE INSERT OR UPDATE ON agent_executions FOR EACH ROW EXECUTE FUNCTION guard_ask_runtime_source();
+
+DO $$ DECLARE tab text; BEGIN
+ IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='sjcos_backup') THEN
+  FOREACH tab IN ARRAY ARRAY['run_effects','agent_pending_actions','orchestration_tasks','orchestration_events','agent_executions'] LOOP
+   EXECUTE format('CREATE POLICY ask_backup_read ON %I FOR SELECT TO sjcos_backup USING (true)',tab);
+  END LOOP;
+ END IF;
+END $$;
+-- node scripts/db-roles-sql.mjs run_effects agent_pending_actions orchestration_tasks orchestration_events agent_executions
+-- Existing grants, unchanged; website-only erasure confers no narrow capability:
+-- SELECT sjcos_grant('sjcos_agent', 'SELECT', 'run_effects');
+-- SELECT sjcos_grant('sjcos_worker', 'SELECT', 'run_effects');
+-- SELECT sjcos_grant('sjcos_readonly', 'SELECT', 'run_effects');
+-- SELECT sjcos_grant('sjcos_agent', 'SELECT', 'agent_pending_actions');
+-- SELECT sjcos_grant('sjcos_worker', 'SELECT', 'agent_pending_actions');
+-- SELECT sjcos_grant('sjcos_readonly', 'SELECT', 'agent_pending_actions');
+-- SELECT sjcos_grant('sjcos_agent', 'SELECT', 'orchestration_tasks');
+-- SELECT sjcos_grant('sjcos_worker', 'SELECT', 'orchestration_tasks');
+-- SELECT sjcos_grant('sjcos_readonly', 'SELECT', 'orchestration_tasks');
+-- SELECT sjcos_grant('sjcos_agent', 'SELECT', 'orchestration_events');
+-- SELECT sjcos_grant('sjcos_worker', 'SELECT', 'orchestration_events');
+-- SELECT sjcos_grant('sjcos_readonly', 'SELECT', 'orchestration_events');
+-- SELECT sjcos_grant('sjcos_agent', 'SELECT, INSERT, UPDATE', 'agent_executions');
+-- SELECT sjcos_grant('sjcos_worker', 'SELECT, UPDATE', 'agent_executions');
+-- SELECT sjcos_grant('sjcos_readonly', 'SELECT', 'agent_executions');

@@ -1,5 +1,5 @@
 import "server-only";
-import { isAskFailure } from "@/lib/ask-result-codes";
+import { isAskFailure, askFailureStatus, askRedirectPath } from "@/lib/ask-result-codes";
 import { askFailure, askBoundary } from "@/lib/thread-access";
 import { z } from "zod";
 import { getUserFromRequest, hasAccess } from "@/lib/api-auth";
@@ -43,14 +43,13 @@ export async function mobileOperatorRead(req: Request, ownerOnly: boolean, read:
     if (!user || (await getCurrentUser())?.id !== user.id) return Response.json({ ok:false,code:"SIGN_IN_AGAIN" }, { status: 401 });
     if (!hasAccess(user, "ai") || (ownerOnly && user.role !== "owner")) return Response.json({ ok:false,code:"CHAT_OFF" }, { status: 403 });
     const result = await askBoundary(()=>read(user));
-    if(isAskFailure(result))return Response.json(result,{status:result.code==="ASK_PAUSED"?503:409});
+    if(isAskFailure(result))return Response.json(result,{status:askFailureStatus(result)});
     return result instanceof Response ? result : Response.json(result);
   } catch (error) {
     if (error instanceof z.ZodError || error instanceof MobileInputError) return Response.json({ error: error instanceof z.ZodError ? error.issues[0]?.message : error.message }, { status: 400 });
-    // Match the RPC route's treatment of DAL authentication redirects.
-    if (typeof error === "object" && error && "digest" in error && String(error.digest).startsWith("NEXT_REDIRECT;")) return Response.json({ ok:false,code:"CHAT_OFF" }, { status: 403 });
-    console.error("[mobile-operator] Request failed", error);
-    return Response.json(askFailure(error), { status: 503 });
+    const redirect=askRedirectPath(error);
+    const failure=redirect && !['/login','/logout'].includes(redirect) ? {ok:false as const,code:'CHAT_OFF' as const} : askFailure(error);
+    return Response.json(failure, { status: askFailureStatus(failure) });
   }
 }
 const iso = (value: string | null) => value == null ? null : new Date(ms(value)).toISOString();

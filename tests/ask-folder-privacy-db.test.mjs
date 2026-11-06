@@ -6,7 +6,7 @@ import {runInNewContext} from 'node:vm';
 import ts from 'typescript';
 import {withTestDb,withSessionIdentity} from './_harness/testdb.mjs';
 const require=createRequire(import.meta.url);
-function load(file,deps){const exports={};runInNewContext(ts.transpileModule(readFileSync(new URL('../'+file,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,{exports,process,console,URL,Request,Response,Buffer,require:s=>s in deps?deps[s]:s.startsWith('node:')?require(s):{}});return exports;}
+function load(file,deps){const exports={};runInNewContext(ts.transpileModule(readFileSync(new URL('../'+file,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,{exports,process,console,URL,Request,Response,Buffer,require:s=>s==='@/lib/ask-result-codes'?load('lib/ask-result-codes.ts',{}):s in deps?deps[s]:s.startsWith('node:')?require(s):{}});return exports;}
 // Expectations FIRST: run the real caller SQL as BOTH the non-superuser website
 // identity and the RLS-bypassing harness login. Joe and Abigail each see only
 // their own active/archived titles, messages, folders, suggestions and busy

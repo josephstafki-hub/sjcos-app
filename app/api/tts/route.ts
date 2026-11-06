@@ -1,5 +1,5 @@
 import { askBoundary, askFailure, requireRunThreadAccess } from "@/lib/thread-access";
-import { isAskFailure } from "@/lib/ask-result-codes";
+import { isAskFailure, askFailureStatus } from "@/lib/ask-result-codes";
 import { NextResponse } from "next/server";
 import { hasAccess } from "@/lib/api-auth";
 import { getCurrentUser } from "@/lib/dal";
@@ -59,15 +59,24 @@ async function speak(req: Request) {
   });
 }
 
-async function speechResponse(run:()=>Promise<Response>){
+async function speechResponse(run:()=>Promise<Response>, probe=false){
  try {
  const user=await getCurrentUser();
  if(!user)return NextResponse.json({ok:false,code:'SIGN_IN_AGAIN'},{status:401});
  // Subcontractor daily-log speech is not an Ask surface. Its existing raw-text
  // path remains available; speak() refuses any runId before private access.
  const result=user.role==='sub'?await run():await askBoundary(run);
- return isAskFailure(result)?NextResponse.json(result,{status:result.code==='ASK_PAUSED'?503:result.code==='THREAD_UNAVAILABLE'?404:result.code==='CHAT_OFF'?403:401}):result;
- }catch(error){return NextResponse.json(askFailure(error),{status:503});}
+ if(isAskFailure(result)){
+  if(probe && result.code==='ASK_PAUSED')return NextResponse.json({available:false,code:result.code},{headers:{'Cache-Control':'no-store'}});
+  return NextResponse.json(result,{status:result.code==='THREAD_UNAVAILABLE'?404:askFailureStatus(result),headers:{'Cache-Control':'no-store'}});
+ }
+ if(probe)result.headers.set('Cache-Control','no-store');
+ return result;
+ }catch(error){
+  const failure=askFailure(error);
+  if(probe && failure.code==='ASK_PAUSED')return NextResponse.json({available:false,code:failure.code},{headers:{'Cache-Control':'no-store'}});
+  return NextResponse.json(failure,{status:askFailureStatus(failure),headers:{'Cache-Control':'no-store'}});
+ }
 }
-export async function GET(){return speechResponse(getAvailability);}
+export async function GET(){return speechResponse(getAvailability,true);}
 export async function POST(req:Request){return speechResponse(()=>speak(req));}

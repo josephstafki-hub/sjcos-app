@@ -6,7 +6,7 @@
 // failure result.
 
 export type AskFailureCode =
-  /** Recovery gate closed (only reachable once deletion was ever enabled, A1.1). */
+  /** Admission closed: recovery evidence, missing protected identity or invalid configuration (A1.1). */
   | "ASK_PAUSED"
   /** Thread missing, deleted, quarantined or owned by someone else. Same code for all four, so nothing leaks. */
   | "THREAD_UNAVAILABLE"
@@ -41,4 +41,32 @@ export function isAskFailure(v: unknown): v is AskFailure {
     (v as { ok?: unknown }).ok === false &&
     ASK_FAILURE_CODES.includes((v as { code?: AskFailureCode }).code as AskFailureCode)
   );
+}
+
+/** Parse the actual Next redirect digest, never arbitrary error message text.
+ * Only local authentication routes are sign-in failures. */
+export function askRedirectPath(error: unknown): string | null {
+  const digest = (error as { digest?: unknown } | null)?.digest;
+  if (typeof digest !== 'string') return null;
+  const parts = digest.split(';');
+  if (parts.length < 5 || parts[0] !== 'NEXT_REDIRECT' || !['push', 'replace'].includes(parts[1]) ||
+      !['303', '307', '308'].includes(parts.at(-2)!) || parts.at(-1) !== '') return null;
+  const target = parts.slice(2, -2).join(';');
+  if (!target.startsWith('/') || target.startsWith('//') || target.includes('\\')) return null;
+  try { return new URL(target, 'http://ask.local').pathname; } catch { return null; }
+}
+export function normalizeAskFailure(error: unknown): AskFailure {
+  if (isAskFailure(error)) return {ok:false,code:error.code};
+  const message = String((error as { message?: unknown } | null)?.message ?? '');
+  const redirect = askRedirectPath(error);
+  const code: AskFailureCode = redirect === '/login' || redirect === '/logout' ||
+    /^(?:ASK_SIGN_IN_REQUIRED|ASK_COOKIE_REQUIRED|ASK_SESSION_REVOKED)$/.test(message) ? 'SIGN_IN_AGAIN'
+    : message === 'ASK_ACCESS_DENIED' ? 'CHAT_OFF'
+    : /DELETE_NOT_READY|Chat deletion is not ready/.test(message) ? 'DELETE_NOT_READY'
+    : /ASK_THREAD_UNAVAILABLE|ASK_ATTACHMENT_UNAVAILABLE|ASK_RESUME_MISMATCH|invalid input syntax for type uuid/.test(message) ? 'THREAD_UNAVAILABLE'
+    : 'ASK_PAUSED';
+  return { ok: false, code };
+}
+export function askFailureStatus(failure: AskFailure): number {
+  return failure.code === 'SIGN_IN_AGAIN' ? 401 : failure.code === 'CHAT_OFF' ? 403 : failure.code === 'ASK_PAUSED' ? 503 : 409;
 }

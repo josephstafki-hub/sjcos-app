@@ -1,3 +1,100 @@
+# Round-3 server implementation (2026-11-05)
+
+This section and the round-3 census in
+[phase0-privacy-leak-HANDOFF.md](phase0-privacy-leak-HANDOFF.md) supersede earlier
+privacy/inventory claims below. Started on branch `t3/in-app-browser-agent-tools`
+at `245f5a09289310aef6d11a5a016bd8e77abd865e`. The parallel panel commit is
+`0ade4617`; no panel-owned file was edited or staged by this server task.
+
+1. **Security V1:** full session-routed Telegram text stays in `owner_replies`,
+   with its existing verified owner/live-thread/journal, person-scoped lookup,
+   mutation and delivery guards and FORCE RLS. `recordOwnerReply` passes fixed
+   status to decision resolution; draft replies pass fixed blocked status.
+   Thus `decisions.decision_note`, `decision_events.detail`,
+   `action_intents.last_error` and `work_items.blocked_reason` no longer hold
+   automatic private copies. Their business metadata stays shared under the
+   existing business permissions; these four tables are deliberately **not**
+   converted into private chat storage or hidden wholesale by RLS.
+
+   **0105 changed in place; it is unapplied on live. Rebuild disposable QA rather
+   than treating its old checksum as applied.** Its website-only
+   `erase_ask_reply_copies(thread)` scrubs historical decision/event/intent/work
+   item copies, decision-hook `agent_triggers` payloads, execution traces/results,
+   and contaminated detached background runs (including orphan execution
+   `trigger_ref` matches). The same function runs on tombstone/replay **before**
+   erasing the original reply. Erased trigger/execution/background-run shells
+   are permanently fenced against late completions; a new execution cannot use
+   an erased trigger. No narrow login can invoke the erasure function or clear
+   that fence. An installing website/repair session uses the purge scope; the
+   function restores the previous scope before returning.
+
+   The additional sweep found automatic private runtime copies in `run_effects`,
+   `agent_pending_actions`, `orchestration_tasks`, `orchestration_events` and
+   run-linked `agent_executions`. 0105 adds FORCE RLS with source-person/live
+   thread visibility, immutable source triggers and recovery/deletion write
+   fences. Shared execution history and context exclude conversation-linked
+   executions before limit/serialization, even with the trusted raw website
+   connection. Tombstones erase these runtime payloads and text/entity hints.
+   Backup SELECT policies remain explicit. No narrow privilege was expanded;
+   manifest notes and exact generator output are in 0105.
+
+2. **Engineering 1 / design 1 server:** Proxy passes only POSTs with a
+   `Next-Action` header through stamped `next(req)` before its optimistic page
+   redirect. This is transport only: actual exported Ask actions still check
+   the current session/person before query, upload, run or provider work.
+   Page navigations retain Proxy/DAL redirects (legacy revoked JWTs reach DAL's
+   `/logout`; missing/expired cookies go to `/login`). The shared pure
+   `askRedirectPath` parses genuine Next digests, and `normalizeAskFailure`
+   maps only local `/login`/`/logout` and exact legacy auth codes to
+   `SIGN_IN_AGAIN`; arbitrary login/provider text remains paused. Server and
+   panel normalizers use this same digest parser.
+
+   **UI contract:** `GET /api/ai/status` with missing, invalid, expired or revoked
+   authentication returns **401 `{ok:false,code:'SIGN_IN_AGAIN'}`**, always with
+   **`Cache-Control: no-store`**. Existing owner ready/warning/paused and
+   authenticated non-owner 403 envelopes remain. Ask APIs/mobile adapters map
+   auth/access/recovery to **401/403/503**, conflicts to **409**; TTS's unavailable
+   run remains 404. Both returned and caught auth failures preserve their code.
+   No header itself authorizes any business mutation.
+
+3. **Engineering 2 / design 3 server:** authenticated paused capability GETs at
+   `/api/transcribe` and `/api/tts` return **200
+   `{available:false,code:'ASK_PAUSED'}`**, no-store, before provider callbacks.
+   POST remains paused **503**. Subcontractor daily-log raw speech/dictation
+   retains its separate policy. Hook generation/retry, mounted draft/private
+   state clearing and sign-in affordances belong to the panel builder.
+
+Validation: **173 passed, zero failed/skipped across 13 files**; per-file counts
+and the private-copy census are in the linked round-3 privacy handoff. Tests
+used separate single-file invocations with `SJC_TEST_CLUSTER_TAG=p0r3srv-<ts>`
+and EXIT cleanup of every disposable cluster, including failed fixture runs.
+The initial new fixtures needed a VM TextEncoder, correct schema field names,
+and the distinction between optimistic legacy Proxy checks and DAL revocation;
+no desired privacy/auth expectation was weakened. The existing folder fixture
+still emits pg's concurrent-client-query deprecation; module-type warnings and
+the mobile suite's intentional simulated notification failure are test noise,
+not production sends or failed assertions.
+
+`flock /tmp/sjcos-tsc.lock nice -n 19 npx tsc --noEmit -p .`: **exit 0**.
+`node scripts/db-roles-scan.mjs --diff`: **exit 0**, no unexplained differences.
+Withheld agent owner-control writes: settings, authority grants, policies,
+lane pauses, permission audit, revocations and users. Worker differences also
+include website-only interaction UPDATE/message DELETE, maintenance/web-session
+state, payment authorizations, QBO and mailbox credentials. All are explicitly
+explained by manifest notes; no grant was added to satisfy a static import path.
+Both actual-DB role files pass. `git diff --check` passes.
+
+No install, Next dev/build/start, browser, deploy, service action, live DB,
+`sjcos_qa_abc`, coordinator Ask state, default protected deployment directory,
+or subagent was used. No resource kill occurred. Coordinator checks remaining:
+expire/revoke a cookie mid-chat and exercise Send/poll/upload/Retry; confirm Sign
+in, retained draft and cleared private pixels; confirm paused voice GETs do not
+produce failed-resource console entries and voice returns after panel Retry.
+Browser Phase 0b/runtime and deployed authority durability remain outside this
+server test evidence.
+
+---
+
 > **Privacy correction after coordinator QA:** see [phase0-privacy-leak-HANDOFF.md](phase0-privacy-leak-HANDOFF.md) for the explicit ownership fences, full 119-function audit, RLS limits and new bypass-identity regression evidence. Earlier helper/RLS-only privacy claims below are superseded.
 
 # Phase 0 round-2 server correction — A1 (2026-11-05)

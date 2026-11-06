@@ -34,7 +34,7 @@ import {validateChain} from '../lib/canvas-deletion-ledger.mjs';
 const require=createRequire(import.meta.url),plain=x=>JSON.parse(JSON.stringify(x));
 function load(file,deps={}){
  const exports={};const source=ts.transpileModule(readFileSync(new URL('../'+file,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText;
- runInNewContext(source,{exports,process,Buffer,console,URL,Request,Response,setTimeout,clearTimeout,require:s=>Object.hasOwn(deps,s)?deps[s]:s.startsWith('node:')||s==='zod'?require(s):{}});return exports;
+ runInNewContext(source,{exports,process,Buffer,console,URL,Request,Response,setTimeout,clearTimeout,require:s=>s==='@/lib/ask-result-codes'?load('lib/ask-result-codes.ts',{}):Object.hasOwn(deps,s)?deps[s]:s.startsWith('node:')||s==='zod'?require(s):{}});return exports;
 }
 test('R2 actual bridges and real login privacy',async t=>withMigrationSubset('r2_server',[100,105],async({url,db,apply})=>{
  // Historical automatic reason must be removed by the real migration.

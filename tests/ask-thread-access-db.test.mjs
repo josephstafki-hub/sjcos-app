@@ -52,7 +52,8 @@ test('shared helper: current verified identity, quarantine, revocation, folders,
    let session={userId:people[1],authAt:Math.floor(Date.now()/1000)},blocked=false;
    const exports={},pool={query:(...a)=>c.query(...a),connect:async()=>({query:(...a)=>c.query(...a),release(){}})};
    const code=ts.default.transpileModule(readFileSync(new URL('../lib/thread-access.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.default.ModuleKind.CommonJS,esModuleInterop:true}}).outputText;
-   const stubs={'server-only':{},'@/lib/db':{pool},'@/lib/session':{readSession:async()=>session},'@/lib/ask-thread-journal.mjs':{withAskJournal:async(_pool,fn)=>{if(blocked)throw Error('RECOVERY_REQUIRED');return fn();}}};
+   const pure={};runInNewContext(ts.default.transpileModule(readFileSync(new URL('../lib/ask-result-codes.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.default.ModuleKind.CommonJS}}).outputText,{exports:pure,URL});
+   const stubs={'@/lib/ask-result-codes':pure,'server-only':{},'@/lib/db':{pool},'@/lib/session':{readSession:async()=>session},'@/lib/ask-thread-journal.mjs':{withAskJournal:async(_pool,fn)=>{if(blocked)throw Error('RECOVERY_REQUIRED');return fn();}}};
    runInNewContext(code,{exports,Buffer,process,require:s=>s in stubs?stubs[s]:require(s)});
    for(const [who,label] of [[0,'Joe'],[1,'staff A'],[2,'staff B']])await t.test(`${label}: self only for load/context and forged principal`,async()=>{
     session={...session,userId:people[who]};

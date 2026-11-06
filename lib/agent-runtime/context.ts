@@ -487,7 +487,7 @@ async function communicationsSection(run: Run, scope: ContextScope, refs: Contex
   }
   const recent = await safe<{ id: string; trigger_kind: string; trigger_ref: string; result_summary: string | null; blocked_reason: string | null; finished_at: string | null; status: string }>(
     run,
-    `SELECT id, trigger_kind, trigger_ref, result_summary, blocked_reason, finished_at::text AS finished_at, status FROM agent_executions WHERE ${where} AND status <> 'running' ORDER BY started_at DESC LIMIT 3`,
+    `SELECT id, trigger_kind, trigger_ref, result_summary, blocked_reason, finished_at::text AS finished_at, status FROM agent_executions WHERE ${where} AND (dev_agent_run_id IS NULL OR EXISTS(SELECT 1 FROM dev_agent_runs r WHERE r.id=dev_agent_run_id AND r.conversation_id IS NULL)) AND status <> 'running' ORDER BY started_at DESC LIMIT 3`,
     params,
   );
   if (recent?.length) {

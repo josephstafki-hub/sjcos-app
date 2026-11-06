@@ -154,7 +154,9 @@ export async function recordOwnerReply(
       via: "telegram",
       principal: input.principal,
       outcome: "changes_requested",
-      note: input.text,
+      // A session reply is private. Shared card/history/intent/hook consumers
+      // receive status only; the body stays in the fenced owner_replies row.
+      note: conversationId ? "Private Ask reply recorded." : input.text,
     });
     pulled = r.ok;
   }
@@ -261,7 +263,7 @@ async function recordDraftReply(
             blocked_reason = $2
       WHERE id = $1 AND approval_status = 'requested'
       RETURNING id`,
-    [w.id, `Joe asked for changes on Telegram: ${input.text}`.slice(0, 500)],
+    [w.id, conversationId ? "Changes requested in the private Ask chat." : `Joe asked for changes on Telegram: ${input.text}`.slice(0, 500)],
   );
   const pulled = pulledRows.length > 0;
 

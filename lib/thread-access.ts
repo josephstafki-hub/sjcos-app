@@ -1,4 +1,5 @@
 import "server-only";
+import { normalizeAskFailure } from "@/lib/ask-result-codes";
 import path from 'node:path';
 import type { QueryResult, QueryResultRow, PoolClient } from 'pg';
 import { pool } from '@/lib/db';
@@ -80,13 +81,7 @@ export async function withThreadAttachmentAccess<T>(file:string,read:()=>Promise
 /** Serialize fixed failure codes only. Internal exceptions/causes never cross
  * a public action or RPC boundary. Keep the journal fence through callbacks. */
 export function askFailure(error: unknown): import('./ask-result-codes').AskFailure {
- const message=error instanceof Error?error.message:String((error as {message?:unknown})?.message??'');
- const code = /ASK_SIGN_IN_REQUIRED|ASK_COOKIE_REQUIRED|ASK_SESSION_REVOKED|NEXT_REDIRECT.*login/.test(message) ? 'SIGN_IN_AGAIN'
-  : /ASK_ACCESS_DENIED/.test(message) ? 'CHAT_OFF'
-  : /DELETE_NOT_READY|Chat deletion is not ready/.test(message) ? 'DELETE_NOT_READY'
-  : /ASK_THREAD_UNAVAILABLE|ASK_ATTACHMENT_UNAVAILABLE|ASK_RESUME_MISMATCH|invalid input syntax for type uuid/.test(message) ? 'THREAD_UNAVAILABLE'
-  : 'ASK_PAUSED';
- return {ok:false,code};
+ return normalizeAskFailure(error);
 }
 export async function askBoundary<T>(callback:()=>Promise<T>, rethrow?:(error:unknown)=>boolean):Promise<T|import('./ask-result-codes').AskFailure>{
  try{await threadPrincipal();return await withAskJournal(pool,callback);}catch(error){if(rethrow?.(error))throw error;return askFailure(error);}

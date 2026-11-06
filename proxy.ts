@@ -155,6 +155,10 @@ function isOauthDiscoveryProbe(path: string): boolean {
 export default async function proxy(req: NextRequest) {
   const path = req.nextUrl.pathname;
   if (isOauthDiscoveryProbe(path)) return new NextResponse(null, { status: 404 });
+  // Actions authenticate inside their own boundary. A redirect here destroys
+  // the typed action result when the cookie expires mid-chat. This header
+  // only selects transport; it never grants permission to an action.
+  if (req.method === "POST" && req.headers.has("Next-Action")) return next(req);
   const session = await readSession(req);
   const returnPath = validateBrowserReturnPath(path === "/login" ? req.nextUrl.searchParams.get("returnTo") : path + req.nextUrl.search);
   const needsSignin = !!returnPath && !session?.sid;

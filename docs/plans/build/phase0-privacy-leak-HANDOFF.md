@@ -1,3 +1,106 @@
+# Round-3 private-text census and server evidence (2026-11-05)
+
+This is the current inventory; earlier round-1/2 counts and business-only
+classifications below are historical. Implementation/status contracts are in
+[phase0-B-HANDOFF.md](phase0-B-HANDOFF.md). **0105 changed in place and remains
+unapplied on live.** No panel-owned files were edited/staged by the server task.
+
+## Where text can live
+
+A reply to a business card does not publish its private chat text. The full
+Telegram body/answer is retained only in protected `owner_replies`; the shared
+business records now receive fixed status. This removes the demonstrated copies
+instead of making business work items/cards disappear from their shared queues.
+The source owner's read/mutation/delivery checks and source FORCE RLS remain the
+boundary for the original text. The following is a producer/consumer census,
+not a claim that a static scanner proves arbitrary future model/tool dataflows.
+
+| Table / text-bearing fields | Protection / disposition |
+|---|---|
+| `ai_conversations.title`, `ai_folders.name` | Verified session person; explicit self predicates before ordering/limit; immutable ownership, FORCE RLS, journal/deleted-thread fences. Auto-title is private, even when derived from a first prompt or attachment name. |
+| `ai_messages.body`, `attachments` (name/path/MIME) | Same-person live-thread DAL and FORCE RLS. Names also occur in attachment-only prompts in `dev_agent_runs`, never in an automatic business receipt. Upload bytes/sidecars and handed-file transports retain exact live owned-thread association guards before read/copy. |
+| `dev_agent_runs.prompt/page_context/answer/activity/spoken_answer` | Canonical person/run/thread admission, explicit run/thread ownership before poll/review/TTS, FORCE RLS and write guards. Original private content retains the existing grace-purge policy. Historical contaminated background hook runs are redacted and fenced as `ask_reply_erased` audit shells. |
+| `agent_interactions.payload/response` | Exact live run/thread/principal guard, closed stdio adapter, FORCE RLS; no raw narrow private reads. |
+| `run_steers.body` | Person/run guard, FORCE RLS and thread/journal fence; deleted-thread access refused, grace purge redacts. |
+| `owner_grants.reason/scope/audit` | Fixed Express permission reason, historical excerpt redaction; materialized immutable run/thread source, self-only bridge/lookup before limits, FORCE RLS. Tombstone revokes and clears content. |
+| `owner_replies.body/answer/error` | Verified owner/thread at record; exact person/live-thread selectors for lookup/mutation/delivery; journal through send; FORCE RLS. No private fallback to a shared/background route. Tombstone/replay clears body/answer/error. |
+| `decisions.decision_note/hold_note` | Automatic session reply copy removed: fixed status only; historical notes cleared/replaced in 0105 and replay. Existing explicit business title/summary/card permissions remain; whole business rows are not private storage. |
+| `decision_events.detail` | Automatic session reply note removed; historical note/reason keys scrubbed, including truncated-origin decisions; fixed status on new events. Shared event readers never receive the original private reply. |
+| `action_intents.last_error` | Private reply cancellation uses fixed status; historical decision/grant-linked errors scrubbed in 0105/replay. Explicit staged send payloads remain business artifacts with owner-grant delivery policy. |
+| `work_items.blocked_reason` | Private draft reply uses fixed status, not the 500-character reply prefix. Historical private-reply-linked fields scrubbed in 0105/replay; work-item business title/body and existing permissions remain. |
+| `agent_triggers.payload/last_error` | Additional confirmed fan-out: decision hook copied `decision_note` before closing its wake. Historical note/owner-reply/draft-text keys/errors removed; trigger finished and fenced permanently against late update. New session hooks receive only fixed status. Unbound explicit business reply triggers keep their business policy. |
+| `agent_executions.tool_trace/result_summary/blocked_reason/next_trigger/error/context_refs/records_touched` | Historical contaminated hook consumers scrubbed, including orphan `trigger_ref` associations, and fenced against late completion/new execution from an erased trigger. Run-linked private execution copies now have FORCE RLS, immutable run source and recovery/deletion guards; shared history/context exclude private runs before limits. Tombstone/replay erases payloads immediately. |
+| `run_effects.detail/entity_id/entity_kind/action` | Additional automatic runtime carrier, now source-person/live-thread FORCE RLS plus immutable run source and write fences. Request review/focus checks the exact person's run before serialization. Tombstones clear content/entity hints. |
+| `agent_pending_actions.payload/review_note/entity_id/entity_kind` | Additional proposal/input copies: source run FORCE RLS, run/thread consistency and immutable source guards; tombstone/replay clears payload/text/entity hints and cancels. |
+| `orchestration_tasks.task_prompt` | Additional prompt copy: source-thread FORCE RLS, immutable conversation and recovery/deletion guards; tombstone clears/cancels. |
+| `orchestration_events.note` | Additional answer/judgment copy: task-source FORCE RLS, immutable task/run consistency and write guards; tombstone clears note. |
+| `agent_runs`, `agent_receipts`, `knowledge_items` | Reviewed producers record explicit business run/receipt/draft/knowledge artifacts, not automatic Ask transcripts. Draft receipt metadata supplies opaque run/conversation IDs for routing; labels/content are explicitly submitted business artifacts. Existing business/file permissions apply. These must never be used as an automatic private-reply sink. |
+| `action_attempts`, `owner_touches`, `decision_deliveries`, `telegram_reply_targets` | Status/provider/audit/opaque reference carriers, included in scan. No additional automatic full chat copy found: decision touch has via/kind, Telegram target has IDs only, delivery stores status/reference/error, provider attempts do not consume the Telegram note. Explicit business provider summaries keep their business policy. |
+| `notifications.title/subline`, digests/push | Reviewed decision notifications use the explicitly submitted business card's title/summary, not session reply or chat title. No automatic Ask completion/reply text writer found in the reviewed Ask/runner/Telegram paths. Removing downstream private status copies prevents context/digest re-publication. Existing audience rules are not being claimed as a substitute for private-text protection. |
+| `browser_tasks.purpose`, `browser_commands.safe_result`, `browser_web_commands.safe_result`, `browser_read_manifests.public_entries/private_entries_ciphertext/envelope` | Potential Browser title/name/result carriers now included by all-`browser_*` scanner coverage. 0100 revokes all narrow logins' table privileges and enforces source/session identity; Browser remains disabled pending Phase 0b. This task makes no Browser runtime/presence/vault certification. |
+| `browser_audit` (origin/result code/opaque IDs), related Browser identity/audit tables | Included in scanner; schema has no arbitrary chat-body/detail column. Website-only privileges and append-only/source guards from 0100; Phase 0b remains separate. |
+
+The erasure function is website-only (`REVOKE PUBLIC`, session identity check,
+SECURITY DEFINER with pinned search_path), runs in the journal transaction before
+original reply erasure, and is idempotent on replay. New private runtime source
+links cannot be cleared/replaced to reclassify a row as shared. Agent, worker and
+readonly session identities cannot bypass FORCE RLS by setting an actor GUC.
+Encrypted backup SELECT policies are explicit; no narrow grants were broadened.
+
+## Scanner and tests
+
+The maintained source inventory now contains **468 function/source entries,
+909 SQL/conservative fragments, 209 files**: **98 fenced, 154 trusted-background,
+216 not-private**. It includes the four demonstrated shared status columns,
+trigger/execution/receipt/attempt carriers, every `browser_*` schema carrier,
+composed SQL and filesystem/closed-transport sources. New plain SELECTs from
+those tables in a new file fail review. Business-only classifications mean
+private copies were removed or the artifact is explicitly filed; they do not
+mean that every future string passed to that table is automatically safe.
+Whole source/query hashes detect changes to reviewed producers/guards/readers;
+unknown wrappers, new indirect cross-module dataflows and arbitrary ORM/view
+semantics still require runtime tests and human review.
+
+Each file ran as a separate single-file invocation with tagged disposable DB
+cleanup, including after fixture failures. Final results:
+
+| Test file (`tests/<name>.test.mjs`) | Passed | Failed / skipped |
+|---|---:|---:|
+| ask-r3-auth-db | 4 | 0 / 0 |
+| ask-r3-reply-copies-db | 6 | 0 / 0 |
+| ask-r2-server-db | 11 | 0 / 0 |
+| ask-server-boundaries-db | 8 | 0 / 0 |
+| ask-thread-access-db | 33 | 0 / 0 |
+| ask-folder-privacy-db | 11 | 0 / 0 |
+| ask-thread-recovery-db | 43 | 0 / 0 |
+| ask-private-query-scan | 6 | 0 / 0 |
+| db-roles-manifest-db | 6 | 0 / 0 |
+| db-roles-paths-db | 3 | 0 / 0 |
+| mobile-rpc | 28 | 0 / 0 |
+| agent-runtime-db | 10 | 0 / 0 |
+| web-sessions-db | 4 | 0 / 0 |
+
+**173 passed, zero failed/skipped.** R3 auth uses actual JWT/session registry,
+Proxy/NextRequest, exported send/poll/load/upload actions, DAL, status route and
+mobile adapters. It tests missing, JWT-expired, registry-expired, revoked sid,
+legacy valid/expired/revoked cookies and positive authenticated actual sends
+with real message persistence (provider launch stubbed, no actual spawn).
+Voice assertions cover actual GET/POST modules plus real recovery-gate tests,
+no provider while closed and separate sub daily-log policy. R3 security uses
+real non-superuser website and narrow `session_user` identities, historical
+migration data, actual record/resolve paths, authorized/foreign reads,
+source mutation denial, shared positive controls and replay erasure. R2 retains
+real delivery/filing ownership and actual pg_dump/restore replay evidence.
+
+Locked niced `tsc`: **exit 0**. Role scan: **exit 0**, all reported differences
+intentionally withheld with manifest explanations (see server handoff); exact
+unchanged generator lines are in 0105. `git diff --check`: clean. No live/QA
+DB/service, deployment state, browser, Next process, install or subagent was used.
+Coordinator still owns the expired-mid-chat DOM/voice-recovery console checks;
+server fixtures are not browser acceptance or deployed authority certification.
+
+---
+
 # Phase 0 Ask privacy leak correction (2026-11-05)
 
 Base: `854a9026`, branch `t3/in-app-browser-agent-tools`. Implementation sub-agent;

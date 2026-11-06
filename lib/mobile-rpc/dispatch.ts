@@ -1,4 +1,4 @@
-import { isAskFailure } from "../ask-result-codes.ts";
+import { isAskFailure, normalizeAskFailure, askFailureStatus } from "../ask-result-codes.ts";
 import { z } from "zod";
 import { isRedirectError } from "next/dist/client/components/redirect-error.js";
 import { getURLFromRedirectError } from "next/dist/client/components/redirect.js";
@@ -44,7 +44,7 @@ export async function dispatchMobileAction(
     catch { return Response.json({ error: "Expected a JSON body." }, { status: 400 }); }
     try {
       const result = await action.invoke(body, user);
-      if(isAskFailure(result))return Response.json(result,{status:result.code==="ASK_PAUSED"?503:result.code==="SIGN_IN_AGAIN"?401:result.code==="CHAT_OFF"?403:409});
+      if(isAskFailure(result))return Response.json(result,{status:askFailureStatus(result)});
       if (typeof result === "object" && result !== null && "ok" in result && result.ok === false && "error" in result) {
         return Response.json({ error: result.error }, { status: 400 });
       }
@@ -53,6 +53,9 @@ export async function dispatchMobileAction(
       if (isRedirectError(error)) {
         const path = getURLFromRedirectError(error);
         const pathname = new URL(path, "http://mobile.local").pathname;
+        if (action.area === "ai" && ["/login", "/logout"].includes(pathname)) {
+          return Response.json({ok:false,code:"SIGN_IN_AGAIN"}, {status:401});
+        }
         if (["/login", "/logout", ...authHomes(user)].includes(pathname)) {
           return Response.json(action.area==="ai"?{ok:false,code:"CHAT_OFF"}:{ error: "You don't have access to that." }, { status: 403 });
         }
@@ -63,7 +66,11 @@ export async function dispatchMobileAction(
   } catch (error) {
     if (error instanceof z.ZodError) return Response.json({ error: error.issues[0]?.message ?? "Invalid input." }, { status: 400 });
     if (error instanceof MobileInputError) return Response.json({ error: error.message }, { status: 400 });
+    if (action.area === "ai") {
+      const failure=normalizeAskFailure(error);
+      return Response.json(failure,{status:askFailureStatus(failure)});
+    }
     console.error("[mobile-rpc] Action failed", name, error);
-    return Response.json(action.area==="ai"?{ok:false,code:"ASK_PAUSED"}:{ error: "Something went wrong. Please try again." }, { status: action.area==="ai"?503:500 });
+    return Response.json({ error: "Something went wrong. Please try again." }, { status: 500 });
   }
 }

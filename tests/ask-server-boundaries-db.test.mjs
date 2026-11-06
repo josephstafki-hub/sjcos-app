@@ -15,7 +15,7 @@ const require=createRequire(import.meta.url);
 // Controlled request/provider seams, actual caller implementations and SQL.
 function load(file,deps={}){
  const exports={};const source=ts.transpileModule(readFileSync(new URL('../'+file,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText;
- runInNewContext(source,{exports,process,Buffer,console,URL,Request,Response,FormData,File,setTimeout,clearTimeout,require:s=>Object.hasOwn(deps,s)?deps[s]:s.startsWith('node:')?require(s):{}});return exports;
+ runInNewContext(source,{exports,process,Buffer,console,URL,Request,Response,FormData,File,setTimeout,clearTimeout,require:s=>s==='@/lib/ask-result-codes'?load('lib/ask-result-codes.ts',{}):Object.hasOwn(deps,s)?deps[s]:s.startsWith('node:')?require(s):{}});return exports;
 }
 const plain=x=>JSON.parse(JSON.stringify(x));
 test('A1 real callers: virgin availability, typed closed boundaries, self-only mutations and durable delete retry',async t=>withMigrationSubset('server_boundaries',[100,105],async({url,db,apply})=>{
@@ -37,7 +37,7 @@ test('A1 real callers: virgin availability, typed closed boundaries, self-only m
   const runs=load('lib/actions/dev-agents.ts',{...guards,'@/lib/dev-agents':runApi,'@/lib/run-steers':{enqueueSteer:async()=>{downstream++;return {ok:true,runId:'run',steerId:'steer'};}},'@/lib/agent-interactions':{answerInteraction:async()=>{downstream++;return {};}}});
   const review=load('lib/actions/panel-review.ts',{...guards,'@/lib/dal':{requireAccess:async()=>({id:session.userId,role:'staff'})}});
   const contract=load('lib/ask-result-codes.ts');
-  const status=load('app/api/ai/status/route.ts',{'@/lib/dal':{getCurrentUser:async()=>({id:session?.userId,role:session?.userId===people[0]?'owner':'staff'})},'@/lib/db':{pool},'@/lib/ask-thread-journal.mjs':{...journal,withAskJournal:(p,fn)=>journal.withAskJournal(p,fn,options)}});
+  const status=load('app/api/ai/status/route.ts',{'@/lib/thread-access':access,'@/lib/dal':{getCurrentUser:async()=>({id:session?.userId,role:session?.userId===people[0]?'owner':'staff'})},'@/lib/db':{pool},'@/lib/ask-thread-journal.mjs':{...journal,withAskJournal:(p,fn)=>journal.withAskJournal(p,fn,options)}});
   const dictation=load('app/api/transcribe/route.ts',{...guards,'@/lib/ask-result-codes':contract,'next/server':{NextResponse:Response},'@/lib/dal':{getCurrentUser:async()=>({id:session.userId,role:'staff'})},'@/lib/transcribe':{transcribeAudio:async()=>{downstream++;return {ok:true,text:'dictated'};},whisperAvailable:()=>true}});
 
   const speech=load('app/api/tts/route.ts',{...guards,'@/lib/ask-result-codes':contract,'next/server':{NextResponse:Response},'@/lib/dal':{getCurrentUser:async()=>({id:session.userId,role:'staff'})},'@/lib/api-auth':{hasAccess:()=>true},'@/lib/tts':{synthesizeSpeech:async()=>{downstream++;return {ok:true,wav:Buffer.alloc(0)};},piperAvailable:()=>true},'@/lib/orchestrator/voice':{spokenUpdateForRun:async()=>{downstream++;return 'spoken';}}});
@@ -84,6 +84,7 @@ test('A1 real callers: virgin availability, typed closed boundaries, self-only m
    const response=await speech.POST(new Request('http://local/tts',{method:'POST',body:JSON.stringify({text:'do not synthesize'})}));assert.equal(response.status,503);assert.deepEqual(await response.json(),{ok:false,code:'ASK_PAUSED'});
    assert.deepEqual(plain(await ownerReplies.deliverOwnerReply({id:randomUUID(),route:'session',conversationId:ids[2],chatId:'owner',messageId:1},'reply')),{ok:false,code:'ASK_PAUSED'});
 
+   for(const route of [speech,dictation]){const probe=await route.GET();assert.equal(probe.status,200);assert.deepEqual(await probe.json(),{available:false,code:'ASK_PAUSED'});assert.equal(probe.headers.get('cache-control'),'no-store');}
    const dictationResponse=await dictation.POST(new Request('http://local/transcribe',{method:'POST',body:'audio'}));assert.equal(dictationResponse.status,503);assert.deepEqual(await dictationResponse.json(),{ok:false,code:'ASK_PAUSED'});
    session.userId=people[0];const health=await status.GET();assert.equal(health.status,503);assert.equal((await health.json()).status,'paused');session.userId=people[1];
    assert.equal(downstream,0);

@@ -18,6 +18,7 @@ export function CanvasPane({context,slot}:{context:AskPaneRenderContext;slot:'ti
  const raw=state.views[id]??{},view=raw.data?.selected.version===number||!raw.data?raw:{};
  const data=view.data,v=data?.selected,isPage=data?.canvas.kind==='page',kindLabel=!data?'Canvas':isPage?'Page':'Diagram',about=isPage?'About this page':'About this diagram';
  const attempt=useRef<{action:string;request_id:string}|null>(null);
+ const deleteOrigin=useRef<HTMLElement|null>(null);
  const sheet=(name:typeof view.sheet)=>patchCanvas(id,{sheet:name});
  // Only the content slot owns loading/cancellation; slots share a tab-local store.
  useEffect(()=>{if(slot!=='content'||id==='empty')return;const c=new AbortController();const cancel=()=>c.abort();signal.addEventListener('abort',cancel,{once:true});void loadCanvas(id,number,c.signal);return ()=>{c.abort();signal.removeEventListener('abort',cancel);};},[slot,id,number,signal]);
@@ -46,8 +47,15 @@ export function CanvasPane({context,slot}:{context:AskPaneRenderContext;slot:'ti
  };
  const copyButton=<button disabled={!view.code} className="min-h-11 rounded border border-rule px-3" onClick={()=>void copy()}>Copy code</button>;
  const codeBlock=<>{isPage&&<p className="py-2 text-body">This page can show text, tables, and drawings. Ask Claude to change it.</p>}<p className="py-2 text-meta text-ink-3">{kindLabel} code · Untrusted text · Version {number}</p>{copyButton}<pre tabIndex={0} className="mt-2 overflow-auto whitespace-pre p-3 font-mono text-[13px] [font-variant-ligatures:none] [font-feature-settings:'liga'_0,'calt'_0]">{view.code?.code??'Loading code…'}</pre></>;
- if(data?.canvas.kind==='floor_plan')return <FloorCanvasPane context={context} slot={slot} data={data}/>;
- if(slot==='title')return <div className="flex min-w-0 items-center"><button data-canvas-title className="h-11 min-w-0 flex-1 truncate px-2 text-left font-serif text-subheading" onClick={()=>sheet('picker')}>{view.error?'Canvas':v?.title??snapshot.label} ▾</button><button className="size-11 shrink-0 rounded" aria-label="Canvas actions" onClick={()=>sheet('menu')}>⋯</button></div>;
+ const emptyCopy=state.availability?.floor?'No canvas yet. Ask for a diagram, a page, or a floor plan.':'No canvas yet. Ask for a diagram or a page.';
+ const title=data?.canvas.kind==='floor_plan'&&data.floor?(compact?data.floor.props.design.name:`Floor plan · ${data.floor.props.design.name} · v${data.floor.number}`):v?.title??snapshot.label;
+ const picker=<button id={`canvas-picker-${id}`} data-canvas-title aria-label={`Canvases in this chat: ${view.error?'Canvas':title}`} className="h-11 min-w-0 flex-1 truncate px-2 text-left font-serif text-subheading" onClick={()=>sheet('picker')}>{view.error?'Canvas':title} ▾</button>;
+ const pickerSheet=view.sheet==='picker'&&<CanvasOverlay title="Canvases in this chat" onClose={()=>sheet(undefined)}>{state.items.map(item=><button key={item.canvas.id} className="flex min-h-14 w-full items-center justify-between gap-2 border-b border-rule px-2 text-left" onClick={e=>chooseCanvas(item.canvas.id,item.canvas.latest_version,e.currentTarget)}><span className="truncate">{item.latest.title}</span><span className="shrink-0 text-meta">{item.canvas.kind==='floor_plan'?`Floor plan · v${item.latest.design?.number??'—'}`:`${item.canvas.kind==='page'?'Page':'Diagram'} · Version ${item.canvas.latest_version}`} {id===item.canvas.id?'✓':''}</span></button>)}{!state.items.length&&<p>{emptyCopy}</p>}</CanvasOverlay>;
+ const openDelete=()=>{deleteOrigin.current=document.activeElement as HTMLElement|null;sheet('delete');};
+ const closeDelete=()=>{sheet(undefined);queueMicrotask(()=>{const origin=deleteOrigin.current;const target=origin?.isConnected?origin:document.getElementById(`canvas-picker-${id}`);target?.focus();});};
+ const deleteSheet=view.sheet==='delete'&&<CanvasOverlay title="Delete canvas?" onClose={closeDelete}><p>It&apos;s removed now and erased for good after 30 days. Saved project files will stay.</p><button className="min-h-11 rounded-md border border-rule bg-card px-3 text-flag" onClick={()=>void mutate('delete')}>Delete canvas</button><button className="min-h-11 px-3" onClick={closeDelete}>Cancel</button></CanvasOverlay>;
+ if(data?.canvas.kind==='floor_plan')return <><FloorCanvasPane context={context} slot={slot} data={data} picker={picker} onDelete={openDelete}/>{slot==='content'&&<>{pickerSheet}{deleteSheet}</>}</>;
+ if(slot==='title')return <div className="flex min-w-0 items-center">{picker}<button className="size-11 shrink-0 rounded" aria-label="Canvas actions" onClick={()=>sheet('menu')}>⋯</button></div>;
  if(slot==='meta')return view.error?<span/>:<span className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
   {id!=='empty'&&<span className="min-w-0 truncate">{kindLabel} · Version {number} of {latest}</span>}
   {newer&&<span className="flex shrink-0 items-center gap-1">· Version {latest} is ready <button className="underline" onClick={()=>selectCanvasVersion(id,latest)}>Latest</button></span>}
@@ -61,7 +69,7 @@ export function CanvasPane({context,slot}:{context:AskPaneRenderContext;slot:'ti
  </div>;
  const failure=view.error==='AUTH_REQUIRED'?'Sign in to open this canvas.':view.error==='ASK_PAUSED'?ASK_STATUS_COPY.ASK_PAUSED:view.error==='CANVAS_DISABLED'?'Canvas is turned off. Your saved project files are still available.':view.error==='CANVAS_UNAVAILABLE'?"This canvas isn't available to this account.":view.error==='DELETING'?'This canvas is being deleted.':view.error==='DELETE_FAILED'?"Deleting didn't finish. The canvas stays hidden until it does.":"Couldn't load canvas.";
  return <div className="flex h-full min-h-0 flex-col">
-  {id==='empty'?<div className="p-4 text-body"><p>No canvas yet. Ask for a diagram or a page.</p><button className="min-h-11 rounded-md border border-rule bg-card px-3 text-ai-2" onClick={()=>state.prefill?.(CANVAS_EMPTY_PROMPT)}>Draw the steps for a permit</button></div>:
+  {id==='empty'?<div className="p-4 text-body"><p>{emptyCopy}</p><button className="min-h-11 rounded-md border border-rule bg-card px-3 text-ai-2" onClick={()=>state.prefill?.(CANVAS_EMPTY_PROMPT)}>Draw the steps for a permit</button></div>:
    view.error?<div className="p-4" role="status"><p>{failure}</p>{view.error==='DELETE_FAILED'&&<button className="min-h-11 rounded-md border border-rule bg-card px-3" onClick={()=>void mutate('delete')}>Try again</button>}{view.error==='AUTH_REQUIRED'?<a className="inline-flex min-h-11 items-center rounded-md border border-rule bg-card px-3" href={`/login?returnTo=${encodeURIComponent(`/panel/canvas/${id}?v=${number}`)}`}>Sign in</a>:!['DELETING','CANVAS_UNAVAILABLE','CANVAS_DISABLED','DELETE_FAILED'].includes(view.error)&&<button className="min-h-11 rounded-md border border-rule bg-card px-3" onClick={()=>void loadCanvas(id,number,signal,true)}>Try again</button>}</div>:
    !v?<div className="p-4" role="status"><p>{view.notice==='This is taking a while.'?'This is taking a while.':'Loading canvas…'}</p>{view.notice==='This is taking a while.'&&<><button className="min-h-11 rounded-md border border-rule bg-card px-3" onClick={()=>void loadCanvas(id,number,signal,true)}>Try again</button><button className="min-h-11 rounded-md border border-rule bg-card px-3" disabled={!view.code} onClick={()=>sheet('code')}>Show code</button></>}</div>:<>
     <p id={`canvas-summary-${id}`} className="sr-only">{v.summary}</p>
@@ -87,7 +95,7 @@ export function CanvasPane({context,slot}:{context:AskPaneRenderContext;slot:'ti
   {view.sheet==='versions'&&<CanvasVersions id={id} selected={number} onSelect={n=>selectCanvasVersion(id,n)} onClose={()=>sheet(undefined)}/>}
   {view.sheet==='code'&&<CanvasOverlay title="Show code" onClose={()=>sheet(undefined)}>{codeBlock}</CanvasOverlay>}
   {view.sheet==='about'&&<CanvasOverlay title={about} onClose={()=>sheet(undefined)}><p className="py-3">{v?.summary}</p></CanvasOverlay>}
-  {view.sheet==='picker'&&<CanvasOverlay title="Canvases in this chat" onClose={()=>sheet(undefined)}>{state.items.map(item=><button key={item.canvas.id} className="flex min-h-14 w-full items-center justify-between gap-2 border-b border-rule px-2 text-left" onClick={e=>chooseCanvas(item.canvas.id,item.canvas.latest_version,e.currentTarget)}><span className="truncate">{item.latest.title}</span><span className="shrink-0 text-meta">{item.canvas.kind==='page'?'Page':'Diagram'} · Version {item.canvas.latest_version} {id===item.canvas.id?'✓':''}</span></button>)}{!state.items.length&&<p>No canvas yet. Ask for a diagram or a page.</p>}</CanvasOverlay>}
+  {pickerSheet}
   {view.sheet==='menu'&&<CanvasOverlay title="Canvas actions" menu onClose={()=>sheet(undefined)}><div className="flex flex-col [&_button]:min-h-14 [&_button]:text-left [&_a]:min-h-14 [&_a]:py-4">
    {compact&&<><button disabled={!data?.capabilities.code} onClick={()=>sheet('code')}>Show code</button><button onClick={()=>sheet('about')}>{about}</button></>}
    {compact&&data?.capabilities.save&&!['RENDER_FAILED','RENDER_TIMEOUT'].includes(view.renderError??'')&&<button disabled={!view.exportReady} onClick={()=>sheet('save')}>Save to project files</button>}
@@ -95,9 +103,9 @@ export function CanvasPane({context,slot}:{context:AskPaneRenderContext;slot:'ti
    {(isPage||process.env.NEXT_PUBLIC_SJC_CANVAS_PRINT_ENABLED==='1')&&data?.availability.exports&&view.exportReady&&<a href={`/panel/canvas/${id}/print?v=${number}`} target="_blank" rel="noopener noreferrer">Print / Save PDF</a>}
    {v&&<a href={`/panel/canvas/${id}?v=${number}`} target="_blank" rel="noopener noreferrer">Open in new tab</a>}
    {newer&&data?.capabilities.restore&&<button onClick={()=>sheet('restore')}>Use this version</button>}
-   <hr className="border-rule"/><button disabled={!v} onClick={()=>sheet('delete')}>Delete canvas…</button>
+   <hr className="border-rule"/><button disabled={!v} onClick={openDelete}>Delete canvas…</button>
   </div></CanvasOverlay>}
   {view.sheet==='restore'&&<CanvasOverlay title={`Make Version ${number} the latest?`} onClose={()=>sheet(undefined)}><p>Your newer versions will stay.</p><button className="min-h-11 rounded-md border border-rule bg-card px-3" onClick={()=>void mutate('restore')}>Use this version</button><button className="min-h-11 px-3" onClick={()=>sheet(undefined)}>Cancel</button></CanvasOverlay>}
-  {view.sheet==='delete'&&<CanvasOverlay title="Delete canvas?" onClose={()=>sheet(undefined)}><p>It&apos;s removed now and erased for good after 30 days. Saved project files will stay.</p><button className="min-h-11 rounded-md border border-rule bg-card px-3 text-flag" onClick={()=>void mutate('delete')}>Delete canvas</button><button className="min-h-11 px-3" onClick={()=>sheet(undefined)}>Cancel</button></CanvasOverlay>}
+  {deleteSheet}
  </div>;
 }

@@ -108,3 +108,90 @@ Preview/error Permissions-Policy:
 ```text
 camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), clipboard-read=(), clipboard-write=(), display-capture=(), fullscreen=()
 ```
+
+## Round 1 fixes
+
+2026-11-06 · implementation A, shared Canvas/pages half; no delegation, push,
+server, browser, build, live/QA DB access, service operation, migration edit or
+package operation. B's concurrent floor changes were neither edited nor staged.
+
+- Engineering #1 / design shrink: page measurement does not advance its throttle
+  before the port exists; connection forces the initial report. Both child and
+  parent coalesce resize bursts with a trailing timer and cancel timers on close.
+  The trusted flow-root body box measures content rather than viewport-sized
+  scrollHeight, bounded to 200–8192px, so short pages shrink. The bridge and CSP
+  digest still derive from the same exact emitted function bytes.
+- Print uses authenticated, exact-shape `print-height` replies correlated to a
+  monotonic `layout_id`, bypasses normal height throttling, and times out after
+  three seconds. Print stays disabled until a valid non-overflow measurement;
+  the button waits for the print-layout response, then a React height commit
+  and animation frame before calling window.print. Timeout/overflow/error keeps
+  the HTML fallback and permits retry. Browser-native print still needs the
+  coordinator's device acceptance below.
+- Design #6–8 / engineering #4: cards use Workflow/FileText/LayoutGrid for
+  diagrams/pages/floors and “Floor plan · vN” for floor cards. Every pane receives
+  the same title picker trigger and “Canvases in this chat” overlay, including
+  type/version/current tick rows. Floor title uses the design name; compact
+  title leaves the design version to B's meta row. Floor passes its Delete action
+  back to the existing confirmation and fenced/idempotent delete path. Cancel
+  and Escape share the existing overlay close behavior, with title focus return
+  when the menu opener has unmounted. Failed delete remains hidden and retries
+  the original request ID. Empty copy includes floors only when available.
+- Server-computed rights: the API floor type requires `can_edit:boolean`, mapped
+  solely from B's `readFloorCanvas.canEdit===true`; missing fields default false.
+  No client role/screen inference grants editing.
+- Optional page control cleanup: removed duplicate Fit; 100% remains the reset.
+- Engineering #6: subset fixture accepts declared reviewed IDs through 0114.
+  Persistent Canvas-only tests apply exact production SQL and checksums for
+  0100 + 0105–0109 + 0114, replay the real ledger unchanged, exercise page
+  show/update/equal-source/replay/restore and floor show/update/no-op/replay/
+  restore without changing live geometry, and prove 0114 dependency failure
+  leaves no new function/columns/references/ledger row. Page equal-source updates
+  intentionally append whole versions; floor no-ops do not. Shared 0100 includes
+  inert Browser core tables by design; omitted 0101–0104 Browser vault/action/
+  artifact/handoff/file relations remain absent, as do their ledger rows.
+- Engineering #7: reviewed final QA seed before updating its source digest to
+  bb5d883a19b3f273b550444f7d261ce013f1270b0c49b0b5f8ab21a91ef51071.
+  Its explicit positional sjcos_qa_* guard precedes imports/connection; it checks
+  connected DB/website identity, disables outbound traffic and inherited deletion
+  authority, and seeds real floor geometry through registered named-principal
+  MCP tools and explicit revs before pinning through canvasInternal. The seed's
+  private query inventory is unchanged. Only A's ask-canvases source digest and
+  this reviewed seed digest were updated; no B hashes were approved.
+
+Expectations were written before implementation: **27 fresh named tests**, including
+judge cases 12/13, deterministic child/parent clocks, executed Print component
+commit timing, actual floor-branch picker/delete callbacks and disposable DB
+rollout/lifecycle regressions. VM/component evidence does not claim browser runs.
+
+All files ran individually, sequentially, with `SJC_TEST_CLUSTER_TAG=c23-a-r1-1106`.
+DB files used only `tests/_harness/testdb.mjs`; the tagged cluster was stopped.
+
+| Test file | Passing / failing |
+| --- | --- |
+| canvas-renderer | 7 / 0 |
+| canvas-render-bridge | 29 / 0 |
+| canvas-page-sandbox | 22 / 0 |
+| canvas-ui | 51 / 0 |
+| canvas-routes | 22 / 0 |
+| canvas-mcp | 40 / 0 |
+| canvas-rollout-db | 9 / 0 |
+| canvas-commands-db | 21 / 0 |
+| canvas-exports-db | 3 / 0 |
+| canvas-save-dialog | 30 / 0 |
+| ask-private-query-scan | 10 / 1 (B source review outstanding) |
+
+`flock /tmp/sjcos-tsc.lock nice -n 19 npx tsc --noEmit -p .` exited **0**.
+Logs: `/tmp/c23-a-*.log`. Early added expectations needed JSX-comment stripping
+and a VM promise-task boundary in test fixtures; the rollout absence assertion
+was corrected to distinguish shared 0100 core from omitted Browser relations.
+No resource kill occurred.
+
+Final scan finding requiring coordinator audit: `lib/canvas-floor.ts` has a
+changed private SQL/guard source. Its hashes were deliberately left untouched.
+Other A-owned scope is complete. B owns all remaining floor fixes and verification.
+Coordinator still must verify page shrink after rotate/content changes, rapid
+resize/handshake behavior, long/narrow tables and multi-page print/PDF in Chromium
+and Safari/iOS, plus floor menu deletion/Escape/focus and unified picker at
+360/820/1100/1280 and short landscape. No visual release, rollout or deploy is
+claimed; existing production flags remain unchanged.

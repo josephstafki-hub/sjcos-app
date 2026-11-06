@@ -159,7 +159,7 @@ async function getIn(db: PoolClient, a: Actor, id: string, input: Row): Promise<
         const floor=await readFloorCanvas(db,a,c as any,v.version);
         result.capabilities={preview:av.floor,code:false,download_formats:[],save:false,restore:av.floor,load_latest:av.floor&&floor.changed};
         result.preview=av.floor?{mode:'floor',href:null,renderer_version:'1'}:null;
-        if(av.floor)result.floor=floor;
+        if(av.floor)result.floor={...floor,can_edit:('canEdit' in floor&&floor.canEdit===true)};
     }
     if (input.include_source) {
         if (!av.source)

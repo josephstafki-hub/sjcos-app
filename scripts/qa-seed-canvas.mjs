@@ -42,7 +42,7 @@ try {
  const {withAskJournal}=await import('../lib/ask-thread-journal.mjs');
  const {pool}=await import('@/lib/db');
  await withAskJournal(pool,async()=>{});
- await db.query(`INSERT INTO app_settings(key,value) VALUES ('canvas.diagrams_enabled','true'),('canvas.staff_enabled','true'),('canvas.exports_enabled','true'),('canvas.source_enabled','true') ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`);
+ await db.query(`INSERT INTO app_settings(key,value) VALUES ('canvas.pages_enabled','true'),('canvas.diagrams_enabled','true'),('canvas.staff_enabled','true'),('canvas.exports_enabled','true'),('canvas.source_enabled','true') ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`);
  const people=[['joe','c03946ca-cfbb-4e21-83de-a277b6334045','Joe','owner'],['abigail','4fc912de-1aa6-4a55-a555-ae163c9dc42e','Abigail','staff']];
  for(const [key,id,name,role] of people){
   // Preserve existing QA users, credentials and permissions. Fresh harness DBs
@@ -66,6 +66,11 @@ try {
   }
   const context={run_id:run.id,principal_user_id:id,run_profile:profile,run_started_s:Number(run.started),transport:'runner_stdio'};
   const show=async(title,source)=>canvasInternal('show',{request_id:randomUUID(),title:`QA ${name} · ${title}`,summary:title,required_areas:[],content:{kind:'diagram',source}},context);
+  const {layouts}=await import('../tests/fixtures/canvas-page-layouts.mjs');
+  let page=await canvasInternal('show',{request_id:randomUUID(),title:`QA ${name} · Weekly board`,summary:'Responsive cards and a work table.',required_areas:[],content:{kind:'page',source:layouts[0]}},context);
+  output(`${key}_page_v1`,threadId,page);
+  page=await canvasInternal('update',{request_id:randomUUID(),canvas_id:page.canvas.id,base_version:1,summary:'A process drawing beside the job notes.',change_note:'Added inline SVG',content:{kind:'page',source:layouts[1]}},context);
+  output(`${key}_page_v2`,threadId,page);
   let flow=await show('Flowchart history','flowchart TD\n A[Plan]-->B[Build]');
   output(`${key}_flow_v1`,threadId,flow);
   for(const [version,source,note] of [[2,'flowchart TD\n A[Plan]-->B[Build]\n B-->C[Inspect]','Added inspection'],[3,'flowchart TD\n A[Plan]-->B[Build]\n B-->C[Inspect]\n C-->D[Handover]','Added handover']]){

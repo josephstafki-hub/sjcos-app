@@ -213,20 +213,20 @@
     "db/apply-push-outbox.mjs": "3466c5e4f0dbaecf175fd55c31de18a7a989a8972e399b86bdf05771c5739627",
     "db/migrations/0031_payment_push.sql": "a8966c4e6eefdc555fab618955c522910288b85122aa6fd9384140784df7892c",
     "db/migrations/0039_contract_signed_push.sql": "e4b4936b69c08a3876d0fd671f48083f9bacc449315c999b2b88708aedca6063",
-    "lib/ask-canvases.ts": "01c00e81c81287a6d53a4c0ee6bae509dfce8774ff78988f205fdafa39887774",
-    "mcp/canvas-tools.mjs": "af488ec1f424bc8055d6b03f89211788fd55e1ecfdc61eefb0abfd9f1f8e2a10",
+    "lib/ask-canvases.ts": "367b8c0b62a98fb3bba3eb6f2da74641c46009ae59276f07cf6582d4d6863cbd",
+    "mcp/canvas-tools.mjs": "384cda40305a84ea983a1195f7b083326ae6dce921150c5e3fd1c5538c6154b5",
     "db/migrations/0106_ask_canvases.sql": "70f5bbb072ed8556de75f5f92e9a25f1dd25775b2e08236176dc1539ded4d5b2",
     "app/api/ai/status/route.ts": "3a0c97e55da2ce202efc8a8e99f9760a39b102a86d5a253e45131a62b6de7f40",
     "lib/ask-context-inputs.mjs": "af65c037719681a63a75d98b6392928c57fb353d35747ff532f7a139c07d6323",
     "lib/ask-context-provenance.mjs": "95c80e0ea80037091bb18f49b13f358aaf9c5f9431e97455f47cc04389e86bca",
     "db/migrations/0107_ask_context_provenance.sql": "7bc8c79be39a9f22255a31cac6cfdfa901dcee56bde01af12ba2358f27bf4ddc",
     "lib/canvas-deletion-ledger.mjs": "3e6d36ac35edc8d5247979499249738d547c5ef36c2b7174fdada2a98614be9b",
-    "lib/canvas-exports.ts": "d9a1dcfaf0c4febcb0fcfbed5651d0c4adf2bb3f1af3735ef101e2f43c71112e",
+    "lib/canvas-exports.ts": "317c1c75f4504ae5aeb6239415147c4d9d0c3a31d4dd6bb305c6dc5bfbde67a1",
     "lib/canvas-file-access.ts": "773cd733f86d645a4fe2cd84e26b92f26ecd9ea5a07c9ee2a23f505737a7491f",
     "db/migrations/0108_ask_canvas_files.sql": "7e9f4bd66bbdd24a1b3de3eb627610e5404dce19c202a4512b8f9f94d61b2bba",
     "app/api/internal/canvas-files/route.ts": "133f5fd6aea6328e21816ea17430ddeed8d46adc4394039dcc13614433bcd236",
     "mcp/canvas-file-call.mjs": "b907399c91f7347715966af7bc6b6d41b906451a062d5122e498282dfb3b7183",
-    "scripts/qa-seed-canvas.mjs": "28ceb73b9e8ceca6a4c3c5bd9edf75c57f41143e2611e9b8a1512a0582083146",
+    "scripts/qa-seed-canvas.mjs": "f03b0f4c049081197c54dd64ee14853021452c519b611eba1c99da143ff54b2a",
     "db/migrations/0109_canvas_control_envelopes.sql": "5af24530f4b16596e0e6d44028d73570a8c4fdda31e24a90ec77af155f4ff26f",
     "lib/actions/phone-lines.ts": "9b5201b0acff6995b2a55119773cec04ef16e3d4ba52fdb6ce432959b98e1e80",
     "lib/actions/sms.ts": "19c74923cd72eed644ae87373cc9ae4570cdd3f022c11206b086a8c4999240da",
@@ -5696,7 +5696,7 @@
       "function": "canvasFailure",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain.",
+      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain. Phase 2 review: page preview and exports repeat source validation; source/code flag is separate from preview; immutable Save keeps existing audience and provenance checks. QA seeding remains restricted to explicit sjcos_qa_* databases.",
       "queries": [
         "30a561403dad5cc997738eb898ad8015add525d8d43dc3ff63cceb8f2a5bcd66"
       ]
@@ -5706,7 +5706,7 @@
       "function": "ownThread",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain.",
+      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain. Phase 2 review: page preview and exports repeat source validation; source/code flag is separate from preview; immutable Save keeps existing audience and provenance checks. QA seeding remains restricted to explicit sjcos_qa_* databases.",
       "queries": [
         "c89f0465013225cab89a8b439597bd2aa2689aa7a1820da59dc425e7612405fe"
       ]
@@ -5716,7 +5716,7 @@
       "function": "tx",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain.",
+      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain. Phase 2 review: page preview and exports repeat source validation; source/code flag is separate from preview; immutable Save keeps existing audience and provenance checks. QA seeding remains restricted to explicit sjcos_qa_* databases.",
       "queries": [
         "50a7448a52de6cfb646e7e1fab3d90e583ea0fa97762e7033556623156b5bacb",
         "8b223b94221428414877bcb156d7fcaa1efc9818ada9076d8596f604dd916bec"
@@ -5727,7 +5727,7 @@
       "function": "load",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain.",
+      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain. Phase 2 review: page preview and exports repeat source validation; source/code flag is separate from preview; immutable Save keeps existing audience and provenance checks. QA seeding remains restricted to explicit sjcos_qa_* databases.",
       "queries": [
         "20148ea3e10e8612480fc712ec52808f09a921f0b31321a9da69efb357598f3e"
       ]
@@ -5737,7 +5737,7 @@
       "function": "version",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain.",
+      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain. Phase 2 review: page preview and exports repeat source validation; source/code flag is separate from preview; immutable Save keeps existing audience and provenance checks. QA seeding remains restricted to explicit sjcos_qa_* databases.",
       "queries": [
         "51ec119f5e99c7faec3246cfd6bf83f450c06d0fd9e6b5911827fa8032b997b7"
       ]
@@ -5747,12 +5747,12 @@
       "function": "mutation",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain.",
+      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain. Phase 2 review: page preview and exports repeat source validation; source/code flag is separate from preview; immutable Save keeps existing audience and provenance checks. QA seeding remains restricted to explicit sjcos_qa_* databases.",
       "queries": [
         "652106ad89a8c5e2f0ca781f1bcf86820ee9d38a7df6bb3a0ba1d9ca29ec5c01",
         "5c04a88b8e946e5795b2ee7a0eaf00e03ffcd7e7118a01169714d1716ae1a3d7",
         "12413c3203c786db0f41e9903abf4704a69425ecb610dfd650056911e8c609ef",
-        "8bcf25501319e55f0301b66c0afd003b78dcc7ad158aafe3d828f3689061ea1a",
+        "de9f3c828c89d0eff125ca11f600cf2c68ff1aaaf9ba12f8301da23f83ef3d48",
         "83cd1449ccaa7b48cb19c8476f0d49812137a6c58d406cd8af188605071b58eb",
         "ac37a1a45212f3b7d71d4f16794fd9da0fcb887569040101a51fa1c83aaadd83",
         "eff89f48f84066f02b861d9c66a1df9bfb10ea693c0100fd377acdaeaf698613",
@@ -5764,7 +5764,7 @@
       "function": "listIn",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain.",
+      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain. Phase 2 review: page preview and exports repeat source validation; source/code flag is separate from preview; immutable Save keeps existing audience and provenance checks. QA seeding remains restricted to explicit sjcos_qa_* databases.",
       "queries": [
         "9f56a6536f93fa07eb7eeb9e1c895bbbe4317cc5033abcea7e3cf9d70c0ab0e9"
       ]
@@ -5774,7 +5774,7 @@
       "function": "canvasVersions",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain.",
+      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain. Phase 2 review: page preview and exports repeat source validation; source/code flag is separate from preview; immutable Save keeps existing audience and provenance checks. QA seeding remains restricted to explicit sjcos_qa_* databases.",
       "queries": [
         "d8ab7ad5c22eb9e4b94997198b86660065e235170ace25c906b2945aff354696"
       ]
@@ -5784,7 +5784,7 @@
       "function": "eventsIn",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain.",
+      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain. Phase 2 review: page preview and exports repeat source validation; source/code flag is separate from preview; immutable Save keeps existing audience and provenance checks. QA seeding remains restricted to explicit sjcos_qa_* databases.",
       "queries": [
         "0819bfce4fadfa90a7b3880c6aa000a10165d9ad2eee79159fbbe617f24229ed",
         "e8f49036b2859f15036d2e0fa5111376187f1f190d6bf667d6308c76022bf08d",
@@ -5796,7 +5796,7 @@
       "function": "canvasInternal",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain.",
+      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain. Phase 2 review: page preview and exports repeat source validation; source/code flag is separate from preview; immutable Save keeps existing audience and provenance checks. QA seeding remains restricted to explicit sjcos_qa_* databases.",
       "queries": [
         "9d890fca1f5ac95675c387d90e506d1e217f6775c85c60ae1a7541846a035ecd",
         "13d315b3d371a7856a633a8806d793b4cf3403d7fc05194db47adf619f62b59e"
@@ -5807,7 +5807,7 @@
       "function": "canvasDelete",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain.",
+      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain. Phase 2 review: page preview and exports repeat source validation; source/code flag is separate from preview; immutable Save keeps existing audience and provenance checks. QA seeding remains restricted to explicit sjcos_qa_* databases.",
       "queries": [
         "e9188e749d6bbd3e07202ac13bceee89d2ae32f4f678917785486d4490493741"
       ]
@@ -5827,7 +5827,7 @@
       "function": "destinationScope",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "R2 reviewed shared Save/search guard: called inside authenticated canvasFileTransaction (or existing lease maintenance policy), checks the same owner/staff Projects area as ordinary file routes and uses explicit conversation and folder owner predicates. Search returns only bounded project names/slugs under the same source project and owned-folder scope; no rail folder metadata is selected.",
+      "explanation": "R2 reviewed shared Save/search guard: called inside authenticated canvasFileTransaction (or existing lease maintenance policy), checks the same owner/staff Projects area as ordinary file routes and uses explicit conversation and folder owner predicates. Search returns only bounded project names/slugs under the same source project and owned-folder scope; no rail folder metadata is selected. Phase 2 review: page preview and exports repeat source validation; source/code flag is separate from preview; immutable Save keeps existing audience and provenance checks. QA seeding remains restricted to explicit sjcos_qa_* databases.",
       "queries": [
         "c4ff2270ff548060e0bc1bfa14871907fbd9e96b52705b9174f715cbdae01071"
       ]
@@ -5837,7 +5837,7 @@
       "function": "canvasRender",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Human commands hold canvasFileTransaction journal/session/own-thread locks; explicit source and current provenance policy checked before reservation and publication. Maintenance uses the original 0105 lease and checks current saver revocations, content policy, derivative hash and flags; no unattended audience downgrade.",
+      "explanation": "Human commands hold canvasFileTransaction journal/session/own-thread locks; explicit source and current provenance policy checked before reservation and publication. Maintenance uses the original 0105 lease and checks current saver revocations, content policy, derivative hash and flags; no unattended audience downgrade. Phase 2 review: page preview and exports repeat source validation; source/code flag is separate from preview; immutable Save keeps existing audience and provenance checks. QA seeding remains restricted to explicit sjcos_qa_* databases.",
       "queries": [
         "57182cca5195641e8ae040caa183e6ecd5e4365c9436d196580ac3e41e5f107d",
         "615a1c6a5acc7b6951af71775d5dcaddd83ee7a35c238bfa57336098aa8546b8"
@@ -5848,7 +5848,7 @@
       "function": "drawing",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Human commands hold canvasFileTransaction journal/session/own-thread locks; explicit source and current provenance policy checked before reservation and publication. Maintenance uses the original 0105 lease and checks current saver revocations, content policy, derivative hash and flags; no unattended audience downgrade.",
+      "explanation": "Human commands hold canvasFileTransaction journal/session/own-thread locks; explicit source and current provenance policy checked before reservation and publication. Maintenance uses the original 0105 lease and checks current saver revocations, content policy, derivative hash and flags; no unattended audience downgrade. Phase 2 review: page preview and exports repeat source validation; source/code flag is separate from preview; immutable Save keeps existing audience and provenance checks. QA seeding remains restricted to explicit sjcos_qa_* databases.",
       "queries": [
         "17475bfca953bf8a604891a983f54e39e10308d53b0dc02a6fcb6b1cf30e1e08"
       ]
@@ -5858,7 +5858,7 @@
       "function": "canvasSave",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Human commands hold canvasFileTransaction journal/session/own-thread locks; explicit source and current provenance policy checked before reservation and publication. Maintenance uses the original 0105 lease and checks current saver revocations, content policy, derivative hash and flags; no unattended audience downgrade.",
+      "explanation": "Human commands hold canvasFileTransaction journal/session/own-thread locks; explicit source and current provenance policy checked before reservation and publication. Maintenance uses the original 0105 lease and checks current saver revocations, content policy, derivative hash and flags; no unattended audience downgrade. Phase 2 review: page preview and exports repeat source validation; source/code flag is separate from preview; immutable Save keeps existing audience and provenance checks. QA seeding remains restricted to explicit sjcos_qa_* databases.",
       "queries": [
         "fdb9d6bbe0a41ff147d55d71e2132eaa9438994c1173b068cab619a8d004f517",
         "c25d215c31c60f93db87bb2fa9a4ab37683ac8462a64422edb3741ab9742c109",
@@ -5876,7 +5876,7 @@
       "function": "canvasFileMaintenance",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Human commands hold canvasFileTransaction journal/session/own-thread locks; explicit source and current provenance policy checked before reservation and publication. Maintenance uses the original 0105 lease and checks current saver revocations, content policy, derivative hash and flags; no unattended audience downgrade.",
+      "explanation": "Human commands hold canvasFileTransaction journal/session/own-thread locks; explicit source and current provenance policy checked before reservation and publication. Maintenance uses the original 0105 lease and checks current saver revocations, content policy, derivative hash and flags; no unattended audience downgrade. Phase 2 review: page preview and exports repeat source validation; source/code flag is separate from preview; immutable Save keeps existing audience and provenance checks. QA seeding remains restricted to explicit sjcos_qa_* databases.",
       "queries": [
         "7eb0fe773073706e55177125822993de36c7e174bda2446bab3a5c49aba92032",
         "507ecb8ef59d5c2d371d5d2aa5585796344a78961372956aa3a34f1735994b6c",
@@ -5900,7 +5900,7 @@
       "function": "savedEvent",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Human commands hold canvasFileTransaction journal/session/own-thread locks; explicit source and current provenance policy checked before reservation and publication. Maintenance uses the original 0105 lease and checks current saver revocations, content policy, derivative hash and flags; no unattended audience downgrade.",
+      "explanation": "Human commands hold canvasFileTransaction journal/session/own-thread locks; explicit source and current provenance policy checked before reservation and publication. Maintenance uses the original 0105 lease and checks current saver revocations, content policy, derivative hash and flags; no unattended audience downgrade. Phase 2 review: page preview and exports repeat source validation; source/code flag is separate from preview; immutable Save keeps existing audience and provenance checks. QA seeding remains restricted to explicit sjcos_qa_* databases.",
       "queries": [
         "96099e9fec4a7436ae6844fa9aa0aa6811cd1a5136ad36f7c103775425e311eb"
       ]
@@ -5984,7 +5984,7 @@
       "function": "<module>",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "R1 reviewed QA-only fixture: explicit positional sjcos_qa_* target validated before imports/construction; no runtime env target; guarded pg additionally requires the running harness socket under Node tests. Website session identity and exact owned fixture threads/runs; no real model or outbound send; returned metadata is QA-only. Not an HTTP/MCP entrypoint.",
+      "explanation": "R1 reviewed QA-only fixture: explicit positional sjcos_qa_* target validated before imports/construction; no runtime env target; guarded pg additionally requires the running harness socket under Node tests. Website session identity and exact owned fixture threads/runs; no real model or outbound send; returned metadata is QA-only. Not an HTTP/MCP entrypoint. Phase 2 review: page preview and exports repeat source validation; source/code flag is separate from preview; immutable Save keeps existing audience and provenance checks. QA seeding remains restricted to explicit sjcos_qa_* databases.",
       "queries": [
         "4485bf677434ae970a59bfd6bae5cb7106b416736948b0cc5f09092d12f8b46b",
         "2d7dd895a7a6ac022eba7c9fed7f72c6ccc7bac2fc5ebd4539abed0d7788333e",

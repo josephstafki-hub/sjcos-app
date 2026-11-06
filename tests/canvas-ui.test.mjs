@@ -99,3 +99,12 @@ test('all state-action controls have visible bordered button affordance',()=>{
  for(const [sheet,label] of [['restore','Use this version'],['delete','Delete canvas']]){loaded({sheet});bordered(render(CanvasPane,{context,slot:'content'}),label);}
  store.clearCanvas();bordered(render(CanvasPane,{context:{...context,snapshot:{...context.snapshot,id:'empty'}},slot:'content'}),'Draw the steps for a permit');
 });
+
+test('page uses responsive routed iframe, page labels/help and HTML-only export menu',()=>{
+ const data={canvas:{id:'c',kind:'page',latest_version:3},selected:version,availability:{...availability,pages:true},capabilities:{code:true,save:true,preview:true,download_formats:['html','txt']}};
+ loaded({data,code:{code:'<h1>Weekly board</h1>'},exportReady:true});
+ let html=render(CanvasPane,{context,slot:'content'});assert.match(html,/About this page/);assert.match(html,/sandbox="allow-scripts"/);assert.match(html,/src="\/api\/canvas\/c\/versions\/2\/preview"/);assert.doesNotMatch(html,/srcdoc|allow-same-origin|About this diagram/);
+ store.patchCanvas('c',{tab:'code'});html=render(CanvasPane,{context,slot:'content'});assert.match(html,/This page can show text, tables, and drawings. Ask Claude to change it./);assert.match(html,/&lt;h1&gt;Weekly board&lt;\/h1&gt;/);
+ store.patchCanvas('c',{sheet:'menu',tab:'preview'});html=render(CanvasPane,{context:{...context,compact:true},slot:'content'});assert.match(html,/Page \(HTML\)/);assert.doesNotMatch(html,/Drawing \(SVG\)|Diagram code/);
+ store.updateCanvas({items:[{canvas:data.canvas,latest:version}]});assert.match(render(CanvasCard,{event,availability,onOpen(){}}),/Page/);store.clearCanvas();
+});

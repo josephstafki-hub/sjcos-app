@@ -88,8 +88,8 @@ async function availability(db: PoolClient, p: Person): Promise<Availability> {
     const flags = Object.fromEntries(rows.map(r => [r.key, r.value === true || r.value === 'true']));
     const staff = p.role === 'owner' || flags['canvas.staff_enabled'] === true;
     const master = process.env.SJC_CANVAS_ENABLED === '1' && staff && (await schemaCapabilities(db)).canvas;
-    const a = { master, diagrams: master && flags['canvas.diagrams_enabled'] === true, pages: false, floor: false, exports: master && flags['canvas.diagrams_enabled'] === true && flags['canvas.exports_enabled'] === true && (await schemaCapabilities(db)).files, staff, source: master && flags['canvas.source_enabled'] !== false };
-    return { revision: hash([a, rows]).slice(0, 24), ...a }; // Page/Floor remain off; 0108 gates diagram exports.
+    const a = { master, diagrams: master && flags['canvas.diagrams_enabled'] === true, pages: master && flags['canvas.pages_enabled'] === true, floor: false, exports: master && (flags['canvas.diagrams_enabled'] === true || flags['canvas.pages_enabled'] === true) && flags['canvas.exports_enabled'] === true && (await schemaCapabilities(db)).files, staff, source: master && flags['canvas.source_enabled'] !== false };
+    return { revision: hash([a, rows]).slice(0, 24), ...a }; // Floor remains off; 0108 gates static exports.
 }
 function gate(a: Availability, kind?: string, write = false) { if (!a.master || !a.staff)
     fail('CANVAS_DISABLED'); if (kind && write && !(kind === 'diagram' ? a.diagrams : kind === 'page' ? a.pages : a.floor))
@@ -152,8 +152,8 @@ async function getIn(db: PoolClient, a: Actor, id: string, input: Row): Promise<
     const c = await load(db, a, id);
     gate(av, c.kind);
     const v = await version(db, c, input.version ?? c.latest_version);
-    const canPreview = c.kind === 'diagram' && av.diagrams;
-    const result: CanvasGetResponse = { ok: true, canvas: meta(c), selected: vm(v), availability: av, capabilities: { preview: canPreview, code: av.source, download_formats: av.exports ? ['svg', 'mmd'] : [], save: av.exports && c.kind === 'diagram' && permitted(a.person,['projects']), restore: c.kind !== 'floor_plan' && av.diagrams, load_latest: false }, preview: canPreview ? { mode: 'diagram_renderer', href: '/api/canvas/renderer', renderer_version: v.renderer_version } : null };
+    const canPreview = c.kind === 'diagram' && av.diagrams || c.kind === 'page' && av.pages;
+    const result: CanvasGetResponse = { ok: true, canvas: meta(c), selected: vm(v), availability: av, capabilities: { preview: canPreview, code: av.source, download_formats: av.exports && canPreview ? (c.kind === 'page' ? ['html'] : ['svg', 'mmd']) : [], save: av.exports && canPreview && permitted(a.person,['projects']), restore: c.kind !== 'floor_plan' && canPreview, load_latest: false }, preview: canPreview ? { mode: c.kind === 'page' ? 'static_page' : 'diagram_renderer', href: c.kind === 'page' ? `/api/canvas/${id}/versions/${v.version}/preview` : '/api/canvas/renderer', renderer_version: v.renderer_version } : null };
     if (input.include_source) {
         if (!av.source)
             fail('CANVAS_DISABLED');
@@ -194,12 +194,13 @@ async function mutation(db: PoolClient, a: Actor, action: 'show' | 'update' | 'r
     }
     if (c && input.base_version !== c.latest_version)
         fail('VERSION_CONFLICT', { latest_version: c.latest_version });
-    if (source?.kind === 'floor_plan' || source?.kind === 'page')
+    if (source?.kind === 'floor_plan')
         fail('UNSUPPORTED_KIND');
     if (c && source?.kind !== c.kind)
         fail('INVALID_INPUT');
     gate(av, source?.kind, true);
-    validateCanvasContent(source);
+    const validated = validateCanvasContent(source);
+
     const policy = await classify(db, a, threadId, c?.required_areas ?? [], input.required_areas ?? []);
     const title = input.title ?? from?.title ?? (c ? (await version(db, c, c.latest_version)).title : undefined);
     const summary = input.summary ?? from?.summary;
@@ -224,7 +225,7 @@ async function mutation(db: PoolClient, a: Actor, action: 'show' | 'update' | 'r
     const n = action === 'show' ? 1 : c!.latest_version + 1;
     if (n > 100)
         fail('QUOTA_EXCEEDED', { limit: 100 });
-    const v = (await db.query(`INSERT INTO ask_canvas_versions(canvas_id,version,conversation_id,owner_user_id,actor_user_id,run_id,title,summary,change_note,source_text,source_bytes,source_sha256,provenance_revision,provenance_complete,provenance_manifest_hash,provenance_inputs,baseline_areas,baseline_hash,restored_from_version) VALUES($1,$2,$3,$4,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`, [c!.id, n, threadId, a.person.id, a.runId, title, summary, note, source.source, Buffer.byteLength(source.source), hash(source.source), policy.revision, policy.complete, policy.manifestHash, JSON.stringify(policy.inputs), policy.areas, policy.baselineHash, from?.version ?? null])).rows[0];
+    const v = (await db.query(`INSERT INTO ask_canvas_versions(canvas_id,version,conversation_id,owner_user_id,actor_user_id,run_id,title,summary,change_note,source_text,source_bytes,source_sha256,provenance_revision,provenance_complete,provenance_manifest_hash,provenance_inputs,baseline_areas,baseline_hash,restored_from_version,canonical_content) VALUES($1,$2,$3,$4,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) RETURNING *`, [c!.id, n, threadId, a.person.id, a.runId, title, summary, note, source.source, Buffer.byteLength(source.source), hash(source.source), policy.revision, policy.complete, policy.manifestHash, JSON.stringify(policy.inputs), policy.areas, policy.baselineHash, from?.version ?? null, source.kind==='page'?JSON.stringify({html:validated.source,validator_version:validated.validator_version}):null])).rows[0];
     v.actor_name = a.person.name;
     c = (await db.query('UPDATE ask_canvases SET latest_version=$2,updated_at=clock_timestamp() WHERE id=$1 RETURNING *', [c!.id, n])).rows[0];
     await db.query(`INSERT INTO ask_canvas_requests(conversation_id,request_id,owner_user_id,actor_user_id,action,input_hash,effective_policy_hash,canvas_id,version,run_id) VALUES($1,$2,$3,$3,$4,$5,$6,$7,$8,$9)`, [threadId, input.request_id, a.person.id, action, inputHash, policy.baselineHash, c!.id, n, a.runId]);
@@ -423,6 +424,14 @@ export async function canvasDelete(id: string, input: unknown) {
             fail('IDEMPOTENCY_CONFLICT'); });
     });
 }
+/** Private bytes for the routed page only; the public code flag does not grant preview. */
+export async function canvasPagePreview(id:string,n:number){
+ const actor=await human();return tx(actor,async(db,a)=>{
+  const av=await availability(db,a.person);gate(av);const c=await load(db,a,id);gate(av,c.kind,true);
+  if(c.kind!=='page')fail('UNSUPPORTED_KIND');if(!Number.isSafeInteger(n)||n<1)fail('INVALID_INPUT');
+  const v=await version(db,c,n);return {source:validateCanvasContent({kind:'page',source:v.source_text}).source};
+ });
+}
 /** 0108 seam: same journal, session, conversation lock and current source policy. */
 export async function canvasFileTransaction<T>(id: string, n: number, fn: (db: PoolClient, actor: Actor, canvas: Row, version: Row) => Promise<T>): Promise<T> {
     const actor = await human();
@@ -430,7 +439,7 @@ export async function canvasFileTransaction<T>(id: string, n: number, fn: (db: P
         const av = await availability(db, a.person); gate(av);
         if (!av.exports) fail('CANVAS_DISABLED');
         const c = await load(db, a, id); gate(av, c.kind, true);
-        if (c.kind !== 'diagram') fail('UNSUPPORTED_KIND');
+        if (!['diagram','page'].includes(c.kind)) fail('UNSUPPORTED_KIND');
         if (!Number.isSafeInteger(n) || n < 1) fail('INVALID_INPUT');
         const v = await version(db, c, n);
         await classify(db, a, c.conversation_id, c.required_areas, v.baseline_areas);

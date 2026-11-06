@@ -176,3 +176,19 @@ Branch note: T3 renamed this branch to `t3/in-app-browser-agent-tools`.
 11. **Old chats go to whoever started them (Joe, 2026-11-05).** A legacy chat whose
     runs were all started by one person belongs to that person (Abigail keeps her 2).
     Chats with no recorded starter go to Joe; mixed ones are held aside. See A1.2.
+
+## Coordinator build decisions: Canvas Phase 1 (2026-11-05)
+
+- **Migration renumbering** (so parallel builders don't share one file):
+  - **0106_ask_canvases.sql:** canvas, version, request, event, quota and rate records, plus static-page predeclaration.
+  - **0107_ask_context_provenance.sql:** complete business-run provenance (§9.1). Canvas versions store the provenance *revision + manifest hash* with no FK to 0107 tables, so 0106 stands alone.
+  - **0108_ask_canvas_files.sql:** derivatives, saves, audience, trash.
+  - **0109_ask_canvas_floor_refs.sql:** floor references.
+  - Canvas-only rollout stays 0100 + 0105–0109.
+- **Provenance seam:** `lib/ask-context-provenance.mjs` `conversationProvenance({client, threadId})`. Until the provenance builder lands, it is a fail-closed stub that always returns unknown, which means the full catalog.
+- **MCP registration:** each builder exports a `register…Tools` function from its own `mcp/*-tools.mjs`. The coordinator wires them into `mcp/sjcos-mcp.mjs`.
+- **Order:**
+  1. Canvas core backend and Canvas UI run in parallel.
+  2. Provenance + native-reader removal + ask_owner gates follow (they share the db-roles manifest with the core backend).
+  3. Project-file save/exports come after that.
+- **Build round 1 is blocked on the deferred pane-host captures:** landscape strip, 839/840/1000, 1100 popout pane, and 1280 expansion + Back to app.

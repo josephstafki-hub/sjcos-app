@@ -7,7 +7,7 @@ import React from 'react';
 import {renderToString} from 'react-dom/server';
 import {hostWidths,deviceCases} from './fixtures/ask-pane-host.mjs';
 const root=new URL('../',import.meta.url);
-registerHooks({resolve(s,c,n){if(s.startsWith('@/')||s.startsWith('.')){const u=s.startsWith('@/')?new URL(s.slice(2),root):new URL(s,c.parentURL);for(const ext of ['','.ts','.tsx'])if(existsSync(new URL(u.href+ext))&&statSync(new URL(u.href+ext)).isFile())return {url:u.href+ext,shortCircuit:true};}return n(s,c);},load(u,c,n){if(/\.(ts|tsx)$/.test(u))return {format:'module',shortCircuit:true,source:ts.transpileModule(readFileSync(new URL(u),'utf8'),{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText};return n(u,c);}});
+registerHooks({resolve(s,c,n){if(s==='react'&&c.parentURL?.includes('/components/panel/'))return {url:'canvas-react:hooks',shortCircuit:true};if(c.parentURL==='canvas-react:hooks')return n(s,{...c,parentURL:import.meta.url});if(s.startsWith('@/')||s.startsWith('.')){const u=s.startsWith('@/')?new URL(s.slice(2),root):new URL(s,c.parentURL);for(const ext of ['','.ts','.tsx'])if(existsSync(new URL(u.href+ext))&&statSync(new URL(u.href+ext)).isFile())return {url:u.href+ext,shortCircuit:true};}return n(s,c);},load(u,c,n){if(u==='canvas-react:hooks')return {format:'module',shortCircuit:true,source:`export * from 'react'; export const useSyncExternalStore=(_subscribe,get)=>get();`};if(/\.(ts|tsx)$/.test(u))return {format:'module',shortCircuit:true,source:ts.transpileModule(readFileSync(new URL(u),'utf8'),{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText};return n(u,c);}});
 const {CanvasCard}=await import('../components/panel/CanvasCard.tsx');
 const {CanvasPane}=await import('../components/panel/CanvasPane.tsx');
 const {askPaneLayout}=await import('../components/panel/askPaneLayout.ts');
@@ -31,8 +31,8 @@ test('event pages merge run groups by version, redact deletions, and preserve hu
  assert.equal(groupCanvasEvents([event,{...event,id:'3',kind:'deleted'}])[0].kind,'deleted');
  assert.equal(groupCanvasEvents([event,{...first,id:'4',run_id:null,group_id:'event:4'}]).length,2);
 });
-test('source fix prompt pins title/version with fixed diagnostic, never guesses pronouns',()=>{
- assert.equal(fixCanvasPrompt(version,'RENDER_FAILED'),'Fix the "Permit steps" diagram (version 2). The error was: The diagram could not be drawn.');
+test('source fix prompt pins title/version and the bounded diagnostic, never guesses pronouns',()=>{
+ assert.equal(fixCanvasPrompt(version,'RENDER_FAILED','SYNTAX_ERROR'),'Fix the "Permit steps" diagram (version 2). The error was: Mermaid could not parse the diagram. Check its syntax.');
 });
 for(const f of hostWidths)test(`Canvas consumes H5 measured width ${f.width}`,()=>{
  const p=askPaneLayout({width:f.width,height:900,mode:'popout',selected:true});assert.equal(p.split,f.split);assert.ok(Math.abs(p.pane-f.pane)<.02);
@@ -49,4 +49,36 @@ test('orphan and human canvas cards stay at their server time between chat messa
 test('private Canvas reset drops optional callbacks, updating state and all source bytes',async()=>{
  const store=await import('../components/panel/canvas/store.ts');store.updateCanvas({openCanvas(){},updating:true,views:{c:{code:{code:'private bytes'}}}});store.clearCanvas();
  assert.equal(store.canvasState().openCanvas,undefined);assert.equal(store.canvasState().updating,undefined);assert.deepEqual(store.canvasState().views,{});assert.equal(store.canvasState().scope,null);
+});
+
+const store=await import('../components/panel/canvas/store.ts');
+const context={snapshot:{kind:'canvas',id:'c',label:version.title,thread_id:'t',user_id:'u',run_id:'r',selected_version:2,latest_version:3},mode:'popout',compact:false,landscape:false,paneWidth:721,viewportWidth:1280,split:true,signal:new AbortController().signal,frameBoundary(){}};
+function loaded(patch={}){
+ store.clearCanvas();store.patchCanvas('c',{data:{canvas:{id:'c',latest_version:3},selected:version,availability,capabilities:{code:true,save:true,preview:false}},code:{code:'A-->B',availability},...patch});
+}
+test('syntax error shows exactly Copy code and Ask Claude to fix it with the same diagnostic as the prompt',()=>{
+ loaded({renderError:'RENDER_FAILED',renderDiagnostic:'SYNTAX_ERROR'});
+ const html=render(CanvasPane,{context:{...context,compact:true},slot:'content'});
+ assert.match(html,/Couldn&#x27;t draw this diagram. Its code is below./);assert.match(html,/Mermaid could not parse the diagram. Check its syntax./);
+ assert.equal((html.match(/<button/g)||[]).length,2);assert.match(html,/>Copy code</);assert.match(html,/>Ask Claude to fix it</);assert.doesNotMatch(html,/Show code|Try again/);
+ assert.match(html,/font-variant-ligatures:none/);assert.match(html,/font-feature-settings:/);
+});
+test('complexity state contains Show code and Ask Claude to simplify it without syntax copy',()=>{
+ loaded({renderError:'RENDER_TIMEOUT'});const html=render(CanvasPane,{context:{...context,compact:true},slot:'content'});
+ assert.match(html,/This diagram is too complex to show here./);assert.match(html,/>Show code</);assert.match(html,/>Ask Claude to simplify it</);assert.doesNotMatch(html,/Its code is below|Copy code/);
+});
+test('older-version meta retains version before ready notice at every width',()=>{
+ loaded();for(const compact of [true,false]){
+  const html=render(CanvasPane,{context:{...context,compact},slot:'meta'}).replaceAll('<!-- -->','');
+  assert.match(html,/Diagram · Version 2 of 3/);assert.match(html,/· Version 3 is ready/);assert.match(html,/>Latest</);
+ }
+});
+test('fuller Preview and Code pressed state is visible; Save and Open canvas have borders',()=>{
+ loaded();let html=render(CanvasPane,{context,slot:'content'});assert.match(html,/aria-pressed="true"/);assert.match(html,/aria-pressed:bg-card/);assert.match(html,/border border-rule bg-card px-3[^>]*>Save to project files/);
+ const card=render(CanvasCard,{event,availability,onOpen(){}});assert.match(card,/rounded-md border border-rule bg-card px-3/);
+});
+test('version times use time only today and month/day otherwise; notes have no empty separators',async()=>{
+ const {canvasVersionTime,canvasVersionByline}=await import('../components/panel/canvas/state.ts');
+ const now=new Date(2026,10,5,16,0);assert.equal(canvasVersionTime(new Date(2026,10,5,14,14).toISOString(),now),'2:14 PM');assert.equal(canvasVersionTime(new Date(2026,10,4,14,14).toISOString(),now),'Nov 4, 2:14 PM');
+ assert.equal(canvasVersionByline('', 'Joe Stafki'),'Joe Stafki');assert.equal(canvasVersionByline('Moved inspection','Claude'),'Moved inspection · Claude');
 });

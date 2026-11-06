@@ -1,3 +1,4 @@
+import type {RenderDiagnostic} from './bridge';
 import type {CanvasEvent,VersionMeta} from '@/lib/canvas-api-types';
 export function groupCanvasEvents(events:readonly CanvasEvent[]):CanvasEvent[]{
  const unique=new Map(events.map(e=>[e.id,e]));
@@ -11,9 +12,21 @@ export function groupCanvasEvents(events:readonly CanvasEvent[]):CanvasEvent[]{
  }
  return [...groups.values()];
 }
-export function fixCanvasPrompt(v:VersionMeta,code:'RENDER_FAILED'|'RENDER_TIMEOUT'){
- return code==='RENDER_TIMEOUT'?`Simplify the "${v.title}" diagram (version ${v.version}) so it can be shown here.`:`Fix the "${v.title}" diagram (version ${v.version}). The error was: The diagram could not be drawn.`;
+export const renderDiagnosticCopy=(diagnostic?:RenderDiagnostic)=>({
+ SOURCE_REJECTED:'The diagram source did not pass the supported syntax checks.',
+ SYNTAX_ERROR:'Mermaid could not parse the diagram. Check its syntax.',
+ LAYOUT_FAILED:'Mermaid could not lay out the diagram.',
+ DRAWING_REJECTED:'The drawing did not pass the supported SVG checks.',
+}[diagnostic??'LAYOUT_FAILED']);
+export function fixCanvasPrompt(v:VersionMeta,code:'RENDER_FAILED'|'RENDER_TIMEOUT',diagnostic?:RenderDiagnostic){
+ return code==='RENDER_TIMEOUT'?`Simplify the "${v.title}" diagram (version ${v.version}) so it can be shown here.`:`Fix the "${v.title}" diagram (version ${v.version}). The error was: ${renderDiagnosticCopy(diagnostic)}`;
 }
+export function canvasVersionTime(at:string,now=new Date()){
+ const date=new Date(at),today=date.getFullYear()===now.getFullYear()&&date.getMonth()===now.getMonth()&&date.getDate()===now.getDate();
+ const time=date.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',hour12:true});
+ return today?time:`${date.toLocaleDateString('en-US',{month:'short',day:'numeric'})}, ${time}`;
+}
+export const canvasVersionByline=(note:string,name:string)=>[note.trim(),name.trim()].filter(Boolean).join(' · ');
 export const CANVAS_EMPTY_PROMPT='Draw the permit steps for this job as a diagram.';
 export const versionPath=(id:string,version:number)=>`/api/canvas/${encodeURIComponent(id)}/versions/${version}`;
 export async function canvasFetch<T>(url:string,signal?:AbortSignal,init?:RequestInit):Promise<T>{

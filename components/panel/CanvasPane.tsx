@@ -7,7 +7,7 @@ import {CanvasVersions} from './CanvasVersions';
 import {CanvasOverlay} from './canvas/CanvasOverlay';
 import {DiagramStage} from './canvas/DiagramStage';
 import {canvasState,canvasServerState,subscribeCanvas,patchCanvas,loadCanvas,chooseCanvas,selectCanvasVersion,askCanvasChange,publishCanvases,updateCanvas} from './canvas/store';
-import {canvasFetch,fixCanvasPrompt,versionPath,CANVAS_EMPTY_PROMPT} from './canvas/state';
+import {canvasFetch,fixCanvasPrompt,renderDiagnosticCopy,versionPath,CANVAS_EMPTY_PROMPT} from './canvas/state';
 import {ASK_STATUS_COPY} from './askStatusCopy';
 export function CanvasPane({context,slot}:{context:AskPaneRenderContext;slot:'title'|'meta'|'content'|'actions'}){
  const state=useSyncExternalStore(subscribeCanvas,canvasState,canvasServerState);
@@ -42,9 +42,14 @@ export function CanvasPane({context,slot}:{context:AskPaneRenderContext;slot:'ti
    attempt.current=null;
   }catch(e){const code=(e as {code?:string}).code;patchCanvas(id,action==='delete'?{error:'DELETE_FAILED'}:{notice:code==='VERSION_CONFLICT'?'A newer version was saved.':"Couldn't use this version. Try again.",sheet:undefined});}
  };
- const codeBlock=<><p className="py-2 text-meta text-ink-3">Diagram code · Untrusted text · Version {number}</p><button disabled={!view.code} className="min-h-11 rounded border border-rule px-3" onClick={()=>void copy()}>Copy code</button><pre tabIndex={0} className="mt-2 overflow-auto whitespace-pre p-3 font-mono text-[13px]">{view.code?.code??'Loading code…'}</pre></>;
+ const copyButton=<button disabled={!view.code} className="min-h-11 rounded border border-rule px-3" onClick={()=>void copy()}>Copy code</button>;
+ const codeBlock=<><p className="py-2 text-meta text-ink-3">Diagram code · Untrusted text · Version {number}</p>{copyButton}<pre tabIndex={0} className="mt-2 overflow-auto whitespace-pre p-3 font-mono text-[13px] [font-variant-ligatures:none] [font-feature-settings:'liga'_0,'calt'_0]">{view.code?.code??'Loading code…'}</pre></>;
  if(slot==='title')return <div className="flex min-w-0 items-center"><button data-canvas-title className="h-11 min-w-0 flex-1 truncate px-2 text-left font-serif text-subheading" onClick={()=>sheet('picker')}>{view.error?'Canvas':v?.title??snapshot.label} ▾</button><button className="size-11 shrink-0 rounded" aria-label="Canvas actions" onClick={()=>sheet('menu')}>⋯</button></div>;
- if(slot==='meta')return view.error?<span/>:<span className="flex min-w-0 items-center gap-2 truncate">{state.updating?'Claude is updating this canvas…':newer?<>Version {latest} is ready <button className="underline" onClick={()=>selectCanvasVersion(id,latest)}>Latest</button></>:id!=='empty'?`Diagram · Version ${number} of ${latest}`:''}{view.notice&&<span role="status">{view.notice}</span>}</span>;
+ if(slot==='meta')return view.error?<span/>:<span className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
+  {id!=='empty'&&<span className="min-w-0 truncate">Diagram · Version {number} of {latest}</span>}
+  {newer&&<span className="flex shrink-0 items-center gap-1">· Version {latest} is ready <button className="underline" onClick={()=>selectCanvasVersion(id,latest)}>Latest</button></span>}
+  {state.updating&&<span className="truncate">Claude is updating this canvas…</span>}{view.notice&&<span role="status" className="truncate">{view.notice}</span>}
+ </span>;
  if(slot==='actions')return id==='empty'?null:<div className={`flex h-full w-full min-w-0 ${landscape?'flex-col':'items-center'}`}>
   <button className="min-h-11 min-w-11 shrink-0" aria-label={number<=1?'No earlier version':'Previous version'} disabled={number<=1||busy} onClick={()=>selectCanvasVersion(id,number-1)}>‹</button>
   <button className="min-h-11 px-1 text-body" disabled={!!view.error} onClick={()=>sheet('versions')}>Versions</button>
@@ -58,13 +63,19 @@ export function CanvasPane({context,slot}:{context:AskPaneRenderContext;slot:'ti
    !v?<div className="p-4" role="status"><p>{view.notice==='This is taking a while.'?'This is taking a while.':'Loading canvas…'}</p>{view.notice==='This is taking a while.'&&<><button className="min-h-11" onClick={()=>void loadCanvas(id,number,signal,true)}>Try again</button><button className="min-h-11 px-2" disabled={!view.code} onClick={()=>sheet('code')}>Show code</button></>}</div>:<>
     <p id={`canvas-summary-${id}`} className="sr-only">{v.summary}</p>
     {!compact&&<div className="shrink-0 border-b border-rule px-3">
-     <div className="flex gap-2" role="group" aria-label="Canvas view"><button className="min-h-11 px-2" aria-pressed={view.tab!=='code'} onClick={()=>patchCanvas(id,{tab:'preview'})}>Preview</button><button className="min-h-11 px-2" disabled={!data?.capabilities.code} aria-pressed={view.tab==='code'} onClick={()=>patchCanvas(id,{tab:'code'})}>Code</button></div>
-     {data?.capabilities.save&&<button className="min-h-11 px-2" disabled={!view.exportReady} onClick={()=>sheet('save')}>Save to project files</button>}
+     <div className="flex gap-2" role="group" aria-label="Canvas view"><button className="min-h-11 rounded-md px-2 text-ink-3 aria-pressed:bg-card aria-pressed:text-ink aria-pressed:shadow-card" aria-pressed={view.tab!=='code'} onClick={()=>patchCanvas(id,{tab:'preview'})}>Preview</button><button className="min-h-11 rounded-md px-2 text-ink-3 aria-pressed:bg-card aria-pressed:text-ink aria-pressed:shadow-card" disabled={!data?.capabilities.code} aria-pressed={view.tab==='code'} onClick={()=>patchCanvas(id,{tab:'code'})}>Code</button></div>
+     {data?.capabilities.save&&<button className="min-h-12 rounded-md border border-rule bg-card px-3 disabled:opacity-50" disabled={!view.exportReady} onClick={()=>sheet('save')}>Save to project files</button>}
      <details><summary className="min-h-11 cursor-pointer py-2">About this diagram</summary><p className="pb-2 text-body">{v.summary}</p></details>
      {newer&&<p className="text-meta text-ink-3">{v.change_note}</p>}
     </div>}
     <div className="relative min-h-0 flex-1 overflow-auto">
-     {view.renderError?<div className="p-3"><p role="status">{view.renderError==='LOAD_TIMEOUT'?'This is taking a while.':view.renderError==='RENDER_TIMEOUT'?'This diagram is too complex to show here.':"Couldn't draw this diagram. Its code is below."}</p><button className="min-h-11 px-2" onClick={()=>sheet('code')}>Show code</button>{view.renderError==='LOAD_TIMEOUT'?<button className="min-h-11 px-2" onClick={()=>void loadCanvas(id,number,signal,true)}>Try again</button>:<button className="min-h-11 px-2 text-ai-2" onClick={()=>askCanvasChange(id,fixCanvasPrompt(v,view.renderError as 'RENDER_FAILED'|'RENDER_TIMEOUT'))}>{view.renderError==='RENDER_TIMEOUT'?'Ask Claude to simplify it':'Ask Claude to fix it'}</button>}{view.renderError==='RENDER_FAILED'&&codeBlock}</div>:
+     {view.renderError?<div className="p-3"><p role="status">{view.renderError==='LOAD_TIMEOUT'?'This is taking a while.':view.renderError==='RENDER_TIMEOUT'?'This diagram is too complex to show here.':"Couldn't draw this diagram. Its code is below."}</p>
+      {view.renderError==='RENDER_FAILED'&&<p className="py-1 text-meta text-ink-3">{renderDiagnosticCopy(view.renderDiagnostic)}</p>}
+      {view.renderError==='RENDER_FAILED'?<>
+       <div className="flex flex-wrap gap-2">{copyButton}<button className="min-h-12 px-2 text-ai-2" onClick={()=>askCanvasChange(id,fixCanvasPrompt(v,'RENDER_FAILED',view.renderDiagnostic))}>Ask Claude to fix it</button></div>
+       <p className="py-2 text-meta text-ink-3">Diagram code · Untrusted text · Version {number}</p><pre tabIndex={0} className="mt-2 overflow-auto whitespace-pre p-3 font-mono text-[13px] [font-variant-ligatures:none] [font-feature-settings:'liga'_0,'calt'_0]">{view.code?.code??'Loading code…'}</pre>
+      </>:<><button className="min-h-12 px-2" onClick={()=>sheet('code')}>Show code</button>{view.renderError==='LOAD_TIMEOUT'?<button className="min-h-12 px-2" onClick={()=>void loadCanvas(id,number,signal,true)}>Try again</button>:<button className="min-h-12 px-2 text-ai-2" onClick={()=>askCanvasChange(id,fixCanvasPrompt(v,'RENDER_TIMEOUT'))}>Ask Claude to simplify it</button>}</>}
+     </div>:
       view.tab==='code'&&!compact?<div className="p-3">{codeBlock}</div>:
       data?.capabilities.preview&&view.code?<DiagramStage key={`${id}:${number}`} id={id} version={v} code={view.code} context={context}/>:<div className="p-3"><p>Preview is turned off.</p>{data?.capabilities.code&&<button className="min-h-11" onClick={()=>sheet('code')}>Show code</button>}</div>}
     </div>

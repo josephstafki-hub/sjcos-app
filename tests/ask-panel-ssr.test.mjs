@@ -20,7 +20,7 @@ const stubs=new Map([
  ['@/components/today/PriorityCard',`export const PriorityCard=()=>null;`],
  ['@/components/today/ModelActionChips',`export const ModelActionChips=()=>null;`],
  ['next/navigation',`export const useRouter=()=>globalThis.__panelRouter??({push(){},refresh(){}});export const usePathname=()=>'/panel';`],
- ['@/components/today/TodayQueueContext',`export const useTodayQueue=()=>globalThis.__queueState??({priorities:[],waiting:[],signedOut:false,refresh:async()=>{}});`],
+ ['@/components/today/TodayQueueContext',`export const TodayQueueProvider=({children})=>children;export const useTodayQueue=()=>globalThis.__queueState??({priorities:[],waiting:[],signedOut:false,refresh:async()=>{}});`],
  ['./TodayQueueContext',`export const useTodayQueue=()=>globalThis.__queueState??({priorities:[],waiting:[],signedOut:false,refresh:async()=>{}});`],
  ['@/lib/use-dictation',`export const useDictation=options=>{globalThis.__dictationOptions=options;return {state:'idle',supported:true,start(){},stop(){},cancel(){}};}`],
  ['@/lib/use-voice-round',`export const useVoiceRound=options=>{globalThis.__voiceOptions=options;return {phase:'idle',voiceMode:false,supported:options.availability?.enabled??true};};`],
@@ -655,10 +655,10 @@ test('Canvas fix and Ask for a change prefill exact version, focus Chat, and nev
  const context=canvasSetup(),prefills=[];canvasStore.updateCanvas({prefill:(...a)=>prefills.push(a)});
  const content=lifecycle(CanvasPane,{context,slot:'content'}),actions=lifecycle(CanvasPane,{context,slot:'actions'});
  try{
-  canvasStore.patchCanvas('canvas',{renderError:'RENDER_FAILED'});
+  canvasStore.patchCanvas('canvas',{renderError:'RENDER_FAILED',renderDiagnostic:'SYNTAX_ERROR'});
   const tree=content.render();nodes(tree,n=>n.type==='button'&&n.props.children==='Ask Claude to fix it')[0].props.onClick();
   nodes(actions.render(),n=>n.type==='button'&&n.props.children==='Ask for a change')[0].props.onClick();
-  assert.deepEqual(prefills,[['Fix the "Permit steps" diagram (version 2). The error was: The diagram could not be drawn.','canvas',2],['Change the "Permit steps" diagram (version 2): ','canvas',2]]);
+  assert.deepEqual(prefills,[['Fix the "Permit steps" diagram (version 2). The error was: Mermaid could not parse the diagram. Check its syntax.','canvas',2],['Change the "Permit steps" diagram (version 2): ','canvas',2]]);
  }finally{content.dispose();actions.dispose();canvasStore.clearCanvas();setAskPaneScope(null);}
 });
 test('Canvas title/meta/actions use the shared compact slots and step versions without enabling follow',()=>{
@@ -734,4 +734,28 @@ test('late canvas source cannot repaint after the person/thread claim changes',a
  const c=new AbortController();const load=canvasStore.loadCanvas('canvas',2,c.signal);
  const next={userId:'other',threadId:'other-thread',claimToken:'next'};canvasStore.clearCanvas();canvasStore.updateCanvas({scope:next});
  try{finish({ok:true,json:async()=>({...cd,capabilities:{...cd.capabilities,code:false}})});await load;assert.deepEqual(canvasStore.canvasState().views,{});}finally{c.abort();globalThis.fetch=prior;canvasStore.clearCanvas();setAskPaneScope(null);}
+});
+
+const {PanelWindow}=await import('../components/panel/PanelWindow.tsx');
+test('popout moves its existing window bar into the strip only while landscape is selected',()=>{
+ const h=lifecycle(PanelWindow);
+ try{
+  let tree=h.render();const baseline=nodes(tree,n=>n.type==='button'&&n.props.title==='Return the panel to the app window');assert.equal(baseline.length,1);
+  const original=render(()=>baseline[0]);const dock=nodes(tree,n=>n.type===PanelDock)[0];
+  dock.props.onPaneActivity({selected:true,landscape:true});tree=h.render();
+  assert.equal(nodes(tree,n=>n.type==='button'&&n.props.title==='Return the panel to the app window').length,0);
+  const stripBar=nodes(tree,n=>n.type===PanelDock)[0].props.landscapeWindowBar;
+  const html=render(()=>stripBar);assert.match(html,/Operator · window/);assert.match(html,/Dock back/);assert.match(html,/min-h-11/);assert.doesNotMatch(html,/Close Operator/);
+  nodes(tree,n=>n.type===PanelDock)[0].props.onPaneActivity({selected:true,landscape:false});tree=h.render();
+  assert.equal(render(()=>nodes(tree,n=>n.type==='button'&&n.props.title==='Return the panel to the app window')[0]),original);
+ }finally{h.dispose();}
+});
+test('landscape popout shares one vertical selector and 128px column with no Operator close',()=>{
+ const unregister=registerAskPane({id:'canvas',render:()=>({content:React.createElement('div',null,'Stage')})});setAskPaneScope(scope);publishAskPaneSnapshots(scope,[canvas]);
+ const h=lifecycle(PanelDock,{mode:'popout',inWindow:true,landscapeWindowBar:React.createElement('span',null,'Operator · window')});
+ try{
+  h.render();const state=h.slots.findIndex(value=>value?.scope===''&&'selected' in value);h.slots[state]={...h.slots[state],scope:JSON.stringify([scope.userId,scope.threadId,scope.claimToken]),selected:{kind:'canvas',id:canvas.id}};
+  h.slots[h.slots.findIndex(value=>value?.width===0&&value?.height===0)]={width:800,height:360};h.slots[h.slots.indexOf(0)]=800;
+  const html=render(()=>h.render());assert.equal((html.match(/role="tablist"/g)||[]).length,1);assert.match(html,/aria-orientation="vertical"/);assert.match(html,/Operator · window/);assert.doesNotMatch(html,/Close Operator/);assert.equal(nodes(h.render(),n=>n.type==='button'&&n.props['aria-label']==='Threads').length,0);assert.match(html,/grid-template-columns:minmax\(0,1fr\) 128px/);
+ }finally{h.dispose();setAskPaneScope(null);unregister();}
 });

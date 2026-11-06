@@ -1,8 +1,9 @@
 'use client';
+import type {RenderDiagnostic} from './bridge';
 import type {Availability,CanvasCodeResponse,CanvasEvent,CanvasGetResponse,CanvasListResponse} from '@/lib/canvas-api-types';
 import {getAskPaneFeed,publishAskPaneSnapshots,recalledAskPane,selectAskPane,type AskPaneScope} from '../askPaneRegistry';
 import {canvasFetch,versionPath} from './state';
-export type CanvasView={data?:CanvasGetResponse;code?:CanvasCodeResponse;error?:string;renderError?:'RENDER_FAILED'|'RENDER_TIMEOUT'|'LOAD_TIMEOUT';ready?:boolean;exportReady?:boolean;loading?:boolean;tab?:'preview'|'code';sheet?:'menu'|'code'|'about'|'versions'|'picker'|'delete'|'restore'|'save';notice?:string};
+export type CanvasView={data?:CanvasGetResponse;code?:CanvasCodeResponse;error?:string;renderError?:'RENDER_FAILED'|'RENDER_TIMEOUT'|'LOAD_TIMEOUT';renderDiagnostic?:RenderDiagnostic;ready?:boolean;exportReady?:boolean;loading?:boolean;tab?:'preview'|'code';sheet?:'menu'|'code'|'about'|'versions'|'picker'|'delete'|'restore'|'save';notice?:string};
 export type CanvasState={scope:AskPaneScope|null;items:CanvasListResponse['canvases'];events:CanvasEvent[];availability?:Availability;views:Record<string,CanvasView>;selection:Record<string,{version:number;follow:boolean}>;openCanvas?:((id:string,version:number)=>void)|null;updating?:boolean;prefill:((text:string,id?:string,version?:number)=>void)|null};
 const listeners=new Set<()=>void>();
 const empty:CanvasState={scope:null,items:[],events:[],views:{},selection:{},prefill:null};
@@ -46,7 +47,7 @@ export async function loadCanvas(id:string,version:number,signal:AbortSignal,for
  if(inflight.has(key)&&!force)return inflight.get(key);
  requests.get(key)?.abort();const controller=new AbortController();requests.set(key,controller);
  const abort=()=>controller.abort();signal.addEventListener('abort',abort,{once:true});
- patchCanvas(id,{loading:true,error:undefined,notice:undefined,data:undefined,code:undefined,ready:false,exportReady:false,renderError:undefined});
+ patchCanvas(id,{loading:true,error:undefined,notice:undefined,data:undefined,code:undefined,ready:false,exportReady:false,renderError:undefined,renderDiagnostic:undefined});
  const deadline=setTimeout(()=>{if(!controller.signal.aborted&&state.scope===scope)patchCanvas(id,{notice:'This is taking a while.'});},10000);
  const work=(async()=>{try{
   const data=await canvasFetch<CanvasGetResponse>(`/api/canvas/${id}?version=${version}`,controller.signal);

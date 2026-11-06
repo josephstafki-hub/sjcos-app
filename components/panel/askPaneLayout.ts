@@ -13,7 +13,7 @@ export const clampChat = (width: number, min: number, max: number) => Math.min(m
 export function askPaneLayout({width, height, mode, selected, dockWidth = 420, chatWidth, safeArea = 0, stripWidth = 64}: {
   width: number; height: number; mode: PaneMode; selected: boolean; dockWidth?: number; chatWidth?: number | null; safeArea?: number; stripWidth?: number;
 }) {
-  const landscape = mode === 'sheet' && selected && height < 600 && width > height;
+  const landscape = (mode === 'sheet' || mode === 'popout') && selected && height < 600 && width > height;
   const min = 340, max = Math.max(min, width - 492);
   const reset = clampChat(mode === 'dock' ? dockWidth : width * .42, min, max);
   const requested = chatWidth ?? (mode === 'dock' ? dockWidth : reset);

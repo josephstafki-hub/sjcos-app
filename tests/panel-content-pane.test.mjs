@@ -186,3 +186,10 @@ test('explicit Queue/Chat choice blocks later routine following arrivals',()=>{
  assert.equal(s.humanChoice,true);
  assert.equal(arrivalSelection({arrivals:[{kind:'canvas',id:'c',attention:'new'}],selected:null,expanded:true,canFollow:true,humanChoice:s.humanChoice}),null);
 });
+
+test('short landscape popout uses the shared strip and 128px action column',()=>{
+ const l=askPaneLayout({width:800,height:360,mode:'popout',selected:true,safeArea:80});
+ assert.equal(l.landscape,true);assert.equal(l.strip,64);assert.equal(l.actionColumn,128);assert.ok(l.stage>=200);assert.equal(l.split,false);
+ assert.equal(askPaneLayout({width:800,height:360,mode:'popout',selected:false}).landscape,false);
+ assert.equal(askPaneLayout({width:800,height:600,mode:'popout',selected:true}).landscape,false);
+});

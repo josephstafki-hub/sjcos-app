@@ -35,6 +35,7 @@ type Row =
 
 export function JobPicker({
   projectOnly = false,
+  inline = false,
   title,
   placeholder = "Search jobs…",
   current = null,
@@ -48,6 +49,8 @@ export function JobPicker({
 }: {
   /** Accessible name only; the placeholder carries the visible context. */
   projectOnly?: boolean;
+  /** In-flow picker inside a scrolling dialog; preserves legacy dropdown mode. */
+  inline?: boolean;
   title?: string;
   placeholder?: string;
   /** The job currently linked (shows a check, excluded from "in use" dimming). */
@@ -143,7 +146,7 @@ export function JobPicker({
     <div
       onMouseDown={(e) => e.stopPropagation()}
       onKeyDown={(e) => e.stopPropagation()}
-      className="absolute inset-x-0 top-full z-30 mt-0.5 overflow-hidden rounded-md border border-rule bg-paper shadow-card"
+      className={`${inline?"relative w-full shrink-0":"absolute inset-x-0 top-full z-30 mt-0.5"} overflow-hidden rounded-md border border-rule bg-paper shadow-card`}
       role="dialog"
       aria-label={title ?? "Pick a job"}
     >
@@ -164,7 +167,7 @@ export function JobPicker({
           onKeyDown={onKey}
           placeholder={placeholder}
           aria-label={placeholder}
-          className="min-w-0 flex-1 bg-transparent text-[12px] text-ink placeholder:text-ink-4 focus:outline-none"
+          className={`min-w-0 flex-1 bg-transparent ${inline?"min-h-12 text-[16px]":"text-[12px]"} text-ink placeholder:text-ink-4 focus:outline-none`}
         />
       </div>
 
@@ -175,7 +178,7 @@ export function JobPicker({
         )}
         {rows.map((row, idx) => {
           const active = idx === cur;
-          const base = `flex w-full items-center gap-2 px-2.5 py-1 text-left ${active ? "bg-paper-2" : ""}`;
+          const base = `flex ${inline?"min-h-12":""} w-full items-center gap-2 px-2.5 py-1 text-left ${active ? "bg-paper-2" : ""}`;
           if (row.type === "unlink") {
             return (
               <button

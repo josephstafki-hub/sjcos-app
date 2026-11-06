@@ -142,3 +142,20 @@ test('SVG gate admits numeric stroke-width and still rejects units, refs and hug
     if (!threw) throw new Error('accepted ' + bad);
   }
 });
+
+test('state notes support bounded plain inline and multiline text in their state scope',()=>{
+ for(const note of ['note right of A: Waiting for inspection','note left of A\nWaiting for inspection\nThen handover\nend note']){
+  const source='stateDiagram-v2\n[*] --> A\n'+note+'\nA --> [*]';
+  assert.equal(validateDiagramSource(source).counts.nodes,1);
+ }
+ const nested='stateDiagram-v2\nstate Project {\nA --> B\nnote right of A\nCheck the permit\nend note\n}';
+ assert.equal(validateDiagramSource(nested).counts.nodes,3);
+ for(const note of ['note right of A\n<script>bad</script>\nend note','note right of A\nhttps://evil.test\nend note'])rejects(()=>validateDiagramSource('stateDiagram-v2\n'+note),'UNSAFE_CONTENT');
+ rejects(()=>validateDiagramSource('stateDiagram-v2\nnote right of A\nNot closed'),'INVALID_INPUT');
+ rejects(()=>validateDiagramSource('stateDiagram-v2\nend note'),'UNSAFE_CONTENT');
+ rejects(()=>validateDiagramSource('stateDiagram-v2\nnote right of A\n'+('Line\n'.repeat(401))+'end note'),'TOO_COMPLEX');
+});
+test('the QA 100-node, 99-edge chain passes the source budget exactly',()=>{
+ const source='flowchart LR\n'+Array.from({length:99},(_,n)=>` N${n}[Step ${n+1}]-->N${n+1}[Step ${n+2}]`).join('\n');
+ assert.equal(validateDiagramSource(source).counts.nodes,100);assert.equal(validateDiagramSource(source).counts.edges,99);
+});

@@ -18,7 +18,7 @@ export function CanvasCard({event,availability,latestVersion,showing=false,creat
   <p className="line-clamp-1 text-body text-ink-2">{v.summary}</p>
   {stopped&&<p className="text-meta text-ink-3">Canvas saved before the run stopped.</p>}
   {event.kind==='saved'&&<p className="text-meta text-ink-3">Saved to {event.project_name}</p>}
-  <button className="min-h-11 rounded px-2 text-body text-ai-2 focus-visible:outline-2 focus-visible:outline-focus" aria-disabled={disabled||undefined}
+  <button className="min-h-11 rounded-md border border-rule bg-card px-3 text-body text-ai-2 focus-visible:outline-2 focus-visible:outline-focus" aria-disabled={disabled||undefined}
    aria-label={disabled?'Showing':older?`Open version ${v.version}: ${v.title}, diagram, newer version available`:`Open canvas: ${v.title}, diagram, version ${v.version}`}
    onClick={e=>{if(!disabled)onOpen(event.canvas_id,v.version,e.currentTarget);}}>{disabled?'Showing':older?`Open version ${v.version}`:'Open canvas'}</button>
  </article>;

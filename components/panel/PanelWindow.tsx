@@ -11,7 +11,7 @@ import {
 import { subscribePanelState, writePanelState } from "./panelStore";
 import { LiveUpdates } from "@/components/shell/LiveUpdates";
 import { PanelQueueProvider } from "./PanelQueueProvider";
-import { PanelDock, type AskPaneControls } from "./PanelDock";
+import { PanelDock, type AskPaneActivity, type AskPaneControls } from "./PanelDock";
 
 /**
  * The operator panel as its own browser window (/panel) — the two-monitor
@@ -32,6 +32,8 @@ import { PanelDock, type AskPaneControls } from "./PanelDock";
 export function PanelWindow() {
   const paneControls = useRef<AskPaneControls|null>(null);
   const registerPaneControls = useCallback((controls:AskPaneControls|null) => {paneControls.current=controls;}, []);
+  const [paneActivity,setPaneActivity]=useState<AskPaneActivity>({selected:false,landscape:false});
+  const paneActivityChanged=useCallback((next:AskPaneActivity)=>setPaneActivity(old=>old.selected===next.selected&&old.landscape===next.landscape?old:next),[]);
   const [width, setWidth] = useState(720);
   // Set once a deliberate re-dock is underway, so the matching state flip
   // isn't mistaken for a watchdog false alarm and re-claimed.
@@ -115,14 +117,13 @@ export function PanelWindow() {
     return () => document.removeEventListener("click", onClick, true);
   }, []);
 
-  return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-paper-2">
-      <div className="flex items-center gap-2 border-b border-rule px-3 py-2">
-        <Sparkles className="size-3.5 text-ai" strokeWidth={1.5} />
-        <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-3">
+  const windowBar=(landscape:boolean)=>(
+      <div className={landscape?"flex min-w-0 flex-col items-center gap-1 border-b border-rule px-1 py-1":"flex items-center gap-2 border-b border-rule px-3 py-2"}>
+        {!landscape&&<Sparkles className="size-3.5 text-ai" strokeWidth={1.5} />}
+        <span className={`font-mono text-[10px] uppercase text-ink-3 ${landscape?"text-center":"tracking-[0.14em]"}`}>
           Operator · window
         </span>
-        <div className="flex-1" />
+        {!landscape&&<div className="flex-1" />}
         <button
           onClick={async () => {
             if (paneControls.current && !(await paneControls.current.closeOperator())) return;
@@ -134,14 +135,18 @@ export function PanelWindow() {
             window.close();
           }}
           title="Return the panel to the app window"
-          className="flex items-center gap-1 rounded-md px-1.5 py-0.5 text-[11px] text-ink-3 transition-colors hover:bg-paper"
+          className={`flex items-center gap-1 rounded-md px-1.5 text-[11px] text-ink-3 transition-colors hover:bg-paper ${landscape?"min-h-11 flex-col justify-center":"py-0.5"}`}
         >
           <PanelLeft className="size-3.5" strokeWidth={1.75} /> Dock back
         </button>
       </div>
+  );
+  return (
+    <div className="flex h-dvh flex-col overflow-hidden bg-paper-2">
+      {!paneActivity.landscape&&windowBar(false)}
       <div className="min-h-0 flex-1">
         <PanelQueueProvider>
-          <PanelDock width={width} navigate={requestAppNav} inWindow registerPaneControls={registerPaneControls} />
+          <PanelDock width={width} navigate={requestAppNav} inWindow registerPaneControls={registerPaneControls} onPaneActivity={paneActivityChanged} landscapeWindowBar={windowBar(true)} />
         </PanelQueueProvider>
         {/* The popout has no (os) layout, so it polls the change log itself —
             that's what keeps its queue cards live while agents write. */}

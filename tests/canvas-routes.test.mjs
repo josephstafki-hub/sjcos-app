@@ -24,6 +24,8 @@ import {existsSync,statSync} from 'node:fs';
 import ts from 'typescript';
 const root=new URL('../',import.meta.url);
 const seams=new Map([
+ ['next/navigation',`export function notFound(){throw Object.assign(new Error('Not found'),{digest:'NEXT_HTTP_ERROR_FALLBACK;404'});}export function redirect(path){throw Object.assign(new Error('Redirect'),{path});}`],
+ ['@/components/panel/canvas/CanvasViewer',`export const CanvasViewer=()=>null;`],
  ['@/lib/canvas-exports',`export async function canvasRender(id,n,input){return {ok:true,canvas_id:id,version:n,renderer_version:'1',sha256:'a'.repeat(64)};} export async function canvasDrawing(id,n){return {svg:'<svg/>',title:'Drawing',version:n};}`],
  ['server-only','export {};'],
  ['@/lib/ask-canvases',`export async function canvasGet(id,input){globalThis.__canvasCalls.push([id,input]);if(globalThis.__canvasFailure)throw {code:globalThis.__canvasFailure};return globalThis.__canvasData;}
@@ -73,4 +75,15 @@ test('actual renderer HTTP body script bytes match every script-src hash',async(
   assert.equal(scripts.length,2);
   assert.deepEqual(policy.match(/'sha256-[^']+'/g).sort(),scripts.map(s=>`'sha256-${createHash('sha256').update(s,'utf8').digest('base64')}'`).sort());
  }finally{if(old===undefined)delete process.env.SJC_CANVAS_ENABLED;else process.env.SJC_CANVAS_ENABLED=old;}
+});
+
+test('unavailable wrapper invokes the 404 boundary and renders only generic paper-theme copy',async()=>{
+ const React=await import('react'),{renderToStaticMarkup}=await import('react-dom/server');
+ const page=(await import('../app/panel/canvas/[id]/page.tsx')).default;
+ const NotFound=(await import('../app/panel/canvas/[id]/not-found.tsx')).default;
+ reset();globalThis.__canvasFailure='CANVAS_UNAVAILABLE';
+ await assert.rejects(()=>page({params:Promise.resolve({id:'foreign'}),searchParams:Promise.resolve({})}),e=>e.digest==='NEXT_HTTP_ERROR_FALLBACK;404');
+ const html=renderToStaticMarkup(React.createElement(NotFound));
+ assert.match(html,/This canvas isn&#x27;t available to this account./);assert.match(html,/href="\/panel"/);assert.match(html,/min-h-11/);assert.match(html,/‹ Chat/);assert.match(html,/bg-paper/);assert.doesNotMatch(html,/foreign|Drawing|Joe|Abigail/);
+ delete globalThis.__canvasFailure;
 });

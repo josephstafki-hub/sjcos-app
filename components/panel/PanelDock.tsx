@@ -17,9 +17,10 @@ import {useAskContentWidth,useAskViewport} from './askPaneHooks';
 
 export type AskPaneControls={closeOperator:()=>Promise<boolean>;exitForNavigation:(href:string)=>Promise<boolean>};
 export type AskPaneActivity={selected:boolean;landscape:boolean};
-export function PanelDock({width,navigate,compact=false,inWindow=false,mode=inWindow?'popout':'dock',active=true,dockWidth=width,onPaneActivity,registerPaneControls,closeOperator}: {
+export function PanelDock({width,navigate,compact=false,inWindow=false,mode=inWindow?'popout':'dock',active=true,dockWidth=width,onPaneActivity,registerPaneControls,closeOperator,landscapeWindowBar}: {
   width?:number;navigate?:(href:string)=>void;compact?:boolean;inWindow?:boolean;mode?:PaneMode;active?:boolean;dockWidth?:number;
   onPaneActivity?:(activity:AskPaneActivity)=>void;
+  landscapeWindowBar?:import('react').ReactNode;
   registerPaneControls?:(controls:AskPaneControls|null)=>void;closeOperator?:()=>void;
 }) {
   const [,setActiveRun]=useState<ActiveRun|null>(null);
@@ -235,7 +236,8 @@ export function PanelDock({width,navigate,compact=false,inWindow=false,mode=inWi
   const chatVisible=showing?policy.split:twoCol||narrowView!=='queue';
   return <div ref={root} className={`flex h-full min-h-0 min-w-0 ${policy.landscape?'flex-row gap-0 pb-2':'flex-col gap-2 p-2'}`}>
     {showSelector&&<div ref={strip} className={`shrink-0 ${policy.landscape?'flex min-w-16 flex-col border-r border-rule':'flex h-12 min-w-0 items-center'}`}>
-      {policy.landscape&&<button aria-label="Close Operator" onClick={closeOperator} className="h-12 w-full text-heading focus-visible:outline-2 focus-visible:outline-focus">×</button>}
+      {policy.landscape&&mode==='popout'&&landscapeWindowBar}
+      {policy.landscape&&mode==='sheet'&&<button aria-label="Close Operator" onClick={closeOperator} className="h-12 w-full text-heading focus-visible:outline-2 focus-visible:outline-focus">×</button>}
       <div role="tablist" aria-label="Operator view" aria-orientation={policy.landscape?'vertical':'horizontal'} className={`min-w-0 rounded-md bg-paper-2 ${policy.landscape?'flex flex-col':tabs.length===2?'inline-flex h-12 max-w-full items-center gap-0.5 overflow-x-auto p-0.5':'flex h-12 flex-1 items-center gap-0.5 p-0.5'}`}>
         {tabs.map(tab=>{
           const attention=feed.snapshots.find(x=>x.kind===tab&&x.attention!=='none'&&seen.current.get(scopeKey+x.kind+x.id)!==x.revision);
@@ -249,7 +251,7 @@ export function PanelDock({width,navigate,compact=false,inWindow=false,mode=inWi
           </button>;
         })}
       </div>
-      {inWindow&&showing&&<button aria-label="Threads" aria-pressed={threadsOpen} onClick={()=>{if(showing)void exit().then(ok=>{if(ok)setThreadsOpen(true);});else setThreadsOpen(open=>!open);}} className="flex size-12 shrink-0 items-center justify-center text-ink-3"><History className="size-4" /></button>}
+      {inWindow&&showing&&!policy.landscape&&<button aria-label="Threads" aria-pressed={threadsOpen} onClick={()=>{if(showing)void exit().then(ok=>{if(ok)setThreadsOpen(true);});else setThreadsOpen(open=>!open);}} className="flex size-12 shrink-0 items-center justify-center text-ink-3"><History className="size-4" /></button>}
     </div>}
     <div ref={content} className="relative min-h-0 min-w-0 flex-1">
       <div className="grid h-full min-h-0 min-w-0" style={{gridTemplateColumns:showing?(policy.split?`${policy.chat}px 12px minmax(0,1fr)`:'minmax(0,1fr)'):twoCol?((width??measured)>=880?'minmax(200px,2fr) minmax(480px,4fr)':'minmax(200px,2fr) minmax(300px,3fr)'):'minmax(0,1fr)',gap:twoCol?8:0}}>

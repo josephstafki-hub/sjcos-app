@@ -249,17 +249,25 @@ inheritance; no product gate was relaxed.
 | canvas-commands-db | 22 / 0 |
 | canvas-page-sandbox | 22 / 0 |
 | canvas-render-bridge | 29 / 0 |
-| ask-private-query-scan | 10 / 1 (B audit outstanding; final post-B rerun pending) |
+| ask-private-query-scan | 10 / 1 (B audit outstanding; post-B rerun complete) |
 
 `flock /tmp/sjcos-tsc.lock nice -n 19 npx tsc --noEmit -p .` finally exited **0**.
 The first run exited 2 while B's in-progress plan-estimate.ts had two implicit-any
 errors; B corrected that file before the successful rerun. Logs:
 `/tmp/c23-a-r2-*.log`. No exit 137/resource kill occurred.
 
-Final post-B scan pending. Preliminary findings are confined to B's
-lib/canvas-floor.ts:38 floorVersionMeta: unaudited changed query, changed enclosing
-SQL/guard source digest, and stale previous floorVersionMeta query audit.
+Final combined-tree scan ran after B's commit **5f5a0fc8** and A's implementation
+commit **5257cd61**, exiting **1**, with **10 passing / 1 failing** test. Its three
+findings are confined to B's lib/canvas-floor.ts:
+
+- Unaudited private SQL: lib/canvas-floor.ts:38 floorVersionMeta.
+- Private SQL/guard source changed; review audit: lib/canvas-floor.ts.
+- Stale private SQL audit: lib/canvas-floor.ts floorVersionMeta.
+
 Coordinator must review those fingerprints; A deliberately leaves them unchanged.
+The scan reports no A-owned violations. Final log:
+`/tmp/c23-a-r2-private-scan.log`. A's implementation commit contains only its ten
+explicitly selected paths; this follow-up commit records the post-B scan result.
 
 Not done by A: B's floor/action implementation and its tests, approval of B's
 private-query hashes, production/browser/device acceptance, push or deploy.

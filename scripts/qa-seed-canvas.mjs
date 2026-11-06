@@ -82,7 +82,7 @@ try {
   await db.query(`UPDATE dev_agent_runs SET status='done' WHERE id=$1`,[run.id]);
  }
  const slug=`qa-canvas-empty-${randomUUID().slice(0,8)}`;
- const project=(await db.query(`INSERT INTO projects(slug,name,client_name) VALUES($1,'QA Canvas empty project','QA only') RETURNING id`,[slug])).rows[0];
+ const project=(await db.query(`INSERT INTO projects(slug,name,client_name,status) VALUES($1,'QA Canvas empty project','QA only','floor_plan') RETURNING id`,[slug])).rows[0];
  const folder=(await db.query(`INSERT INTO ai_folders(name,entity_kind,entity_id,owner_user_id) VALUES('QA empty project folder','project',$1,$2) RETURNING id`,[slug,people[0][1]])).rows[0];
  await db.query(`INSERT INTO files(id,project_key,type,name,tag,modified_label,size_label) VALUES($1,$2,'folder','QA empty folder','QA','just now','—')`,[`qa-folder-${randomUUID()}`,slug]);
  states.joe_empty_project={projectId:project.id,projectSlug:slug,folderId:folder.id,urls:{panel:`/panel?folder=${folder.id}`,project:`/projects/${slug}`,files:`/files`}};

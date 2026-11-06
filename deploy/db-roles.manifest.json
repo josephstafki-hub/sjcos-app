@@ -3123,6 +3123,57 @@
     },
     "ask_canvas_attempts": {
       "note": "0106 source-free latest refusal per admitted run; website-only commands/terminal trigger. No narrow grants."
+    },
+    "browser_logins": {
+      "note": "Private Browser Phase 0b data; website only, no agent/worker/readonly/service direct privileges. Backup ciphertext via existing pg_read_all_data; no keys in DB."
+    },
+    "browser_login_access": {
+      "note": "Private Browser Phase 0b data; website only, no agent/worker/readonly/service direct privileges. Backup ciphertext via existing pg_read_all_data; no keys in DB."
+    },
+    "browser_profiles": {
+      "note": "Private Browser Phase 0b data; website only, no agent/worker/readonly/service direct privileges. Backup ciphertext via existing pg_read_all_data; no keys in DB."
+    },
+    "browser_vault_counters": {
+      "note": "Private Browser Phase 0b data; website only, no agent/worker/readonly/service direct privileges. Backup ciphertext via existing pg_read_all_data; no keys in DB."
+    },
+    "browser_handoffs": {
+      "note": "Private Browser Phase 0b data; website only, no agent/worker/readonly/service direct privileges. Backup ciphertext via existing pg_read_all_data; no keys in DB."
+    },
+    "browser_handoff_attempts": {
+      "note": "Private Browser Phase 0b data; website only, no agent/worker/readonly/service direct privileges. Backup ciphertext via existing pg_read_all_data; no keys in DB."
+    },
+    "browser_handoff_outcomes": {
+      "note": "Private Browser Phase 0b data; website only, no agent/worker/readonly/service direct privileges. Backup ciphertext via existing pg_read_all_data; no keys in DB."
+    },
+    "browser_actions": {
+      "note": "Private Browser Phase 0b data; website only, no agent/worker/readonly/service direct privileges. Backup ciphertext via existing pg_read_all_data; no keys in DB."
+    },
+    "browser_artifacts": {
+      "note": "Private Browser Phase 0b data; website only, no agent/worker/readonly/service direct privileges. Backup ciphertext via existing pg_read_all_data; no keys in DB."
+    },
+    "browser_handoff_effects": {
+      "note": "Private Browser Phase 0b data; website only, no agent/worker/readonly/service direct privileges. Backup ciphertext via existing pg_read_all_data; no keys in DB."
+    },
+    "browser_handoff_reconciliations": {
+      "note": "Private Browser Phase 0b data; website only, no agent/worker/readonly/service direct privileges. Backup ciphertext via existing pg_read_all_data; no keys in DB."
+    },
+    "browser_action_reviews": {
+      "note": "Private Browser Phase 0b data; website only, no agent/worker/readonly/service direct privileges. Backup ciphertext via existing pg_read_all_data; no keys in DB."
+    },
+    "browser_action_executions": {
+      "note": "Private Browser Phase 0b data; website only, no agent/worker/readonly/service direct privileges. Backup ciphertext via existing pg_read_all_data; no keys in DB."
+    },
+    "browser_audit_outbox": {
+      "note": "Private Browser Phase 0b data; website only, no agent/worker/readonly/service direct privileges. Backup ciphertext via existing pg_read_all_data; no keys in DB."
+    },
+    "browser_notification_deliveries": {
+      "note": "Private Browser Phase 0b data; website only, no agent/worker/readonly/service direct privileges. Backup ciphertext via existing pg_read_all_data; no keys in DB."
+    },
+    "browser_file_links": {
+      "note": "Private Browser Phase 0b data; website only, no agent/worker/readonly/service direct privileges. Backup ciphertext via existing pg_read_all_data; no keys in DB."
+    },
+    "browser_release_catalog": {
+      "note": "Private Browser Phase 0b data; website only, no agent/worker/readonly/service direct privileges. Backup ciphertext via existing pg_read_all_data; no keys in DB."
     }
   }
 }

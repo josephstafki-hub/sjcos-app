@@ -5304,9 +5304,9 @@
       "function": "<sql>",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "0107 migration/schema: website-only hash manifests, no narrow grants; SECURITY DEFINER triggers take the conversation row lock.",
+      "explanation": "Owner-only canonical schema snapshot after merging main (0107/0109/0112 Ask/Canvas and phone-copy guards) with additive Browser 0101–0104. Hash manifests, Browser ciphertext, named grants, review/execution, provenance and audit are website-only; no model/narrow SQL readers or secret-key storage; SECURITY DEFINER triggers take the conversation row lock. Runtime admission and flags stay disabled.",
       "queries": [
-        "45f9c44b5137ee148c85cdab9a9335f69929514e9dc679693985b0fb4b31989d"
+        "9fb28d72e2d294afee2980a52314ef0fb1220f6d3c88923b9388b2253e4e153c"
       ]
     },
     {
@@ -7015,16 +7015,6 @@
       "explanation": "Website-only erasure wrapper, immutable private phone/outbox/action sanitation, historical descendant/summary fixed point and opaque registry source links retained after purge; new definer functions pin search_path and revoke PUBLIC trigger/repair execution. Conversational dedup hashing happens after sanitization. Both outbox repair passes include already-erased shells: 0105 may have destroyed the payload/href association while retaining conversation_key. The main-first decision-linked sent-row regression proves migration and tombstone replay clear private digests, sticky late-write guards keep them NULL, and all three narrow logins see only sanitized shells.",
       "queries": [
         "54bcb27c61fbb30f36bdcd3d2e26187c0f304fbaa0d5e3730da38cfbd8f0122f"
-      ]
-    },
-    {
-      "file": "db/schema.sql",
-      "function": "<sql>",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Owner-only canonical schema snapshot, including existing Ask/Canvas guards and additive Browser 0101–0104. Browser ciphertext, named grants, review/execution, provenance and audit are website-only; no model/narrow SQL readers or secret-key storage. Pure files RLS predicate reveals only whether the SQL session is the website. Runtime admission and flags stay disabled.",
-      "queries": [
-        "9fb28d72e2d294afee2980a52314ef0fb1220f6d3c88923b9388b2253e4e153c"
       ]
     },
     {

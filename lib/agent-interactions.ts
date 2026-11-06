@@ -1,4 +1,8 @@
 import "server-only";
+import {validateQuestionResponse} from "@/lib/ask-context-inputs.mjs";
+import {pool} from "@/lib/db";
+import {withAskJournal} from "@/lib/ask-thread-journal.mjs";
+import {threadPrincipal} from "@/lib/thread-access";
 
 import { threadQuery as query, threadQueryOne as queryOne, requireRunThreadAccess, requireThreadAccess, requireInteractionThreadAccess } from "@/lib/thread-access";
 
@@ -121,14 +125,23 @@ export async function answerInteraction(
   response: InteractionResponse,
 ): Promise<AgentInteraction | null> {
   await requireInteractionThreadAccess(id);
-  const row = await queryOne<Row>(
-    `UPDATE agent_interactions
-        SET status = 'answered', response = $2::jsonb, answered_at = now()
-      WHERE id = $1 AND status = 'pending'
-      RETURNING ${COLS}`,
-    [id, JSON.stringify(response)],
-  );
-  return row ? fromRow(row) : null;
+  const person=await threadPrincipal();
+  return withAskJournal(pool,async()=>{
+    const db=await pool.connect();
+    try{
+      await db.query('BEGIN');
+      await db.query("SELECT set_config('sjcos.ask_actor',$1,true)",[person.id]);
+      // Same thread row/order as Canvas and completion, before interaction row.
+      const owned=await db.query(`SELECT c.id FROM ai_conversations c JOIN agent_interactions i ON i.conversation_id=c.id WHERE i.id=$1 AND c.owner_user_id=$2 AND c.deleted_at IS NULL FOR UPDATE OF c`,[id,person.id]);
+      if(!owned.rows.length)throw Error('ASK_THREAD_UNAVAILABLE');
+      const old=(await db.query<Row>(`SELECT ${COLS} FROM agent_interactions WHERE id=$1 FOR UPDATE`,[id])).rows[0];
+      if(old.kind==='question')response=validateQuestionResponse(old.payload,response).response as InteractionResponse;
+      else if(response.kind!=='permission'||!['allow','deny'].includes(response.decision)||Object.keys(response).some(k=>!['kind','decision','note'].includes(k))||('note'in response&&(typeof response.note!=='string'||response.note.length>8000)))throw Error('INVALID_INPUT');
+      const row=(await db.query<Row>(`UPDATE agent_interactions SET status='answered',response=$2::jsonb,answered_at=now() WHERE id=$1 AND status='pending' RETURNING ${COLS}`,[id,JSON.stringify(response)])).rows[0];
+      // 0107 trigger records response hash + sticky classification before commit.
+      await db.query('COMMIT');return row?fromRow(row):null;
+    }catch(e){await db.query('ROLLBACK');throw e;}finally{db.release();}
+  });
 }
 
 /** Dismiss without answering — the asker's poll treats it like a timeout. */

@@ -21,6 +21,8 @@
 // right chat thread, and raises MCP_TOOL_TIMEOUT so a blocked prompt isn't
 // killed by the CLI's default tool timeout.
 
+import {BUSINESS_DISALLOWED_TOOLS} from "../lib/authority/run-profile.mjs";
+import {createContextAdapter,createContextForwarder,trackedInteractions} from "../lib/ask-context-inputs.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import pg from "pg";
@@ -92,10 +94,16 @@ const PROMPT_POLL_MS = 1500;
 // on Joe with no practical limit; the run stays alive via the runner heartbeat.
 const PROMPT_TIMEOUT_MS = Number(process.env.SJC_PROMPT_TIMEOUT_MS ?? 86_000_000);
 
-const interactionAdapter=createInteractionAdapter({transportKind:'stdio',config:key=>{
+const baseInteractionAdapter=createInteractionAdapter({transportKind:'stdio',config:key=>{
  if(process.env[key])return process.env[key];
  try{return readFileSync(path.join(__dirname,'..','.env.local'),'utf8').split('\n').find(l=>l.startsWith(key+'='))?.slice(key.length+1).replace(/^['"]|['"]$/g,'');}catch{return undefined;}
 }});
+const contextAdapter=createContextAdapter({transportKind:'stdio',internalCall:createContextForwarder(key=>{
+ if(process.env[key])return process.env[key];
+ try{return readFileSync(path.join(__dirname,'..','.env.local'),'utf8').split('\n').find(l=>l.startsWith(key+'='))?.slice(key.length+1).replace(/^['"]|['"]$/g,'');}catch{return undefined;}
+})});
+const interactionAdapter=trackedInteractions(baseInteractionAdapter,contextAdapter);
+const capturedProfile=process.env.SJC_RUN_PROFILE;
 const server = new McpServer({ name: "interact", version: "1.0.0" });
 
 server.registerTool(
@@ -112,6 +120,7 @@ server.registerTool(
     },
   },
   async ({ tool_name, input }) => {
+    if(capturedProfile === "business" && (BUSINESS_DISALLOWED_TOOLS.includes(tool_name)||!tool_name.startsWith("mcp__sjcos__")))return contract({behavior:"deny",message:"Business runs use tracked server tools only."});
     if (autoAllowed(tool_name)) {
       return contract({ behavior: "allow", updatedInput: input ?? {} });
     }
@@ -128,8 +137,8 @@ server.registerTool(
       const row = await interactionAdapter.poll(id);
       if (!row) break;
       if (row.status === "answered") {
-        await interactionAdapter.beforeDeliver(id);
-        const resp = row.response ?? {};
+        const delivered=await interactionAdapter.beforeDeliver(id);
+        const resp = delivered.response ?? {};
         if (resp.decision === "allow") return contract({ behavior: "allow", updatedInput: input ?? {} });
         return contract({
           behavior: "deny",

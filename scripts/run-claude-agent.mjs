@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+import {admitEpoch,beginInput,completeInput,hashBytes,pinAttachments} from "../lib/ask-context-inputs.mjs";
+import {createHash} from "node:crypto";
+import {createReadStream} from "node:fs";
+import {execFileSync} from "node:child_process";
 import { withAskJournal } from '../lib/ask-thread-journal.mjs';
 // Detached runner for a single Claude turn (Ask window → "Claude").
 //
@@ -43,6 +47,7 @@ import { fileURLToPath } from "node:url";
 import pg from "pg";
 import {
   assertBusinessArgs,
+  assertTrackedBusinessArgs,
   permissionModeFor,
   profileArgs,
   profilePromptLine,
@@ -66,6 +71,9 @@ const ENV_TIMEOUT_MS = Number(process.env.DEV_CLAUDE_TIMEOUT_MS ?? 0);
 let TIMEOUT_MS = ENV_TIMEOUT_MS;
 // Run profile + acting person (A08a), read from the row in main().
 let PROFILE = "business";
+let ACTIVE_THREAD=null;
+// Dynamic server operating instructions can contain cross-area business records.
+let INJECTED_AREAS=[];
 let PRINCIPAL_USER_ID = null;
 let RUN_STARTED_S = Math.floor(Date.now() / 1000);
 let MAX_TURNS = null;
@@ -296,7 +304,7 @@ async function unseenTranscriptAllowed(conversationId) {
   let rows;
   try {
     ({ rows } = await client.query(
-      `SELECT role, body, agent, attachments FROM ai_messages
+      `SELECT id, role, body, agent, attachments FROM ai_messages
         WHERE conversation_id = $1 ORDER BY created_at ASC`,
       [conversationId],
     ));
@@ -310,13 +318,20 @@ async function unseenTranscriptAllowed(conversationId) {
   for (let i = cur - 1; i >= 0; i--) if (rows[i].role === "assistant" && rows[i].agent === "claude") { seen = i; break; }
   const turns = rows.slice(seen + 1, cur);
   if (!turns.length) return "";
-  const lines = turns.map((m) => {
+  const lines=[];
+  for (const m of turns) {
     const who = m.role === "user" ? "Joe" : SPEAKER[m.agent] ?? "Assistant";
     let body = m.body.length > TURN_MAX ? `${m.body.slice(0, TURN_MAX)}…` : m.body;
     const files = Array.isArray(m.attachments) ? m.attachments : [];
-    if (files.length) body += `\n(files attached — read them: ${files.map((f) => f.path).join(", ")})`;
-    return `${who}: ${body}`;
-  });
+    if(files.length){
+      if(PROFILE === "business"){
+        let pinned=(await client.query("SELECT id,source_hash AS generation FROM ask_context_inputs WHERE conversation_id=$1 AND kind='attachment' AND split_part(ref,':',1)=$2 ORDER BY ref",[conversationId,String(m.id)])).rows;
+        if(pinned.length!==files.length)pinned=await pinAttachments({query:(...args)=>client.query(...args)},conversationId,null,m.id,files);
+        body+=`\n(Attachments: use read_chat_attachment with ${pinned.map(f=>`id ${f.id}, generation ${f.generation}`).join('; ')}.)`;
+      }else body+=`\n(files attached — read them: ${files.map(f=>f.path).join(', ')})`;
+    }
+    lines.push(`${who}: ${body}`);
+  }
   let total = 0;
   const kept = [];
   for (let i = lines.length - 1; i >= 0; i--) {
@@ -636,7 +651,20 @@ let lastEventWasResult = false;
 let steerChain = Promise.resolve();
 const serial = (fn) => (steerChain = steerChain.then(fn).catch(() => {}));
 
-function writeUser(text) {
+let deliveryChain=Promise.resolve();
+function writeUser(text){
+  deliveryChain=deliveryChain.then(()=>deliverUser(text));
+  return deliveryChain;
+}
+async function deliverUser(text) {
+  if(PROFILE === "business" && ACTIVE_THREAD){
+    await withPrivateThread(ACTIVE_THREAD,async()=>{
+      await client.query("BEGIN");
+      try{const id=await beginInput({client,threadId:ACTIVE_THREAD,runId:RUN_ID,kind:"delivery",ref:`stdin:${written}`});
+        await completeInput({client,threadId:ACTIVE_THREAD,runId:RUN_ID,id,bytes:text,areas:written===0?INJECTED_AREAS:null,complete:written===0});await client.query("COMMIT");
+      }catch(e){await client.query("ROLLBACK");throw e;}
+    });
+  }
   cliStdin.write(JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "text", text }] } }) + "\n");
   written += 1;
 }
@@ -688,7 +716,7 @@ async function pollSteers() {
   if (!stdinOpen) return;
   const bodies = await takeSteers("mid-turn");
   if (!bodies.length) return;
-  writeUser(steerText(bodies));
+  await writeUser(steerText(bodies));
   noteSteers(bodies);
 }
 
@@ -706,7 +734,7 @@ async function onResult() {
   const late = await takeSteers("follow-up");
   if (late.length) {
     await client.query(`UPDATE dev_agent_runs SET steer_closed_at = NULL WHERE id = $1`, [RUN_ID]).catch(() => {});
-    writeUser(steerText(late, "finished"));
+    await writeUser(steerText(late, "finished"));
     noteSteers(late);
     return;
   }
@@ -738,7 +766,7 @@ function runClaude(args, childEnv, conversationId, cwd, promptText) {
     cliStdin = child.stdin;
     child.stdin.on("error", () => {}); // EPIPE once the CLI has exited
     stdinOpen = true;
-    writeUser(promptText);
+    writeUser(promptText).catch(e=>{child.kill("SIGTERM");reject(e);});
     let buf = "";
     let stderr = "";
     let killed = false;
@@ -859,6 +887,7 @@ async function main() {
   );
   if (!rows.length) throw new Error(`run ${RUN_ID} not found`);
   const { prompt, page_context, conversation_id } = rows[0];
+  ACTIVE_THREAD=conversation_id;
   // Never downgrade a browser row into the ordinary, privileged CLI path.
   if (rows[0].profile === "browser" || rows[0].browser_task_id) throw new Error("BROWSER_RUNTIME_NOT_READY");
   const model = rows[0].model || ENV_MODEL;
@@ -1017,13 +1046,42 @@ async function main() {
       ? { ...process.env, ...tags }
       : {
           ...Object.fromEntries(
-            ["PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TERM", "TMPDIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "NODE_OPTIONS", "CLAUDE_BIN"]
+            ["PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TERM", "TMPDIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "CLAUDE_BIN"]
               .filter((k) => process.env[k] != null)
               .map((k) => [k, process.env[k]]),
           ),
           ...tags,
         };
 
+  if(PROFILE === "business"){
+    assertTrackedBusinessArgs(args,REPO);
+    // Capability inspection runs only --help, never a model. Unknown CLI or
+    // managed customization surfaces cannot establish a complete epoch.
+    const help=execFileSync(CLAUDE_BIN,['--help'],{encoding:'utf8',timeout:10000,maxBuffer:100000});
+    for(const flag of ['--tools','--restricted','--strict-mcp-config','--safe-mode','--setting-sources','--settings','--disable-slash-commands'])if(!help.includes(flag))throw Error('BUSINESS_CLI_POLICY_UNSUPPORTED');
+    const digest=createHash('sha256');for await(const chunk of createReadStream(CLAUDE_BIN))digest.update(chunk);
+    const binaryHash=digest.digest('hex');
+    if(conversation_id)await withPrivateThread(conversation_id,async()=>{
+      await client.query('BEGIN');try{
+        // Managed policy is outside CLI --setting-sources. Refuse completeness
+        // if the host adds one; it must receive a separate reviewed policy.
+        const managed=['/etc/claude-code/managed-settings.json','/etc/claude-code/managed-mcp.json'].some(existsSync);
+        await admitEpoch({client,threadId:conversation_id,runId:RUN_ID,policyHash:hashBytes(JSON.stringify({version:1,args,binaryHash,runnerHash:hashBytes(readFileSync(fileURLToPath(import.meta.url)))})),valid:!managed&&rows[0].with_mcp===true,resumed:!!resumeSession});
+        // A direct startClaudeRun caller need not have inserted ai_messages.
+        // Independently ingest the actual run prompt; never inherit an empty
+        // classification from a missing/different visible transcript.
+        const promptId=await beginInput({client,threadId:conversation_id,runId:RUN_ID,kind:'prompt',ref:RUN_ID});
+        const knownInstruction=['Show permit steps.','Draw a permit process diagram.','Show a simple workflow.'].includes(prompt);
+        await completeInput({client,threadId:conversation_id,runId:RUN_ID,id:promptId,bytes:prompt,areas:knownInstruction?[]:null,complete:knownInstruction});
+        // All history is already tracked by 0107 triggers. Dynamic operating
+        // instructions are classified conservatively; the rendered delivery
+        // hash includes the exact prompt, page context, earlier turns and IDs.
+        INJECTED_AREAS=BUSINESS_INSTRUCTIONS?[...(await import('../lib/canvas-classification.mjs')).CONTENT_AREAS]:[];
+        if(page_context){const id=await beginInput({client,threadId:conversation_id,runId:RUN_ID,kind:'page_context',ref:RUN_ID});await completeInput({client,threadId:conversation_id,runId:RUN_ID,id,bytes:page_context,areas:null,complete:false});}
+        await client.query('COMMIT');
+      }catch(e){await client.query('ROLLBACK');throw e;}
+    });
+  }
   try {
     await runClaude(args, childEnv, conversation_id, prof.cwd, promptText);
   } catch (err) {

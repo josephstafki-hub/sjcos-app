@@ -3102,6 +3102,12 @@
     },
     "ask_canvas_rate_windows": {
       "note": "Private Ask data; all reads/writes via authenticated canvas app adapter; no narrow-role raw access."
+    },
+    "ask_context_provenance": {
+      "note": "Private Ask provenance; website-only. No raw narrow-role grants."
+    },
+    "ask_context_inputs": {
+      "note": "Private Ask provenance; website-only. No raw narrow-role grants."
     }
   }
 }

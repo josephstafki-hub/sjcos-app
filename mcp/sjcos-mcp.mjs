@@ -1,4 +1,8 @@
 #!/usr/bin/env node
+import {registerCanvasTools,createCanvasCall} from './canvas-tools.mjs';
+import {registerAskInputTools} from './ask-input-tools.mjs';
+import {createContextAdapter,createContextForwarder,trackedInteractions} from '../lib/ask-context-inputs.mjs';
+import {CLASSIFICATION_REGISTRY,assertEveryToolClassified} from '../lib/canvas-classification.mjs';
 import {createPrivateBridgeContext} from '../lib/ask-private-transport.mjs';
 import { COMPLIANCE_SOURCE, CENTRAL_TODAY } from "../lib/compliance-source.mjs";
 // SJC OS — MCP server (AI-agnostic).
@@ -434,29 +438,48 @@ export const SERVER_INSTRUCTIONS = [
   "Write money as \"$\" amounts through the tools; pass long text through mcp/call-tool.mjs stdin, never as a double-quoted shell argument.",
 ].join("\n\n");
 
-function buildServer({transportKind}) {
+export function buildServer({transportKind}) {
 const privateContext=createPrivateBridgeContext({transportKind,httpActive:()=>!!principalStore.getStore()});
 const boundFilingCall=(action,payload)=>filingCall(action,payload,privateContext());
 const boundGrantsCall=(action,payload)=>grantsCall(action,payload,privateContext());
-const interactionAdapter=createInteractionAdapter({transportKind,config:envValue,httpActive:()=>!!principalStore.getStore()});
+const forward=createContextForwarder(envValue);
+const contextAdapter=createContextAdapter({transportKind,httpActive:()=>!!principalStore.getStore(),internalCall:forward});
+const baseInteractionAdapter=createInteractionAdapter({transportKind,config:envValue,httpActive:()=>!!principalStore.getStore()});
+const interactionAdapter=trackedInteractions(baseInteractionAdapter,contextAdapter);
+const canvasCall=createCanvasCall({transportKind,env:process.env,httpActive:()=>!!principalStore.getStore(),internalCall:forward});
+const registeredNames=[];
 const server = new McpServer({ name: "sjcos", version: "1.0.0" }, { instructions: SERVER_INSTRUCTIONS });
 
 // A refusal from the narrow database login (deploy/db-roles.md) comes back as
 // a plain answer the agent can act on, not a crash. Every register*Tools
 // module below registers through this same server object.
 const registerToolRaw = server.registerTool.bind(server);
-server.registerTool = (name, spec, handler) =>
-  registerToolRaw(name, spec, async (...args) => {
+server.registerTool = (name, spec, handler) => {
+  registeredNames.push(name);
+  return registerToolRaw(name, spec, async (...args) => {
+    // Panel stdio MUST ingest before work and before result delivery. External
+    // business tools retain their authority paths, never establish provenance.
+    const tracked=contextAdapter.active();
+    let pending;
     try {
-      return await handler(...args);
-    } catch (e) {
-      if (e?.code !== "42501") throw e;
-      return {
-        isError: true,
-        content: [{ type: "text", text: `${e.message}. This connection's database login may not make that change — it is Joe's to do in the app or from his own Ask window. Stage it for him instead (stage_decision, request_owner_permission or ask_owner).` }],
-      };
+      if(tracked){
+        pending=await contextAdapter.begin('tool',name);
+        // Canvas command consumes its own context before entry; its result is
+        // bookkeeping only and cannot introduce source bytes on mutations.
+        if(['show_canvas','update_canvas','list_canvases'].includes(name))await contextAdapter.complete(pending,{input:args[0]});
+      }
+      let result;
+      try { result=await handler(...args); }
+      catch(e){
+        result={isError:true,content:[{type:'text',text:JSON.stringify({ok:false,code:e?.code==='42501'?'AUTH_REQUIRED':'TOOL_FAILED'})}]};
+      }
+      if(tracked&&!['show_canvas','update_canvas','list_canvases'].includes(name))await contextAdapter.complete(pending,result);
+      return result;
+    } catch {
+      return {isError:true,content:[{type:'text',text:JSON.stringify({ok:false,code:'CONTEXT_PROVENANCE_INCOMPLETE'})}]};
     }
   });
+};
 
 server.registerTool(
   "business_snapshot",
@@ -3019,6 +3042,9 @@ server.registerTool(
     appUrl: envValue("NEXT_PUBLIC_APP_URL") || "https://os.sjcarpentryllc.com",
   });
 
+  registerAskInputTools(server,{json,contextAdapter,transportKind,httpActive:()=>!!principalStore.getStore()});
+  registerCanvasTools(server,{json,canvasCall});
+  assertEveryToolClassified(registeredNames,CLASSIFICATION_REGISTRY);
   return server;
 }
 
@@ -3065,6 +3091,7 @@ async function scopedSectionId(projectId, sectionId) {
 // systemd unit sets this, via its own `Environment=MCP_HTTP_PORT=...` line.
 const httpPort = Number(process.env.MCP_HTTP_PORT || 0);
 
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
 if (!Number.isFinite(httpPort) || httpPort <= 0) {
   // Default: a single server over stdio.
   const server = buildServer({transportKind:'stdio'});
@@ -3073,6 +3100,7 @@ if (!Number.isFinite(httpPort) || httpPort <= 0) {
   // JSON-RPC channel). Errors go to stderr.
 } else {
   startHttpServer(httpPort);
+}
 }
 
 /**

@@ -3,7 +3,7 @@
   "note": "Manually reviewed privacy inventory. Query and full source hashes require explicit review on changes. No file-wide query wildcard. not-private entries explain business metadata/aggregate/conservative non-SQL matches. R3 includes shared reply fan-out/status columns, runtime execution/trigger/receipt carriers and all browser_* schema carriers. Removed storage is distinct from per-person private storage; a green scanner is only a reviewed-source change detector. R4 explicitly inventories push_outbox producers/persistence/drain and immutable erasure; private_ask_push_sources stores only opaque associations.",
   "sources": {
     "lib/accounting/qbo/https.ts": "afb9c1021ccce50aa049de389b602e14d114283ef9748cde733d7d49374725e1",
-    "lib/actions/ai-chat.ts": "f5c821ca2562c800851de64e36a6425f88f2c5f03ae30da51b7b2115f7d5a416",
+    "lib/actions/ai-chat.ts": "3fc8090bfa56e326ddd0a99b9b282a9288a94599b00d7f5883450a329c439778",
     "lib/actions/approvals.ts": "ab3fc636f391d3d882bc3909bf6f595c3c7be06b3ef292ee1ede8da381d4ea4e",
     "lib/actions/compliance.ts": "b884662189000a24481eb7590d123ec9a03b9a55c04d2e69cbe24bee83e871f8",
     "lib/actions/dev-agents.ts": "8c521f338936cd94abc7dbc7170fa43caf78ed8251b7c8fea8fe0e913e34eb06",
@@ -16,7 +16,7 @@
     "lib/actions/schedule.ts": "ef288bac42e2bae1fbaf7e58b94fcbe5e9ef9ba6cea81f8788b710fa2e254203",
     "lib/actions/selections.ts": "b83e2be933f031d62af3996712cd1e6db57b49623566fd461d893209d39e541e",
     "lib/actions/today.ts": "f97f79324b361fc7345e3118bfced1400c8942d575795c1994818d4f574f701e",
-    "lib/agent-interactions.ts": "b3c9c62363c44be68a954cf635accb6c331f033e36099fd0bf1dd36a0e17517f",
+    "lib/agent-interactions.ts": "882f8f10141173bfc9f9bd658aa6b493cb746aad54b5a4bf019d176a436673c2",
     "lib/agent-runtime/context.ts": "2915fe8ed231f05d152f76baa3e9b63d09f2c7f97fd30a42b45b4c302693b5b7",
     "lib/agent-runtime/executions.ts": "bc8ed77edf161072a5dfa188a9a639acff24fcc397b5f7ada477decb1afa003f",
     "lib/agent-runtime/hooks.ts": "ae7bdc5b54cd9c10f606a4faaff0bd8690aecb122c438a62d8406f0a9660871a",
@@ -143,7 +143,7 @@
     "mcp/obligation-tools.mjs": "409b9fe090590051e392bb5ae45abf4abc8cdc37ccd62430737d2794d504e1e9",
     "mcp/project-tools.mjs": "9cb8deacdc68efd39d657c9960910b5b71e4100b4738bd15972af53b27788f43",
     "mcp/runbook-tools.mjs": "e2988e12c1cbd4e8a6a71cf0c04661a487b12fed4f8806f83f885e926d972123",
-    "mcp/sjcos-mcp.mjs": "e378d686533542c1993267ec0a5a4ade4c34046de4d2a9af11424d151142ed5e",
+    "mcp/sjcos-mcp.mjs": "67a1d881f7888858947221548688542721c85fd93e0d3670af443e94c7788098",
     "mcp/team-tools.mjs": "68e526938fc74c10646707c1ee1020f6a5b0336fb37186649c015caf7557fbcd",
     "mcp/workflow-tools.mjs": "8f643366b6c20fbf5dd13f41cf39f00ebf269b2a796efc809d9b1eea5a13aae7",
     "scripts/backup.mjs": "48b8649b5b8e5c581d505341cdbc0d0e58d9718b72824ad3e4e02565892c5541",
@@ -156,7 +156,7 @@
     "scripts/report-work-item-collisions.mjs": "764e811e128c1e4ba08df78d6b835b125bcbc98ad98d8d0dc1aa69cdf4e0e8b9",
     "scripts/restore.mjs": "be39086b2cf46749b8045724e6b83a837589cedc2cee2661d530070c5ad501d6",
     "scripts/run-business-agent.mjs": "55cd003ff840812e54293ee87b020e7bc1a5f75b51563504e0b197f4d294f3b4",
-    "scripts/run-claude-agent.mjs": "f6b9b6c4843922569488761f3276dcca1c15a3a20b89a01722c7004a4b45cf6a",
+    "scripts/run-claude-agent.mjs": "ad2f054d18a25bcbf0e43ff5ded7ce8cb332e28f4cde73b4f6246e848b3eb771",
     "scripts/upsert-inbox-work-items.mjs": "56911a0a95a56d5e5dd73eb5515d32d12975d2a2883babae33158fea36f15fd5",
     "db/apply-comms-sms-voice.mjs": "c22f8f369ef20415e747fd9710d1514aec4f13cfe004710cb6c449f975059b1a",
     "db/apply-detectors.mjs": "d0f94911f711c75fdff3df8c4d9ded89bc3fe1b167fc7ae6334ccf1537cd1f96",
@@ -208,7 +208,7 @@
     "db/migrations/0062_portal_telegram.sql": "85878f8cf90c1ec4731c51ec5cd45ff1409ebc1ef3a5bf9e902394e90780155e",
     "db/migrations/0100_ask_launch_sessions_browser_core.sql": "dd0deca0d6bc5ec0ea573fe6214d62889d238027e5d91a69256d0b4aa2d99f04",
     "db/migrations/0105_ask_thread_ownership.sql": "3a105fc3041b26f3ef73d7796bf7cdf4aff6dae3bfa5df9d4d8e9bcf85311cf3",
-    "db/schema.sql": "796fe1542e19a47d5ae746cf0366d5de0d60590e5b3c992cd1b7935a6946bded",
+    "db/schema.sql": "7b884c026dc3868bc17d591088b37e30996ab5644d732082bf56dc203bd9cb23",
     "db/seed-workflow-runbooks.mjs": "d7bc6de5467359b85364c72042184f34aed5baabf61093347b4dd8ff81ad5dad",
     "db/seed.sql": "fe0fa36f0ade311fe5d64ae7d878e249977ab3f653e29d9b24178dba87745400",
     "db/apply-push-outbox.mjs": "d03f2a72e47ceae67df7a2d7d3416d96e65d992960eb89b6dc32b9f8d18d43c5",
@@ -217,7 +217,10 @@
     "lib/ask-canvases.ts": "d2b6abb0e112425b2a5e839b31c9cf2a88097798b3f4ce6328ea324d5cd1615a",
     "mcp/canvas-tools.mjs": "af488ec1f424bc8055d6b03f89211788fd55e1ecfdc61eefb0abfd9f1f8e2a10",
     "db/migrations/0106_ask_canvases.sql": "1d0be83ed45a0662e078f96c93eafbcf36dc6fbf4593fdb1270d07c0e7876599",
-    "app/api/ai/status/route.ts": "3a0c97e55da2ce202efc8a8e99f9760a39b102a86d5a253e45131a62b6de7f40"
+    "app/api/ai/status/route.ts": "3a0c97e55da2ce202efc8a8e99f9760a39b102a86d5a253e45131a62b6de7f40",
+    "lib/ask-context-inputs.mjs": "0c10b89980e347ec727e9b0bcec36eb3592a2447bd16aad7fe46cbf9b02e4d1b",
+    "lib/ask-context-provenance.mjs": "601700e01aad5ce2c6f5d91ca2dfd472081d93886967e848891b1d8140f31702",
+    "db/migrations/0107_ask_context_provenance.sql": "36fbd54753d637feff385c1eb90f8d01fd1fc4e282a2e0271a391b5d75d9f23c"
   },
   "entries": [
     {
@@ -245,9 +248,9 @@
       "function": "<private-files>",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Non-SQL private-source inventory: upload root/reader or closed transport consumer. Application extraction uses withThreadAttachmentAccess; filing tools route through bound private bridge; MCP context captured at server construction and HTTP disabled. Metadata/type imports do not read bytes.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
-        "f5c821ca2562c800851de64e36a6425f88f2c5f03ae30da51b7b2115f7d5a416"
+        "3fc8090bfa56e326ddd0a99b9b282a9288a94599b00d7f5883450a329c439778"
       ]
     },
     {
@@ -255,7 +258,7 @@
       "function": "sendMessageActionImpl",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Each public action uses askBoundary and exact requireThreadAccess before ID reads/writes; runtime INSERT uses admitAskRun or the internal owned-thread continuation. No independent RPC SQL.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
         "9d90b5c2b891d1ede97c662a3a687e27b4174ee8e93fe348784830721a9031e8",
         "b7588347d7ea0cb7f22a55633c65848cd40ea9d15baf17765135bc3e6f9dee67"
@@ -266,7 +269,7 @@
       "function": "resetClaudeSessionActionImpl",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Each public action uses askBoundary and exact requireThreadAccess before ID reads/writes; runtime INSERT uses admitAskRun or the internal owned-thread continuation. No independent RPC SQL.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
         "c663e588f941a65329db954646400cf25c49e57477739f0fa4ecab6aa309b21d"
       ]
@@ -276,7 +279,7 @@
       "function": "renameConversationActionImpl",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Each public action uses askBoundary and exact requireThreadAccess before ID reads/writes; runtime INSERT uses admitAskRun or the internal owned-thread continuation. No independent RPC SQL.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
         "7c33f6962341e9d34196f0aeda38fc8acbdb6e1d9c18011940c1c63f07976505"
       ]
@@ -286,7 +289,7 @@
       "function": "startBackgroundTurn",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Each public action uses askBoundary and exact requireThreadAccess before ID reads/writes; runtime INSERT uses admitAskRun or the internal owned-thread continuation. No independent RPC SQL.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
         "2d526eaf15bc48865ca6e2f01f31864cfbab14a157c78c693f9546a75cef2248"
       ]
@@ -296,7 +299,7 @@
       "function": "voiceTurnActionImpl",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Each public action uses askBoundary and exact requireThreadAccess before ID reads/writes; runtime INSERT uses admitAskRun or the internal owned-thread continuation. No independent RPC SQL.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
         "9d90b5c2b891d1ede97c662a3a687e27b4174ee8e93fe348784830721a9031e8"
       ]
@@ -525,7 +528,7 @@
       "function": "listPendingInteractions",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Exact run/thread/interaction helper checks precede reads/answers/dismissals; orphan expiry has an explicit current-actor thread predicate.",
+      "explanation": "Verified website actor and interaction/run ownership, journal fence, thread then interaction locks, canonical answer validation; 0107 trigger ingests hash/unknown before answered status commits.",
       "queries": [
         "48687884064c281edfac46f82eae2335cb90351556e4061a468ac0e7dfffc90a",
         "ab1e9c9755d4c8d09b35709c0c03c824aa7ed5602a33d676d6c4b7793753a30b"
@@ -536,9 +539,11 @@
       "function": "answerInteraction",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Exact run/thread/interaction helper checks precede reads/answers/dismissals; orphan expiry has an explicit current-actor thread predicate.",
+      "explanation": "Verified website actor and interaction/run ownership, journal fence, thread then interaction locks, canonical answer validation; 0107 trigger ingests hash/unknown before answered status commits.",
       "queries": [
-        "daaa82a0cd03a4b2bca72241944840d213d3836cc98331b9d4d5813a75afe90d"
+        "5ba731fdde967b149cdd500e8500bcee7ac79b17b5a31c0714d82fc1fa450226",
+        "d784efa64257f353eb6dfa957334eeb4d825a81e89bb571d2d8eed9213594fd6",
+        "719c238aad32e327c320a1289e7b8b88cc7e91f6a2deb769e00830c5b0e96867"
       ]
     },
     {
@@ -546,7 +551,7 @@
       "function": "dismissInteraction",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Exact run/thread/interaction helper checks precede reads/answers/dismissals; orphan expiry has an explicit current-actor thread predicate.",
+      "explanation": "Verified website actor and interaction/run ownership, journal fence, thread then interaction locks, canonical answer validation; 0107 trigger ingests hash/unknown before answered status commits.",
       "queries": [
         "88cb2ee4a0c44b0c7f90173d8024c7a0114f5a20a4a149862f4764f9d7f62e90"
       ]
@@ -4229,17 +4234,17 @@
       "function": "<private-files>",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Non-SQL private-source inventory: upload root/reader or closed transport consumer. Application extraction uses withThreadAttachmentAccess; filing tools route through bound private bridge; MCP context captured at server construction and HTTP disabled. Metadata/type imports do not read bytes.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
-        "e378d686533542c1993267ec0a5a4ade4c34046de4d2a9af11424d151142ed5e"
+        "67a1d881f7888858947221548688542721c85fd93e0d3670af443e94c7788098"
       ]
     },
     {
       "file": "mcp/sjcos-mcp.mjs",
       "function": "currentPrincipal",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Narrow sjcos_agent business tool SQL. Business cards/work items/intents/receipts are deliberate shared artifacts; automatic private reply text is no longer stored in their status fields. Actual session_user FORCE RLS denies private source/reply/runtime rows even with a forged actor GUC. Captured private bridges are reviewed separately; this entry grants no private tool capability.",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
         "c7cc4a4ce070fe43997ec977ffa69e77c694047517cd6fb2f517d8dab09f6876",
         "b5009f50e35a4d028e63c87eb7c129630b1ce7e014012f43f387af5dc0e501d7"
@@ -4248,9 +4253,9 @@
     {
       "file": "mcp/sjcos-mcp.mjs",
       "function": "<module>",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Narrow sjcos_agent business tool SQL. Business cards/work items/intents/receipts are deliberate shared artifacts; automatic private reply text is no longer stored in their status fields. Actual session_user FORCE RLS denies private source/reply/runtime rows even with a forged actor GUC. Captured private bridges are reviewed separately; this entry grants no private tool capability.",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
         "ca09fe96d9c7383d08d0cd47a0877fdc66e89e553e90fd0c96cbca4518af6d34",
         "991c635edae1d55af18c53766f9e63f46ee3e5a9ff2f23e1bd0e777361f8c7d2"
@@ -4259,11 +4264,10 @@
     {
       "file": "mcp/sjcos-mcp.mjs",
       "function": "buildServer",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Narrow sjcos_agent business tool SQL. Business cards/work items/intents/receipts are deliberate shared artifacts; automatic private reply text is no longer stored in their status fields. Actual session_user FORCE RLS denies private source/reply/runtime rows even with a forged actor GUC. Captured private bridges are reviewed separately; this entry grants no private tool capability.",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
-        "3eda5cebae49d848452afc725010fe2a2fab9796fd75bffc01b245d0f8070b90",
         "43c7aafdda6303de0f93195f82b057fed639bf6da9dc75c13d182ebd3f10938b",
         "dbad29046256a4bf9f587f72902e94b8b7054c5523bf24348e7c350ccb6aaa7e",
         "e8d3caf0f6e30d8dfdfbe4d548b9c6185e6255ddc61de0c468abf88e8b386df3",
@@ -4362,9 +4366,9 @@
     {
       "file": "mcp/sjcos-mcp.mjs",
       "function": "slugToId",
-      "classification": "not-private",
-      "reason": "owner-health-opaque-ids",
-      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review.",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
         "b83e41480a4377ccd3d8f141076c66ef72afd1c01038b49464973e365784fd15"
       ]
@@ -4372,9 +4376,9 @@
     {
       "file": "mcp/sjcos-mcp.mjs",
       "function": "resolveInternalUser",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Narrow sjcos_agent business tool SQL. Business cards/work items/intents/receipts are deliberate shared artifacts; automatic private reply text is no longer stored in their status fields. Actual session_user FORCE RLS denies private source/reply/runtime rows even with a forged actor GUC. Captured private bridges are reviewed separately; this entry grants no private tool capability.",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
         "7b889e9c1198e64a578cdb12d4879e56529559004c063a4840a431192c43e420"
       ]
@@ -4382,9 +4386,9 @@
     {
       "file": "mcp/sjcos-mcp.mjs",
       "function": "writeAssignees",
-      "classification": "not-private",
-      "reason": "owner-health-opaque-ids",
-      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review.",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
         "e10111ffbf969841b4c78365c0ba846f29f36ff5dca74e91f118983f78ec1eba"
       ]
@@ -4392,9 +4396,9 @@
     {
       "file": "mcp/sjcos-mcp.mjs",
       "function": "approveWouldEmail",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Narrow sjcos_agent business tool SQL. Business cards/work items/intents/receipts are deliberate shared artifacts; automatic private reply text is no longer stored in their status fields. Actual session_user FORCE RLS denies private source/reply/runtime rows even with a forged actor GUC. Captured private bridges are reviewed separately; this entry grants no private tool capability.",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
         "c5f4eec8981050ef66c7b3be36ad54baf8b436759d5e1638f517e45a06e1899a",
         "59427563ed964b573020576066ecffefa5fef7dc4d5ea190001922e23193744b",
@@ -4404,9 +4408,9 @@
     {
       "file": "mcp/sjcos-mcp.mjs",
       "function": "upsertSection",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Narrow sjcos_agent business tool SQL. Business cards/work items/intents/receipts are deliberate shared artifacts; automatic private reply text is no longer stored in their status fields. Actual session_user FORCE RLS denies private source/reply/runtime rows even with a forged actor GUC. Captured private bridges are reviewed separately; this entry grants no private tool capability.",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
         "658e3ef3be21960351143700d600d273fcba40b8120c7f76bc830b13a64cc6a6",
         "9a0770890c2df4f89b6ac4a62eac5d71b4b00b8e3d94a1445194bc113ee47168",
@@ -4416,9 +4420,9 @@
     {
       "file": "mcp/sjcos-mcp.mjs",
       "function": "addItems",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Narrow sjcos_agent business tool SQL. Business cards/work items/intents/receipts are deliberate shared artifacts; automatic private reply text is no longer stored in their status fields. Actual session_user FORCE RLS denies private source/reply/runtime rows even with a forged actor GUC. Captured private bridges are reviewed separately; this entry grants no private tool capability.",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
         "55f224c631bb0fe445e86e667269c250e87d285ddcf1280545828c436d88bc74",
         "9401e9d536faf5b2255631d317536156a3ecf9de59362f4aae0d45e4064fcc73",
@@ -4428,9 +4432,9 @@
     {
       "file": "mcp/sjcos-mcp.mjs",
       "function": "resolveSectionParent",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Narrow sjcos_agent business tool SQL. Business cards/work items/intents/receipts are deliberate shared artifacts; automatic private reply text is no longer stored in their status fields. Actual session_user FORCE RLS denies private source/reply/runtime rows even with a forged actor GUC. Captured private bridges are reviewed separately; this entry grants no private tool capability.",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
         "1004b94fd939fe4acc0727ae27a6f6430542e2452bde58a6b3e496a4892a3110"
       ]
@@ -4438,9 +4442,9 @@
     {
       "file": "mcp/sjcos-mcp.mjs",
       "function": "scopedSectionId",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Narrow sjcos_agent business tool SQL. Business cards/work items/intents/receipts are deliberate shared artifacts; automatic private reply text is no longer stored in their status fields. Actual session_user FORCE RLS denies private source/reply/runtime rows even with a forged actor GUC. Captured private bridges are reviewed separately; this entry grants no private tool capability.",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
         "bfc6c8fdf7af709aae87b5da8d215171999f880835b0b5215048d16cba916929"
       ]
@@ -4607,9 +4611,9 @@
     {
       "file": "scripts/run-claude-agent.mjs",
       "function": "finish",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login.",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
         "8b1560c6e168c30b18795c952ebe3d55ec5c3ee09258ac0079f2de4ca6aedfb7"
       ]
@@ -4617,9 +4621,9 @@
     {
       "file": "scripts/run-claude-agent.mjs",
       "function": "loadBusinessInstructions",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login.",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
         "83e87abc3140c7f9aa8116e2e9d31b8d4f94f1d9c179711f83345fa7c44ead17"
       ]
@@ -4627,9 +4631,9 @@
     {
       "file": "scripts/run-claude-agent.mjs",
       "function": "withPrivateThread",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login.",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
         "93d74da8c9eb24d497fdefbb0fd22ca8d0b79a22e0da5955fd2efd88da8a456d"
       ]
@@ -4637,21 +4641,22 @@
     {
       "file": "scripts/run-claude-agent.mjs",
       "function": "unseenTranscriptAllowed",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login.",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
-        "236a19761a77e7877c47e4aa687c11d33f04c886277c485038154291fc4e29ca",
-        "af0739cccb22f09cc51f0ac95bb665c799849170817166fec590ffe208bc9908",
-        "d847cffeeb9798882051b3e547a4c3fef25af51a12bba50ea0f975686c0671b5"
+        "59d12e8789ee21d5b8143a6ffdbc3d13c4ec12dfaa1351af896d917acbf9c98c",
+        "88ebd7459751936276e24f654300874ccc2b0431fa6fbf3935d9dd7895b3b87e",
+        "a0c5dadf661aeddf80daa8af477357d27a581a4551b72a42f93cba4a433dde82",
+        "3001bf15f9b15fc5ac94156ef0a22e59ef7837b674abb96849f9511149c12b5b"
       ]
     },
     {
       "file": "scripts/run-claude-agent.mjs",
       "function": "flushActivity",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login.",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
         "774fe30d11c3b50c0c837c45c0cf4e359ea0154cb37ddd10843f1cd98142d5ce"
       ]
@@ -4659,9 +4664,9 @@
     {
       "file": "scripts/run-claude-agent.mjs",
       "function": "recordEffect",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login.",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
         "dfa194b218f6dd80fc76c7950de629320e3acdfccb1a61029f86c636a4fb70a8"
       ]
@@ -4669,9 +4674,9 @@
     {
       "file": "scripts/run-claude-agent.mjs",
       "function": "steerText",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login.",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
         "9279a9ca37f0534a1614678e4a41bb63fefab65a6d3602c4d1d6df16c3db9871"
       ]
@@ -4679,9 +4684,9 @@
     {
       "file": "scripts/run-claude-agent.mjs",
       "function": "takeSteers",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login.",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
         "b45f19824a96ecc80a7f3676263b451fc05c0db722ddd64f28585fceb3d1be78"
       ]
@@ -4689,9 +4694,9 @@
     {
       "file": "scripts/run-claude-agent.mjs",
       "function": "takeSteersAllowed",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login.",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
         "30f0ea9bc857d2472671122a0f35de79b5f157e797e2adbc7e62ca8fa56e9401"
       ]
@@ -4699,9 +4704,9 @@
     {
       "file": "scripts/run-claude-agent.mjs",
       "function": "onResult",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login.",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
         "984bd9c89085de18d4500cabb58a6d3ac5c270653585ae73453838cbab89b435",
         "9ffb1462e668c9e896b46d01f5fc282506ccd7967370f8e2e678e60e945cc37d"
@@ -4710,9 +4715,9 @@
     {
       "file": "scripts/run-claude-agent.mjs",
       "function": "runClaude",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login.",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
         "a19e42712b7ba67e916466a0ade96bb32d1fe7f23871e5d56cfc61460e88faa6",
         "4e0c26c09d9b576f717c7f5e328fd70b29c245e7a98e12f2f34aaea0089687b4"
@@ -4721,9 +4726,9 @@
     {
       "file": "scripts/run-claude-agent.mjs",
       "function": "main",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login.",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
         "89343d8319760171f6d576c3b203d2163f4110db777f7e799347876c2bfdc1b8",
         "cdecc5e9352632e0c945e53fed5dccedf0f835c79fcdef8f4812d243875b0430",
@@ -4734,9 +4739,9 @@
     {
       "file": "scripts/run-claude-agent.mjs",
       "function": "recordUsage",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login.",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
         "b0ed78c6cf5b9a2e00965c9ee4a646e5a598ada81509183fd9ed4dd1631894b8"
       ]
@@ -4744,9 +4749,9 @@
     {
       "file": "scripts/run-claude-agent.mjs",
       "function": "persistToConversationAllowed",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Trusted detached runner captures RUN_ID from server spawn, not public RPC. withPrivateThread checks run/person/owner/revocation/tombstone under journal before transcript/steer/persist/session work. Startup/heartbeat/completion operate only that captured run; narrow MCP child cannot use this login.",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
       "queries": [
         "ee628970cbfd2e5421846752fddffefc5b1b1658ec2146ee9161a334c26d3a99",
         "2dea732b7c2df176ce9e3d81b69ed2b9291420f257f1a0ce2b558b36ab9ebee9"
@@ -5312,11 +5317,11 @@
     {
       "file": "db/schema.sql",
       "function": "<sql>",
-      "classification": "not-private",
-      "reason": "owner-health-opaque-ids",
-      "explanation": "Base installation schema only; ledger-managed private ownership/Canvas DDL remains in 0105/0106. Static schema is not a runtime private-data reader.",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "0107 migration/schema: website-only hash manifests, no narrow grants; SECURITY DEFINER triggers take the conversation row lock.",
       "queries": [
-        "796fe1542e19a47d5ae746cf0366d5de0d60590e5b3c992cd1b7935a6946bded"
+        "7b884c026dc3868bc17d591088b37e30996ab5644d732082bf56dc203bd9cb23"
       ]
     },
     {
@@ -5621,6 +5626,124 @@
       "explanation": "Actual bootstrap transport and captured env in private closure, HTTP ALS backstop before any forward. Secret-authenticated admit compares captured thread against DB before tool dispatch. No raw narrow-login canvas SQL; website repeats active run/person/launch/profile/start/revocation and owner checks.",
       "queries": [
         "af488ec1f424bc8055d6b03f89211788fd55e1ecfdc61eefb0abfd9f1f8e2a10"
+      ]
+    },
+    {
+      "file": "db/migrations/0107_ask_context_provenance.sql",
+      "function": "<sql>",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "0107 migration/schema: website-only hash manifests, no narrow grants; SECURITY DEFINER triggers take the conversation row lock.",
+      "queries": [
+        "36fbd54753d637feff385c1eb90f8d01fd1fc4e282a2e0271a391b5d75d9f23c"
+      ]
+    },
+    {
+      "file": "lib/ask-context-inputs.mjs",
+      "function": "<private-files>",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Secret-only closed stdio route revalidates live runner via withPrivateRunner and journal; helpers inherit owned conversation and thread serialization. Readers begin before bounded filesystem work and complete before delivery. Attachment IDs resolve same-thread pinned generations; no raw SQL grants.",
+      "queries": [
+        "0c10b89980e347ec727e9b0bcec36eb3592a2447bd16aad7fe46cbf9b02e4d1b"
+      ]
+    },
+    {
+      "file": "lib/ask-context-inputs.mjs",
+      "function": "admitEpoch",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Secret-only closed stdio route revalidates live runner via withPrivateRunner and journal; helpers inherit owned conversation and thread serialization. Readers begin before bounded filesystem work and complete before delivery. Attachment IDs resolve same-thread pinned generations; no raw SQL grants.",
+      "queries": [
+        "5b221f26c208c9bb06bc01591d4f4b8d24b9cd97c57f43de4f0b761c85b64d61",
+        "5003c25756fe988db94ba4c84f5772531d7e10c9fa04dd9c879c0ac4677cf62d"
+      ]
+    },
+    {
+      "file": "lib/ask-context-inputs.mjs",
+      "function": "beginInput",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Secret-only closed stdio route revalidates live runner via withPrivateRunner and journal; helpers inherit owned conversation and thread serialization. Readers begin before bounded filesystem work and complete before delivery. Attachment IDs resolve same-thread pinned generations; no raw SQL grants.",
+      "queries": [
+        "d7472189ba57ac6797b82633d7489515ad018fffb6c0383109e6a3ff0f1acb65",
+        "742f20071b3c8555a94d36f2c40c23c18359661f526e68f237a022d4b9ef5314"
+      ]
+    },
+    {
+      "file": "lib/ask-context-inputs.mjs",
+      "function": "completeInput",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Secret-only closed stdio route revalidates live runner via withPrivateRunner and journal; helpers inherit owned conversation and thread serialization. Readers begin before bounded filesystem work and complete before delivery. Attachment IDs resolve same-thread pinned generations; no raw SQL grants.",
+      "queries": [
+        "ec3fcbe9ea0f82991ef6324e64bc0ec7b556d555fa25deb93e10a22ea506d515",
+        "cb46cf49b4a5d0103881f7e80831613cb5ac3049b5959a60e61b327e5cbf43ba",
+        "69f9b8d8c423ee2c8ac200024c5a49549b52255c088e3e4c510e6146a3835aee"
+      ]
+    },
+    {
+      "file": "lib/ask-context-inputs.mjs",
+      "function": "contextCommand",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Secret-only closed stdio route revalidates live runner via withPrivateRunner and journal; helpers inherit owned conversation and thread serialization. Readers begin before bounded filesystem work and complete before delivery. Attachment IDs resolve same-thread pinned generations; no raw SQL grants.",
+      "queries": [
+        "9672328079e8abb786cd1e3da04e5999c9d0e10e315afcb46d781c4fad337759",
+        "41dfddc827f442458eec3d6c248e62d8940b749bd811645b7cc2b386e2e9f34c",
+        "1ac741ae5d7c865c148a2746ce75f14d64ed2a9ef6871d66f5238979da4413e2",
+        "42200094c245b1c20967df332f3f51a1ff0635ae428b01633e21495a26e753bf"
+      ]
+    },
+    {
+      "file": "lib/ask-context-inputs.mjs",
+      "function": "formatQuestionResult",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Secret-only closed stdio route revalidates live runner via withPrivateRunner and journal; helpers inherit owned conversation and thread serialization. Readers begin before bounded filesystem work and complete before delivery. Attachment IDs resolve same-thread pinned generations; no raw SQL grants.",
+      "queries": [
+        "4f922b9ff17871a5e3b7d81e2401dcda73aef08fe55a991a21900a55538d3ebd"
+      ]
+    },
+    {
+      "file": "lib/ask-context-inputs.mjs",
+      "function": "lock",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Secret-only closed stdio route revalidates live runner via withPrivateRunner and journal; helpers inherit owned conversation and thread serialization. Readers begin before bounded filesystem work and complete before delivery. Attachment IDs resolve same-thread pinned generations; no raw SQL grants.",
+      "queries": [
+        "ae2b7bbc512f6ff324a7181b17ba2762fc62a7ccc4077855eaa0983d591e0db8"
+      ]
+    },
+    {
+      "file": "lib/ask-context-inputs.mjs",
+      "function": "readerCommand",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Secret-only closed stdio route revalidates live runner via withPrivateRunner and journal; helpers inherit owned conversation and thread serialization. Readers begin before bounded filesystem work and complete before delivery. Attachment IDs resolve same-thread pinned generations; no raw SQL grants.",
+      "queries": [
+        "9672328079e8abb786cd1e3da04e5999c9d0e10e315afcb46d781c4fad337759"
+      ]
+    },
+    {
+      "file": "lib/ask-context-inputs.mjs",
+      "function": "readPinnedAttachment",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Secret-only closed stdio route revalidates live runner via withPrivateRunner and journal; helpers inherit owned conversation and thread serialization. Readers begin before bounded filesystem work and complete before delivery. Attachment IDs resolve same-thread pinned generations; no raw SQL grants.",
+      "queries": [
+        "d5fed2642f048813efa50e7aac9ea098bfba063d4bac87564f2361fc6503a9b0"
+      ]
+    },
+    {
+      "file": "lib/ask-context-provenance.mjs",
+      "function": "conversationProvenance",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Canvas-owned serialized transaction reads only current owned thread hashes; unknown, absent epoch and pending data fail closed.",
+      "queries": [
+        "200d93fa43e62a58ad17a0b0769bef1fb55906f9420471f55be653ba346c44cb",
+        "c989d624dd735b00cac3e764741729c7c0bb41d207b2a032ad676dc3d271b40a"
       ]
     }
   ]

@@ -3903,3 +3903,5 @@ INSERT INTO ask_canvas_maintenance(singleton) VALUES(true) ON CONFLICT DO NOTHIN
 
 -- Canvas core DDL is applied by migration 0106_ask_canvases.sql after 0100 + 0105.
 -- The base schema intentionally omits ledger-managed Canvas relations.
+
+-- 0107 private Ask provenance: see db/migrations/0107_ask_context_provenance.sql (ordered migration ledger).

@@ -42,25 +42,6 @@ const questionSchema = z.object({
   allow_other: z.boolean().optional().describe("Offer a free-text 'Other…' answer too (default true)."),
 });
 
-/** Format Joe's answer rows back into plain text for the asking model. */
-function formatAnswers(response) {
-  const answers = Array.isArray(response?.answers) ? response.answers : [];
-  if (!answers.length) return "Joe answered, but the answer was empty.";
-  return answers
-    .map((a) => {
-      const picks = Array.isArray(a.choices) && a.choices.length ? a.choices.join(" + ") : "(no option picked)";
-      const other = a.other ? ` — Joe added: "${a.other}"` : "";
-      return `${a.question}\nJoe's answer: ${picks}${other}`;
-    })
-    .join("\n\n");
-}
-
-/**
- * Register `ask_owner` on an MCP server. `pool` is a pg.Pool; `json` the
- * standard text-content wrapper. Used by mcp/sjcos-mcp.mjs (so Hermes and the
- * remote connectors get it) and mcp/interact-mcp.mjs (the Claude runner's
- * interact server).
- */
 export function registerAskOwner(server, { pool, json, interactionAdapter }) {
   server.registerTool(
     "ask_owner",
@@ -104,26 +85,12 @@ export function registerAskOwner(server, { pool, json, interactionAdapter }) {
         await sleep(POLL_MS);
         const row = await interactionAdapter.poll(id);
         if (!row) break;
-        if (row.status === "answered") {await interactionAdapter.beforeDeliver(id);return json({ ok: true, answer: formatAnswers(row.response) });}
-        if (row.status === "dismissed") {
-          await interactionAdapter.beforeDeliver(id);
-          return json({
-            ok: false,
-            answer:
-              "Joe dismissed the question without answering. Proceed with your best judgment " +
-              "and clearly state what you assumed.",
-          });
-        }
+        if (row.status === "answered") {return json(await interactionAdapter.beforeDeliver(id));}
+        if (row.status === "dismissed") return json(await interactionAdapter.beforeDeliver(id));
         if (row.status === "expired") break;
       }
       await interactionAdapter.expire(id);
-      await interactionAdapter.beforeDeliver(id);
-      return json({
-        ok: false,
-        answer:
-          "Joe didn't answer in time. Proceed with your best judgment, clearly state what you " +
-          "assumed, and do NOT take any client-facing/irreversible action you were unsure about.",
-      });
+      return json(await interactionAdapter.beforeDeliver(id));
     },
   );
 }

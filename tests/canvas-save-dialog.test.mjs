@@ -114,6 +114,12 @@ test('Save dialog layout: one scroller, full-height checklist rows, pinned Save 
   assert.match(src, /max-h-\[min\(20rem,38dvh\)\]/);
   assert.match(src, /<label className="flex min-h-12 w-full cursor-pointer items-center gap-3"><input className="size-5 shrink-0 accent-ink" type="checkbox"/);
   assert.match(src, /className="min-h-12 shrink-0 self-start[^"]*"[\s\S]{0,80}>Untick all</);
-  assert.match(src, /className="sticky bottom-0 z-10 flex items-center justify-end gap-4 border-t border-rule bg-paper py-2"/);
+  assert.match(src, /className="sticky bottom-0 z-10 flex flex-wrap items-center justify-end gap-x-4 gap-y-1 border-t border-rule bg-paper py-2">\{error\?<p role="alert"/);
+  // R4-1: hint + error live in the pinned footer; the acknowledgement scrolls into view once.
+  assert.match(src, /const hint=!project\?'Choose a project\.':needsAck&&!ack\?'Tick the line above to save\.':null;/);
+  assert.equal((src.match(/Tick the line above to save\./g)||[]).length, 1);
+  assert.equal((src.match(/role="alert"/g)||[]).length, 1);
+  assert.match(src, /ref=\{ackRow\} className="[^"]*\bscroll-mb-24\b/);
+  assert.match(src, /scrollIntoView\(\{block:'nearest'\}\)/);
   assert.match(src, /className="min-h-11 rounded-md border border-rule bg-paper px-3"[\s\S]{0,80}>Keep \{o\.label\} ticked</);
 });

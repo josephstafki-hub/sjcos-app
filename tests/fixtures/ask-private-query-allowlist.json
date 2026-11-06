@@ -248,7 +248,7 @@
     "db/migrations/0092_phone_push.sql": "f011992ec8a54d3ac074fc6e5b6f1c9855eb161f3f3b82a68d18f23b52cf262a",
     "db/migrations/0110_phone_lines.sql": "1322ea39adada8c03752dfabac0e30d1cac538df6b04b744ab43de128144b914",
     "db/migrations/0111_sms_threads_per_line.sql": "35b409a9b3d2e0d1ea6bb4eda63d4d03dbb657b81200a112ebb0b46802b40e75",
-    "db/migrations/0112_ask_phone_copy_privacy.sql": "cdee3d80aac8ddf06b81ebef7214e6f7a61a360f295525622e0c8d21ba799103"
+    "db/migrations/0112_ask_phone_copy_privacy.sql": "54bcb27c61fbb30f36bdcd3d2e26187c0f304fbaa0d5e3730da38cfbd8f0122f"
   },
   "entries": [
     {
@@ -7008,9 +7008,9 @@
       "function": "<sql>",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Website-only erasure wrapper, immutable private phone/outbox/action sanitation, historical descendant/summary fixed point and opaque registry source links retained after purge; new definer functions pin search_path and revoke PUBLIC trigger/repair execution. Conversational dedup hashing happens after sanitization; historical private text digests are cleared.",
+      "explanation": "Website-only erasure wrapper, immutable private phone/outbox/action sanitation, historical descendant/summary fixed point and opaque registry source links retained after purge; new definer functions pin search_path and revoke PUBLIC trigger/repair execution. Conversational dedup hashing happens after sanitization. Both outbox repair passes include already-erased shells: 0105 may have destroyed the payload/href association while retaining conversation_key. The main-first decision-linked sent-row regression proves migration and tombstone replay clear private digests, sticky late-write guards keep them NULL, and all three narrow logins see only sanitized shells.",
       "queries": [
-        "cdee3d80aac8ddf06b81ebef7214e6f7a61a360f295525622e0c8d21ba799103"
+        "54bcb27c61fbb30f36bdcd3d2e26187c0f304fbaa0d5e3730da38cfbd8f0122f"
       ]
     }
   ]

@@ -531,7 +531,13 @@ private Ask associations and descendants to fixed status, including historical
 summaries/outbox-only associations. Opaque reply/phone source IDs persist in the
 website-only registry after purge; tombstone/replay calls both erasure helpers.
 Historical text-derived conversation dedup keys are cleared and new hashing
-happens after sanitization. Notification overrides and stale delivery snapshots are re-sanitized; private
+happens after sanitization. The merge-review repair updates both 0112 cleanup
+passes to re-scrub already-erased outbox shells: 0105 may already have removed
+the payload/href association while retaining its text-derived hash. The
+main-first decision-linked sent-row regression now covers this ordering,
+tombstone replay, sticky late-write sanitation and reads by all three narrow
+logins; the earlier phone/reply-ID-only fixture did not prove this case.
+Notification overrides and stale delivery snapshots are re-sanitized; private
 phone actions refuse before text persistence. Shared reply metadata queries
 exclude conversation-bound rows. Legacy direct Telegram fallback refuses private
 or unavailable classification. Ordinary business/portal phone behavior remains.

@@ -8,8 +8,9 @@ import {runInNewContext} from 'node:vm';
 import assert from 'node:assert/strict';
 import {withMigrationSubset,withSessionIdentity} from './_harness/testdb.mjs';
 import {listMigrationFiles,migrate} from '../db/migrate.mjs';
-import {randomUUID} from 'node:crypto';
+import {createHash,randomUUID} from 'node:crypto';
 const secret='MERGE_PRIVATE_ASK_TITLE_ANSWER_FILE_6c88';
+const privateDigest=createHash('sha256').update(secret).digest('hex');
 test('main-first live-shaped ledger accepts Phase 0/Canvas, and private phone copies are erased',async()=>withMigrationSubset('merge_phone',[100,105,106,107,108,109],async({url,db,apply})=>{
  const files=listMigrationFiles();assert.equal(new Set(files.map(f=>f.id)).size,files.length);
  await apply([110,111]); // Real ledger, before pending 0100/0105–0109.
@@ -26,19 +27,39 @@ test('main-first live-shaped ledger accepts Phase 0/Canvas, and private phone co
  const [summary]=(await db.query(`INSERT INTO push_outbox(kind,title,body,send_after) VALUES('urgent_item',$1,$1,now()) RETURNING id`,[secret])).rows;
  await db.query(`UPDATE push_outbox SET summary_id=$2 WHERE id=$1`,[part.id,summary.id]);
  await db.query(`INSERT INTO owner_push_messages(kind,title,body,push_outbox_id,thread_key,category,state) VALUES('ack',$1,$1,$2,'old-summary','SJC_INFO','info')`,[secret,summary.id]);
+ // 0105 recognizes this decision association and erases its payload before
+ // 0112 runs. The marker is then the only way to find its retained dedup hash.
+ const historical=(await db.query(`INSERT INTO push_outbox(kind,title,body,payload,href,conversation_key,sent_at,send_after) VALUES('reply',$1,$1,$2,$3,$4,now(),now()) RETURNING id`,[secret,JSON.stringify({decisionId:d}),'/decisions/'+d,privateDigest])).rows[0].id;
  await migrate({url,quiet:true});
  assert.equal((await db.query('SELECT count(*)::int AS n FROM push_outbox WHERE ask_reply_erased AND conversation_key IS NOT NULL')).rows[0].n,0);
  assert.deepEqual((await migrate({url,quiet:true,status:true})).pending,[]);
- const clean=async (client,narrow=false)=>{for(const table of ['owner_push_messages','push_actions','push_outbox']){if(narrow&&table==='push_actions'){await assert.rejects(client.query(`SELECT * FROM ${table}`),e=>e.code==='42501');continue;}assert.ok(!JSON.stringify((await client.query(`SELECT * FROM ${table}`)).rows).includes(secret),table);}};
- await clean(db);
- for(const role of ['sjcos_agent','sjcos_worker','sjcos_readonly'])await withSessionIdentity(url,role,async client=>{
+ const clean=async (client,narrow=false)=>{
+  for(const table of ['owner_push_messages','push_actions','push_outbox']){
+   if(narrow&&table==='push_actions'){await assert.rejects(client.query(`SELECT * FROM ${table}`),e=>e.code==='42501');continue;}
+   const rows=(await client.query(`SELECT * FROM ${table}`)).rows;
+   assert.ok(!JSON.stringify(rows).includes(secret),table);
+   assert.ok(!JSON.stringify(rows).includes(privateDigest),table+' private dedup hash');
+   if(table==='push_outbox'){
+    for(const row of rows.filter(r=>r.ask_reply_erased))assert.equal(row.conversation_key,null,'erased outbox dedup hash');
+    const row=rows.find(r=>r.id===historical);assert.ok(row,'historical sent row remains readable as a status shell');
+    assert.equal(row.ask_reply_erased,true);assert.ok(row.sent_at);assert.deepEqual(row.payload,{});assert.equal(row.href,'/today');assert.equal(row.conversation_key,null);
+   }
+  }
+ };
+ const lateWrite=`UPDATE push_outbox SET ask_reply_erased=false,title=$2,body=$2,payload=jsonb_build_object('appText',$2::text),conversation_key=$3 WHERE id=$1`;
+ const narrowReads=async()=>{for(const role of ['sjcos_agent','sjcos_worker','sjcos_readonly'])await withSessionIdentity(url,role,async client=>{
   assert.equal((await client.query(`SELECT * FROM owner_replies`)).rowCount,0);await clean(client,true);
+  await assert.rejects(client.query('SELECT * FROM private_ask_push_sources'),e=>e.code==='42501');
   await assert.rejects(client.query('SELECT erase_ask_phone_copies()'),e=>e.code==='42501');
-  if(role!=='sjcos_readonly'){
+  if(role==='sjcos_readonly')await assert.rejects(client.query(lateWrite,[historical,secret,privateDigest]),e=>e.code==='42501');
+  else{
+   await client.query(lateWrite,[historical,secret,privateDigest]);await clean(client,true);
    await client.query(`UPDATE owner_push_messages SET ask_reply_erased=false,title=$2,body=$2,outcome=$2 WHERE id=$1`,[root,secret]);await clean(client,true);
    await client.query(`INSERT INTO owner_push_messages(kind,title,body,reply_to_id,thread_key,category,state) VALUES('reply',$1,$1,$2,$1,'SJC_REPLY','info')`,[secret,child]);await clean(client,true);
   }
- });
+ });};
+ await clean(db);
+ await narrowReads();
  // Exercise the actual legacy fallback with a failing history dependency.
  const sent=[],exports={};let dbDown=false;
  const deps={'./phone-push':{recordAppMessage:async()=>{throw Error('history unavailable');}},'./notify-owner':{},
@@ -52,7 +73,16 @@ test('main-first live-shaped ledger accepts Phase 0/Canvas, and private phone co
   dbDown=true;await assert.rejects(exports.sendOwnerTelegram(secret,{ownerReplyId:r,legacyFallback:true}),/classification unavailable/);assert.equal(sent.length,1);
  }finally{if(priorChat===undefined)delete process.env.TELEGRAM_OWNER_CHAT_ID;else process.env.TELEGRAM_OWNER_CHAT_ID=priorChat;}
  await withSessionIdentity(url,'sjcos_test_website',async client=>{
-  await client.query('SELECT erase_ask_reply_copies($1)',[c]);await client.query('SELECT erase_ask_reply_copies($1)',[c]);await clean(client);
+  // Replay after the source is tombstoned; late writers cannot resurrect its
+  // text or hash even after the original payload associations have gone.
+  await client.query("SELECT set_config('sjcos.ask_purge','yes',false)");
+  await client.query("UPDATE ai_conversations SET deleted_at=now(),purge_after=now()+interval '720 hours',deletion_sequence=1 WHERE id=$1",[c]);
+  await client.query("SELECT set_config('sjcos.ask_purge','',false)");
+  for(let replay=0;replay<2;replay++){
+   await client.query('SELECT erase_ask_reply_copies($1)',[c]);await clean(client);
+   await client.query(lateWrite,[historical,secret,privateDigest]);await clean(client);
+  }
   const business=(await client.query(`INSERT INTO owner_push_messages(kind,title,body,thread_key,category,state) VALUES('reply','Shared business','Business body','business','SJC_REPLY','info') RETURNING *`)).rows[0];assert.equal(business.body,'Business body');assert.equal(business.ask_reply_erased,false);
  });
+ await narrowReads();
 }));

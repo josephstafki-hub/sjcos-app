@@ -21,7 +21,7 @@ Auto-merges were also reviewed: owner grants retain private source checks and ad
 |---|---|
 | `owner_push_messages.title/body/href/outcome/thread_key/agent_name`, reply descendants and phone history API | SQL trigger irreversibly replaces private Ask-associated content with fixed status. Opaque reply/phone IDs join the existing website-only persistent registry, including historical Telegram/source mappings. Association via private outbox rows is covered. No private phone reply buttons; domain/API refusal happens before input text persistence. |
 | APNs alert title/body/href and stale in-memory AppAlert | `deliverAppMessage` reloads the persisted sanitized row. Device selection remains active owner iOS registration with session/revocation checks. Real fake-provider regression confirms the private sentinel never appears in APNs or Telegram output. |
-| Conversational `push_outbox.payload.appText`, owner reply IDs, existing-message IDs, title/body/href and text-derived `conversation_key` | Existing immutable outbox sanitation now recognizes reply and phone IDs through the persistent registry. Immediate, leased and retry delivery recheck the marker; private conversational content cannot bypass the check. Historical text-derived dedup keys are cleared; new hashing happens after sanitization. |
+| Conversational `push_outbox.payload.appText`, owner reply IDs, existing-message IDs, title/body/href and text-derived `conversation_key` | Existing immutable outbox sanitation now recognizes reply and phone IDs through the persistent registry. Immediate, leased and retry delivery recheck the marker; private conversational content cannot bypass the check. Historical text-derived dedup keys are cleared, including already-erased shells whose source payload/href was removed by 0105; both 0112 cleanup passes re-scrub their markers. The main-first decision-linked sent-row regression covers migration, tombstone replay, late writes and all three narrow-login readers. New hashing happens after sanitization. |
 | Folded summary bodies and their phone history | Sanitize constituent snapshots again before composing a summary. Migration/replay follows `summary_id` to scrub historical summaries, then phone descendants to a fixed point, even when the summary itself retained no source UUID. |
 | `push_actions.text/evidence/result` | SQL source guard erases historical private copies and keeps late writes fixed; narrow logins retain no table privilege. Private phone requests are refused before insert. Business retry generations/approval evidence remain unchanged. |
 | Notification title/subline overrides | Private source classification also replaces `emit` overrides with fixed status, so an override cannot republish a sanitized title/body. Main's reply/answer producers otherwise use phone-only delivery. |
@@ -96,3 +96,58 @@ Initial integration failures were resolved without relaxing production privacy: 
 **661 passed across 43 files; zero final failures/skips.**
 
 Final locked niced tsc: **exit 0**. Role scan: **exit 0**, all differences explained above. Private-query scan: **611 per-function/source entries, 1276 fragments, 247 source files** (195 fenced, 156 trusted-background, 260 not-private), zero violations. `git diff --cached --check` passes; one blank EOF line from main’s engineering review was normalized. All tagged disposable clusters stopped. No visual verification was requested/performed.
+
+
+## Required merge-review repairs (2026-11-06)
+
+Both required findings in `../reviews/merge-main-eng-security.md` are fixed.
+Migration **0112 was edited in place**, as explicitly authorized because it is
+not applied on live. No other migration changed and no migration was added.
+Both outbox cleanup predicates now include `ask_reply_erased`, causing the
+current sticky trigger to clear historical `conversation_key` hashes even
+when 0105 already destroyed their payload/href associations. The SQL audit hash
+and explanation were refreshed after reviewing these exact changes.
+
+The main-first regression now seeds a decision-linked, already-sent row with a
+real text-derived SHA-256 dedup key. Against the unpatched SQL it fails with
+one erased row retaining a key; against the repair it proves migration clears
+every erased row's key, preserves sanitized sent shells, and repeated erasure
+after a source tombstone leaves no private text or hash. Website, agent and
+worker late writes cannot reset the marker or restore content/hash; readonly
+updates are denied. All three actual narrow logins read only sanitized shells,
+see no private owner replies, and cannot read the source registry or invoke
+the repair function. Existing phone/summary/action and business controls remain.
+
+The admission fixture now imports TypeScript at module scope before installing
+loader hooks. All four tests pass, including the unchanged real worker-login
+assertions: inherited person/thread identity is discarded, profile is business,
+launch source is background, MCP stays false, and only the stub spawn runs.
+No additional fixture repair or weakened assertion was needed.
+
+Repair verification used sequential single-file runs, each with its own
+`SJC_TEST_CLUSTER_TAG=mergefix-<timestamp>` and cluster-stop EXIT trap:
+
+| Test file (`tests/<name>.test.mjs`) | Passed | Failed / skipped |
+|---|---:|---:|
+| merge-phone-privacy-db | 1 | 0 / 0 |
+| ask-run-admission-db | 4 | 0 / 0 |
+| merge-phone-delivery-db | 1 | 0 / 0 |
+| ask-private-query-scan | 11 | 0 / 0 |
+| db-roles-manifest-db | 6 | 0 / 0 |
+| db-roles-paths-db | 3 | 0 / 0 |
+| canvas-rollout-db | 7 | 0 / 0 |
+
+**33 passed across 7 files; zero final failures/skips.** The existing delivery
+fixture logs a caught notifications INSERT error (`kind` is NULL); its test
+passes, and this repair does not change that fixture or its assertions.
+
+`flock /tmp/sjcos-tsc.lock nice -n 19 npx tsc --noEmit -p .`: **exit 0**.
+`node scripts/db-roles-scan.mjs --diff`: **exit 0**, with the review's existing
+withheld/column-limited differences plus unannotated agent UPDATE differences
+for `ai_conversations`, `dev_agent_runs` and `run_steers`. These remain behind
+website admission; no grants were expanded. This qualifies the earlier
+handoff's claim that every printed difference was explicitly annotated.
+Private-query audit: **611 entries / 1276 fragments / 247 files**, zero
+violations. All disposable clusters were stopped; no exit 137 occurred.
+No dependency installation, QA output, live/QA DB, protected deployment state,
+service, deploy, browser or Next build/start/dev was used.

@@ -71,7 +71,9 @@ CREATE OR REPLACE FUNCTION erase_ask_phone_copies() RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
 DECLARE changed integer;
 BEGIN
- UPDATE push_outbox SET ask_reply_erased=true WHERE ask_push_is_private(payload,href);
+ -- 0105 already erased some payload/href associations but left dedup hashes.
+ -- Re-scrub marked shells too so the current trigger clears every derivative.
+ UPDATE push_outbox SET ask_reply_erased=true WHERE ask_reply_erased OR ask_push_is_private(payload,href);
  -- A historical summary may have lost every private UUID from its payload.
  LOOP
   UPDATE push_outbox summary SET ask_reply_erased=true WHERE NOT summary.ask_reply_erased
@@ -87,7 +89,7 @@ BEGIN
   EXIT WHEN changed=0;
  END LOOP;
  UPDATE owner_push_messages SET ask_reply_erased=true WHERE ask_reply_erased;
- UPDATE push_outbox SET ask_reply_erased=true WHERE ask_push_is_private(payload,href);
+ UPDATE push_outbox SET ask_reply_erased=true WHERE ask_reply_erased OR ask_push_is_private(payload,href);
  UPDATE push_actions SET text=NULL WHERE ask_push_is_private(jsonb_build_object('message',message_id),NULL);
 END $$;
 REVOKE ALL ON FUNCTION erase_ask_phone_copies() FROM PUBLIC;

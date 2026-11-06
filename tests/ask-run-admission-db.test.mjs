@@ -1,5 +1,6 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
+import ts from 'typescript';
 import {withTestDb,withSessionIdentity,withMigrationSubset} from './_harness/testdb.mjs';
 import {seedPeople} from './phase0a-fixtures.mjs';
 test('0100 actual login guards preserve background retry and reject forged panel identity (20 attacks)',async()=>withMigrationSubset('admission_0100',[100],async({url,db:c,apply})=>{
@@ -83,7 +84,7 @@ test('admitAskRun checks authentication, source, 0105 seam, profile, resume and 
 }));
 
 test('real startClaudeRun under worker login drops inherited person/thread and keeps MCP-off without spawning a process',async()=>withTestDb(async(url,c)=>{
- const {readFileSync}=await import('node:fs'); const {createRequire}=await import('node:module');const {runInNewContext}=await import('node:vm');const ts=(await import('typescript')).default;
+ const {readFileSync}=await import('node:fs'); const {createRequire}=await import('node:module');const {runInNewContext}=await import('node:vm');
  const require=createRequire(import.meta.url);const profiles=await import('../lib/authority/run-profile.mjs');
  const {owner,thread}=await seedPeople(c);
  const item=(await c.query(`INSERT INTO work_items(title) VALUES('ZZ background admission') RETURNING id`)).rows[0].id;

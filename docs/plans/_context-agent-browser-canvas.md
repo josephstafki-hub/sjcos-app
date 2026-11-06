@@ -194,3 +194,13 @@ Branch note: T3 renamed this branch to `t3/in-app-browser-agent-tools`.
 - **Build round 1 is blocked on the deferred pane-host captures:** landscape strip, 839/840/1000, 1100 popout pane, and 1280 expansion + Back to app.
 - **Migration note (2026-11-05):** `0109_canvas_control_envelopes.sql` uses 0109, because main already ships `0110_phone_lines.sql` and `0111_sms_threads_per_line.sql`. Floor refs (Phase 3) will take the next free number on main at build time.
 - **Merge with main (2026-11-06):** `0112_ask_phone_copy_privacy.sql` is the additive fix that protects private copies in main's phone-push/phone-line paths. No other branch uses 0112. #119 was closed as superseded; #120 → main now holds Phase 0 + Canvas Phase 1.
+
+## Coordinator build decisions: Canvas Phases 2 and 3 (2026-11-06)
+
+- Phase 0 + Canvas Phase 1 are LIVE (PR #120, main c922976b, build 5qiHPktn). Canvas is on for Joe only (`canvas.staff_enabled=false`).
+- Joe (2026-11-06): "Do the installs then continue with canvas". Phases 2 and 3 are built now on branch `t3/canvas-phase2-3` (worktree t3-cf34c1be). Browser 0b waits on draft PR #121.
+- Migration numbers: the plan's "0108 if needed" / "0109" are taken (0108 = saves/exports, 0109 = control envelopes, 0110–0112 = main). **Phase 2 reserves 0113 (use it only if needed); Phase 3 reserves 0114.** Never create any other number.
+- Two Codex builders run in parallel with strict ownership:
+  - **Phase 2 builder** owns the shared canvas files.
+  - **Phase 3 builder** owns the new floor files and writes the exact shared-file hook it needs into its HANDOFF; the coordinator applies it.
+- Real fixtures only: capture real browser/library output (lesson from Phase 1's Mermaid filters).

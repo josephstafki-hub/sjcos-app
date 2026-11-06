@@ -19,7 +19,7 @@ import { pool, query, queryOne } from "@/lib/db";
 import { requireAccess } from "@/lib/dal";
 import { getCompanyDocInfo } from "@/lib/documents";
 import { migrateDoc, type PlanDoc } from "@/lib/plan-doc";
-import { getPlanDesign, getPlanDesignVersion, type PlanDesign } from "@/lib/plan-designs";
+import type { PlanDesign } from "@/lib/plan-designs";
 import { renderPlanSheets, type PrintCapture } from "@/lib/plan-print";
 import { SHEET_KEYS, type SheetKey, type SheetRequest } from "@/lib/plan-print-types";
 import { storeBuffer } from "@/lib/upload-store";
@@ -56,7 +56,7 @@ function cleanRequest(req: SheetRequest): { ok: true; req: SheetRequest } | Fail
 }
 
 interface Resolved {
-  design: PlanDesign;
+  design: Pick<PlanDesign, "id" | "name" | "projectId" | "projectSlug" | "projectName" | "leadSlug">;
   doc: PlanDoc;
   /** Snapshot the doc came from (null = live doc). */
   version: { id: number; number: number; label: string } | null;
@@ -66,37 +66,46 @@ interface Resolved {
   project: { name: string; clientName: string; address: string } | null;
 }
 
-/** Load the design plus the doc to print (a snapshot when versionId is set). */
-async function resolveDesign(designId: number, versionId: number | null): Promise<Resolved | Fail> {
-  const design = await getPlanDesign(designId);
-  if (!design) return { ok: false, error: "Design not found." };
-  let doc = design.doc;
-  let version: Resolved["version"] = null;
-  let number = (design.latestVersion?.number ?? 0) + 1;
-  let versionLabel = `v${number} · working draft`;
-  if (versionId !== null) {
-    const v = await getPlanDesignVersion(versionId);
-    if (!v || v.designId !== design.id) return { ok: false, error: "That version is not on this design." };
-    doc = v.doc;
-    version = { id: v.id, number: v.number, label: v.label };
-    number = v.number;
-    versionLabel = v.label ? `v${v.number} · ${v.label}` : `v${v.number}`;
-  }
-  let project: Resolved["project"] = null;
-  if (design.projectId) {
-    const p = await queryOne<{ name: string; client_name: string | null; address: string | null }>(
-      `SELECT name, client_name, address FROM projects WHERE id = $1`,
-      [design.projectId],
-    );
-    if (p) project = { name: p.name, clientName: p.client_name ?? "", address: p.address ?? "" };
-  } else if (design.leadSlug) {
-    const l = await queryOne<{ name: string | null; address: string | null }>(
-      `SELECT name, address FROM leads WHERE slug = $1`,
-      [design.leadSlug],
-    );
-    project = { name: design.name, clientName: l?.name ?? design.leadName ?? "", address: l?.address ?? "" };
-  }
-  return { design, doc: migrateDoc(doc), version, number, versionLabel, project };
+/** Both output actions authorize the current design under its row lock before
+ * reading selected geometry, scope details or captures. Templates use the same
+ * explicit policy as the full designer, never Canvas's stricter pin policy. */
+async function resolveDesign(
+  person: Parameters<typeof assertFloorAccess>[0],
+  designId: number,
+  versionId: number | null,
+  publish = false,
+): Promise<Resolved | Fail> {
+  const tx = await pool.connect();
+  try {
+    await tx.query("BEGIN");
+    const d = await lockPlanDesign(tx, String(designId));
+    assertFloorAccess(person, d, true);
+    let snapshot;
+    if (versionId !== null) {
+      snapshot = (await tx.query("SELECT * FROM plan_design_versions WHERE id=$1 AND design_id=$2", [versionId, d.id])).rows[0];
+      if (!snapshot) throw new Error("CANVAS_UNAVAILABLE");
+    } else if (publish) {
+      snapshot = await savePlanSnapshot(tx, d.id, person.id, "Published");
+    }
+    const design: Resolved["design"] = { id: Number(d.id), name: d.name, projectId: d.project_id, projectSlug: d.project_slug, projectName: null, leadSlug: d.lead_slug };
+    let project: Resolved["project"] = null;
+    if (d.project_id) {
+      const p = (await tx.query("SELECT name, client_name, address FROM projects WHERE id=$1", [d.project_id])).rows[0];
+      if (p) { design.projectName = p.name; project = { name: p.name, clientName: p.client_name ?? "", address: p.address ?? "" }; }
+    } else if (d.lead_slug) {
+      const l = (await tx.query("SELECT name, address FROM leads WHERE slug=$1", [d.lead_slug])).rows[0];
+      project = { name: d.name, clientName: l?.name ?? "", address: l?.address ?? "" };
+    }
+    const number = snapshot?.number ?? Number((await tx.query("SELECT COALESCE(MAX(number),0)+1 AS number FROM plan_design_versions WHERE design_id=$1", [d.id])).rows[0].number);
+    const version = snapshot ? { id: Number(snapshot.id), number: snapshot.number, label: snapshot.label } : null;
+    const versionLabel = version ? (version.label ? `v${number} · ${version.label}` : `v${number}`) : `v${number} · working draft`;
+    const doc = migrateDoc(snapshot?.doc ?? d.doc);
+    await tx.query("COMMIT");
+    return { design, doc, version, number, versionLabel, project };
+  } catch (e) {
+    await tx.query("ROLLBACK");
+    return { ok: false, error: e instanceof Error ? e.message : "Could not load floor plan." };
+  } finally { tx.release(); }
 }
 
 /** Captures must belong to this design; missing blobs are skipped, not fatal. */
@@ -170,7 +179,7 @@ async function renderAndStore(
   return { ok: true, fileId: stored.id };
 }
 
-function revalidateDesign(design: PlanDesign) {
+function revalidateDesign(design: Resolved["design"]) {
   revalidatePath(`/floor/${design.id}`);
   revalidatePath("/floor");
   if (design.projectSlug) revalidatePath(`/projects/${design.projectSlug}`);
@@ -183,10 +192,10 @@ export async function renderPlanSheetsPdf(
   designId: number,
   req: SheetRequest,
 ): Promise<{ ok: true; fileId: string; url: string } | { ok: false; error: string }> {
-  await requireAccess("projects");
+  const user = await requireAccess("projects");
   const c = cleanRequest(req);
   if (!c.ok) return c;
-  const r = await resolveDesign(Number(designId), c.req.versionId);
+  const r = await resolveDesign(user, Number(designId), c.req.versionId);
   if ("ok" in r) return r;
   const captures = await loadCaptures(r.design.id, c.req.captureFileIds);
   const stored = await renderAndStore(r, c.req, captures);
@@ -209,24 +218,9 @@ export async function publishPlanVersion(
   if (!c.ok) return c;
   const id = Number(designId);
 
-  let versionId = c.req.versionId;
-  if (versionId === null) {
-    const tx = await pool.connect();
-    try {
-      await tx.query('BEGIN');
-      const d = await lockPlanDesign(tx, String(id));
-      assertFloorAccess(user, d, true);
-      const snapshot = await savePlanSnapshot(tx, d.id, user.id, 'Published');
-      await tx.query('COMMIT');
-      versionId = Number(snapshot.id);
-    } catch (e) {
-      await tx.query('ROLLBACK');
-      return {ok:false,error:e instanceof Error ? e.message : 'Could not save floor plan.'};
-    } finally { tx.release(); }
-  }
-
-  const r = await resolveDesign(id, versionId);
+  const r = await resolveDesign(user, id, c.req.versionId, true);
   if ("ok" in r) return r;
+  const versionId = r.version!.id;
   const captures = await loadCaptures(r.design.id, c.req.captureFileIds);
   const stored = await renderAndStore(r, c.req, captures);
   if (!stored.ok) return stored;

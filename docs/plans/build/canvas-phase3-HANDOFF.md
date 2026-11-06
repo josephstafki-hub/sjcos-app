@@ -660,3 +660,120 @@ B did not edit that fixture.
 - No build, browser, app server, live migration, deploy, feature enablement,
   service operation or push was performed. Floor remains behind its existing
   feature-off rollout gate. The disposable test cluster is stopped after checks.
+
+## Round 2 fixes
+
+Implementation builder B, floor-owned files only, on `t3/canvas-phase2-3`.
+This section supersedes round 1's historical-publication behavior and the
+estimate transaction boundary. Builder A concurrently owns shared Canvas
+serialization/picker/cards/version rows; those files and the shared private-query
+allowlist fixture were not edited or staged by B.
+
+- **Security #1 / engineering #1:** `plan-publish.ts` now shares one authorized
+  resolver between `publishPlanVersion` and `renderPlanSheetsPdf`. Both begin a
+  transaction, lock the design and call `assertFloorAccess(..., true)` before
+  resolving a selected snapshot or reading project/lead output details. A
+  selected snapshot is loaded by both snapshot ID and authorized design ID on
+  that transaction. Automatic snapshot allocation stays under the same lock.
+  Missing, denied and mismatched targets return `CANVAS_UNAVAILABLE`, before
+  capture reads, PDF/company rendering, blob storage, file metadata or staged
+  publication records. Full-designer templates remain allowed.
+- **Security #2 / engineering #2:** `generateEstimateFromDesign` locks and
+  authorizes the source before creating a draft or reading existing-estimate
+  diagnostics. The authorized design supplies its name and scope. Draft
+  creation, immutable snapshot selection, initial pin validation/revision
+  records, line replacement, product/cost-item/install lines and totals now
+  share one transaction/client. All generation failures return a structured
+  error and roll back the draft/snapshot/provenance/lines together. The local
+  transactional cost-item writer preserves takeoff pricing/markup snapshots;
+  the standalone takeoff server action cannot be used because it autocommits
+  through the pool. Existing estimate rows are locked before regeneration.
+- **Design #1–3:** the visible 820px+ link exists only with `can_edit` and says
+  **Edit floor plan ↗**. That person's duplicate menu link hides at 820px;
+  view-only people retain **Open floor plan ↗** in the menu at every width.
+  **Use this version** exists only for a selected older Canvas version. Every
+  floor menu row is 56px and Delete has a top divider. The restore confirmation
+  also adopts **Make floor plan vN the latest?** (optional design O5).
+- **Design #4 / shared contract:** internal `floorVersionMeta` joins the current
+  `plan_designs.name` and returns `name:string`, including historical pins.
+  Callers must already authorize owned live Canvas/thread and floor scope;
+  the helper remains internal. A maps this to `VersionMeta.design_name`.
+
+### Round 2 verification
+
+Fifteen added regression cases were written before implementation, with a
+strengthened existing view-only case. Their first runs reproduced the backend,
+menu and name failures. Expanded positive controls, pricing/regeneration and
+stateful restore-handler coverage bring the final increase to **22 cases** over
+round 1. The two initial name assertions were corrected to the agreed top-level
+`VersionMeta.design_name` serializer contract. The final denied-read assertion
+checks the normalized unavailable result (the principal gate's internal
+`ASK_ACCESS_DENIED` becomes `CANVAS_UNAVAILABLE`). Neither correction changes
+production access behavior.
+
+Actual exported web actions run against disposable SQL with authentication,
+framework and PDF/storage seams. Negative tests cover Projects-only lead
+current/history publication, render-only current/history denial, a foreign
+snapshot, revoked Projects and inactive staff, plus Estimates-only project and
+Estimates+Projects lead denial before new/existing-target diagnostics. Injected
+failures after the real snapshot INSERT, at pin validation, after product INSERT
+and after regeneration cost-item INSERT prove complete rollback; failed
+regeneration preserves existing generated/manual lines and totals.
+
+Owner and authorized staff controls exercise project, lead and template web
+save/restore, automatic/selected-history publication, live/selected render-only
+output, estimate product lines/provenance and repeated snapshot reuse. Separate
+existing controls still verify authorized project/lead/template deletion and
+Canvas template refusal. Pricing tests cover measure/product/install lines and
+per-cost-item markup. Existing real-session edit/Canvas-ensure/web-restore races
+still pass; the estimate race now inspects pinned bytes inside the transaction
+before deliberately failing, then verifies new snapshot rollback.
+
+The stateful UI test executes version selection, older-version menu,
+confirmation, POST restore body, store publication and selection of the new
+latest, then checks the restore row disappears. An additional real Canvas
+command/DB lifecycle creates distinct v1/v2 snapshots, selects v1, restores it
+as v3, verifies `restored_from_version=1` and the original snapshot ID, keeps the
+live drawing unchanged, and checks renamed design metadata in selected/latest/
+history responses. A subsequent denied read exposes no name.
+
+All required files ran **individually**, with Node TypeScript stripping and
+`SJC_TEST_CLUSTER_TAG=c23-floor-b-r2-1106`:
+
+| File | Passed |
+| --- | ---: |
+| `tests/floor-actions-db.test.mjs` | 53/53 |
+| `tests/floor-ui.test.mjs` | 17/17 |
+| `tests/canvas-floor-db.test.mjs` | 18/18 |
+| `tests/canvas-floor-adapter.test.mjs` | 30/30 |
+| `tests/mcp-floor-tools.test.mjs` | 12/12 |
+| `tests/plan-ops.test.mjs` | 8/8 |
+| `tests/db-roles-manifest-db.test.mjs` | 6/6 |
+| `tests/db-roles-paths-db.test.mjs` | 3/3 |
+| **Total** | **147/147** |
+
+`flock /tmp/sjcos-tsc.lock nice -n 19 npx tsc --noEmit -p .` finished with **exit
+0** after correcting the explicit locked-design TypeScript type. Scoped diff
+whitespace checks pass. `node scripts/db-roles-scan.mjs --diff` exits 0; no new
+narrow-login writes, grants, table or migration were required. The disposable
+cluster was stopped successfully (`stopCluster() === true`); no default/live/QA
+connection was used.
+
+Coordinator audit fragment:
+**`docs/plans/build/canvas23-r2-floor-allowlist.json`**. Its source and four helper
+query hashes were generated using the actual `scanTree`; fragment validation
+reports no missing/stale hashes. It documents the new name join and existing
+caller/access limitations. Merge this fragment into the shared allowlist and
+run the final combined audit after both builders commit.
+
+### Round 2 remaining coordinator checks
+
+- Browser acceptance/screenshots at 360/820/1100/1280: editable link deduplication,
+  view-only 1280 menu, 56px menu rows/divider, and select v1 → confirmation →
+  restored newest entry with no dead restore row. Also verify design-name
+  agreement across pane/picker/cards/history after A's integration.
+- Preserve prior release checks for focus/Escape, Safari/iOS printing, 3D/WebGL
+  disposal and full-designer return/unsaved edits. No browser, app server,
+  production build, physical PDF/storage output or client-facing send ran here.
+- No push, deploy, live/QA database operation, service operation, dependency
+  installation or feature enablement. Floor keeps its existing rollout gate.

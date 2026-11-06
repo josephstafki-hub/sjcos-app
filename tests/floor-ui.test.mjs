@@ -10,7 +10,7 @@ import ts from 'typescript';
 import * as jsx from 'react/jsx-runtime';
 let state,patches,deleted,copied,selected;
 const C='canvas';
-function load(file,imports){const module={exports:{}};vm.runInNewContext(ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX,target:ts.ScriptTarget.ES2020}}).outputText,{module,exports:module.exports,require:k=>{assert.ok(k in imports,k);return imports[k];},navigator:{clipboard:{writeText:async v=>{copied=v;}}},window:{location:{origin:'https://sjc.test'}},URL});return module.exports;}
+function load(file,imports){const module={exports:{}};vm.runInNewContext(ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX,target:ts.ScriptTarget.ES2020}}).outputText,{module,exports:module.exports,require:k=>{assert.ok(k in imports,k);return imports[k];},navigator:{clipboard:{writeText:async v=>{copied=v;}}},window:{location:{origin:'https://sjc.test'}},URL,crypto});return module.exports;}
 const hooks={useState:v=>[v,()=>{}],useRef:v=>({current:v}),useEffect(){},useSyncExternalStore:(_,get)=>get()};
 const pane=load('components/panel/canvas/floor/FloorCanvasPane.tsx',{
  react:hooks,'react/jsx-runtime':jsx,'../../CanvasVersions':{CanvasVersions:'history'},'../CanvasOverlay':{CanvasOverlay:'overlay'},'./FloorCanvasStage':{FloorCanvasStage:'stage'},'../state':{canvasFetch(){}},
@@ -22,7 +22,7 @@ function nodes(el){if(!el||typeof el!=='object')return [];return [el,...[el.prop
 function text(el){if(typeof el==='string'||typeof el==='number')return String(el);if(!el||typeof el!=='object')return '';return [el?.props?.children].flat(Infinity).map(text).join('');}
 function find(el,label){const result=nodes(el).find(n=>n.type==='button'&&text(n)===label);assert.ok(result,label);return result;}
 test('title uses design name and supplied picker once, never canvas title',()=>{const p=fixture(),el=pane(p),s=text(el);assert.match(s,/Actual design name/);assert.ok(!s.includes('Different canvas title'));assert.equal(nodes(el).filter(n=>n.props?.['aria-label']==='Canvases in this chat').length,1);find(el,'⋯').props.onClick();assert.equal(patches.at(-1).sheet,'menu');});
-test('missing edit capability renders Open',()=>{assert.match(text(pane(fixture())),/Open floor plan ↗/);});
+test('view-only has no visible title link and keeps Open in menu at every width',()=>{const p=fixture();assert.equal(nodes(pane(p)).filter(n=>n.type==='a').length,0);state.views[C].sheet='menu';const a=nodes(pane({...p,slot:'content'})).find(n=>n.type==='a');assert.match(text(a),/Open floor plan ↗/);assert.doesNotMatch(a.props.className,/820px.*hidden/);});
 test('edit capability renders visible tablet/desktop Edit',()=>{const p=fixture();p.data.floor.can_edit=true;const el=pane(p),a=nodes(el).find(n=>n.type==='a');assert.equal(text(a),'Edit floor plan ↗');assert.match(a.props.className,/min-\[820px\]/);});
 test('meta preserves entire design number and Read only independent of long name',()=>{assert.match(text(pane({...fixture(),slot:'meta'})),/^Floor plan · v7 · Read only/);});
 test('changed notice lives in existing meta row',()=>{const p=fixture();p.data.floor.changed=true;assert.match(text(pane({...p,slot:'meta'})),/The floor plan changed\..*Load latest/);});
@@ -46,4 +46,35 @@ for(const entry of ['TopBar','DesignsStrip','VersionsPanel'])test(`${entry} dele
  const button=nodes(el).find(n=>typeof n.props?.onClick==='function'&&text(n)===(entry==='VersionsPanel'?'Delete':'Delete design'));
  assert.ok(button,'delete entry');button.props.onClick();await promise;await new Promise(resolve=>setImmediate(resolve));
  assert.equal(navigations,0);assert.equal(notice,block);
+});
+
+// Round 2 expectations FIRST: editable menus hide the duplicate at 820px;
+// latest has no restore row, older does; all five rows are 56px and Delete is divided.
+test('r2 editable menu link hides exactly when visible Edit appears',()=>{const p=fixture({slot:'content'});p.data.floor.can_edit=true;state.views[C].sheet='menu';const a=nodes(pane(p)).find(n=>n.type==='a');assert.match(a.props.className,/min-\[820px\]:hidden/);});
+test('r2 latest version omits Use this version; older versions offer it',()=>{const p=fixture({slot:'content'});state.views[C].sheet='menu';assert.ok(find(pane(p),'Use this version'));p.data.selected.version=2;assert.equal(nodes(pane(p)).filter(n=>n.type==='button'&&text(n)==='Use this version').length,0);});
+test('r2 floor menu rows are 56px with divider above Delete',()=>{const p=fixture({slot:'content'});state.views[C].sheet='menu';const overlay=nodes(pane(p)).find(n=>n.type==='overlay');const rows=nodes(overlay).filter(n=>n.type==='a'||n.type==='button');assert.equal(rows.length,5);for(const row of rows)assert.match(row.props.className,/min-h-14/);assert.match(find(overlay,'Delete canvas…').props.className,/border-t border-rule/);});
+
+test('r2 select v1, confirm Use this version, then select new latest response',async()=>{
+ // Stateful hook seam executes the real picker callback, menu and confirmation
+ // handler. The disposable-DB test independently verifies the command's pin.
+ const p=fixture({slot:'content'});p.context.signal=new AbortController().signal;
+ p.data.selected={...p.data.selected,version:2,design:{number:2}};
+ state.items=[{canvas:p.data.canvas,latest:p.data.selected}];state.views[C].sheet='versions';
+ let cursor=0,published=0;const memory=[],calls=[];
+ const stateful={...hooks,useState:init=>{const n=cursor++;if(!(n in memory))memory[n]=init;return [memory[n],value=>{memory[n]=typeof value==='function'?value(memory[n]):value;}];},useRef:init=>{const n=cursor++;if(!(n in memory))memory[n]={current:init};return memory[n];}};
+ const result={canvas:{id:C,latest_version:3},selected:{...p.data.selected,version:3,design:{number:1}},changed:true};
+ const component=load('components/panel/canvas/floor/FloorCanvasPane.tsx',{
+  react:stateful,'react/jsx-runtime':jsx,'../../CanvasVersions':{CanvasVersions:'history'},'../CanvasOverlay':{CanvasOverlay:'overlay'},'./FloorCanvasStage':{FloorCanvasStage:'stage'},
+  '../state':{canvasFetch:async(url,signal,options)=>{calls.push({url,body:JSON.parse(options.body)});return result;}},
+  '../store':{canvasState:()=>state,canvasServerState:()=>state,subscribeCanvas(){},patchCanvas:(id,patch)=>{state.views[id]={...state.views[id],...patch};},selectCanvasVersion:(_id,n)=>{selected=n;},askCanvasChange(){},updateCanvas:patch=>{Object.assign(state,patch);},publishCanvases:()=>published++}
+ }).FloorCanvasPane;
+ const render=()=>{cursor=0;return component(p);};
+ const history=nodes(render()).find(n=>n.type==='history');history.props.onSelect(1);assert.equal(selected,1);
+ p.data.selected={...p.data.selected,version:1,design:{number:1}};state.views[C].sheet='menu';
+ find(render(),'Use this version').props.onClick();
+ const confirmation=nodes(render()).find(n=>n.type==='overlay');assert.equal(confirmation.props.title,'Make floor plan v1 the latest?');
+ find(confirmation,'Use this version').props.onClick();await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(calls.length,1);assert.equal(calls[0].url,`/api/canvas/${C}/restore`);assert.equal(calls[0].body.base_version,2);assert.equal(calls[0].body.restore_version,1);assert.ok(calls[0].body.request_id);
+ assert.equal(published,1);assert.equal(selected,3);assert.equal(state.items[0].latest.design.number,1);
+ p.data={...p.data,...result};state.views[C].sheet='menu';assert.equal(nodes(render()).filter(n=>n.type==='button'&&text(n)==='Use this version').length,0);
 });

@@ -170,3 +170,34 @@ test('actual handoff-patched web save AND restore race actual registered MCP sav
  }finally{await Promise.all(clients.map(x=>x.end()));}
  });
 }));
+
+// Round 2 expectations FIRST: real Canvas selection v1 -> restore command ->
+// new latest pins the original snapshot, leaves live geometry alone, and name
+// metadata always reflects the current authorized design name.
+test('r2 selected v1 restore appends latest pin and current authorized design name',()=>withTestDb(async(url,c)=>{
+ const {appHooks}=await import('./phase0a-fixtures.mjs');appHooks();
+ const core=await import('../lib/ask-canvases.ts');
+ const people=await seedPeople(c);process.env.SJC_CANVAS_ENABLED='1';process.env.SESSION_SECRET='floor-r2-session-secret-at-least-32-characters';
+ const {encrypt}=await import('../lib/session.ts');
+ await withSessionIdentity(url,'sjcos_test_website',async db=>{
+  globalThis.__phase0aDb=db;const token=await encrypt({userId:people.owner.id,role:'owner',authAt:Math.floor(Date.now()/1000)});globalThis.__phase0aCookies={get:()=>({value:token})};
+  await db.query(`INSERT INTO app_settings(key,value) VALUES('canvas.floor_enabled','true') ON CONFLICT(key) DO UPDATE SET value='true'`);
+  const p=await one(db,`INSERT INTO projects(slug,name) VALUES('r2-floor-restore','Restore') RETURNING id`);
+  const d=await one(db,`INSERT INTO plan_designs(project_id,name,doc) VALUES($1,'Original name',$2) RETURNING *`,[p.id,geometry()]);
+  const r=await one(db,`INSERT INTO dev_agent_runs(prompt,profile,principal_user_id,conversation_id,launch_source,with_mcp) VALUES('floor','operator',$1,$2,'panel_web',true) RETURNING *,extract(epoch FROM created_at)::bigint AS started`,[people.owner.id,people.thread]);
+  const context={run_id:r.id,principal_user_id:people.owner.id,run_profile:'operator',run_started_s:Number(r.started),transport:'runner_stdio'};
+  const first=await core.canvasInternal('show',{request_id:crypto.randomUUID(),title:'Unrelated canvas title',summary:'Kitchen',required_areas:[],content:{kind:'floor_plan',design_id:d.id,expected_design_rev:0}},context);
+  const changed=applyOps(d.doc,[{op:'addNote',at:{x:1,y:1},text:'Newer drawing'}]);
+  await db.query(`UPDATE plan_designs SET name='Renamed kitchen',doc=$2,rev=rev+1 WHERE id=$1`,[d.id,changed]);
+  const second=await core.canvasInternal('update',{request_id:crypto.randomUUID(),canvas_id:first.canvas.id,base_version:1,summary:'Newer kitchen',change_note:'Added note',content:{kind:'floor_plan',design_id:d.id,expected_design_rev:1}},context);
+  assert.equal(second.canvas.latest_version,2);
+  const selected=await core.canvasGet(first.canvas.id,{version:1});assert.equal(selected.selected.version,1);assert.equal(selected.selected.design_name,'Renamed kitchen');
+  const restored=await core.canvasRestore(first.canvas.id,{request_id:crypto.randomUUID(),base_version:2,restore_version:selected.selected.version});
+  assert.equal(restored.canvas.latest_version,3);assert.equal(restored.selected.version,3);assert.equal(restored.selected.restored_from_version,1);assert.equal(restored.selected.design.snapshot_id,first.selected.design.snapshot_id);assert.equal(restored.selected.design.number,1);assert.equal(restored.selected.design_name,'Renamed kitchen');
+  assert.equal((await core.canvasGet(first.canvas.id)).selected.design.snapshot_id,first.selected.design.snapshot_id);
+  assert.deepEqual((await one(db,'SELECT doc FROM plan_designs WHERE id=$1',[d.id])).doc,changed);
+  const versions=await core.canvasVersions(first.canvas.id);assert.ok(versions.versions.every(v=>v.design_name==='Renamed kitchen'));
+  await db.query(`UPDATE users SET permissions='{}',role='staff' WHERE id=$1`,[people.owner.id]);
+  await assert.rejects(core.canvasGet(first.canvas.id,{version:1}),e=>{assert.equal(core.canvasFailure(e).code,'CANVAS_UNAVAILABLE');assert.ok(!JSON.stringify(core.canvasFailure(e)).includes('Renamed kitchen'));return true;});
+ });
+}));

@@ -34,9 +34,11 @@ export async function prepareFloorCanvas(tx:Tx,actor:Actor,content:{kind:string;
 export async function attachFloorCanvas(tx:Tx,canvas:Canvas,version:number,snapshot:PlanSnapshot) {
  await tx.query('INSERT INTO ask_canvas_floor_refs(canvas_id,version,design_id,snapshot_id) VALUES($1,$2,$3,$4)',[canvas.id,version,snapshot.design_id,snapshot.id]);
 }
+// Internal metadata only: callers must first fence the owned live thread and
+// current floor scope. The name is current, even for a historical snapshot.
 export async function floorVersionMeta(tx:Tx,canvasId:string,version:number) {
- const r=(await tx.query(`SELECT v.id,v.design_id,v.number,v.source_rev FROM ask_canvas_floor_refs f JOIN plan_design_versions v ON (v.id,v.design_id)=(f.snapshot_id,f.design_id) WHERE f.canvas_id=$1 AND f.version=$2`,[canvasId,version])).rows[0];
- return r?{id:r.design_id,snapshot_id:r.id,number:r.number,rev:r.source_rev??0}:null;
+ const r=(await tx.query(`SELECT v.id,v.design_id,v.number,v.source_rev,d.name FROM ask_canvas_floor_refs f JOIN plan_design_versions v ON (v.id,v.design_id)=(f.snapshot_id,f.design_id) JOIN plan_designs d ON d.id=f.design_id WHERE f.canvas_id=$1 AND f.version=$2`,[canvasId,version])).rows[0];
+ return r?{id:r.design_id,snapshot_id:r.id,number:r.number,rev:r.source_rev??0,name:r.name}:null;
 }
 export async function readFloorCanvas(tx:Tx,actor:Actor,canvas:Canvas,version:number) {
  if(canvas.owner_user_id!==actor.person.id)unavailable();

@@ -34,7 +34,7 @@ export function FloorCanvasPane({context,slot,data,picker,onDelete}:{picker:Reac
  const button='min-h-11 rounded-md border border-rule bg-card px-3 text-meta';
  if(slot==='title')return <div className="flex min-w-0 flex-1 items-center gap-1">
   {picker}
-  {floor&&<a className={`${button} hidden shrink-0 items-center min-[820px]:inline-flex`} href={floor.href} target="_blank" rel="noopener noreferrer">{canEdit?'Edit floor plan ↗':'Open floor plan ↗'}</a>}
+  {floor&&canEdit&&<a className={`${button} hidden shrink-0 items-center min-[820px]:inline-flex`} href={floor.href} target="_blank" rel="noopener noreferrer">Edit floor plan ↗</a>}
   <button className="size-11 shrink-0 rounded" aria-label="Floor plan options" onClick={()=>patchCanvas(canvas.id,{sheet:'menu'})}>⋯</button>
  </div>;
  if(slot==='meta')return <span className="flex min-w-0 items-center gap-2 text-meta">
@@ -60,13 +60,13 @@ export function FloorCanvasPane({context,slot,data,picker,onDelete}:{picker:Reac
   {data.capabilities.preview&&floor?<FloorCanvasStage floor={floor} visible={!context.signal.aborted} />:<p role="status">Floor plan preview is turned off.</p>}
   {sheet==='versions'&&<CanvasVersions id={canvas.id} selected={v.version} onSelect={n=>selectCanvasVersion(canvas.id,n)} onClose={close}/>}
   {sheet==='menu'&&<CanvasOverlay title="Floor plan options" menu onClose={close}>
-   {floor&&<><p className="text-meta min-[640px]:hidden">Edit on a tablet or computer</p><a className="flex min-h-11 items-center" href={`/floor/${floor.designId}`} target="_blank" rel="noopener noreferrer"><span className="min-[640px]:hidden">Open floor plan ↗</span><span className="hidden min-[640px]:inline">{canEdit?'Edit floor plan ↗':'Open floor plan ↗'}</span></a></>}
-   <button className="block min-h-11 w-full text-left" onClick={()=>patchCanvas(canvas.id,{sheet:'about'})}>About this floor plan</button>
-   <button className="block min-h-11 w-full text-left" disabled={v.version===canvas.latest_version} onClick={openRestore}>Use this version</button>
-   <button className="block min-h-11 w-full text-left" disabled={!floor} onClick={()=>void copyLink()}>Copy link</button>
-   <button className="block min-h-11 w-full text-left text-flag" onClick={()=>{close();onDelete();}}>Delete canvas…</button>
+   {floor&&<><p className="text-meta min-[640px]:hidden">Edit on a tablet or computer</p><a className={`flex min-h-14 items-center ${canEdit?'min-[820px]:hidden':''}`} href={`/floor/${floor.designId}`} target="_blank" rel="noopener noreferrer"><span className="min-[640px]:hidden">Open floor plan ↗</span><span className="hidden min-[640px]:inline">{canEdit?'Edit floor plan ↗':'Open floor plan ↗'}</span></a></>}
+   <button className="block min-h-14 w-full text-left" onClick={()=>patchCanvas(canvas.id,{sheet:'about'})}>About this floor plan</button>
+   {v.version<canvas.latest_version&&<button className="block min-h-14 w-full text-left" onClick={openRestore}>Use this version</button>}
+   <button className="block min-h-14 w-full text-left" disabled={!floor} onClick={()=>void copyLink()}>Copy link</button>
+   <button className="block min-h-14 w-full border-t border-rule text-left text-flag" onClick={()=>{close();onDelete();}}>Delete canvas…</button>
   </CanvasOverlay>}
   {sheet==='about'&&<CanvasOverlay title="About this floor plan" onClose={close}><p>{v.summary}</p></CanvasOverlay>}
-  {overlay==='restore'&&<CanvasOverlay title={`Use floor plan v${v.design?.number}?`} onClose={close}><p>Your newer versions will stay. The full designer will keep its current drawing.</p><button className={button} disabled={busy} onClick={()=>void mutate('restore')}>Use this version</button><button className={button} onClick={close}>Cancel</button></CanvasOverlay>}
+  {overlay==='restore'&&<CanvasOverlay title={`Make floor plan v${v.design?.number} the latest?`} onClose={close}><p>Your newer versions will stay. The full designer will keep its current drawing.</p><button className={button} disabled={busy} onClick={()=>void mutate('restore')}>Use this version</button><button className={button} onClick={close}>Cancel</button></CanvasOverlay>}
  </div>;
 }

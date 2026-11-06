@@ -228,7 +228,7 @@
     "app/api/internal/canvas-files/route.ts": "133f5fd6aea6328e21816ea17430ddeed8d46adc4394039dcc13614433bcd236",
     "mcp/canvas-file-call.mjs": "b907399c91f7347715966af7bc6b6d41b906451a062d5122e498282dfb3b7183",
     "scripts/qa-seed-canvas.mjs": "28ceb73b9e8ceca6a4c3c5bd9edf75c57f41143e2611e9b8a1512a0582083146",
-    "db/migrations/0110_canvas_control_envelopes.sql": "5af24530f4b16596e0e6d44028d73570a8c4fdda31e24a90ec77af155f4ff26f"
+    "db/migrations/0109_canvas_control_envelopes.sql": "5af24530f4b16596e0e6d44028d73570a8c4fdda31e24a90ec77af155f4ff26f"
   },
   "entries": [
     {
@@ -5985,7 +5985,7 @@
       ]
     },
     {
-      "file": "db/migrations/0110_canvas_control_envelopes.sql",
+      "file": "db/migrations/0109_canvas_control_envelopes.sql",
       "function": "<sql>",
       "classification": "trusted-background",
       "reason": "trusted-background",

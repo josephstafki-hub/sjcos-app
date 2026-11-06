@@ -131,8 +131,8 @@ to the UI, files and provenance HANDOFFs.
   correct open/closed arrows; no Save on syntax/complexity failures; all listed
   state-action controls bordered, with existing target sizes/semantic colors.
 
-**Migration:** only new additive `0110_canvas_control_envelopes.sql`. No edits to
-0106–0108, new tables/triggers or role-manifest/grant changes. 0110 replaces the
+**Migration:** only new additive `0109_canvas_control_envelopes.sql`. No edits to
+0106–0108, new tables/triggers or role-manifest/grant changes. 0109 replaces the
 existing website-only helper with fixed search_path and revoked PUBLIC execute.
 The rollout test applies it over a recorded 0107, verifies unchanged checksums,
 replays it and proves helper denial under agent/worker/readonly session users.

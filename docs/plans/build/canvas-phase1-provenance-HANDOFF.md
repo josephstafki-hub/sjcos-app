@@ -156,7 +156,7 @@ is unapplied on live; no deployment or runtime data repair was executed.
 
 ## Round-2 control envelope correction (2026-11-05)
 
-Engineering REQUIRED 2: additive **0110_canvas_control_envelopes.sql** replaces
+Engineering REQUIRED 2: additive **0109_canvas_control_envelopes.sql** replaces
 only ask_canvas_instruction. Recorded migrations 0106/0107/0108 are unchanged.
 It recognizes every bounded fixCanvasPrompt diagnostic (SOURCE_REJECTED,
 SYNTAX_ERROR, LAYOUT_FAILED/default, DRAWING_REJECTED), Simplify and the trimmed
@@ -183,7 +183,7 @@ message insertion, verified epoch re-admission, real registered update_canvas,
 validated derivative, actual policy and Save. Unknown/forged control messages
 make complete staff provenance incomplete; fixture rollback alone restores it.
 Existing real detached first/second runner and contact/Subs reader-denial tests
-remain. canvas-rollout-db **7/7** includes already-recorded 0107 → additive 0110,
+remain. canvas-rollout-db **7/7** includes already-recorded 0107 → additive 0109,
 unchanged earlier checksums, checksum replay and all three narrow logins denied
 helper execution. No applied/live/QA migration was rewritten or executed.
 

@@ -35,6 +35,9 @@ const root = new URL("../", import.meta.url);
 // touches: stub them (they throw if called) so nothing can email.
 const STUBS = {
   "server-only": [],
+  "@/lib/agent-memory": ["captureAgentMemory"],
+  "@/lib/dev-agents": ["notifyAgentOwner"],
+  "@/lib/runbook-engine": ["maybeAdvanceRunbook"],
   "@/lib/gmail": ["gmailConfigured"],
   "@/lib/dispatch/db": ["dispatchIntentsNow"],
   "@/lib/lead-activity": ["logLeadActivity"],
@@ -136,9 +139,20 @@ test("Approve on a portal reply draft posts it in the portal", { skip }, async (
   await withTestDb(async (url, client) => {
     process.env.DATABASE_URL = url;
     sharedPool = (await import("../lib/db.ts")).pool;
+    const { claimApproval } = await import("../lib/approve-work-item.ts");
     const { sendApprovedClientDraft } = await import("../lib/approved-draft-send.ts");
     const { workItemDraftPreviews } = await import("../lib/work-item-draft.ts");
     const run = async (sql, params) => (await client.query(sql, params)).rows;
+    // This lower-level sender test owns the durable dispatch claim, as
+    // finishApproval does for the real web/Telegram/phone entry points.
+    const sendBound = async (id, binding) => {
+      const claim = await claimApproval(id, binding);
+      assert.equal(claim.ok, true);
+      const claimed = await run(`UPDATE approved_draft_dispatches SET phase='running',lease_until=now()+interval '2 minutes'
+        WHERE approved_draft_id=$1 AND phase='pending' RETURNING approved_draft_id`, [claim.approvedDraftId]);
+      assert.equal(claimed.length, 1);
+      return sendApprovedClientDraft(id, claim.approvedDraftId);
+    };
     // The real pool commits, so clear this test's rows before and after.
     const clean = async () => {
       await run(`DELETE FROM chat_messages WHERE channel_key = 'portal:zz-tierney2'`);
@@ -173,7 +187,7 @@ test("Approve on a portal reply draft posts it in the portal", { skip }, async (
       assert.equal(preview.subject, null);
       assert.match(preview.body, /^Hi Tom/);
 
-      const out = await sendApprovedClientDraft(a.id);
+      const out = await sendBound(a.id, preview.binding);
       assert.equal(out.outcome, "posted", JSON.stringify(out));
       assert.equal(out.to, "Tom Tierney");
       const [msg] = await run(`SELECT author_kind, author_name, body FROM chat_messages WHERE channel_key = 'portal:zz-tierney2' ORDER BY id DESC LIMIT 1`);
@@ -187,18 +201,18 @@ test("Approve on a portal reply draft posts it in the portal", { skip }, async (
       const b = await staged("zz second reply", "To: client portal\n\nHi Tom, one more thing.");
       await run(`UPDATE knowledge_items SET created_at = now() - interval '1 minute' WHERE id = (SELECT substring(uri from 17)::uuid FROM agent_receipts WHERE work_item_id = $1 AND receipt_kind = 'draft')`, [b.id]);
       await run(`INSERT INTO chat_messages (channel_key, author_kind, author_name, body) VALUES ('portal:zz-tierney2', 'owner', 'Joe', 'answered by hand')`);
-      const skipped = await sendApprovedClientDraft(b.id);
+      const skipped = await sendBound(b.id, (await workItemDraftPreviews({ ids: [b.id] }))[0].binding);
       assert.equal(skipped.outcome, "not_email");
       assert.match(skipped.reason, /already replied in the portal/);
 
       // ── 5. no portal login → refused ──────────────────────────────────────
       await run(`UPDATE users SET active = false WHERE link_slug = 'zz-tierney2'`);
       const c = await staged("zz third reply", "To: client portal\n\nHi Tom, third.");
-      const refused = await sendApprovedClientDraft(c.id);
+      const refused = await sendBound(c.id, (await workItemDraftPreviews({ ids: [c.id] }))[0].binding);
       assert.equal(refused.outcome, "failed");
       assert.match(refused.error, /no portal login/);
     } finally {
-      await clean().catch(() => undefined);
+      await clean();
     }
   });
 });
@@ -220,10 +234,21 @@ test("a portal message push carries the text and takes a reply", { skip }, async
       sent.push(payload);
       return { responseClass: "confirmed", providerRef: String(++next), transmitted: true };
     });
+    const { savePushSettings } = await import("../lib/phone-push.ts");
+    await savePushSettings({ app: true, telegram: true });
+    // Only this fixture's rows, children before their outbox parents. A failed
+    // cleanup must fail the run so a second run cannot hide contamination.
+    const fixture = `title = 'zz cap filler' OR payload->>'portalChannelKey' = 'portal:zz-tierney3'`;
+    const clean = async () => {
+      await run(`DELETE FROM push_device_deliveries WHERE message_id IN (SELECT id FROM owner_push_messages WHERE push_outbox_id IN (SELECT id FROM push_outbox WHERE ${fixture}))`);
+      await run(`DELETE FROM push_actions WHERE message_id IN (SELECT id FROM owner_push_messages WHERE push_outbox_id IN (SELECT id FROM push_outbox WHERE ${fixture}))`);
+      await run(`DELETE FROM owner_push_messages WHERE push_outbox_id IN (SELECT id FROM push_outbox WHERE ${fixture})`);
+      await run(`DELETE FROM push_outbox WHERE ${fixture}`);
+      await run(`DELETE FROM telegram_reply_targets WHERE chat_id = '999000555'`);
+    };
     const noon = new Date("2026-10-31T17:00:00Z"); // 12:00 Chicago, awake
     try {
-      await run(`DELETE FROM telegram_reply_targets WHERE chat_id = '999000555'`);
-      await run(`DELETE FROM push_outbox WHERE kind = 'portal_message'`);
+      await clean();
       // Fill the hourly cap first: a portal message must still go out.
       for (let i = 0; i < 4; i++) {
         await run(`INSERT INTO push_outbox (kind, title, send_after, sent_at) VALUES ('comms', 'zz cap filler', $1, $1)`, [noon]);
@@ -233,6 +258,9 @@ test("a portal message push carries the text and takes a reply", { skip }, async
         noon,
       );
       assert.equal(sent.length, 1, "pushed despite the full hourly cap");
+      const [app] = await run(`SELECT m.body, m.portal_channel_key FROM owner_push_messages m JOIN push_outbox p ON p.id=m.push_outbox_id WHERE p.payload->>'portalChannelKey'='portal:zz-tierney3'`);
+      assert.equal(app.portal_channel_key, "portal:zz-tierney3");
+      assert.match(app.body, /Can all 7 recessed lights/);
       assert.match(sent[0].text, /Tom Tierney wrote in the client portal \(Tierney · Kitchen\)/);
       assert.match(sent[0].text, /Can all 7 recessed lights go in before the cabinets\?/);
       assert.match(sent[0].text, /Reply to this message to answer Tom in the portal/);
@@ -240,8 +268,9 @@ test("a portal message push carries the text and takes a reply", { skip }, async
       assert.deepEqual(t, { portal_channel_key: "portal:zz-tierney3", mid: "53", kind: "portal" });
     } finally {
       types.resetFakeOutbox();
-      await run(`DELETE FROM push_outbox WHERE title = 'zz cap filler' OR kind = 'portal_message'`).catch(() => undefined);
-      await run(`DELETE FROM telegram_reply_targets WHERE chat_id = '999000555'`).catch(() => undefined);
+      await clean();
+      assert.equal((await run(`SELECT id FROM push_outbox WHERE ${fixture}`)).length, 0);
+      assert.equal((await run(`SELECT id FROM owner_push_messages WHERE portal_channel_key='portal:zz-tierney3'`)).length, 0);
     }
   });
 });

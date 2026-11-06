@@ -10,10 +10,11 @@
 import { revalidatePath } from "next/cache";
 import { describeApproval } from "@/lib/approved-draft-rules";
 import { listPendingApprovals, type PendingApproval } from "@/lib/approvals";
-import { getCurrentUser } from "@/lib/dal";
+import { getCurrentUser, requireAccess } from "@/lib/dal";
+import { userPrincipal } from "@/lib/commands/db";
 import { query } from "@/lib/db";
 import { approveDecisionAction, rejectDecisionAction } from "@/lib/decisions/actions";
-import { approveWorkItem, rejectWorkItem } from "@/lib/actions/engine";
+import { approveWorkItemById, rejectWorkItemById } from "@/lib/approve-work-item";
 import { getUnreadCount } from "@/lib/notifications";
 
 export interface FreshNotification {
@@ -43,8 +44,8 @@ export async function pollNotificationCenter(since: string | null): Promise<Noti
   const now = new Date().toISOString();
   const [unread, approvals, fresh] = await Promise.all([
     getUnreadCount(user).catch(() => 0),
-    // Decisions and send approvals are the owner's to answer.
-    user.role === "owner" ? listPendingApprovals({ limit: 12 }).catch(() => []) : Promise.resolve([]),
+    // Only show cards this viewer can answer; actions recheck independently.
+    listPendingApprovals({ limit: 12, principal: userPrincipal(user) }).catch(() => []),
     since && !Number.isNaN(Date.parse(since))
       ? query<FreshNotification>(
           `SELECT n.id::text, COALESCE(n.tag, n.kind) AS tag, n.title, COALESCE(n.subline, '') AS subline,
@@ -80,11 +81,11 @@ function refresh() {
   revalidatePath("/engine");
 }
 
-/** Approve one waiting item. `contentHash` is the decision hash the card
- *  showed — a changed package is refused as stale rather than approved. */
+/** Approve one waiting item. `contentHash` is the decision hash or draft binding
+ *  the card showed. Never replace it with a binding read at click time. */
 export async function approveWaiting(key: string, contentHash: string | null): Promise<ApprovalAnswer> {
   const user = await getCurrentUser();
-  if (!user || user.role !== "owner") return { ok: false, error: "Only the owner can approve this." };
+  if (!user) return { ok: false, error: "Sign in first." };
   const k = parseKey(key);
   if (!k) return { ok: false, error: "Unknown approval." };
   if (k.kind === "decision") {
@@ -93,7 +94,8 @@ export async function approveWaiting(key: string, contentHash: string | null): P
     if (!r.ok) return r;
     return { ok: true, message: r.reply, kind: /NOT sent|failed|not confirmed/i.test(r.reply) ? "error" : "success" };
   }
-  const r = await approveWorkItem(k.id);
+  await requireAccess("today");
+  const r = await approveWorkItemById(k.id, contentHash);
   refresh();
   const d = describeApproval(r);
   return r.ok ? { ok: true, message: d.message, kind: d.kind } : { ok: false, error: r.error };
@@ -102,7 +104,7 @@ export async function approveWaiting(key: string, contentHash: string | null): P
 /** Decline one waiting item. Nothing is sent. */
 export async function declineWaiting(key: string, contentHash: string | null, note?: string | null): Promise<ApprovalAnswer> {
   const user = await getCurrentUser();
-  if (!user || user.role !== "owner") return { ok: false, error: "Only the owner can decline this." };
+  if (!user) return { ok: false, error: "Sign in first." };
   const k = parseKey(key);
   if (!k) return { ok: false, error: "Unknown approval." };
   if (k.kind === "decision") {
@@ -110,7 +112,8 @@ export async function declineWaiting(key: string, contentHash: string | null, no
     refresh();
     return r.ok ? { ok: true, message: "Declined — nothing was sent.", kind: "info" } : r;
   }
-  const r = await rejectWorkItem(k.id);
+  await requireAccess("today");
+  const r = await rejectWorkItemById(k.id, "/notifications");
   refresh();
   return r.ok ? { ok: true, message: "Declined — nothing was sent.", kind: "info" } : r;
 }

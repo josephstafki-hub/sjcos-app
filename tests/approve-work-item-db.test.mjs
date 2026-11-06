@@ -19,6 +19,8 @@ const root = new URL("../", import.meta.url);
 
 const STUBS = {
   "server-only": [],
+  "@/lib/dal": ["getCurrentUser"],
+  "@/lib/api-auth": ["getUserFromRequest"],
   "@/lib/agent-memory": ["captureAgentMemory"],
   "@/lib/approved-draft-send": ["sendApprovedClientDraft", "reopenApprovalAfterFailedSend"],
   "@/lib/dev-agents": ["notifyAgentOwner"],
@@ -27,8 +29,9 @@ const STUBS = {
 registerHooks({
   resolve(specifier, context, next) {
     if (Object.hasOwn(STUBS, specifier)) return { url: `stub:${specifier}`, shortCircuit: true };
-    if (specifier.startsWith("@/")) {
-      const base = new URL(specifier.slice(2), root).href;
+    const relative = specifier.startsWith(".") && context.parentURL?.startsWith("file:") && !/\.[cm]?[jt]sx?$/.test(specifier);
+    if (specifier.startsWith("@/") || relative) {
+      const base = relative ? new URL(specifier, context.parentURL).href : new URL(specifier.slice(2), root).href;
       for (const ext of ["", ".ts", ".mjs"]) {
         try {
           if (statSync(new URL(base + ext)).isFile()) return { url: base + ext, shortCircuit: true };
@@ -51,7 +54,7 @@ test("Approve: only an item still awaiting approval; stale and racing taps send 
   await withTestDb(async (url, client) => {
     process.env.DATABASE_URL = url;
     const { pool } = await import("../lib/db.ts");
-    const { approveWorkItemById, rejectWorkItemById } = await import("../lib/approve-work-item.ts");
+    const { approveWorkItemById: approveBound, rejectWorkItemById } = await import("../lib/approve-work-item.ts");
     try {
       await client.query(`DELETE FROM work_items WHERE title LIKE 'zz-approve%'`);
       const sends = [];
@@ -78,13 +81,18 @@ test("Approve: only an item still awaiting approval; stale and racing taps send 
         maybeAdvanceRunbook: async () => {},
         captureAgentMemory: async () => {},
       };
-      const mk = async (title, status = "approval_needed", approval = "requested") =>
-        (
+      const displayed = new Map();
+      const approveWorkItemById = id => approveBound(id, displayed.get(id));
+      const mk = async (title, status = "approval_needed", approval = "requested") => {
+        const id = (
           await client.query(
             `INSERT INTO work_items (title, body, status, approval_status, requires_approval) VALUES ($1, 'To: client@example.test', $2, $3, true) RETURNING id`,
             [`zz-approve ${title}`, status, approval],
           )
         ).rows[0].id;
+        displayed.set(id, (await client.query(`SELECT phone_push_draft_binding($1) AS binding`, [id])).rows[0].binding);
+        return id;
+      };
       const stateOf = async (id) => (await client.query(`SELECT status, approval_status FROM work_items WHERE id = $1`, [id])).rows[0];
 
       // ── Approve after reject: refused, nothing sent, still rejected.

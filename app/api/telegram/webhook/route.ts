@@ -1,17 +1,9 @@
+import { finishOwnerAction } from "@/lib/owner-actions";
 import { NextResponse } from "next/server";
-import { revalidatePath } from "next/cache";
 import { withTransaction, runDirect } from "@/lib/commands/db";
 import type { Principal } from "@/lib/commands/principal";
 import { handleTelegramUpdate, verifyTelegramSecret, type TelegramUpdate } from "@/lib/decisions/telegram";
 import { answerCallbackQuery, defaultTransport } from "@/lib/providers/telegram";
-import { performApprovalEffects } from "@/lib/decisions/after-approval";
-import { cardText } from "@/lib/decisions/cards";
-import { approveWorkItemById, rejectWorkItemById } from "@/lib/approve-work-item";
-import { describeApproval } from "@/lib/approved-draft-rules";
-import { askWhatShouldChange, deliverOwnerReply, markDraftCardPulled, sendOwnerTelegram } from "@/lib/owner-reply-delivery";
-import { refreshTelegramCard } from "@/lib/decisions/notify";
-import { getDecision } from "@/lib/commands/decisions";
-import { rememberReplyTarget } from "@/lib/decisions/owner-replies";
 
 // POST /api/telegram/webhook — Telegram decision buttons (A10).
 //
@@ -64,89 +56,12 @@ export async function POST(req: Request) {
       handleTelegramUpdate(run, update, {
         ownerChatId: (process.env.TELEGRAM_OWNER_CHAT_ID ?? "").trim(),
         ownerPrincipal,
-        answer,
-        edit,
         appUrl: process.env.NEXT_PUBLIC_APP_URL ?? "https://os.sjcarpentryllc.com",
-        deferApproveAnswer: true,
       }),
     );
 
-    // Post-commit: an approval must DO the thing — dispatch the sends it
-    // woke, email a first-draw invoice, perform a permission request's
-    // staged send — and the phone is told what actually happened.
-    const res = result.resolution;
-    if (res?.ok && res.code === "approved" && res.decision) {
-      const lines = await performApprovalEffects(res);
-      const p = result.pendingAnswer;
-      if (p) {
-        await answer(p.callbackId, [res.reply, ...lines].join(" "));
-        if (p.messageId != null) await edit(p.chatId, p.messageId, [cardText(res.decision, { appUrl: appUrl() }), ...lines].join("\n"));
-      }
-      if (lines.length) {
-        await runDirect(`UPDATE telegram_updates SET outcome = $2 WHERE update_id = $1`, [update.update_id, [res.reply, ...lines].join(" ").slice(0, 300)]).catch(() => undefined);
-      }
-    } else if (result.pendingAnswer) {
-      await answer(result.pendingAnswer.callbackId, res?.reply ?? "Done.");
-    }
-
-    // A work-item approval card (a staged draft): approve sends the draft
-    // exactly as the app's Approve button does.
-    if (result.workItem) {
-      const w = result.workItem;
-      let reply: string;
-      // Only a draft still waiting on Joe: one he pulled with a Telegram reply
-      // (or already decided) must not send from an old card's button.
-      const [state] = await runDirect<{ approval_status: string; title: string }>(`SELECT approval_status, title FROM work_items WHERE id = $1`, [w.id]);
-      if (!state) reply = "That item no longer exists.";
-      else if (state.approval_status !== "requested") {
-        reply =
-          state.approval_status === "not_requested"
-            ? `Not sent: "${state.title}" was pulled back for changes. The agent's revised draft comes as a new card.`
-            : `Already ${state.approval_status}: ${state.title}`;
-      } else if (w.verb === "approve") {
-        const r = await approveWorkItemById(w.id);
-        const d = describeApproval(r);
-        reply = r.ok ? d.message : r.error;
-      } else {
-        const r = await rejectWorkItemById(w.id, "Telegram");
-        reply = r.ok ? `Declined: ${r.title}` : r.error;
-      }
-      await answer(w.callbackId, reply);
-      if (w.messageId != null) await edit(w.chatId, w.messageId, `[SJC OS] ${reply}\n${appUrl()}/today`);
-      await runDirect(`UPDATE telegram_updates SET outcome = $2 WHERE update_id = $1`, [update.update_id, reply.slice(0, 300)]).catch(() => undefined);
-    }
-    // "Request changes" → ask what should change, under the card.
-    if (result.changesPrompt) await askWhatShouldChange(result.changesPrompt);
-
-    // Joe replied about a card in text: the request is already pulled (in the
-    // transaction above). Show that on the card, send the note to the chat
-    // that filed it (or the operating agent), and acknowledge.
-    if (result.ownerReply) {
-      const r = result.ownerReply;
-      if (r.pulled && r.decisionId) {
-        const d = await getDecision(runDirect, r.decisionId).catch(() => null);
-        if (d) await refreshTelegramCard(d, "Changes requested from Telegram — your note went to the agent.").catch(() => undefined);
-      }
-      if (r.pulled && r.workItemId) await markDraftCardPulled(r.workItemId, "Pulled back for changes — your note went to the agent. Its revised draft comes as a new card.").catch(() => undefined);
-      await deliverOwnerReply(r, String(update.message?.text ?? "").trim().slice(0, 4000));
-    }
-    // Joe answered a portal message from Telegram: it is already in the
-    // thread (committed above). Refresh the pages that show it and confirm.
-    if (result.portalReply) {
-      const p = result.portalReply;
-      try {
-        if (p.scope) revalidatePath(p.scope.kind === "project" ? `/projects/${p.scope.slug}` : `/leads/${p.scope.slug}`);
-        revalidatePath(p.scope ? "/client-portal" : "/sub-portal");
-        revalidatePath("/chat");
-      } catch {
-        /* a stale page refreshes on its next load */
-      }
-      const ack = await sendOwnerTelegram(`Posted in the portal for ${p.recipient}. Reply here to send more.\n${appUrl()}${p.href}`, { replyTo: p.replyToMessageId });
-      if (ack != null) {
-        await rememberReplyTarget(runDirect, { chatId: p.chatId, messageId: ack, portalChannelKey: p.channelKey, portalMessageId: p.messageId, kind: "portal_ack" }).catch(() => undefined);
-      }
-    }
-    if (result.help) await sendOwnerTelegram(result.help.text, { replyTo: result.help.messageId });
+    // No Telegram transport is passed into the owner/target-locked mutation.
+    await finishOwnerAction(result, update, answer, edit);
 
     return NextResponse.json({ ok: true, handled: result.handled, duplicate: result.duplicate, outcome: result.outcome });
   } catch (err) {

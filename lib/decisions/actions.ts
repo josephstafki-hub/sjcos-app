@@ -49,6 +49,12 @@ async function afterResolve(r: ResolveFromChannelResult): Promise<string | null>
 async function resolve(id: string, outcome: "approved" | "rejected" | "changes_requested", note: string | null, contentHash: string | null): Promise<DecisionActionResult> {
   const principal = await sessionPrincipal();
   if (!principal) return { ok: false, error: "Sign in first." };
+  const d = await getDecision(runDirect, id);
+  if (!d) return { ok: false, error: "No such decision." };
+  // Permission requests remain Joe's; ordinary decisions use delegated authority.
+  if (d.kind === "grant" && !isOwner(principal)) return { ok: false, error: "Owner only." };
+  const auth = await authorityFor(runDirect, principal, d);
+  if (!auth.ok) return { ok: false, error: auth.reason };
   const r = await withTransaction((run) => resolveFromChannel(run, { decisionId: id, contentHash, via: "app", principal, outcome, note }));
   const extra = await afterResolve(r);
   refresh();

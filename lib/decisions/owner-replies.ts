@@ -51,7 +51,7 @@ export async function findReplyTarget(run: Run, chatId: string, replyToMessageId
   if (replyToMessageId != null) {
     // A reply to a portal message push: Joe is answering the client (or sub)
     // in the portal. Checked first and only on an explicit reply.
-    const [portal] = await run<{ portal_channel_key: string; portal_message_id: string | null }>(
+    const [portal] = await run<{ portal_channel_key: string; portal_message_id: string | null; push_message_id:string|null }>(
       `SELECT portal_channel_key, portal_message_id::text AS portal_message_id FROM telegram_reply_targets
         WHERE chat_id = $1 AND message_id = $2 AND portal_channel_key IS NOT NULL`,
       [chatId, replyToMessageId],
@@ -109,7 +109,7 @@ export interface RecordedReply {
  *  where the note goes. Delivery to a chat happens after commit. */
 export async function recordOwnerReply(
   run: Run,
-  input: { decisionId?: string | null; workItemId?: string | null; text: string; chatId: string; messageId: number; principal: Principal },
+  input: { decisionId?: string | null; workItemId?: string | null; text: string; chatId: string; messageId: number; principal: Principal; channel?: "app"|"telegram"; pushMessageId?:string },
 ): Promise<RecordedReply> {
   if (!input.decisionId) {
     if (!input.workItemId) throw new Error("no card to reply to");
@@ -138,13 +138,14 @@ export async function recordOwnerReply(
     [d.id, g?.id ?? null, input.text, input.chatId, input.messageId, route, conversationId],
   );
   const replyId = row.id;
+  if(input.channel === "app") await run(`UPDATE owner_replies SET channel='app',message_id=NULL,chat_id=NULL,push_message_id=$2 WHERE id=$1`,[replyId,input.pushMessageId]);
 
   let pulled = false;
   if (d.status === "pending") {
     const r = await resolveFromChannel(run, {
       decisionId: d.id,
       contentHash: d.content_hash,
-      via: "telegram",
+      via: input.channel ?? "telegram",
       principal: input.principal,
       outcome: "changes_requested",
       note: input.text,
@@ -190,7 +191,7 @@ export async function recordOwnerReply(
   }
   await run(`UPDATE owner_replies SET trigger_id = $2 WHERE id = $1`, [replyId, triggerId]);
   // Joe can reply to his own message's thread again; keep the mapping.
-  await run(
+  if(input.channel !== "app") await run(
     `INSERT INTO telegram_reply_targets (chat_id, message_id, decision_id, owner_reply_id, kind) VALUES ($1, $2, $3, $4, 'owner_reply')
      ON CONFLICT (chat_id, message_id) DO NOTHING`,
     [input.chatId, input.messageId, d.id, replyId],
@@ -210,7 +211,7 @@ export function draftReplyHow(workItemId: string): string {
 /** Joe replied about a staged draft (a work item awaiting approval). */
 async function recordDraftReply(
   run: Run,
-  input: { workItemId: string; text: string; chatId: string; messageId: number },
+  input: { workItemId: string; text: string; chatId: string; messageId: number; channel?:"app"|"telegram"; pushMessageId?:string },
 ): Promise<RecordedReply> {
   const [w] = await run<{ id: string; title: string; approval_status: string; lead_id: string | null; project_id: string | null }>(
     `SELECT id, title, approval_status, lead_id, project_id FROM work_items WHERE id = $1`,
@@ -237,6 +238,7 @@ async function recordDraftReply(
     [w.id, input.text, input.chatId, input.messageId, route, conversationId],
   );
   const replyId = row.id;
+  if(input.channel === "app") await run(`UPDATE owner_replies SET channel='app',message_id=NULL,chat_id=NULL,push_message_id=$2 WHERE id=$1`,[replyId,input.pushMessageId]);
 
   // Pull it: the old card's Approve must not send the draft he just asked to
   // change. The agent's submit_draft_for_approval puts it back to 'requested'.
@@ -277,7 +279,7 @@ async function recordDraftReply(
     triggerId = t.trigger.id;
   }
   await run(`UPDATE owner_replies SET trigger_id = $2 WHERE id = $1`, [replyId, triggerId]);
-  await run(
+  if(input.channel !== "app") await run(
     `INSERT INTO telegram_reply_targets (chat_id, message_id, work_item_id, owner_reply_id, kind) VALUES ($1, $2, $3, $4, 'owner_reply')
      ON CONFLICT (chat_id, message_id) DO NOTHING`,
     [input.chatId, input.messageId, w.id, replyId],
@@ -323,8 +325,8 @@ export async function rememberReplyTarget(
  *  a new item rather than reusing the old one) — are answered by it. Returns
  *  the replies closed, newest first, so the new card can be threaded under
  *  his message. */
-export async function closeRepliesRevisedByDraft(run: Run, workItemId: string): Promise<{ id: string; chat_id: string | null; message_id: string | null }[]> {
-  return run<{ id: string; chat_id: string | null; message_id: string | null }>(
+export async function closeRepliesRevisedByDraft(run: Run, workItemId: string): Promise<{ id: string; chat_id: string | null; message_id: string | null; push_message_id:string|null }[]> {
+  return run<{ id: string; chat_id: string | null; message_id: string | null; push_message_id:string|null }>(
     `WITH fresh AS (SELECT id, lead_id, project_id, title FROM work_items WHERE id = $1),
      closed AS (
        UPDATE owner_replies o
@@ -334,8 +336,8 @@ export async function closeRepliesRevisedByDraft(run: Run, workItemId: string): 
           AND (w.id = fresh.id
                OR (fresh.lead_id IS NOT NULL AND w.lead_id = fresh.lead_id)
                OR (fresh.project_id IS NOT NULL AND w.project_id = fresh.project_id))
-        RETURNING o.id, o.chat_id, o.message_id, o.created_at)
-     SELECT id, chat_id, message_id::text AS message_id FROM closed ORDER BY created_at DESC, message_id DESC NULLS LAST`,
+        RETURNING o.id, o.chat_id, o.message_id, o.push_message_id, o.created_at)
+     SELECT id, chat_id, message_id::text AS message_id, push_message_id FROM closed ORDER BY created_at DESC, message_id DESC NULLS LAST`,
     [workItemId],
   );
 }
@@ -346,16 +348,16 @@ export async function closeRepliesRevisedByDraft(run: Run, workItemId: string): 
 export async function closeRepliesRevisedBy(
   run: Run,
   fresh: { id: string; actions: string[]; target_id: string | null; conversation_id: string | null },
-): Promise<{ id: string; chat_id: string | null; message_id: string | null }[]> {
+): Promise<{ id: string; chat_id: string | null; message_id: string | null; push_message_id:string|null }[]> {
   if (!fresh.target_id && !fresh.conversation_id) return [];
-  return run<{ id: string; chat_id: string | null; message_id: string | null }>(
+  return run<{ id: string; chat_id: string | null; message_id: string | null; push_message_id:string|null }>(
     `UPDATE owner_replies o
         SET state = 'answered', answer_kind = 'revised', answer = 'New request ' || $1::text, answered_at = now()
        FROM owner_grants g
       WHERE o.grant_id = g.id AND o.state IN ('received','delivered') AND o.created_at > now() - interval '3 days'
         AND g.actions = $2::text[]
         AND (($3::text IS NOT NULL AND lower(g.target_id) = lower($3)) OR ($4::uuid IS NOT NULL AND o.conversation_id = $4))
-      RETURNING o.id, o.chat_id, o.message_id::text AS message_id`,
+      RETURNING o.id, o.chat_id, o.message_id::text AS message_id, o.push_message_id`,
     [fresh.id, fresh.actions, fresh.target_id, fresh.conversation_id],
   );
 }

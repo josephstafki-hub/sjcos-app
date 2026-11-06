@@ -90,7 +90,7 @@ function label(key: string): string {
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
-export function normalizeSummary(raw: unknown): NormalizedSummary {
+export function normalizeSummary(raw: unknown, opts: {hideIds?:boolean} = {}): NormalizedSummary {
   const s = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
   const out: NormalizedSummary = {
     recipients: recipients(s.recipients),
@@ -117,7 +117,7 @@ export function normalizeSummary(raw: unknown): NormalizedSummary {
   }
   if (typeof raw === "string" && raw.trim()) out.notes.push({ label: "Summary", text: raw.trim() });
   for (const [k, v] of Object.entries(s)) {
-    if (KNOWN.has(k)) continue;
+    if (KNOWN.has(k) || opts.hideIds && /(^id$|Id$|_id$)/.test(k)) continue;
     const t = list(v).join("; ");
     if (t) out.notes.push({ label: label(k), text: t });
   }

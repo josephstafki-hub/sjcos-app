@@ -261,9 +261,9 @@ export async function listArchivedWorkItems(
  *  approval sends it. The result always says which happened: `sent` (to +
  *  subject) or `notice` ("Approved. Nothing was emailed: …") — the UI toasts
  *  it and the notice also lands on the card as blocked_reason. */
-export async function approveWorkItem(id: string): Promise<ApproveResult> {
+export async function approveWorkItem(id: string, draftBinding?: string | null): Promise<ApproveResult> {
   await requireAccess("engine");
-  const result = await approveWorkItemById(id);
+  const result = await approveWorkItemById(id, draftBinding);
   revalidatePath("/engine");
   return result;
 }

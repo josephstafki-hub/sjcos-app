@@ -121,39 +121,15 @@ async function logSend(target: Target, workItemId: string, subject: string): Pro
   );
 }
 
-/** Try to send the freshest staged draft on an approved work item. Only fires
- *  when the draft is an email whose To: matches the lead on the item, or —
- *  for project-linked items — the project's client email (projects.client_email,
- *  falling back to the linked lead's email, same as the project page shows). */
-export async function sendApprovedClientDraft(workItemId: string): Promise<ApprovedDraftSend> {
-  const { rows } = await query<ItemRow>(
-    `SELECT w.lead_id, l.slug AS lead_slug, l.email AS lead_email,
-            w.project_id, p.slug AS project_slug,
-            NULLIF(COALESCE(NULLIF(p.client_email, ''), pl.email), '') AS project_email,
-            k.content, r.uri AS knowledge_uri, k.created_at AS draft_at,
-            ps.portal_slug,
-            EXISTS (SELECT 1 FROM users u WHERE u.role = 'client' AND u.active AND u.link_slug = ps.portal_slug) AS portal_login,
-            COALESCE(NULLIF(p.client_name, ''), l.name, pl.name) AS portal_client
-       FROM work_items w
-       LEFT JOIN leads l ON l.id = w.lead_id
-       LEFT JOIN projects p ON p.id = w.project_id
-       LEFT JOIN leads pl ON pl.id = p.lead_id
-       LEFT JOIN LATERAL (
-         SELECT uri FROM agent_receipts
-          WHERE work_item_id = w.id AND receipt_kind = 'draft' AND uri LIKE 'knowledge_items/%'
-          ORDER BY created_at DESC LIMIT 1
-       ) r ON true
-       LEFT JOIN knowledge_items k ON 'knowledge_items/' || k.id::text = r.uri
-       LEFT JOIN LATERAL (
-         SELECT COALESCE(p.slug,
-                         (SELECT lp.slug FROM projects lp WHERE lp.lead_id = l.id ORDER BY lp.created_at DESC LIMIT 1),
-                         'lead:' || l.slug) AS portal_slug
-       ) ps ON true
-      WHERE w.id = $1`,
-    [workItemId],
+/** Dispatch only the immutable source captured by the winning approval.
+ * Missing evidence fails closed, including legacy/direct callers. */
+export async function sendApprovedClientDraft(workItemId: string, approvedDraftId: string): Promise<ApprovedDraftSend> {
+  const { rows } = await query<{ snapshot: ItemRow }>(
+    `SELECT snapshot FROM approved_work_item_drafts WHERE id=$1 AND work_item_id=$2`,
+    [approvedDraftId, workItemId],
   );
-  const row = rows[0];
-  if (!row) return { outcome: "failed", error: "work item not found" };
+  const row = rows[0]?.snapshot;
+  if (!row) return { outcome: "failed", error: "Approved draft snapshot missing. Open the current card and approve it again." };
 
   const target: Target | null =
     row.lead_id && row.lead_slug
@@ -168,7 +144,7 @@ export async function sendApprovedClientDraft(workItemId: string): Promise<Appro
   });
   if (plan.outcome === "not_email") return skipped(workItemId, plan.reason, row.content != null);
   if (plan.outcome === "failed") return plan;
-  if (plan.outcome === "portal") return postApprovedPortalReply(workItemId, row, plan.body);
+  if (plan.outcome === "portal") return postApprovedPortalReply(workItemId, approvedDraftId, row, plan.body);
 
   // Don't double-send: if any email already went to this client after the
   // draft was staged (Joe replied by hand, an agent sent), leave it alone.
@@ -230,7 +206,7 @@ export async function sendApprovedClientDraft(workItemId: string): Promise<Appro
  *  the same row the Client portal tab's composer writes. Guarded like the
  *  email path: if Joe already wrote in that thread after the draft was staged
  *  (by hand, or from Telegram), it is left alone. */
-async function postApprovedPortalReply(workItemId: string, row: ItemRow, body: string): Promise<ApprovedDraftSend> {
+async function postApprovedPortalReply(workItemId: string, approvedDraftId: string, row: ItemRow, body: string): Promise<ApprovedDraftSend> {
   const slug = row.portal_slug;
   if (!slug) return { outcome: "failed", error: "no portal thread for this work item" };
   const channelKey = `portal:${slug}`;
@@ -249,9 +225,7 @@ async function postApprovedPortalReply(workItemId: string, row: ItemRow, body: s
   );
   const me = owner.rows[0];
   const inserted = await query<{ id: string }>(
-    `INSERT INTO chat_messages (channel_key, author_kind, author_name, author_initials, body, author_user_id)
-     VALUES ($1, 'owner', $2, $3, $4, $5) RETURNING id::text AS id`,
-    [channelKey, me?.name || "Joe", me?.initials || "JS", body, me?.id ?? null],
+    `SELECT phone_push_post_approved_portal($1)::text AS id`, [approvedDraftId],
   );
   const messageId = inserted.rows[0]?.id ?? null;
   const to = row.portal_client || "the client";
@@ -264,10 +238,6 @@ async function postApprovedPortalReply(workItemId: string, row: ItemRow, body: s
        FROM ${isLead ? "leads" : "projects"} WHERE slug = $1`,
     [scopeSlug, body.slice(0, 500), messageId, me?.name || "Joe", href],
   ).catch((err) => console.error("[approved-draft] client activity log failed", err));
-  await query(
-    `INSERT INTO agent_receipts (work_item_id, receipt_kind, uri, label) VALUES ($1, 'portal_message', $2, $3)`,
-    [workItemId, messageId ? `chat_messages/${messageId}` : row.knowledge_uri, `Approved reply posted in the client portal for ${to}`.slice(0, 300)],
-  );
   await query(
     `UPDATE work_items
         SET status = 'done', completed_at = now(), blocked_reason = NULL, updated_at = now()

@@ -36,10 +36,10 @@ export async function telegramMessageFor(decisionId: string): Promise<{ chatId: 
  *  revision: when stageDecision returned created=false nothing is sent. */
 export async function announceDecision(
   d: Decision,
-  opts: { created: boolean; superseded: string | null; emit?: Partial<EmitInput>; replyToMessageId?: string | null },
+  opts: { created: boolean; superseded: string | null; emit?: Partial<EmitInput>; replyToMessageId?: string | null; pushReplyToId?:string|null },
 ): Promise<void> {
   if (!opts.created) return;
-  const text = cardText(d, { appUrl: appUrl() });
+  const text = cardText(d);
   const prior = opts.superseded ? await telegramMessageFor(opts.superseded) : null;
   await recordDelivery(runDirect, d.id, "app", null, "sent").catch(() => undefined);
   await notifyOwner({
@@ -55,6 +55,8 @@ export async function announceDecision(
       ...opts.emit,
     },
     telegram: {
+      appText:{title:d.title,body:cardText(d,{app:true}).split("\n").slice(1).join("\n")},
+      pushReplyToId:opts.pushReplyToId,
       buttons: decisionKeyboard(d.id, d.content_hash),
       decisionId: d.id,
       editMessageId: prior?.messageId ?? null,
@@ -71,15 +73,17 @@ export async function announceDecision(
  *  shows the resolution on the original card, so no second in-app row.
  *  Best-effort. */
 export async function refreshTelegramCard(d: Decision, note?: string | null): Promise<void> {
+  const {cleanupAppAlerts}=await import("../phone-push");
+  await cleanupAppAlerts().catch(()=>undefined);
   const msg = await telegramMessageFor(d.id);
   if (!msg) return;
-  const card = cardText(d, { appUrl: appUrl() }).split("\n").slice(1, 14).join("\n");
+  const card = cardText(d).split("\n").slice(1, 14).join("\n");
   await notifyOwner({
     kind: "decision",
     title: d.title,
     body: note ? `${card}\n${note}` : card,
     href: `/engine/decisions?d=${d.id}`,
-    telegram: { decisionId: d.id, editMessageId: msg.messageId },
+    telegram: { appText:{title:d.title,body:cardText(d,{app:true}).split("\n").slice(1).join("\n")},decisionId: d.id, editMessageId: msg.messageId },
     phoneOnly: true,
   });
 }

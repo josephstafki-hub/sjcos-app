@@ -4,6 +4,7 @@ import "server-only";
 // Writes live in lib/actions/engine.ts.
 
 import { query } from "./db";
+import { draftPreview, type DraftSource, type WorkItemDraftPreview } from "./work-item-draft";
 import type { WorkItemStatus, WorkItemPriority } from "./types";
 import { bucketFor, type QueueBucket } from "./engine-constants";
 import { toAssigned, type AssignedTo } from "./queue-scope";
@@ -11,6 +12,7 @@ import { ASSIGNEES_JOIN_SQL } from "./work-item-assignees.mjs";
 import { queueFilterSql, type QueueFilter } from "./engine-views";
 
 export interface WorkItemView {
+  draft: WorkItemDraftPreview | null;
   id: string;
   title: string;
   body: string;
@@ -74,6 +76,7 @@ export interface EngineData {
 }
 
 interface WorkRow {
+  draft_source: DraftSource | null;
   id: string;
   title: string;
   body: string;
@@ -100,6 +103,7 @@ interface WorkRow {
 function rowToItem(r: WorkRow): WorkItemView {
   const approvalRequested = r.approval_status === "requested";
   return {
+    draft: r.draft_source ? draftPreview(r.id, r.created_at, r.draft_source) : null,
     id: r.id,
     title: r.title,
     body: r.body,
@@ -131,6 +135,8 @@ const WORK_SELECT = `
               w.expected_skill_slug, w.expected_runbook_slug,
               w.requires_approval, w.approval_status, w.blocked_reason, w.created_by,
               w.created_at::text AS created_at, w.archived_at::text AS archived_at,
+              CASE WHEN w.approval_status = 'requested' OR w.status = 'approval_needed'
+                THEN phone_push_draft_source(w.id) END AS draft_source,
               asg.assigned
          FROM work_items w
          LEFT JOIN projects p ON p.id = w.project_id

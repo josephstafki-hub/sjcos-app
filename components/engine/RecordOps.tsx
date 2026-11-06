@@ -20,6 +20,7 @@ import {
 } from "@/lib/actions/record-ops";
 import { runAction, type ActionLike } from "@/lib/run-action";
 import { toast } from "@/components/ui/Toast";
+import { WorkItemDraft } from "./WorkItemDraft";
 import { describeApproval } from "@/lib/approved-draft-rules";
 
 const inputCls =
@@ -54,12 +55,12 @@ function statusChip(status: WorkItemStatus): ChipKind {
 
 /** The Open Engine + Brain panel for a single lead/project: stage-gate guidance,
  *  the record's own work queue, its knowledge, and its proof-of-work receipts. */
-export function RecordOps({ ops }: { ops: RecordOps }) {
+export function RecordOps({ ops, canApprove }: { ops: RecordOps; canApprove: boolean }) {
   const { kind, slug } = ops;
   return (
     <div className="grid min-w-0 gap-6 @4xl/page:grid-cols-[minmax(0,1fr)_300px]">
       <div className="min-w-0 space-y-5">
-        <WorkQueue ops={ops} />
+        <WorkQueue ops={ops} canApprove={canApprove} />
         <Knowledge ops={ops} />
       </div>
       <div className="min-w-0 space-y-4">
@@ -108,7 +109,7 @@ function StageGateCard({ ops }: { ops: RecordOps }) {
 
 // ─── Scoped work queue (Phase 5) ─────────────────────────────────────────────
 
-function WorkQueue({ ops }: { ops: RecordOps }) {
+function WorkQueue({ ops, canApprove }: { ops: RecordOps; canApprove: boolean }) {
   const [showNew, setShowNew] = useState(false);
   const router = useRouter();
   const [pending, start] = useTransition();
@@ -168,7 +169,7 @@ function WorkQueue({ ops }: { ops: RecordOps }) {
                 <span className="text-meta text-ink-3">{ops.buckets[b].length}</span>
               </div>
               <div className="space-y-2">
-                {ops.buckets[b].map((it) => <WorkItemCard key={it.id} item={it} kind={ops.kind} slug={ops.slug} />)}
+                {ops.buckets[b].map((it) => <WorkItemCard key={it.id} item={it} kind={ops.kind} slug={ops.slug} canApprove={canApprove} />)}
               </div>
             </div>
           ))}
@@ -178,15 +179,19 @@ function WorkQueue({ ops }: { ops: RecordOps }) {
   );
 }
 
-function WorkItemCard({ item, kind, slug }: { item: RecordWorkItem; kind: RecordOps["kind"]; slug: string }) {
+function WorkItemCard({ item, kind, slug, canApprove }: { item: RecordWorkItem; kind: RecordOps["kind"]; slug: string; canApprove: boolean }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const run = (fn: () => Promise<ActionLike>) => start(async () => { await runAction(fn); router.refresh(); });
   // Approve says what it did: "Emailed <to> — <subject>" or "Approved. Nothing
   // was emailed: …" — plain success used to read as "the email went out".
+  const showDraft = item.bucket === "approval" && item.draft &&
+    (item.draft.to || item.draft.subject || !item.body.startsWith(item.draft.body ?? ""));
+  // If the duplicate preview is hidden, this is the sole approval text.
+  const fullBody = item.bucket === "approval" && !showDraft;
   const approve = () =>
     start(async () => {
-      await runAction(() => approveRecordWorkItem(item.id, kind, slug), { onSuccess: (r) => toast(describeApproval(r)) });
+      await runAction(() => approveRecordWorkItem(item.id, kind, slug, item.draft?.binding), { title: "Approve failed", onSuccess: (r) => toast(describeApproval(r)) });
       router.refresh();
     });
 
@@ -201,19 +206,20 @@ function WorkItemCard({ item, kind, slug }: { item: RecordWorkItem; kind: Record
             {item.expectedRunbookSlug && <Chip kind="ai">runbook: {item.expectedRunbookSlug}</Chip>}
           </div>
           <div className="mt-1.5 text-body font-semibold text-ink">{item.title}</div>
-          {item.body && <div className="mt-0.5 line-clamp-2 text-label text-ink-3">{item.body}</div>}
+          {item.body && <div className={`mt-0.5 whitespace-pre-wrap break-words text-label text-ink-3${fullBody ? "" : " line-clamp-2"}`}>{item.body}</div>}
+          {showDraft && item.draft && <WorkItemDraft draft={item.draft} />}
           <div className="mt-1 flex flex-wrap gap-3 text-meta text-ink-3">
             {item.dueAt && <span>due {item.dueAt.slice(0, 10)}</span>}
             {item.blockedReason && <span className="text-flag">{item.blockedReason}</span>}
           </div>
         </div>
         <div className="flex max-w-full flex-none flex-wrap items-start gap-1.5 @xl/page:flex-col @xl/page:items-end">
-          {item.bucket === "approval" ? (
+          {item.bucket === "approval" ? (canApprove ? (
             <>
               <button className={btnPrimary} disabled={pending} onClick={approve}>Approve</button>
               <button className={btnCls} disabled={pending} onClick={() => run(() => rejectRecordWorkItem(item.id, kind, slug))}>Reject</button>
             </>
-          ) : (
+          ) : <span className="text-meta text-ink-3">Waiting on approval.</span>) : (
             <select
               className="rounded-md border border-rule bg-paper px-2 py-1 text-meta text-ink-2 outline-none focus:border-accent"
               value={item.status}

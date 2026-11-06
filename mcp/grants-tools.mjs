@@ -179,10 +179,10 @@ export function registerGrantTools(server, { json, grantsCall, rows }) {
   server.registerTool(
     "reply_to_owner",
     {
-      title: "Answer Joe on Telegram",
+      title: "Answer Joe",
       description:
-        "Joe replied to one of your permission requests from Telegram and you are NOT filing a revised " +
-        "request — say why, or ask what you need. The message goes to his Telegram as a reply to his note. " +
+        "Joe replied to one of your permission requests and you are NOT filing a revised " +
+        "request — say why, or ask what you need. The message goes to his enabled alerts as a reply to his note. " +
         "Pass the owner_reply_id you were given (else the grant_id or decision_id). outcome: no_change " +
         "(you're keeping it as is — give the reason), question (you need something from him), done (you " +
         "handled it another way). If you DID change the request, don't call this: file request_owner_permission " +

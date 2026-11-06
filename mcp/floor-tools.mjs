@@ -32,6 +32,7 @@ import { applyOps, opLabel, PlanOpError } from "../lib/plan-ops.ts";
 import { computeMeasures, productLines, summarizeMeasures } from "../lib/plan-measures.ts";
 import { runChecks } from "../lib/plan-checks.ts";
 import { FINISH_PRESETS, ROOM_TEMPLATES, roomTemplate, searchLibrary } from "../lib/plan-library.ts";
+import { savePlanSnapshot } from "../lib/plan-version-writes.ts";
 import { withRooms } from "../lib/plan-geometry.ts";
 
 const MAX_NAME = 120;
@@ -117,8 +118,34 @@ GENERIC
 - setSettings {patch: {snapIn?, angleSnap?, defaults?, cabinetStyle?}}  ·  ignoreCheck {id, on}  ·  replace {doc}
 `.trim();
 
-export function registerFloorTools(server, { rows, json }) {
+export function registerFloorTools(target, { rows, json, currentPrincipal = async () => null, pool, saveSnapshot }) {
   const fail = (e) => json({ ok: false, error: e instanceof Error ? e.message : String(e) });
+
+  // Re-read named people's permissions for every call; no tool argument can
+  // choose its own principal. Bare legacy business runs retain their old scope.
+  const principal = async () => {
+    const p = await currentPrincipal();
+    if (!p?.userId) return null;
+    if (p.revoked || p.active === false) throw Error("Floor plan is not available.");
+    const u = (await rows(`SELECT id,role,permissions,active FROM users WHERE id=$1`,[p.userId]))[0];
+    if (!u?.active || !["owner","staff"].includes(u.role) || (u.role !== "owner" && !u.permissions.includes("projects"))) throw Error("Floor plan is not available.");
+    return {...u, panelBound: !!p.runId};
+  };
+  const scopeAccess = async (d) => {
+    const p = await principal();
+    if (p && p.role !== "owner" && (d.is_template || (!d.project_id && !d.lead_slug) || (d.lead_slug && !p.permissions.includes("leads")))) throw Error("Floor plan is not available.");
+  };
+  const server = {registerTool(name,spec,handler) {
+    target.registerTool(name,spec,async args => {
+      try {
+        const p=await principal();
+        if (p?.panelBound && name === "apply_plan_ops" && !Number.isSafeInteger(args.expected_rev)) throw Error("expected_rev is required for Ask floor edits.");
+        if(args.project_slug && args.lead_slug)throw Error("Choose one floor scope.");
+        if(args.lead_slug)await scopeAccess({lead_slug:args.lead_slug});
+        return await handler(args);
+      } catch(e) {return fail(e);}
+    });
+  }};
 
   // ── scope + row helpers ────────────────────────────────────────────────────
   const projectId = async (slug) => {
@@ -147,9 +174,10 @@ export function registerFloorTools(server, { rows, json }) {
   };
   const designRow = async (id) => {
     const n = Number(id);
-    if (!Number.isInteger(n) || n <= 0) throw new Error("design_id must be a positive integer.");
+    if (!Number.isSafeInteger(n) || n <= 0) throw new Error("design_id must be a positive integer.");
     const r = await rows(`${DESIGN_SELECT} WHERE d.id = $1`, [n]);
-    if (!r.length) throw new Error(`Design ${n} not found. Use list_plan_designs.`);
+    if (!r.length) throw new Error("Floor plan is not available.");
+    await scopeAccess(r[0]);
     return r[0];
   };
   const summary = (r, doc) => ({
@@ -257,7 +285,9 @@ export function registerFloorTools(server, { rows, json }) {
           where.push(`d.lead_slug = $${params.length}`);
         } else where.push(`d.is_template = false`);
         const r = await rows(`${DESIGN_SELECT} WHERE ${where.join(" AND ")} ORDER BY d.updated_at DESC LIMIT 200`, params);
-        return json({ ok: true, designs: r.map((row) => summary(row, migrateDoc(row.doc))) });
+        const visible=[];
+        for(const row of r){try{await scopeAccess(row);visible.push(summary(row,migrateDoc(row.doc)));}catch{}}
+        return json({ ok: true, designs: visible });
       } catch (e) { return fail(e); }
     },
   );
@@ -559,14 +589,18 @@ export function registerFloorTools(server, { rows, json }) {
     async ({ design_id, label }) => {
       try {
         const r = await designRow(design_id);
-        const doc = migrateDoc(r.doc);
-        const n = await rows(`SELECT COALESCE(MAX(number), 0) + 1 AS n FROM plan_design_versions WHERE design_id = $1`, [Number(r.id)]);
-        const number = Number(n[0]?.n ?? 1);
-        const ins = await rows(
-          `INSERT INTO plan_design_versions (design_id, number, label, doc) VALUES ($1, $2, $3, $4::jsonb) RETURNING id, number`,
-          [Number(r.id), number, cleanName(label), JSON.stringify(doc)],
-        );
-        return json({ ok: true, design_id: Number(r.id), version_id: Number(ins[0].id), number: Number(ins[0].number), label: cleanName(label), counts: docCounts(doc) });
+        const p = await principal();
+        let snapshot;
+        if (saveSnapshot && (p || !pool)) {
+          const result=await saveSnapshot({design_id:String(r.id),expected_design_rev:r.rev,label:cleanName(label)});
+          if(!result?.ok)throw Error("Floor snapshot could not be saved.");
+          snapshot=result;
+        } else if (!p && pool) {
+          const db=await pool.connect();
+          try {await db.query('BEGIN');snapshot=await savePlanSnapshot(db,String(r.id),null,cleanName(label));await db.query('COMMIT');}
+          catch(e){await db.query('ROLLBACK');throw e;}finally{db.release();}
+        } else throw Error("Floor snapshot adapter is not available.");
+        return json({ok:true,design_id:Number(r.id),version_id:Number(snapshot.id),number:snapshot.number,label:cleanName(label),counts:docCounts(migrateDoc(r.doc))});
       } catch (e) { return fail(e); }
     },
   );

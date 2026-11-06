@@ -39,6 +39,8 @@ export interface DesignerProps {
   readOnly: boolean;
   isOwner: boolean;
   initialPanel?: ViewState["panel"];
+  /** Canvas snapshot viewer: no editing chrome, polling or global shortcuts. */
+  embeddedPreview?: boolean;
 }
 
 const HOTKEYS: Record<string, ToolId> = {};
@@ -54,7 +56,8 @@ function hotkeyFor(e: KeyboardEvent): string {
 }
 
 export function Designer(props: DesignerProps) {
-  const { design, readOnly } = props;
+  const { design } = props;
+  const readOnly = props.readOnly || !!props.embeddedPreview;
   const router = useRouter();
   const d = useDesigner(design.id, design.doc, design.rev, readOnly);
   const [narrow, setNarrow] = useState(true);
@@ -91,6 +94,7 @@ export function Designer(props: DesignerProps) {
 
   // Refresh server-loaded lists (comments, files, versions) when the tab regains focus.
   useEffect(() => {
+    if (props.embeddedPreview) return;
     const onFocus = async () => {
       if (backgroundAuthLost()) return;
       try {
@@ -101,7 +105,7 @@ export function Designer(props: DesignerProps) {
     };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
-  }, [router]);
+  }, [router, props.embeddedPreview]);
 
   const activeCamera = useMemo(() => d.doc.cameras.find((c) => c.id === view.activeCameraId) ?? null, [d.doc.cameras, view.activeCameraId]);
   // Section-cut slider spans the model (plus 2'), not a fixed -200..400".
@@ -151,6 +155,7 @@ export function Designer(props: DesignerProps) {
 
   // Keyboard shortcuts.
   useEffect(() => {
+    if (props.embeddedPreview) return;
     const onKey = (e: KeyboardEvent) => {
       if (controlsOpen) return;
       const t = e.target as HTMLElement | null;
@@ -268,7 +273,7 @@ export function Designer(props: DesignerProps) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [d, pickTool, readOnly, setView, view.paint, controlsOpen]);
+  }, [d, pickTool, readOnly, setView, view.paint, controlsOpen, props.embeddedPreview]);
 
   const showPlan = view.mode === "plan" || view.mode === "split";
   const show3d = view.mode === "3d" || view.mode === "split";
@@ -391,6 +396,25 @@ export function Designer(props: DesignerProps) {
     window.addEventListener("keydown", close);
     return () => window.removeEventListener("keydown", close);
   }, [controlsOpen]);
+
+  if (props.embeddedPreview) return (
+    <div ref={container} className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden" aria-label="Read only floor plan">
+      <div className="relative min-h-0 flex-1">
+        {showPlan && <Canvas2D ref={canvas} ctx={ctx} className="h-full w-full" />}
+        {show3d && scene3d}
+        <div role="toolbar" aria-label="Floor plan view" className="absolute bottom-2 left-2 right-2 flex flex-wrap items-center gap-1 text-meta">
+          <button className="min-h-11 rounded-md border border-rule bg-card px-3" aria-pressed={showPlan} onClick={() => setView({ mode: "plan" })}>2D</button>
+          <button className="min-h-11 rounded-md border border-rule bg-card px-3" aria-pressed={show3d} onClick={() => setView({ mode: "3d" })}>3D</button>
+          {d.doc.levels.length > 1 && <select aria-label="Floor level" className="min-h-11 max-w-28 rounded-md border border-rule bg-card" value={d.levelId} onChange={e => d.setLevelId(e.target.value)}>{d.doc.levels.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
+          <span className="flex-1" />
+          <button className="hidden min-h-11 min-w-11 rounded-md border border-rule bg-card [@media(pointer:fine)]:block" aria-label="Zoom out" disabled={!showPlan} onClick={() => canvas.current?.zoom(0.8)}>−</button>
+          <button className="min-h-11 rounded-md border border-rule bg-card px-3" onClick={fit}>Fit</button>
+          <button className="min-h-11 rounded-md border border-rule bg-card px-3" disabled={!showPlan} onClick={() => canvas.current?.resetZoom()}>100%</button>
+          <button className="hidden min-h-11 min-w-11 rounded-md border border-rule bg-card [@media(pointer:fine)]:block" aria-label="Zoom in" disabled={!showPlan} onClick={() => canvas.current?.zoom(1.25)}>+</button>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div ref={container} className="flex h-[calc(100dvh-var(--topbar-h,48px))] min-h-[480px] flex-col overflow-hidden max-sm:pb-14">

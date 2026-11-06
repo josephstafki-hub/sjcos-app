@@ -551,3 +551,112 @@ Use a disposable practice project and an admitted owned Ask thread after the sha
 Keep the feature off until shared integration, all pending acceptance cases and the coordinator visual evidence pass.
 
 Final privacy check: own-reference deletion links additionally require current Projects and scoped Leads access, and an active account; losing those areas uses the generic notice. Regression included in the 16 passing DB tests.
+
+## Round 1 fixes
+
+Implementation builder B, floor-owned files only. Backend commit: `805b6043`.
+This section supersedes the old incomplete rich-deletion-notice and detached
+publish/estimate-writer notes above. Shared Canvas/pages integration remains
+builder A's ownership; no shared file or allowlist fixture was edited by B.
+
+- **Security #1:** both web deletion actions now begin one transaction, resolve
+  snapshot → design when needed, lock the design, and authorize the current
+  person with the explicit full-designer template policy before inspecting
+  publication/private references. Preflight and DELETE use that same client and
+  transaction. Missing/denied targets return `CANVAS_UNAVAILABLE`, without
+  target-specific diagnostics. Existing FK retention remains the final guard.
+- **Engineering #2:** explicit web version save/restore allows templates just as
+  the canonical full designer does; Canvas pin/save still refuses templates.
+- **Engineering #3:** deletion returns typed `block:{message,links}` alongside
+  the existing error string. TopBar, DesignsStrip and VersionsPanel retain the
+  screen on refusal and render every authorized title with **Open canvas**.
+  Generic/foreign/held/deleted/revoked results expose no links. A shared
+  client-only PlanDeletionNotice handles presentation, including network errors.
+- **Engineering #4 / design #1–3, #5:** the floor title row receives A's unified
+  picker and existing deletion-confirmation callback. The second picker and
+  stage-floating overflow are gone. The menu order is screen-based phone hint +
+  canonical Open/Edit, About, Use this version, canonical Copy link, Delete
+  canvas. At viewport ≥820px the title row also exposes Open/Edit. Missing
+  `data.floor.can_edit` is false. Successful `readFloorCanvas` reads return
+  `canEdit:true` only after the same active-person/Projects/scoped-Leads gate as
+  the full designer; Canvas templates remain unavailable. A maps this to
+  `can_edit` and supplies a design-name title (name only when compact). The
+  floor meta row preserves **Floor plan · vN · Read only** independently of title
+  truncation. Landscape actions stack a **‹ Versions ›** row over **Ask for a
+  change**; About lives in the menu.
+- **Engineering #5:** automatic publication uses savePlanSnapshot under the
+  shared design lock and current full-designer authorization. Estimate
+  generation uses ensurePlanSnapshot under that lock, including immutable hash
+  matching/current doc validation; it uses the returned snapshot bytes. New
+  estimate snapshots retain an Estimate label. Explicitly selected historical
+  publication versions keep their previous behavior. PDF rendering, storage,
+  project-floorplan publication records and downstream estimate generation
+  otherwise retain their existing paths.
+- **Design #4 + optional #9:** only the inline read-only Canvas2D raises the
+  scale bar from bottom-2 to bottom-16 (56px). View controls stay floating in one
+  row, with visible and aria-pressed 2D/3D selection. The changed notice/Load
+  latest lives in the existing meta row, using compact Changed copy on phones.
+  The full designer retains its original scale-bar position.
+
+### Round 1 verification
+
+Expectations were recorded in the new floor-actions DB file before the first
+implementation edit; the initial run exposed the reported regressions. Three
+fixture problems (required publication file, journaled tombstone fields, and a
+valid Note shape) were corrected rather than weakening assertions. Final DB
+cases execute the real transpiled web actions with controlled authentication/
+framework seams and actual SQL on the disposable harness. No live/default/QA
+connection was used. Writer races interleave a second actual database session
+at the lock boundary with live edits, Canvas ensure and actual web restore,
+for both owner and authorized staff. Each race stops before PDF/file/
+publication or estimate-line side effects. Separate successful owner/staff
+workflows exercise full publication records, selected historical versions,
+product estimate lines, pinned provenance and repeat generation; only external
+PDF rendering/storage is mocked for those workflows.
+
+All files ran individually and sequentially with
+`SJC_TEST_CLUSTER_TAG=c23-floor-b-r1` and Node's TypeScript stripping:
+
+| Test file | Passed |
+| --- | ---: |
+| `tests/canvas-floor-db.test.mjs` | 17/17 |
+| `tests/canvas-floor-adapter.test.mjs` | 30/30 |
+| `tests/mcp-floor-tools.test.mjs` | 12/12 |
+| `tests/plan-ops.test.mjs` | 8/8 |
+| `tests/floor-actions-db.test.mjs` | 36/36 (35 subcases + parent) |
+| `tests/floor-ui.test.mjs` | 13/13 |
+| `tests/db-roles-manifest-db.test.mjs` | 6/6 |
+| `tests/db-roles-paths-db.test.mjs` | 3/3 |
+
+The new UI tests execute real slot/menu/copy/delete handlers and all three
+full-designer deletion-refusal handlers. They verify no navigation/refresh on
+refusal and preservation of authorized links. Layout/style assertions are source
+checks, not new browser evidence. The production screenshots supplied with the
+review were inspected for the original overlap/clipping.
+
+Final typecheck command: `flock /tmp/sjcos-tsc.lock nice -n 19 npx tsc --noEmit -p .`
+— **exit 0**. Scoped diff whitespace checks passed. No new table, write path for
+a narrow identity, grant, dependency or migration was needed.
+
+Private-query merge fragment (computed with the real `scanTree`, not handwritten
+digests): **`docs/plans/build/canvas23-r1-floor-allowlist.json`**. It contains the
+changed `lib/canvas-floor.ts` source digest and its four private-query helper
+entries, each with its actual authorization/caller limitations. Coordinator
+must merge this into the private-query fixture and run the final combined audit;
+B did not edit that fixture.
+
+### Round 1 remaining coordinator checks
+
+- Rebuild/visually verify 360, 390, 820, 1100, 1280 and 800×360, including one
+  picker, title/menu/Edit visibility, complete meta version, accessible Load
+  latest, unclipped landscape action column, ≥200px landscape drawing stage,
+  ≥420px portrait stage, and scale/zoom separation. Also check multi-level
+  controls at the narrowest width, menu/confirmation focus and Escape, Safari,
+  3D/WebGL disposal and full-designer return/unsaved-edit behavior.
+- Merge the floor private-query audit fragment with A's final audit changes.
+  Run the combined final source audit at the committed head.
+- Real PDF rendering/storage and client-facing publish/send behavior were not
+  run. The positive tests mock the PDF boundary; no client send is authorized.
+- No build, browser, app server, live migration, deploy, feature enablement,
+  service operation or push was performed. Floor remains behind its existing
+  feature-off rollout gate. The disposable test cluster is stopped after checks.

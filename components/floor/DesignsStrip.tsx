@@ -3,6 +3,8 @@
 import { ActionMenu } from "@/components/projects/ActionMenu";
 
 import { useState, useTransition } from "react";
+import {PlanDeletionNotice} from "./PlanDeletionNotice";
+import type {FloorDeletionBlock} from "@/lib/canvas-floor";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Copy, LayoutGrid, Plus, X } from "lucide-react";
@@ -26,6 +28,7 @@ export function DesignsStrip({
   compact?: boolean;
 }) {
   const router = useRouter();
+  const [deletionNotice,setDeletionNotice] = useState<FloorDeletionBlock|null>(null);
   const [pending, start] = useTransition();
   const [modal, setModal] = useState(false);
   const [name, setName] = useState("Kitchen");
@@ -51,13 +54,15 @@ export function DesignsStrip({
   function remove(id: number, label: string) {
     if (!confirm(`Delete the design "${label}"? Published versions stay; the live design is gone.`)) return;
     start(async () => {
-      await runAction(() => deletePlanDesign(id));
-      router.refresh();
+      const r = await runAction(() => deletePlanDesign(id),{toast:false});
+      if(r.ok) router.refresh();
+      else setDeletionNotice('block' in r && r.block ? r.block : {message:r.error,links:[]});
     });
   }
 
   return (
     <div className="flex flex-col gap-2">
+      <PlanDeletionNotice notice={deletionNotice} onClose={()=>setDeletionNotice(null)}/>
       <div className="flex items-center">
         <h3 className="flex-1 font-serif text-heading font-semibold text-ink">Designs</h3>
         <Button icon={Plus} onClick={() => setModal(true)}>New design</Button>

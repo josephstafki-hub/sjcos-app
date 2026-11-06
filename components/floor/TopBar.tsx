@@ -2,6 +2,8 @@
 
 import { Button, Segmented } from "@/components/ui";
 import { useState } from "react";
+import {PlanDeletionNotice} from "./PlanDeletionNotice";
+import type {FloorDeletionBlock} from "@/lib/canvas-floor";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -35,6 +37,7 @@ export function TopBar({
   onPrint: () => void;
 }) {
   const router = useRouter();
+  const [deletionNotice,setDeletionNotice] = useState<FloorDeletionBlock|null>(null);
   const { d, view, setView, design } = ctx;
   const [menu, setMenu] = useState<null | "history" | "snap" | "layers" | "design" | "level">(null);
   const issues = useChecks(ctx).filter((c) => !d.doc.ignoredChecks.includes(c.id));
@@ -46,6 +49,8 @@ export function TopBar({
   const btn = "inline-flex items-center gap-1 rounded-md border border-rule bg-card px-2 py-1 text-meta font-medium text-ink-2 hover:bg-paper-2 disabled:opacity-40";
 
   return (
+    <>
+    <PlanDeletionNotice notice={deletionNotice} onClose={()=>setDeletionNotice(null)}/>
     <div className="relative flex flex-none flex-wrap items-center gap-1.5 border-b border-rule bg-paper px-3 py-1.5 max-sm:[&_button]:min-h-11 max-sm:[&_button]:min-w-11">
       {/* View switcher */}
       <Segmented className="max-sm:h-auto" aria-label="Drawing view" value={view.mode} onChange={mode => setView({mode: mode as typeof view.mode})} options={MODES.map(m => ({value:m.id,label:m.label}))} />
@@ -264,9 +269,10 @@ export function TopBar({
                 danger
                 onClick={() => {
                   if (confirm(`Delete "${design.name}"? Published versions stay on the Floor tab.`)) {
-                    void runAction(() => deletePlanDesign(design.id)).then(() =>
-                      router.push(design.projectSlug ? `/projects/${design.projectSlug}?tab=Floor` : design.leadSlug ? `/leads/${design.leadSlug}` : "/floor"),
-                    );
+                    void runAction(() => deletePlanDesign(design.id),{toast:false}).then(r => {
+                      if(r.ok) router.push(design.projectSlug ? `/projects/${design.projectSlug}?tab=Floor` : design.leadSlug ? `/leads/${design.leadSlug}` : "/floor");
+                      else setDeletionNotice('block' in r && r.block ? r.block : {message:r.error,links:[]});
+                    });
                   }
                   close();
                 }}
@@ -278,6 +284,7 @@ export function TopBar({
         )}
       </div>
     </div>
+    </>
   );
 }
 

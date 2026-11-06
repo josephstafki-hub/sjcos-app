@@ -1,15 +1,15 @@
 'use client';
-import {useEffect,useRef,useState,useSyncExternalStore} from 'react';
+import {useEffect,useRef,useState,useSyncExternalStore,type ReactNode} from 'react';
 import type {CanvasGetResponse,CanvasMutationResponse} from '@/lib/canvas-api-types';
 import type {AskPaneRenderContext} from '../../askPaneRegistry';
 import {CanvasVersions} from '../../CanvasVersions';
 import {CanvasOverlay} from '../CanvasOverlay';
-import {canvasState,canvasServerState,subscribeCanvas,patchCanvas,chooseCanvas,selectCanvasVersion,askCanvasChange,updateCanvas,publishCanvases} from '../store';
+import {canvasState,canvasServerState,subscribeCanvas,patchCanvas,selectCanvasVersion,askCanvasChange,updateCanvas,publishCanvases} from '../store';
 import {canvasFetch} from '../state';
 import {FloorCanvasStage,type FloorCanvasPreview} from './FloorCanvasStage';
-export function FloorCanvasPane({context,slot,data}:{context:AskPaneRenderContext;slot:'title'|'meta'|'content'|'actions';data:CanvasGetResponse&{floor?:FloorCanvasPreview}}) {
+export function FloorCanvasPane({context,slot,data,picker,onDelete}:{picker:ReactNode;onDelete:()=>void;context:AskPaneRenderContext;slot:'title'|'meta'|'content'|'actions';data:CanvasGetResponse&{floor?:FloorCanvasPreview}}) {
  const state=useSyncExternalStore(subscribeCanvas,canvasState,canvasServerState);
- const [overlay,setOverlay]=useState<null|'versions'|'picker'|'about'|'restore'>(null),[busy,setBusy]=useState(false),[notice,setNotice]=useState('');
+ const [overlay,setOverlay]=useState<null|'restore'>(null),[busy,setBusy]=useState(false),[notice,setNotice]=useState('');
  const request=useRef<{kind:string;id:string}|null>(null);
  const {canvas,selected:v}=data, floor=data.floor;
  useEffect(()=>{
@@ -29,19 +29,44 @@ export function FloorCanvasPane({context,slot,data}:{context:AskPaneRenderContex
    if(!result.changed)setNotice('This floor plan is already current.');
   }catch{setNotice("The floor plan changed. Try again.");request.current=null;}finally{setBusy(false);}
  }
- const label=`Floor plan · ${v.title} · v${v.design?.number??floor?.number??''}`;
+ const number=v.design?.number??floor?.number??'';
+ const canEdit=floor?.can_edit===true;
  const button='min-h-11 rounded-md border border-rule bg-card px-3 text-meta';
- if(slot==='title')return <button data-canvas-title className="h-11 min-w-0 truncate px-2 text-left font-serif text-subheading" onClick={()=>patchCanvas(canvas.id,{sheet:'picker'})}>{label} ▾</button>;
- if(slot==='meta')return <span className="truncate text-meta">Read only{v.change_note?` · ${v.change_note}`:''}</span>;
- if(slot==='actions')return <div className="flex min-h-14 items-center gap-1 px-2"><button className={button} onClick={()=>patchCanvas(canvas.id,{sheet:'versions'})}>Versions</button><button className={button} onClick={()=>patchCanvas(canvas.id,{sheet:'about'})}>About</button><button className={button} onClick={()=>askCanvasChange(canvas.id)}>Ask for a change</button></div>;
+ if(slot==='title')return <div className="flex min-w-0 flex-1 items-center gap-1">
+  {picker}
+  {floor&&<a className={`${button} hidden shrink-0 items-center min-[820px]:inline-flex`} href={floor.href} target="_blank" rel="noopener noreferrer">{canEdit?'Edit floor plan ↗':'Open floor plan ↗'}</a>}
+  <button className="size-11 shrink-0 rounded" aria-label="Floor plan options" onClick={()=>patchCanvas(canvas.id,{sheet:'menu'})}>⋯</button>
+ </div>;
+ if(slot==='meta')return <span className="flex min-w-0 items-center gap-2 text-meta">
+  <span className="shrink-0">Floor plan · v{number} · Read only</span>
+  {floor?.changed&&<span role="status" className="flex min-w-0 items-center gap-1"><span className="hidden truncate min-[640px]:inline">The floor plan changed.</span><span className="min-[640px]:hidden">Changed.</span><button className="shrink-0 underline" disabled={busy} onClick={()=>void mutate('latest')}>Load latest</button></span>}
+  {v.change_note&&!floor?.changed&&<span className="truncate">{v.change_note}</span>}
+ </span>;
+ if(slot==='actions')return <div className={`flex h-full w-full min-w-0 gap-1 ${context.landscape?'flex-col justify-start px-1':'items-center px-2'}`}>
+  <div className="flex shrink-0 items-center justify-center">
+   <button className={`min-h-11 ${context.landscape?'min-w-8':'min-w-11'}`} aria-label="Previous version" disabled={v.version<=1||busy} onClick={()=>selectCanvasVersion(canvas.id,v.version-1)}>‹</button>
+   <button className="min-h-11 px-1 text-meta" onClick={()=>patchCanvas(canvas.id,{sheet:'versions'})}>Versions</button>
+   <button className={`min-h-11 ${context.landscape?'min-w-8':'min-w-11'}`} aria-label="Next version" disabled={v.version>=canvas.latest_version||busy} onClick={()=>selectCanvasVersion(canvas.id,v.version+1)}>›</button>
+  </div>
+  <button className={`${button} min-w-0 ${context.landscape?'w-full whitespace-normal':'flex-1'}`} onClick={()=>askCanvasChange(canvas.id)}>Ask for a change</button>
+ </div>;
  const sheet=state.views[canvas.id]?.sheet;
  const close=()=>{setOverlay(null);patchCanvas(canvas.id,{sheet:undefined});};
+ const openRestore=()=>{patchCanvas(canvas.id,{sheet:undefined});setOverlay('restore');};
+ async function copyLink(){try{await navigator.clipboard.writeText(new URL(`/floor/${floor!.designId}`,window.location.origin).href);setNotice('Link copied.');}catch{setNotice("Couldn't copy the link. Try again.");}close();}
+
  return <div className="relative flex h-full min-h-0 flex-col">
   {(notice||busy)&&<p role="status" className="px-2 text-meta">{busy?'Loading floor plan…':notice}</p>}
-  {data.capabilities.preview&&floor?<FloorCanvasStage floor={floor} visible={!context.signal.aborted} onLoadLatest={()=>void mutate('latest')}/>:<p role="status">Floor plan preview is turned off.</p>}
+  {data.capabilities.preview&&floor?<FloorCanvasStage floor={floor} visible={!context.signal.aborted} />:<p role="status">Floor plan preview is turned off.</p>}
   {sheet==='versions'&&<CanvasVersions id={canvas.id} selected={v.version} onSelect={n=>selectCanvasVersion(canvas.id,n)} onClose={close}/>}
-  {sheet==='picker'&&<CanvasOverlay title="Canvases" onClose={close}>{state.items.map(x=><button key={x.canvas.id} className={`${button} block w-full text-left`} onClick={()=>{chooseCanvas(x.canvas.id,x.canvas.latest_version);close();}}>{x.canvas.kind==='floor_plan'?`Floor plan · ${x.latest.title} · v${x.latest.design?.number??''}`:x.latest.title}</button>)}</CanvasOverlay>}
-  {sheet==='about'&&<CanvasOverlay title="About this floor plan" onClose={close}><p>{v.summary}</p>{v.version!==canvas.latest_version&&<button className={button} onClick={()=>{patchCanvas(canvas.id,{sheet:undefined});setOverlay('restore');}}>Use this version</button>}</CanvasOverlay>}
+  {sheet==='menu'&&<CanvasOverlay title="Floor plan options" menu onClose={close}>
+   {floor&&<><p className="text-meta min-[640px]:hidden">Edit on a tablet or computer</p><a className="flex min-h-11 items-center" href={`/floor/${floor.designId}`} target="_blank" rel="noopener noreferrer"><span className="min-[640px]:hidden">Open floor plan ↗</span><span className="hidden min-[640px]:inline">{canEdit?'Edit floor plan ↗':'Open floor plan ↗'}</span></a></>}
+   <button className="block min-h-11 w-full text-left" onClick={()=>patchCanvas(canvas.id,{sheet:'about'})}>About this floor plan</button>
+   <button className="block min-h-11 w-full text-left" disabled={v.version===canvas.latest_version} onClick={openRestore}>Use this version</button>
+   <button className="block min-h-11 w-full text-left" disabled={!floor} onClick={()=>void copyLink()}>Copy link</button>
+   <button className="block min-h-11 w-full text-left text-flag" onClick={()=>{close();onDelete();}}>Delete canvas…</button>
+  </CanvasOverlay>}
+  {sheet==='about'&&<CanvasOverlay title="About this floor plan" onClose={close}><p>{v.summary}</p></CanvasOverlay>}
   {overlay==='restore'&&<CanvasOverlay title={`Use floor plan v${v.design?.number}?`} onClose={close}><p>Your newer versions will stay. The full designer will keep its current drawing.</p><button className={button} disabled={busy} onClick={()=>void mutate('restore')}>Use this version</button><button className={button} onClick={close}>Cancel</button></CanvasOverlay>}
  </div>;
 }

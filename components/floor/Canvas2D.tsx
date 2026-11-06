@@ -130,7 +130,7 @@ function defaultKeyFor(tool: ToolId): string | null {
   }
 }
 
-export const Canvas2D = forwardRef<Canvas2DHandle, { ctx: DesignerContext; className?: string }>(function Canvas2D({ ctx, className = "" }, ref) {
+export const Canvas2D = forwardRef<Canvas2DHandle, { ctx: DesignerContext; className?: string; embeddedPreview?: boolean }>(function Canvas2D({ ctx, className = "", embeddedPreview = false }, ref) {
   const { d, view, setView } = ctx;
   /** A paint key is a finish preset key or "catalog-<id>" (a catalog material). */
   const resolvePaint = useCallback(
@@ -1352,6 +1352,7 @@ export const Canvas2D = forwardRef<Canvas2DHandle, { ctx: DesignerContext; class
       )}
 
       <ScaleControl
+        raised={embeddedPreview && ctx.readOnly}
         k={vp.k}
         onScale={(kk) => {
           autoFit.current = false;
@@ -1390,13 +1391,13 @@ export function kForScale(inPerFt: number): number {
 
 /** Bottom-right scale bar (always true to the drawing, whatever the zoom)
  *  plus a menu to jump to a standard drawing scale or fit. */
-function ScaleControl({ k, onScale, onFit }: { k: number; onScale: (k: number) => void; onFit: () => void }) {
+function ScaleControl({ k, onScale, onFit, raised = false }: { raised?: boolean; k: number; onScale: (k: number) => void; onFit: () => void }) {
   const [open, setOpen] = useState(false);
   const barIn = BAR_STEPS_IN.find((s) => s * k >= 70) ?? BAR_STEPS_IN[BAR_STEPS_IN.length - 1];
   const barPx = barIn * k;
   const current = SCALES.find((s) => Math.abs(kForScale(s.inPerFt) - k) / k < 0.02);
   return (
-    <div className="absolute bottom-2 right-2 flex flex-col items-end gap-1">
+    <div className={`absolute ${raised ? "bottom-16 max-w-[calc(100%_-_1rem)]" : "bottom-2"} right-2 flex flex-col items-end gap-1`}>
       {open && (
         <div className="flex flex-col rounded-md border border-rule bg-card p-1 text-[11px] shadow-lg">
           {SCALES.map((s) => (

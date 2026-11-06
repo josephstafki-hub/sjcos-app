@@ -400,16 +400,16 @@ export function Designer(props: DesignerProps) {
   if (props.embeddedPreview) return (
     <div ref={container} className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden" aria-label="Read only floor plan">
       <div className="relative min-h-0 flex-1">
-        {showPlan && <Canvas2D ref={canvas} ctx={ctx} className="h-full w-full" />}
+        {showPlan && <Canvas2D ref={canvas} ctx={ctx} embeddedPreview className="h-full w-full" />}
         {show3d && scene3d}
-        <div role="toolbar" aria-label="Floor plan view" className="absolute bottom-2 left-2 right-2 flex flex-wrap items-center gap-1 text-meta">
-          <button className="min-h-11 rounded-md border border-rule bg-card px-3" aria-pressed={showPlan} onClick={() => setView({ mode: "plan" })}>2D</button>
-          <button className="min-h-11 rounded-md border border-rule bg-card px-3" aria-pressed={show3d} onClick={() => setView({ mode: "3d" })}>3D</button>
+        <div role="toolbar" aria-label="Floor plan view" className="absolute bottom-2 left-2 right-2 flex items-center gap-1 text-meta">
+          <button className="min-h-11 rounded-md border border-rule bg-card px-2 aria-pressed:bg-ink aria-pressed:text-paper" aria-pressed={showPlan} onClick={() => setView({ mode: "plan" })}>2D</button>
+          <button className="min-h-11 rounded-md border border-rule bg-card px-2 aria-pressed:bg-ink aria-pressed:text-paper" aria-pressed={show3d} onClick={() => setView({ mode: "3d" })}>3D</button>
           {d.doc.levels.length > 1 && <select aria-label="Floor level" className="min-h-11 max-w-28 rounded-md border border-rule bg-card" value={d.levelId} onChange={e => d.setLevelId(e.target.value)}>{d.doc.levels.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
           <span className="flex-1" />
           <button className="hidden min-h-11 min-w-11 rounded-md border border-rule bg-card [@media(pointer:fine)]:block" aria-label="Zoom out" disabled={!showPlan} onClick={() => canvas.current?.zoom(0.8)}>−</button>
-          <button className="min-h-11 rounded-md border border-rule bg-card px-3" onClick={fit}>Fit</button>
-          <button className="min-h-11 rounded-md border border-rule bg-card px-3" disabled={!showPlan} onClick={() => canvas.current?.resetZoom()}>100%</button>
+          <button className="min-h-11 rounded-md border border-rule bg-card px-2" onClick={fit}>Fit</button>
+          <button className="min-h-11 rounded-md border border-rule bg-card px-2" disabled={!showPlan} onClick={() => canvas.current?.resetZoom()}>100%</button>
           <button className="hidden min-h-11 min-w-11 rounded-md border border-rule bg-card [@media(pointer:fine)]:block" aria-label="Zoom in" disabled={!showPlan} onClick={() => canvas.current?.zoom(1.25)}>+</button>
         </div>
       </div>

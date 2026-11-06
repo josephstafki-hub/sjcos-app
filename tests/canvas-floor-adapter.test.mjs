@@ -45,9 +45,11 @@ test('embedded Designer has a dedicated preview return before all editing chrome
 test('stage releases hidden renderer and pins key to snapshot, never current revision',()=>{
  const src=readFileSync('components/panel/canvas/floor/FloorCanvasStage.tsx','utf8');
  assert.match(src,/if \(!visible\) return null/);assert.match(src,/key=\{snapshotId\}/);
- assert.match(src,/The floor plan changed/);assert.match(src,/Load latest/);
+ const pane=readFileSync('components/panel/canvas/floor/FloorCanvasPane.tsx','utf8');
+ assert.match(pane,/The floor plan changed/);assert.match(pane,/Load latest/);
  assert.doesNotMatch(src,/savePlan|publish|estimateTargets=/);
- assert.match(src,/Edit on a tablet or computer/);assert.match(src,/min-width: 640px/);
+ assert.doesNotMatch(src,/<details|Floor plan options/);
+ assert.match(pane,/Edit on a tablet or computer/);assert.match(pane,/min-\[640px\]/);
 });
 
 import ts from 'typescript';

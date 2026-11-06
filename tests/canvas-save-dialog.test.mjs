@@ -102,3 +102,18 @@ test('project search failure appears below search row with retry and no empty-re
   const retry=find(tree,'Try again');assert.ok(retry);retry.props.onClick();picker.render();picker.effects();await new Promise(r=>setTimeout(r,25));tree=picker.render();assert.ok(find(tree,'Recovered'));assert.doesNotMatch(text(tree),/Couldn't load/);
  }finally{picker.close();}
 });
+
+// Build R3 design (R3-1): the area checklist must not collapse to a 1-row strip.
+// One dialog scroller (the overlay frame), a bounded checklist group with 48px rows,
+// and the Cancel/Save row pinned so Save is always on screen.
+test('Save dialog layout: one scroller, full-height checklist rows, pinned Save row', async () => {
+  const {readFileSync} = await import('node:fs');
+  const src = readFileSync(new URL('../components/panel/CanvasSaveDialog.tsx', import.meta.url), 'utf8');
+  assert.doesNotMatch(src, /max-h-\[65dvh\][^"]*overflow-auto/);
+  assert.match(src, /role="group" aria-label="Required access areas" className="[^"]*\bshrink-0\b[^"]*\boverflow-y-auto\b[^"]*"/);
+  assert.match(src, /max-h-\[min\(20rem,38dvh\)\]/);
+  assert.match(src, /<label className="flex min-h-12 w-full cursor-pointer items-center gap-3"><input className="size-5 shrink-0 accent-ink" type="checkbox"/);
+  assert.match(src, /className="min-h-12 shrink-0 self-start[^"]*"[\s\S]{0,80}>Untick all</);
+  assert.match(src, /className="sticky bottom-0 z-10 flex items-center justify-end gap-4 border-t border-rule bg-paper py-2"/);
+  assert.match(src, /className="min-h-11 rounded-md border border-rule bg-paper px-3"[\s\S]{0,80}>Keep \{o\.label\} ticked</);
+});

@@ -213,7 +213,7 @@
     "db/apply-push-outbox.mjs": "3466c5e4f0dbaecf175fd55c31de18a7a989a8972e399b86bdf05771c5739627",
     "db/migrations/0031_payment_push.sql": "a8966c4e6eefdc555fab618955c522910288b85122aa6fd9384140784df7892c",
     "db/migrations/0039_contract_signed_push.sql": "e4b4936b69c08a3876d0fd671f48083f9bacc449315c999b2b88708aedca6063",
-    "lib/ask-canvases.ts": "cda68d53fa9fd2f7d3f8896824b78b248aff28d201c3753cefbcee5e004b96b8",
+    "lib/ask-canvases.ts": "39c5c05a4edcd677579dac9854f14b45e7868bb707a4cc51fbf6f5d93e658c33",
     "mcp/canvas-tools.mjs": "384cda40305a84ea983a1195f7b083326ae6dce921150c5e3fd1c5538c6154b5",
     "db/migrations/0106_ask_canvases.sql": "70f5bbb072ed8556de75f5f92e9a25f1dd25775b2e08236176dc1539ded4d5b2",
     "app/api/ai/status/route.ts": "3a0c97e55da2ce202efc8a8e99f9760a39b102a86d5a253e45131a62b6de7f40",

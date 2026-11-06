@@ -18,6 +18,7 @@ export function CanvasPane({context,slot}:{context:AskPaneRenderContext;slot:'ti
  const raw=state.views[id]??{},view=raw.data?.selected.version===number||!raw.data?raw:{};
  const data=view.data,v=data?.selected,isPage=data?.canvas.kind==='page',kindLabel=!data?'Canvas':isPage?'Page':'Diagram',about=isPage?'About this page':'About this diagram';
  const attempt=useRef<{action:string;request_id:string}|null>(null);
+ const deletions=useRef(new Map<string,{request_id:string;flight:object|null;done:boolean}>());
  const deleteOrigin=useRef<HTMLElement|null>(null);
  const sheet=(name:typeof view.sheet)=>patchCanvas(id,{sheet:name});
  // Only the content slot owns loading/cancellation; slots share a tab-local store.
@@ -29,31 +30,48 @@ export function CanvasPane({context,slot}:{context:AskPaneRenderContext;slot:'ti
   try{const response=await fetch(versionPath(id,number)+`/download?format=${format}`,{cache:'no-store',signal});if(!response.ok)throw Error();const blob=await response.blob();if(signal.aborted)return;const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=`${(v?.title??'Diagram').replace(/[^\p{L}\p{N} _-]/gu,'').slice(0,80)||'Diagram'} (v${number}).${format}`;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch{if(!signal.aborted)patchCanvas(id,{notice:"Couldn't prepare the file. Try again."});}
  };
  const mutate=async(action:'delete'|'restore')=>{
-  if(action==='restore'&&(!v||!data))return;
-  if(action==='delete'&&!v&&!attempt.current)return;
+  if(action==='delete'){
+   let operation=deletions.current.get(id);
+   if(operation?.flight||operation?.done||(!v&&!operation))return;
+   if(!operation){operation={request_id:crypto.randomUUID(),flight:null,done:false};deletions.current.set(id,operation);}
+   // Fence synchronously: retained callbacks can run again before React renders.
+   const flight={};operation.flight=flight;
+   const scope=canvasState().scope;
+   const current=()=>deletions.current.get(id)===operation&&operation.flight===flight;
+   try{
+    patchCanvas(id,{data:undefined,code:undefined,sheet:undefined,notice:undefined,error:'DELETING'});
+    await canvasFetch(`/api/canvas/${id}`,signal,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({request_id:operation.request_id})});
+    if(!current())return;
+    operation.done=true;
+    if(canvasState().scope!==scope)return;
+    // Read current collections: new cards/canvases may arrive during the request.
+    const now=canvasState();
+    patchCanvas(id,{error:undefined,notice:undefined,sheet:undefined});
+    updateCanvas({items:now.items.filter(x=>x.canvas.id!==id),events:now.events.map(e=>e.canvas_id===id?{id:e.id,thread_id:e.thread_id,actor_user_id:e.actor_user_id,run_id:e.run_id,at:e.at,group_id:e.group_id,kind:'deleted',canvas_id:id}:e)});publishCanvases();
+   }catch{
+    if(current()&&!operation.done&&canvasState().scope===scope)patchCanvas(id,{error:'DELETE_FAILED'});
+   }finally{
+    if(current())operation.flight=null;
+   }
+   return;
+  }
+  if(!v||!data)return;
   if(attempt.current?.action!==action)attempt.current={action,request_id:crypto.randomUUID()};
   try{
-   if(action==='delete'){
-    // Hide the title immediately. A failed deletion stays fenced and title-free.
-    patchCanvas(id,{data:undefined,code:undefined,sheet:undefined,error:'DELETING'});
-    await canvasFetch(`/api/canvas/${id}`,signal,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({request_id:attempt.current.request_id})});
-    updateCanvas({items:state.items.filter(x=>x.canvas.id!==id),events:state.events.map(e=>e.canvas_id===id?{id:e.id,thread_id:e.thread_id,actor_user_id:e.actor_user_id,run_id:e.run_id,at:e.at,group_id:e.group_id,kind:'deleted',canvas_id:id}:e)});publishCanvases();
-   }else{
-    const result=await canvasFetch<CanvasMutationResponse>(`/api/canvas/${id}/restore`,signal,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({request_id:attempt.current.request_id,base_version:latest,restore_version:number})});
-    updateCanvas({items:state.items.map(item=>item.canvas.id===id?{canvas:result.canvas,latest:result.selected}:item)});selectCanvasVersion(id,result.selected.version);sheet(undefined);
-   }
+   const result=await canvasFetch<CanvasMutationResponse>(`/api/canvas/${id}/restore`,signal,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({request_id:attempt.current.request_id,base_version:latest,restore_version:number})});
+   updateCanvas({items:canvasState().items.map(item=>item.canvas.id===id?{canvas:result.canvas,latest:result.selected}:item)});selectCanvasVersion(id,result.selected.version);sheet(undefined);
    attempt.current=null;
-  }catch(e){const code=(e as {code?:string}).code;patchCanvas(id,action==='delete'?{error:'DELETE_FAILED'}:{notice:code==='VERSION_CONFLICT'?'A newer version was saved.':"Couldn't use this version. Try again.",sheet:undefined});}
+  }catch(e){const code=(e as {code?:string}).code;patchCanvas(id,{notice:code==='VERSION_CONFLICT'?'A newer version was saved.':"Couldn't use this version. Try again.",sheet:undefined});}
  };
  const copyButton=<button disabled={!view.code} className="min-h-11 rounded border border-rule px-3" onClick={()=>void copy()}>Copy code</button>;
  const codeBlock=<>{isPage&&<p className="py-2 text-body">This page can show text, tables, and drawings. Ask Claude to change it.</p>}<p className="py-2 text-meta text-ink-3">{kindLabel} code · Untrusted text · Version {number}</p>{copyButton}<pre tabIndex={0} className="mt-2 overflow-auto whitespace-pre p-3 font-mono text-[13px] [font-variant-ligatures:none] [font-feature-settings:'liga'_0,'calt'_0]">{view.code?.code??'Loading code…'}</pre></>;
  const emptyCopy=state.availability?.floor?'No canvas yet. Ask for a diagram, a page, or a floor plan.':'No canvas yet. Ask for a diagram or a page.';
  const title=data?.canvas.kind==='floor_plan'&&data.floor?(compact?data.floor.props.design.name:`Floor plan · ${data.floor.props.design.name} · v${data.floor.number}`):v?.title??snapshot.label;
  const picker=<button id={`canvas-picker-${id}`} data-canvas-title aria-label={`Canvases in this chat: ${view.error?'Canvas':title}`} className="h-11 min-w-0 flex-1 truncate px-2 text-left font-serif text-subheading" onClick={()=>sheet('picker')}>{view.error?'Canvas':title} ▾</button>;
- const pickerSheet=view.sheet==='picker'&&<CanvasOverlay title="Canvases in this chat" onClose={()=>sheet(undefined)}>{state.items.map(item=><button key={item.canvas.id} className="flex min-h-14 w-full items-center justify-between gap-2 border-b border-rule px-2 text-left" onClick={e=>chooseCanvas(item.canvas.id,item.canvas.latest_version,e.currentTarget)}><span className="truncate">{item.latest.title}</span><span className="shrink-0 text-meta">{item.canvas.kind==='floor_plan'?`Floor plan · v${item.latest.design?.number??'—'}`:`${item.canvas.kind==='page'?'Page':'Diagram'} · Version ${item.canvas.latest_version}`} {id===item.canvas.id?'✓':''}</span></button>)}{!state.items.length&&<p>{emptyCopy}</p>}</CanvasOverlay>;
- const openDelete=()=>{deleteOrigin.current=document.activeElement as HTMLElement|null;sheet('delete');};
- const closeDelete=()=>{sheet(undefined);queueMicrotask(()=>{const origin=deleteOrigin.current;const target=origin?.isConnected?origin:document.getElementById(`canvas-picker-${id}`);target?.focus();});};
- const deleteSheet=view.sheet==='delete'&&<CanvasOverlay title="Delete canvas?" onClose={closeDelete}><p>It&apos;s removed now and erased for good after 30 days. Saved project files will stay.</p><button className="min-h-11 rounded-md border border-rule bg-card px-3 text-flag" onClick={()=>void mutate('delete')}>Delete canvas</button><button className="min-h-11 px-3" onClick={closeDelete}>Cancel</button></CanvasOverlay>;
+ const pickerSheet=view.sheet==='picker'&&<CanvasOverlay title="Canvases in this chat" onClose={()=>sheet(undefined)}>{state.items.map(item=><button key={item.canvas.id} className="flex min-h-14 w-full items-center justify-between gap-2 border-b border-rule px-2 text-left" onClick={e=>chooseCanvas(item.canvas.id,item.canvas.latest_version,e.currentTarget)}><span className="truncate">{item.canvas.kind==='floor_plan'?(item.latest.design_name??item.latest.title):item.latest.title}</span><span className="shrink-0 text-meta">{item.canvas.kind==='floor_plan'?`Floor plan · v${item.latest.design?.number??'—'}`:`${item.canvas.kind==='page'?'Page':'Diagram'} · Version ${item.canvas.latest_version}`} {id===item.canvas.id?'✓':''}</span></button>)}{!state.items.length&&<p>{emptyCopy}</p>}</CanvasOverlay>;
+ const openDelete=()=>{const operation=deletions.current.get(id);if(!canvasState().views[id]?.data||operation?.flight||operation?.done)return;deleteOrigin.current=document.activeElement as HTMLElement|null;sheet('delete');};
+ const closeDelete=()=>{const operation=deletions.current.get(id);if(!canvasState().views[id]?.data||operation?.flight||operation?.done)return;sheet(undefined);queueMicrotask(()=>{if(!canvasState().views[id]?.data)return;const origin=deleteOrigin.current;const target=origin?.isConnected?origin:document.getElementById(`canvas-picker-${id}`);target?.focus();});};
+ const deleteSheet=view.sheet==='delete'&&<CanvasOverlay title="Delete canvas?" onClose={closeDelete}><p>It&apos;s removed now and erased for good after 30 days. Saved project files will stay.</p><button className="min-h-11 rounded-md border border-rule bg-card px-3 text-flag" disabled={view.error==='DELETING'} onClick={()=>void mutate('delete')}>Delete canvas</button><button className="min-h-11 px-3" onClick={closeDelete}>Cancel</button></CanvasOverlay>;
  if(data?.canvas.kind==='floor_plan')return <><FloorCanvasPane context={context} slot={slot} data={data} picker={picker} onDelete={openDelete}/>{slot==='content'&&<>{pickerSheet}{deleteSheet}</>}</>;
  if(slot==='title')return <div className="flex min-w-0 items-center">{picker}<button className="size-11 shrink-0 rounded" aria-label="Canvas actions" onClick={()=>sheet('menu')}>⋯</button></div>;
  if(slot==='meta')return view.error?<span/>:<span className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">

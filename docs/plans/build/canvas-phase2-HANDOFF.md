@@ -195,3 +195,77 @@ resize/handshake behavior, long/narrow tables and multi-page print/PDF in Chromi
 and Safari/iOS, plus floor menu deletion/Escape/focus and unified picker at
 360/820/1100/1280 and short landscape. No visual release, rollout or deploy is
 claimed; existing production flags remain unchanged.
+
+## Round 2 fixes
+
+2026-11-06 · implementation A, shared Canvas/pages half. Ten fresh expectations
+were written before implementation: nine executed component cases in canvas-ui
+and one real-DB/API metadata case in canvas-commands-db. All ten reproduced the
+unfixed findings, then passed. No delegation, server, browser, build, push,
+migration/package operation, live/QA DB connection or service action occurred.
+B's concurrent files were not edited or staged by A.
+
+- Engineering r2 #3: Delete now installs a synchronous per-canvas flight token
+  before the first await. Duplicate confirmation/menu callbacks coalesce; a
+  genuine retry keeps its operation/request ID. Only the current flight can
+  publish a result or release its fence, and the completed operation blocks
+  retained callbacks after success. Success clears stale notice/error state,
+  redacts cards once, and filters current collections rather than a pre-request
+  snapshot, preserving newly received canvases/events. Pending confirmation is
+  guarded/disabled across the separate title/content slot instances; retained
+  menu/Cancel callbacks cannot reopen/refocus it. Existing Cancel
+  focus return remains covered. Failed deletion stays title-free and retryable.
+- Design r2 #4, A half: VersionMeta has optional top-level design_name. The
+  shared mapper emits it from B's authorized floorVersionMeta.name and keeps
+  design's original four identity/version fields. New mutation results re-read
+  metadata after attaching the reference, so show/restore as well as get/list/
+  versions/events/replay carry the current name. The disposable API test also
+  renames the design and proves historical metadata reads the current name.
+  Picker rows and both visible/accessible floor card titles use design_name,
+  falling back to the canvas title. Floor history rows read “Floor plan · vN”.
+- Design r2 #5: the page iframe keeps visibility:hidden while loading; zoom
+  controls mount only after the bridge reports ready. The frame still loads
+  and performs the existing handshake. “Opening page…” and the existing 10s
+  timeout/error/Try again path remain intact; no bridge/CSP/renderer change.
+- Private-query audit: reviewed A's two-line ask-canvases delta; all 25 existing
+  private SQL fingerprints are unchanged. Only that source digest was updated
+  (39c5c05a4edcd677579dac9854f14b45e7868bb707a4cc51fbf6f5d93e658c33).
+  No B source/query fingerprints were approved.
+
+Each named file ran individually with SJC_TEST_CLUSTER_TAG=c23-a-r2-1106-583.
+Database execution minted explicit connection URLs solely with
+tests/_harness/testdb.mjs, supplied them for every database URL environment key,
+and used the harness callback/session URLs. stopCluster() returned true after
+both the red probe and the final DB run. The new metadata case uses a fresh
+harness database because the preceding journal test deliberately latches
+recovery/deletion state. An initial full-file run exposed that fixture-state
+inheritance; no product gate was relaxed.
+
+| Test file | Passing / failing |
+| --- | --- |
+| canvas-ui | 60 / 0 |
+| canvas-routes | 22 / 0 |
+| canvas-mcp | 40 / 0 |
+| canvas-commands-db | 22 / 0 |
+| canvas-page-sandbox | 22 / 0 |
+| canvas-render-bridge | 29 / 0 |
+| ask-private-query-scan | 10 / 1 (B audit outstanding; final post-B rerun pending) |
+
+`flock /tmp/sjcos-tsc.lock nice -n 19 npx tsc --noEmit -p .` finally exited **0**.
+The first run exited 2 while B's in-progress plan-estimate.ts had two implicit-any
+errors; B corrected that file before the successful rerun. Logs:
+`/tmp/c23-a-r2-*.log`. No exit 137/resource kill occurred.
+
+Final post-B scan pending. Preliminary findings are confined to B's
+lib/canvas-floor.ts:38 floorVersionMeta: unaudited changed query, changed enclosing
+SQL/guard source digest, and stale previous floorVersionMeta query audit.
+Coordinator must review those fingerprints; A deliberately leaves them unchanged.
+
+Not done by A: B's floor/action implementation and its tests, approval of B's
+private-query hashes, production/browser/device acceptance, push or deploy.
+Coordinator visual checks: delayed/unreachable page preview stays blank behind
+“Opening page…” until the normal 10s error; Try again recovers with zoom appearing
+only when ready; floor names agree in cards/picker/header and compact history
+rows; rapid duplicate Delete, successful deletion and failed-delete retry leave
+correct focus/notice at narrow and full pane widths. Existing Phase 2+3 release
+checks and feature-off rollout remain in effect.

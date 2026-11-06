@@ -18,15 +18,16 @@ export function CanvasCard({event,availability,latestVersion,showing=false,creat
  if(!event||!('version' in event))return null;
  const v=event.version,older=(latestVersion??v.version)>v.version;
  const disabled=showing&&!older;
+ const title=kind==='floor_plan'?(v.design_name??v.title):v.title;
  const versionLabel=v.design?`floor plan v${v.design.number}`:`version ${v.version}`;
  return <article className="rounded-md border border-rule bg-card p-3">
-  <div className="flex items-center gap-2"><Icon className="size-4 shrink-0" aria-hidden="true"/><h3 className="truncate font-serif text-subheading">{v.title}</h3></div>
+  <div className="flex items-center gap-2"><Icon className="size-4 shrink-0" aria-hidden="true"/><h3 className="truncate font-serif text-subheading">{title}</h3></div>
   <p className="text-meta text-ink-3">{label} · {v.design?`v${v.design.number}`:`Version ${v.version}`}{older?' · Newer version available':''}</p>
   <p className="line-clamp-1 text-body text-ink-2">{v.summary}</p>
   {stopped&&<p className="text-meta text-ink-3">Canvas saved before the run stopped.</p>}
   {event.kind==='saved'&&<p className="text-meta text-ink-3">Saved to {event.project_name}</p>}
   <button className="min-h-11 rounded-md border border-rule bg-card px-3 text-body text-ai-2 focus-visible:outline-2 focus-visible:outline-focus" aria-disabled={disabled||undefined}
-   aria-label={disabled?'Showing':older?`Open ${versionLabel}: ${v.title}, ${label.toLowerCase()}, newer version available`:`Open canvas: ${v.title}, ${label.toLowerCase()}, ${v.design?`v${v.design.number}`:versionLabel}`}
+   aria-label={disabled?'Showing':older?`Open ${versionLabel}: ${title}, ${label.toLowerCase()}, newer version available`:`Open canvas: ${title}, ${label.toLowerCase()}, ${v.design?`v${v.design.number}`:versionLabel}`}
    onClick={e=>{if(!disabled)onOpen(event.canvas_id,v.version,e.currentTarget);}}>{disabled?'Showing':older?`Open ${versionLabel}`:'Open canvas'}</button>
  </article>;
 }

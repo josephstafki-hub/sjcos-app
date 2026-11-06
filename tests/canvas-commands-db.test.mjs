@@ -98,3 +98,25 @@ test('0106 shares durable deletion replay, holds, purge counters and frozen repa
   await t.test('canvas authority loss and primary-volume reconstruction fail closed then replay',async()=>{failed=true;await assert.rejects(ledger.withLedgerLock(dir,()=>journal.recoverThreads(pool,options)),/unavailable/);assert.equal((await db.query('SELECT recovery_ready FROM ask_canvas_maintenance')).rows[0].recovery_ready,false);failed=false;await rm(dir,{recursive:true,force:true});await ledger.withLedgerLock(dir,()=>journal.recoverThreads(pool,options));assert.equal((await ledger.readLocal(dir)).length,entries.length);});
  });}finally{delete process.env.SJC_ASK_THREAD_DELETE_ACCEPTED;await rm(root,{recursive:true,force:true});}
 }));
+
+
+// Round 2 expectation FIRST: all metadata paths use the authorized design's
+// current name, including immutable historical Canvas versions and replay.
+test('round 2 floor metadata carries current design_name across API paths',()=>withTestDb(async(url,c)=>{
+ const people=await seedPeople(c);process.env.SJC_CANVAS_ENABLED='1';process.env.SESSION_SECRET='canvas-r2-secret-at-least-32-characters';
+ const {encrypt}=await import('../lib/session.ts');const {emptyDoc}=await import('../lib/plan-doc.ts');
+ await withSessionIdentity(url,'sjcos_test_website',async db=>{
+  globalThis.__phase0aDb=db;globalThis.__phase0aCookies={get:()=>({value:token})};const token=await encrypt({userId:people.owner.id,role:'owner',authAt:Math.floor(Date.now()/1000)});
+  for(const key of ['canvas.floor_enabled','canvas.diagrams_enabled'])await db.query(`INSERT INTO app_settings(key,value) VALUES($1,'true') ON CONFLICT(key) DO UPDATE SET value='true'`,[key]);
+  const project=(await db.query(`INSERT INTO projects(slug,name) VALUES('zz-r2-names','Floor names') RETURNING id`)).rows[0];
+  const design=(await db.query(`INSERT INTO plan_designs(project_id,name,doc) VALUES($1,'Kitchen layout',$2) RETURNING *`,[project.id,emptyDoc()])).rows[0];
+  const run=(await db.query(`INSERT INTO dev_agent_runs(prompt,profile,principal_user_id,conversation_id,launch_source,with_mcp) VALUES('names','operator',$1,$2,'panel_web',true) RETURNING *,extract(epoch FROM created_at)::bigint AS started`,[people.owner.id,people.thread])).rows[0];
+  const context={run_id:run.id,principal_user_id:people.owner.id,run_profile:'operator',run_started_s:Number(run.started),transport:'runner_stdio'};
+  const input={request_id:req(),title:'Canvas title',summary:'Kitchen',required_areas:[],content:{kind:'floor_plan',design_id:design.id,expected_design_rev:0}};
+  const made=await core.canvasInternal('show',input,context),id=made.canvas.id;assert.equal(made.selected.design_name,'Kitchen layout');
+  await db.query(`UPDATE plan_designs SET name='Renamed kitchen' WHERE id=$1`,[design.id]);
+  const check=v=>{assert.equal(v.design_name,'Renamed kitchen');assert.equal(v.title,'Canvas title');assert.equal(v.design.number,1);};
+  check((await core.canvasGet(id,{})).selected);check((await core.canvasList(people.thread,{})).canvases[0].latest);check((await core.canvasVersions(id,{})).versions[0]);check((await core.canvasEvents(people.thread,{})).events[0].version);
+  check((await core.canvasInternal('show',input,context)).selected);check((await core.canvasRestore(id,{request_id:req(),base_version:1,restore_version:1})).selected);
+ });
+},{fresh:true}));

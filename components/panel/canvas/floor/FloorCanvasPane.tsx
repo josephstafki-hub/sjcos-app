@@ -37,10 +37,18 @@ export function FloorCanvasPane({context,slot,data,picker,onDelete}:{picker:Reac
   {floor&&canEdit&&<a className={`${button} hidden shrink-0 items-center min-[820px]:inline-flex`} href={floor.href} target="_blank" rel="noopener noreferrer">Edit floor plan ↗</a>}
   <button className="size-11 shrink-0 rounded" aria-label="Floor plan options" onClick={()=>patchCanvas(canvas.id,{sheet:'menu'})}>⋯</button>
  </div>;
+ // An older Canvas version is not a designer change: offer the existing newer
+ // version (no mutation). "Load latest" is only for the newest Canvas version
+ // whose pinned snapshot differs from the live designer drawing.
+ const item=state.items.find(x=>x.canvas.id===canvas.id);
+ const latestVersion=Math.max(canvas.latest_version,item?.canvas.latest_version??0);
+ const older=v.version<latestVersion;
+ const latestNumber=item&&item.canvas.latest_version===latestVersion?item.latest?.design?.number:undefined;
  if(slot==='meta')return <span className="flex min-w-0 items-center gap-2 text-meta">
   <span className="shrink-0">Floor plan · v{number} · Read only</span>
-  {floor?.changed&&<span role="status" className="flex min-w-0 items-center gap-1"><span className="hidden truncate min-[640px]:inline">The floor plan changed.</span><span className="min-[640px]:hidden">Changed.</span><button className="shrink-0 underline" disabled={busy} onClick={()=>void mutate('latest')}>Load latest</button></span>}
-  {v.change_note&&!floor?.changed&&<span className="truncate">{v.change_note}</span>}
+  {older&&<span role="status" className="flex shrink-0 items-center gap-1">{latestNumber!=null?<><span className="hidden min-[640px]:inline">Floor plan</span> v{latestNumber} is ready</>:'A newer version is ready'} <button className="shrink-0 underline" onClick={()=>selectCanvasVersion(canvas.id,latestVersion)}>Latest</button></span>}
+  {!older&&floor?.changed&&<span role="status" className="flex min-w-0 items-center gap-1"><span className="hidden truncate min-[640px]:inline">The floor plan changed.</span><span className="min-[640px]:hidden">Changed.</span><button className="shrink-0 underline" disabled={busy} onClick={()=>void mutate('latest')}>Load latest</button></span>}
+  {!older&&v.change_note&&!floor?.changed&&<span className="truncate">{v.change_note}</span>}
  </span>;
  if(slot==='actions')return <div className={`flex h-full w-full min-w-0 gap-1 ${context.landscape?'flex-col justify-start px-1':'items-center px-2'}`}>
   <div className="flex shrink-0 items-center justify-center">

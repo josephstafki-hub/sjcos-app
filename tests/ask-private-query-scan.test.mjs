@@ -55,3 +55,5 @@ test('R3 reply fan-out and browser carriers cannot escape the scanner',()=>{
   assert.ok(scanSource('lib/new-copy-reader.ts',source).length,source);
  }
 });
+
+ test('Canvas source, metadata, events, requests and usage join the private inventory',()=>{for(const table of ['ask_canvases','ask_canvas_versions','ask_canvas_requests','ask_canvas_events','ask_canvas_usage','ask_canvas_rate_windows'])assert.ok(scanSource('lib/new-canvas.ts',`query("SELECT * FROM ${table}")`).length,table);});

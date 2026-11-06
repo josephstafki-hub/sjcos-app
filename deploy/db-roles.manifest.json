@@ -3084,6 +3084,24 @@
     },
     "private_ask_push_sources": {
       "note": "0105 website-only opaque private-reply decision/work/grant associations retained across tombstone/purge; only ask_push_is_private returns a boolean to existing push writers. No narrow table grants. Backup via pg_read_all_data."
+    },
+    "ask_canvases": {
+      "note": "Private Ask data; all reads/writes via authenticated canvas app adapter; no narrow-role raw access."
+    },
+    "ask_canvas_versions": {
+      "note": "Private Ask data; all reads/writes via authenticated canvas app adapter; no narrow-role raw access."
+    },
+    "ask_canvas_requests": {
+      "note": "Private Ask data; all reads/writes via authenticated canvas app adapter; no narrow-role raw access."
+    },
+    "ask_canvas_events": {
+      "note": "Private Ask data; all reads/writes via authenticated canvas app adapter; no narrow-role raw access."
+    },
+    "ask_canvas_usage": {
+      "note": "Private Ask data; all reads/writes via authenticated canvas app adapter; no narrow-role raw access."
+    },
+    "ask_canvas_rate_windows": {
+      "note": "Private Ask data; all reads/writes via authenticated canvas app adapter; no narrow-role raw access."
     }
   }
 }

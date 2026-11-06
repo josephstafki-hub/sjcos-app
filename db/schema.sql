@@ -3900,3 +3900,6 @@ CREATE TABLE IF NOT EXISTS ask_canvas_maintenance (
  health_code text, blocked_since timestamptz DEFAULT now()
 );
 INSERT INTO ask_canvas_maintenance(singleton) VALUES(true) ON CONFLICT DO NOTHING;
+
+-- Canvas core DDL is applied by migration 0106_ask_canvases.sql after 0100 + 0105.
+-- The base schema intentionally omits ledger-managed Canvas relations.

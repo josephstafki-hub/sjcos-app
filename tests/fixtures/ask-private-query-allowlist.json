@@ -34,7 +34,7 @@
     "lib/ask-private-transport.mjs": "526f608724370f95444e33c5612c0e74433d58c43a161bda8d2a0bde820caab5",
     "lib/ask-run-admission.ts": "f07318d9ee3666da83dd659a20c257cbf30b12a5b0f3fd51a1e0b359019188a4",
     "lib/ask-thread-journal-interactions.mjs": "bb7cc8fc617e99d1eea8131a590f4089fec6be00e065ec16624fb7dcba67be55",
-    "lib/ask-thread-journal.mjs": "34240ece5dc96160e9c8b085825bd3b8ff8730d546d2df48d185e6b1af866e28",
+    "lib/ask-thread-journal.mjs": "a06413ab72a95062f2cc5674558acbb88993dbf62ddea9cb2b2e477859a84141",
     "lib/attachments.ts": "22837ed0d5a1e347a6b08dc1f45cb5670a042daeead7084d42e7db311471d5d5",
     "lib/authority/usage.ts": "0e86785e1c48d24d132c974f2f612985dccb225e5b2baeb947cac19d35252cf1",
     "lib/bidding.ts": "0de197af352cc857144caf150eb212c47fed701814236be194a5f63888c470af",
@@ -208,12 +208,16 @@
     "db/migrations/0062_portal_telegram.sql": "85878f8cf90c1ec4731c51ec5cd45ff1409ebc1ef3a5bf9e902394e90780155e",
     "db/migrations/0100_ask_launch_sessions_browser_core.sql": "dd0deca0d6bc5ec0ea573fe6214d62889d238027e5d91a69256d0b4aa2d99f04",
     "db/migrations/0105_ask_thread_ownership.sql": "3a105fc3041b26f3ef73d7796bf7cdf4aff6dae3bfa5df9d4d8e9bcf85311cf3",
-    "db/schema.sql": "8af22913669451c5f4dbb3aad8da113a06b022924ac7db326ea506f81fa79e79",
+    "db/schema.sql": "796fe1542e19a47d5ae746cf0366d5de0d60590e5b3c992cd1b7935a6946bded",
     "db/seed-workflow-runbooks.mjs": "d7bc6de5467359b85364c72042184f34aed5baabf61093347b4dd8ff81ad5dad",
     "db/seed.sql": "fe0fa36f0ade311fe5d64ae7d878e249977ab3f653e29d9b24178dba87745400",
     "db/apply-push-outbox.mjs": "d03f2a72e47ceae67df7a2d7d3416d96e65d992960eb89b6dc32b9f8d18d43c5",
     "db/migrations/0031_payment_push.sql": "a8966c4e6eefdc555fab618955c522910288b85122aa6fd9384140784df7892c",
-    "db/migrations/0039_contract_signed_push.sql": "e4b4936b69c08a3876d0fd671f48083f9bacc449315c999b2b88708aedca6063"
+    "db/migrations/0039_contract_signed_push.sql": "e4b4936b69c08a3876d0fd671f48083f9bacc449315c999b2b88708aedca6063",
+    "lib/ask-canvases.ts": "d2b6abb0e112425b2a5e839b31c9cf2a88097798b3f4ce6328ea324d5cd1615a",
+    "mcp/canvas-tools.mjs": "af488ec1f424bc8055d6b03f89211788fd55e1ecfdc61eefb0abfd9f1f8e2a10",
+    "db/migrations/0106_ask_canvases.sql": "1d0be83ed45a0662e078f96c93eafbcf36dc6fbf4593fdb1270d07c0e7876599",
+    "app/api/ai/status/route.ts": "3a0c97e55da2ce202efc8a8e99f9760a39b102a86d5a253e45131a62b6de7f40"
   },
   "entries": [
     {
@@ -1182,9 +1186,9 @@
     {
       "file": "lib/ask-thread-journal.mjs",
       "function": "deletionState",
-      "classification": "not-private",
-      "reason": "owner-health-opaque-ids",
-      "explanation": "Title-free latch/checkpoint and existence-of-deletion health only; no source payload or per-person activity.",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
       "queries": [
         "165ec0cc0f07ea306c78b0b5287f4d9274011351644088785b8aa75eac0cfc50"
       ]
@@ -1194,8 +1198,11 @@
       "function": "replay",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Journal recovery/replay/purge under the OS lock, independent durability and maintenance lease; trusted internal website identity, no user payload returned.",
+      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
       "queries": [
+        "0d27aca9a57c2314c31498003b3fdd8162836c89f8053a32fdb40ba063f88181",
+        "2f0c87530f836b52ab08c49ac954fd981096080ccf2b4076a9036df4648b7a49",
+        "0fa16a3cf5a8d1b7e61e6892926c19aed582c5c1229241ec36076994bb7eb084",
         "2ef31d44345a41d03a481a10ac1287746d6d4e35d76c820c0ddda8d97c7f5a99",
         "2b3e712f4d9fe780301567c5e1456695ce4c31f4b7cf055585ac9909754bb892",
         "083d7c5e847c4147c11b7e4c23091412f6c7215f8cc5c80fe06cb7fc7d2885ba",
@@ -1204,27 +1211,26 @@
     },
     {
       "file": "lib/ask-thread-journal.mjs",
-      "function": "deleteThread",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Verified principal is supplied by deleteOwnedThread; explicit owner/thread predicate and opaque operation retry under journal lock, never a general tombstone reader.",
-      "queries": [
-        "883b080f993449c39ef05c408f97a0f37b2619790d58b7bf63072b3665e3975e"
-      ]
-    },
-    {
-      "file": "lib/ask-thread-journal.mjs",
       "function": "maintainThreadsChecked",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Journal recovery/replay/purge under the OS lock, independent durability and maintenance lease; trusted internal website identity, no user payload returned.",
+      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
       "queries": [
+        "c60e6ce83bb30513bad70b36ac448b892afea9bc9ee9a47c28cf8293979ac005",
         "252e17dd00c92959c55e9f7cd7037d204afe354ef904c197d0c641282bf1c76f",
+        "0dc5b934bcd3cbbd9a7af6920a74473c02bb481b4dd464d71a40d26d6692d26e",
+        "b2d9305f9577c33d114039a935f79e65e3c264c1bdd4955633c90e2343e16761",
+        "480aef82fcda64a090ed48ebc963d2817d3685fb9a07a416ffbffdfa36cbaab1",
+        "19abe94c7c32fac19b11881eb1c1dc13c771196b5c63424ad673b1b3458746a6",
+        "c1aa4a1c5f066826cfeeafd608f36739515d4b0031f0da30e915122efea862c4",
         "a167abcc3887c6aebb8f3225530c50edb54b676bafd53684ca7785a0e7cd226b",
         "d51d54cc872468cf733224cd63fc3a0376f24cbbf4b80967d3ba3e6237aa3851",
         "56f87f82de4732f825540bd1e54c69bb42b5cfb9f26a5ba41acfa005623b637b",
         "b275f2f700ab10486ff51ab2456206be01c2a059ebea6e9afea406c0e44ed691",
-        "5fac8a783b5cab2ac0aed41a833cd308f81a47d097060e6ecc97f4521957580c"
+        "5fac8a783b5cab2ac0aed41a833cd308f81a47d097060e6ecc97f4521957580c",
+        "63ae0242574f4a586729e475ad870a9c0ec6ab8ab6240554affb30785eee3a58",
+        "95dd14e1f4bd128c2f1db033123a5354ec34ba2fae260f0200834a1d7eae0883",
+        "3a7dc1102683db0ffabf5b454ff6d28a0b948aaae5929174fb67aeb32236d872"
       ]
     },
     {
@@ -5306,11 +5312,11 @@
     {
       "file": "db/schema.sql",
       "function": "<sql>",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers.",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Base installation schema only; ledger-managed private ownership/Canvas DDL remains in 0105/0106. Static schema is not a runtime private-data reader.",
       "queries": [
-        "8af22913669451c5f4dbb3aad8da113a06b022924ac7db326ea506f81fa79e79"
+        "796fe1542e19a47d5ae746cf0366d5de0d60590e5b3c992cd1b7935a6946bded"
       ]
     },
     {
@@ -5402,6 +5408,219 @@
       "function": "transmit",
       "queries": [
         "e8be1a7a330ab2b538a588a991569761d5f9f2ee2fdd852bc8ddf7c5c8cb55d6"
+      ]
+    },
+    {
+      "file": "app/api/ai/status/route.ts",
+      "function": "GET",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Existing authenticated owner-only health route returns fixed ready/warning/paused codes and deletion capability, no private text/count/title. Maintenance row enters the scanner now that all ask_canvas_* carriers are included.",
+      "queries": [
+        "daeaf89b4e1894a1d36afaa8f2600cae9373716cebb5516914b9268209bca582"
+      ]
+    },
+    {
+      "file": "db/migrations/0106_ask_canvases.sql",
+      "function": "<sql>",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Owner-installed DDL for private canvas schema, immutable identities/snapshots, composite thread references, website session_user guards, quotas/rates and fenced retention/reconciliation. No narrow grants or public command EXECUTE. Stores hashes/opaque provenance references; no operational reader bypass.",
+      "queries": [
+        "1d0be83ed45a0662e078f96c93eafbcf36dc6fbf4593fdb1270d07c0e7876599"
+      ]
+    },
+    {
+      "file": "lib/ask-canvases.ts",
+      "function": "canvasDelete",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "queries": [
+        "e9188e749d6bbd3e07202ac13bceee89d2ae32f4f678917785486d4490493741"
+      ]
+    },
+    {
+      "file": "lib/ask-canvases.ts",
+      "function": "canvasInternal",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "queries": [
+        "9d890fca1f5ac95675c387d90e506d1e217f6775c85c60ae1a7541846a035ecd"
+      ]
+    },
+    {
+      "file": "lib/ask-canvases.ts",
+      "function": "canvasVersions",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "queries": [
+        "d8ab7ad5c22eb9e4b94997198b86660065e235170ace25c906b2945aff354696"
+      ]
+    },
+    {
+      "file": "lib/ask-canvases.ts",
+      "function": "eventsIn",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "queries": [
+        "0819bfce4fadfa90a7b3880c6aa000a10165d9ad2eee79159fbbe617f24229ed",
+        "e8f49036b2859f15036d2e0fa5111376187f1f190d6bf667d6308c76022bf08d",
+        "fc317a3d0a8f9198f5cc4d9747165f14dda856e1c1edb4a800ecc3c11ea51301"
+      ]
+    },
+    {
+      "file": "lib/ask-canvases.ts",
+      "function": "listIn",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "queries": [
+        "9f56a6536f93fa07eb7eeb9e1c895bbbe4317cc5033abcea7e3cf9d70c0ab0e9"
+      ]
+    },
+    {
+      "file": "lib/ask-canvases.ts",
+      "function": "load",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "queries": [
+        "20148ea3e10e8612480fc712ec52808f09a921f0b31321a9da69efb357598f3e"
+      ]
+    },
+    {
+      "file": "lib/ask-canvases.ts",
+      "function": "mutation",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "queries": [
+        "652106ad89a8c5e2f0ca781f1bcf86820ee9d38a7df6bb3a0ba1d9ca29ec5c01",
+        "5c04a88b8e946e5795b2ee7a0eaf00e03ffcd7e7118a01169714d1716ae1a3d7",
+        "12413c3203c786db0f41e9903abf4704a69425ecb610dfd650056911e8c609ef",
+        "8bcf25501319e55f0301b66c0afd003b78dcc7ad158aafe3d828f3689061ea1a",
+        "83cd1449ccaa7b48cb19c8476f0d49812137a6c58d406cd8af188605071b58eb",
+        "ac37a1a45212f3b7d71d4f16794fd9da0fcb887569040101a51fa1c83aaadd83",
+        "eff89f48f84066f02b861d9c66a1df9bfb10ea693c0100fd377acdaeaf698613"
+      ]
+    },
+    {
+      "file": "lib/ask-canvases.ts",
+      "function": "ownThread",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "queries": [
+        "c89f0465013225cab89a8b439597bd2aa2689aa7a1820da59dc425e7612405fe"
+      ]
+    },
+    {
+      "file": "lib/ask-canvases.ts",
+      "function": "tx",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "queries": [
+        "50a7448a52de6cfb646e7e1fab3d90e583ea0fa97762e7033556623156b5bacb",
+        "8b223b94221428414877bcb156d7fcaa1efc9818ada9076d8596f604dd916bec"
+      ]
+    },
+    {
+      "file": "lib/ask-canvases.ts",
+      "function": "version",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "queries": [
+        "51ec119f5e99c7faec3246cfd6bf83f450c06d0fd9e6b5911827fa8032b997b7"
+      ]
+    },
+    {
+      "file": "lib/ask-thread-journal.mjs",
+      "function": "acquireLease",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
+      "queries": [
+        "9f8ac8bb2c6d0282fa1795e90bc3d57f8090bfac031d55621cc80d1a090bb99e"
+      ]
+    },
+    {
+      "file": "lib/ask-thread-journal.mjs",
+      "function": "checkLease",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
+      "queries": [
+        "52c69f72dd17e739ab99f5d3c8fa2e85241d67b896693b9b7fd52d9355a0f2be"
+      ]
+    },
+    {
+      "file": "lib/ask-thread-journal.mjs",
+      "function": "closeGate",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
+      "queries": [
+        "855decd52929361291a8b783b2990f39e1d2bfe51061416dd98f34ffa305211f"
+      ]
+    },
+    {
+      "file": "lib/ask-thread-journal.mjs",
+      "function": "deleteEntity",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
+      "queries": [
+        "883b080f993449c39ef05c408f97a0f37b2619790d58b7bf63072b3665e3975e",
+        "25bde215ab64274cc37d8f3f7e0df8a3c2afb24d152146a3ab3f33eac88e3daf"
+      ]
+    },
+    {
+      "file": "lib/ask-thread-journal.mjs",
+      "function": "latch",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
+      "queries": [
+        "90313cd8f8e10479ef4e1f3090415ce5f8b6f9cc3cc01d3cc103a460d46b7fc4"
+      ]
+    },
+    {
+      "file": "lib/ask-thread-journal.mjs",
+      "function": "recoverThreads",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
+      "queries": [
+        "f5e1f69cf1912c1f09b2bbea985f66cf86b561ea5275047e369523e9a1f14318",
+        "c2cac5a568385ee25d06d2a63226d1c603739a4a934b8619712a16df90dbb847",
+        "54ca347475618d1e121f27c15b3e9b0249ad497a912055d09be6b4bc3e8ae33d",
+        "3a7dc1102683db0ffabf5b454ff6d28a0b948aaae5929174fb67aeb32236d872"
+      ]
+    },
+    {
+      "file": "lib/ask-thread-journal.mjs",
+      "function": "withAskJournal",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
+      "queries": [
+        "ebbe1d1c7ade9ff5dedf4f777cf2d5052c0abfa139dc549a127a54a0645d9d78"
+      ]
+    },
+    {
+      "file": "mcp/canvas-tools.mjs",
+      "function": "<private-files>",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Actual bootstrap transport and captured env in private closure, HTTP ALS backstop before any forward. Secret-authenticated admit compares captured thread against DB before tool dispatch. No raw narrow-login canvas SQL; website repeats active run/person/launch/profile/start/revocation and owner checks.",
+      "queries": [
+        "af488ec1f424bc8055d6b03f89211788fd55e1ecfdc61eefb0abfd9f1f8e2a10"
       ]
     }
   ]

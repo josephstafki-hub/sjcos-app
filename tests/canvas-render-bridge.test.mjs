@@ -133,6 +133,24 @@ for(const [name,drawing] of [
  assert.equal(h.rendered.length,0);assert.deepEqual(h.failures,['RENDER_FAILED']);assert.deepEqual(h.logs,['CANVAS_RENDER_FAILED']);assert.ok(h.removed());
 });
 
+// Real Mermaid 12.3.0 output (captured from the vendored bundle in Chromium with the
+// renderer's own initialize config). It carries decorative <filter><feDropShadow/>
+// drop shadows; the adapter must strip them and still draw. A hand-made fixture
+// without shadows let the coordinator's real-browser QA fail every diagram.
+test('real Mermaid 12.3.0 flowchart output (with drop-shadow filters) renders', async () => {
+ const real = read('tests/fixtures/canvas-mermaid-12.3.0-flowchart.svg');
+ assert.match(real, /<filter[\s>]/);
+ const h = await harness(buildCanvasRendererDocument(options), {drawing: real});
+ assert.deepEqual(h.failures, []);
+ assert.equal(h.rendered.length, 1);
+ assert.doesNotMatch(h.rendered[0].svg, /<filter|feDropShadow|filter=/);
+});
+test('SVG adapter still fails closed on a non-decorative unknown element next to a filter', async () => {
+ const real = read('tests/fixtures/canvas-mermaid-12.3.0-flowchart.svg').replace('<g', '<foreignObject/><g');
+ const h = await harness(buildCanvasRendererDocument(options), {drawing: real});
+ assert.equal(h.rendered.length, 0); assert.deepEqual(h.failures, ['RENDER_FAILED']);
+});
+
 test('a missing child announcement logs only a fixed handshake diagnostic and closes the frame',async()=>{
  const h=await harness(buildCanvasRendererDocument(options),{announce:false,expire:10000});
  assert.deepEqual(h.failures,['LOAD_TIMEOUT']);assert.deepEqual(h.logs,['CANVAS_HANDSHAKE_TIMEOUT']);assert.equal(h.sent.length,0);assert.equal(h.rendered.length,0);assert.ok(h.removed());

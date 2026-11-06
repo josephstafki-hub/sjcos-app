@@ -129,3 +129,16 @@ test('classification registry is exhaustive, strict and does not infer actor per
     for (const invalid of [{ ...registry, extra: 1 }, { ...registry, content_areas: ['ai'] }, { ...registry, content_areas: ['projects'] }, { ...registry, tools: { read: { areas: ['bogus'] } } }, { ...registry, tools: { read: { areas: ['money', 'money'] } } }, { ...registry, tools: JSON.parse('{"__proto__":{"areas":[]}}') }])
         assert.throws(() => validateClassificationRegistry(invalid));
 });
+
+// Real-browser QA (2026-11-05): every Mermaid drawing failed because stroke-width
+// was value-checked but never admitted. Admit plain numbers only.
+test('SVG gate admits numeric stroke-width and still rejects units, refs and huge values', async () => {
+  const { validateCanvasSvg } = await import('../lib/canvas-content.mjs');
+  const wrap = (attrs) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" width="10" height="10"><path d="M0,0L10,10" ${attrs}/></svg>`;
+  validateCanvasSvg(wrap('stroke-width="1.5"'));
+  validateCanvasSvg(wrap('stroke-width="0"'));
+  for (const bad of ['stroke-width="1pt"', 'stroke-width="url(#x)"', 'stroke-width="99999"', 'stroke-width="1;x"']) {
+    let threw = false; try { validateCanvasSvg(wrap(bad)); } catch { threw = true; }
+    if (!threw) throw new Error('accepted ' + bad);
+  }
+});

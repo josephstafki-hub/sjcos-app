@@ -1,6 +1,22 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  env: {
+    NEXT_PUBLIC_SJC_CANVAS_ENABLED: process.env.SJC_CANVAS_ENABLED === '1' ? '1' : '0',
+    NEXT_PUBLIC_SJC_CANVAS_PRINT_ENABLED: process.env.SJC_CANVAS_PRINT_ENABLED === '1' ? '1' : '0',
+  },
+  outputFileTracingIncludes: {
+    '/api/canvas/renderer': ['./renderer-assets/mermaid-12.3.0.min.js'],
+  },
+  async headers() {
+    return [{source:'/panel/canvas/:path*',headers:[
+      {key:'Content-Security-Policy',value:"frame-ancestors 'none'"},
+      {key:'X-Frame-Options',value:'DENY'},
+      {key:'Referrer-Policy',value:'no-referrer'},
+      {key:'X-Content-Type-Options',value:'nosniff'},
+      {key:'Cache-Control',value:'private, no-store'},
+    ]}];
+  },
   // The live server (systemd `sjcos.service`) serves the prebuilt `.next`, and
   // a dev/build run that shares that directory clobbers it mid-flight — the
   // classic "half-built .next → dead hydration" failure. Setting SJC_DIST_DIR

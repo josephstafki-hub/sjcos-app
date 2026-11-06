@@ -1,5 +1,9 @@
 "use client";
 
+import {CanvasCard} from './CanvasCard';
+import {useCanvasFeed} from './canvas/useCanvasFeed';
+import {groupCanvasEvents,canvasTranscript} from './canvas/state';
+import {chooseCanvas,updateCanvas} from './canvas/store';
 import { useEffect, useRef, useState } from "react";
 import {
   Sparkles,
@@ -95,6 +99,7 @@ export function PanelChat({
   showNarration = true,
   threadView,
   onThreadViewChange,
+  onCanvasChat, selectedCanvas,
 }: {
   registerHandOff: (fn: (p: TodayPriority, kind: "do" | "prep") => void) => void;
   onRunStart: (run: ActiveRun) => void;
@@ -107,6 +112,8 @@ export function PanelChat({
    *  always-visible column (T3-style); narrower docks keep the History
    *  overlay drawer instead. */
   threadsRail?: boolean;
+  onCanvasChat?: () => void|Promise<unknown>;
+  selectedCanvas?: {id:string;version:number}|null;
   threadView?: boolean;
   onThreadViewChange?: (open: boolean) => void;
   /** The "Here's the queue right now" opener at the top of the chat. Off in
@@ -175,6 +182,17 @@ export function PanelChat({
       if (spec.attachments?.length) setAttachments((cur) => [...spec.attachments!, ...cur]);
     },
   });
+  const [canvasHint,setCanvasHint]=useState<{id:string;version:number}|null>(null);
+  const canvases=useCanvasFeed({threadId:chat.conversationId,pending:chat.pending,activeRunId:chat.activeRunId,blocked:!!chat.failureCode,prefill:(text,id,version)=>{
+    setPrompt(text);setCanvasHint(id&&version?{id,version}:null);void Promise.resolve(onCanvasChat?.()).then(()=>requestAnimationFrame(()=>inputRef.current?.focus()));
+  }});
+  useEffect(()=>{if(canvases)updateCanvas({updating:chat.pending&&/\bupdate_canvas\b/.test(chat.activity)});},[!!canvases,chat.pending,chat.activity]);
+  const canvasGroups=groupCanvasEvents(canvases?.events??[]);
+  const renderCanvasCard=(event:typeof canvasGroups[number])=><CanvasCard key={event.group_id} event={event} availability={canvases?.availability}
+    latestVersion={canvases?.items.find(x=>x.canvas.id===event.canvas_id)?.canvas.latest_version}
+    showing={event.canvas_id===selectedCanvas?.id&&'version' in event&&event.version.version===selectedCanvas.version}
+    stopped={event.run_id===chat.activeRunId&&!!chat.error} onOpen={chooseCanvas}/>;
+  useEffect(()=>{setCanvasHint(null);},[chat.conversationId,chat.failureCode]);
   const availability: AskVoiceAvailability = {
     enabled: !chat.failureCode || chat.failureCode === "THREAD_UNAVAILABLE",
     generation: chat.recoveryGeneration,
@@ -581,7 +599,7 @@ export function PanelChat({
           </div>
         )}
 
-        {(chat.messages.length > 0 || chat.notice) && (
+        {(chat.messages.length > 0 || chat.notice || canvasGroups.length>0) && (
           <div
             className={
               compact || !(narrate || showQueueCards)
@@ -590,7 +608,9 @@ export function PanelChat({
             }
           >
             {chat.notice && <div className="text-[11px] font-medium text-ai-2">{chat.notice}</div>}
-            {(chat.failureCode ? [] : chat.messages).map((m) => {
+            {(chat.failureCode ? [] : canvases?canvasTranscript(chat.messages,canvasGroups):chat.messages.map(message=>({kind:'message' as const,message}))).map((row) => {
+              if(row.kind==='canvas')return <div key={row.event.group_id}><p className="text-meta text-ink-3">{'version' in row.event?row.event.version.actor.name+' · ':''}<time dateTime={row.event.at}>{new Date(row.event.at).toLocaleString()}</time></p>{renderCanvasCard(row.event)}</div>;
+              const m=row.message;
               if (m.role === "user" && m.steer) {
                 const st = m.id.startsWith("steer-") ? chat.steerStatus[m.id.slice(6)] : undefined;
                 return (
@@ -636,10 +656,13 @@ export function PanelChat({
                     <AssistantMarkdown text={parsed.body} />
                   </div>
                   <ModelActionChips actions={parsed.actions} />
+                  {canvasGroups.filter(e=>e.run_id&&e.run_id===m.runId).map(renderCanvasCard)}
                   {m.runId ? <RunReview onFailure={chat.reportFailure} runId={m.runId} /> : (m.workLog || chat.logs[m.id]) && <ActivityLog text={m.workLog || chat.logs[m.id]} done />}
                 </div>
               );
             })}
+            {canvases?.hasOlder&&<button className="min-h-11 text-body text-ai-2" onClick={()=>void canvases.loadOlder()}>Earlier canvases</button>}
+            {canvases&&chat.pending&&/\bshow_canvas\b/.test(chat.activity)&&!canvasGroups.some(e=>e.run_id===chat.activeRunId)&&<CanvasCard creating availability={canvases.availability} onOpen={chooseCanvas}/>}
             {/* The agent is blocked on Joe: question boxes + tool approvals,
                 answered right here (the blocked call resumes within ~2s). */}
             {(chat.failureCode ? [] : chat.interactions).map((it) =>
@@ -861,6 +884,7 @@ export function PanelChat({
         {chat.failureCode === "SIGN_IN_AGAIN" ? <AskSignInLink /> : chat.failureCode !== "THREAD_UNAVAILABLE" && <button type="button" className="min-h-11 text-ai-2" onClick={() => void chat.retry()}>Try again</button>}
       </div>}
       {/* Composer */}
+        {canvasHint&&<div className="flex items-center gap-2 text-meta text-ink-3">Canvas · Version {canvasHint.version}<button type="button" aria-label="Remove canvas from message" className="size-11" onClick={()=>setCanvasHint(null)}>×</button></div>}
       <form
         onSubmit={(e) => {
           e.preventDefault();

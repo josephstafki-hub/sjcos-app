@@ -1,3 +1,4 @@
+import {canvasWrapperHeaders} from './components/panel/canvas/wrapper-headers';
 import { NextResponse, type NextRequest } from "next/server";
 import { SignJWT, jwtVerify } from "jose";
 import {
@@ -152,7 +153,7 @@ function isOauthDiscoveryProbe(path: string): boolean {
   return path.startsWith("/.well-known/oauth") || path === "/.well-known/openid-configuration";
 }
 
-export default async function proxy(req: NextRequest) {
+async function appProxy(req: NextRequest) {
   const path = req.nextUrl.pathname;
   if (isOauthDiscoveryProbe(path)) return new NextResponse(null, { status: 404 });
   // Actions authenticate inside their own boundary. A redirect here destroys
@@ -204,6 +205,14 @@ export default async function proxy(req: NextRequest) {
   }
 
   return slide(next(req), fresh);
+}
+
+export default async function proxy(req:NextRequest) {
+  const response=await appProxy(req);
+  if(/^\/panel\/canvas(?:\/|$)/.test(req.nextUrl.pathname)) {
+    for(const [key,value] of Object.entries(canvasWrapperHeaders))response.headers.set(key,value);
+  }
+  return response;
 }
 
 export const config = {

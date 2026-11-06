@@ -14,6 +14,8 @@ import {hostWidths, deviceCases} from './fixtures/ask-pane-host.mjs';
 // Real React SSR, with controlled provider/action/browser seams. No DOM, DB or server.
 const root=new URL('../',import.meta.url);
 const stubs=new Map([
+ ['next/dynamic',`export default function dynamic(){return ()=>null;}`],
+ ['./actions',`export const canvasPanelIdentity=(...a)=>globalThis.__canvasIdentity?.(...a)??({ok:false,code:'CANVAS_DISABLED'});`],
  ['next/link',`import React from 'react';export default function Link(props){return React.createElement('a',props);}`],
  ['@/components/today/PriorityCard',`export const PriorityCard=()=>null;`],
  ['@/components/today/ModelActionChips',`export const ModelActionChips=()=>null;`],
@@ -625,4 +627,111 @@ test('signed-out Today hides Waiting on me and the panel hides queue narration',
   } finally {
     if (prior === undefined) delete globalThis.__queueState; else globalThis.__queueState = prior;
   }
+});
+
+// Canvas Phase 1: actual slot components and feature adapter share Phase 0 host.
+const {CanvasPane}=await import('../components/panel/CanvasPane.tsx');
+const canvasStore=await import('../components/panel/canvas/store.ts');
+const {useCanvasFeed}=await import('../components/panel/canvas/useCanvasFeed.tsx');
+const cv={version:2,title:'Permit steps',summary:'Application through inspection.',change_note:'Moved inspection',actor:{id:'u',name:'Claude'},run_id:'r',created_at:'2026-11-05T12:00:00Z',restored_from_version:null,design:null};
+const av={revision:'1',master:true,diagrams:true,pages:false,floor:false,exports:false,staff:true,source:true};
+const cm={id:'canvas',thread_id:'thread',user_id:'u',created_run_id:'r',kind:'diagram',latest_version:3,created_at:cv.created_at,updated_at:cv.created_at};
+const cd={ok:true,canvas:cm,selected:cv,availability:av,capabilities:{preview:true,code:true,download_formats:[],restore:true,save:false,load_latest:false},preview:{mode:'diagram_renderer',href:'/api/canvas/renderer',renderer_version:'1'}};
+function canvasSetup(){const scope={userId:'u',threadId:'thread',claimToken:'test'};setAskPaneScope(scope);canvasStore.updateCanvas({scope,items:[{canvas:cm,latest:{...cv,version:3}}],events:[],availability:av,selection:{canvas:{version:2,follow:false}},views:{canvas:{data:cd,code:{ok:true,canvas_id:'canvas',version:2,kind:'diagram',code:'flowchart TD\n A["<script>alert(1)</script>"] --> B',sha256:'h',untrusted:true,availability:av}}}});return {snapshot:{kind:'canvas',id:'canvas',thread_id:'thread',user_id:'u',run_id:'r',label:cv.title,selected_version:2,latest_version:3,followLatest:false,revision:'2',attention:'new'},mode:'popout',compact:true,landscape:false,paneWidth:480,viewportWidth:1100,split:true,signal:new AbortController().signal,frameBoundary(){}};}
+test('Canvas source sheet escapes source, Close preserves preview and older selection; SVG disabled/source enabled',()=>{
+ const context=canvasSetup(),h=lifecycle(CanvasPane,{context,slot:'content'});
+ try{
+  canvasStore.patchCanvas('canvas',{sheet:'code'});let tree=h.render(),html=render(()=>tree);
+  assert.match(html,/Show code/);assert.match(html,/&lt;script&gt;/);assert.doesNotMatch(html,/<script>/);
+  const overlay=nodes(tree,n=>typeof n.type==='function'&&n.type.name==='CanvasOverlay')[0];overlay.props.onClose();tree=h.render();
+  assert.equal(canvasStore.canvasState().views.canvas.sheet,undefined);assert.equal(canvasStore.canvasState().selection.canvas.version,2);
+  canvasStore.patchCanvas('canvas',{sheet:'menu'});tree=h.render();
+  assert.equal(nodes(tree,n=>n.type==='button'&&n.props.children==='Drawing (SVG)')[0].props.disabled,true);
+  assert.equal(nodes(tree,n=>n.type==='button'&&n.props.children==='Diagram code (.mmd)')[0].props.disabled,false);
+  html=render(()=>tree);assert.doesNotMatch(html,/Save to project files|Print \/ Save PDF|Page \(HTML\)|Floor plan/);
+ }finally{h.dispose();canvasStore.clearCanvas();setAskPaneScope(null);}
+});
+test('Canvas fix and Ask for a change prefill exact version, focus Chat, and never send',()=>{
+ const context=canvasSetup(),prefills=[];canvasStore.updateCanvas({prefill:(...a)=>prefills.push(a)});
+ const content=lifecycle(CanvasPane,{context,slot:'content'}),actions=lifecycle(CanvasPane,{context,slot:'actions'});
+ try{
+  canvasStore.patchCanvas('canvas',{renderError:'RENDER_FAILED'});
+  const tree=content.render();nodes(tree,n=>n.type==='button'&&n.props.children==='Ask Claude to fix it')[0].props.onClick();
+  nodes(actions.render(),n=>n.type==='button'&&n.props.children==='Ask for a change')[0].props.onClick();
+  assert.deepEqual(prefills,[['Fix the "Permit steps" diagram (version 2). The error was: The diagram could not be drawn.','canvas',2],['Change the "Permit steps" diagram (version 2): ','canvas',2]]);
+ }finally{content.dispose();actions.dispose();canvasStore.clearCanvas();setAskPaneScope(null);}
+});
+test('Canvas title/meta/actions use the shared compact slots and step versions without enabling follow',()=>{
+ const context=canvasSetup(),h=lifecycle(CanvasPane,{context,slot:'actions'});
+ try{
+  nodes(h.render(),n=>n.type==='button'&&n.props['aria-label']==='Previous version')[0].props.onClick();
+  assert.deepEqual(canvasStore.canvasState().selection.canvas,{version:1,follow:false});
+  const meta=lifecycle(CanvasPane,{context,slot:'meta'});const html=render(()=>meta.render());assert.match(html.replaceAll('<!-- -->',''),/Version 3 is ready/);assert.match(html,/Latest/);meta.dispose();
+  canvasStore.updateCanvas({updating:true});const updating=lifecycle(CanvasPane,{context,slot:'meta'});assert.match(render(()=>updating.render()),/Claude is updating this canvas…/);updating.dispose();
+ }finally{h.dispose();canvasStore.clearCanvas();setAskPaneScope(null);}
+});
+test('Canvas feature off performs no identity, fetch or registration and keeps Phase 0 selector',()=>clientScope(async()=>{
+ const old=process.env.NEXT_PUBLIC_SJC_CANVAS_ENABLED;process.env.NEXT_PUBLIC_SJC_CANVAS_ENABLED='0';let identities=0;globalThis.__canvasIdentity=()=>{identities++;};
+ const h=lifecycle(()=>useCanvasFeed({threadId:'thread',pending:false,blocked:false,activeRunId:null,prefill(){}}));
+ try{assert.equal(h.render(),null);h.effects();await tick();assert.equal(identities,0);const html=render(()=>React.createElement(PanelDock,{width:390,inWindow:true}));assert.doesNotMatch(html,/role="tab"[^>]*aria-label="Canvas/);}finally{h.dispose();delete globalThis.__canvasIdentity;if(old===undefined)delete process.env.NEXT_PUBLIC_SJC_CANVAS_ENABLED;else process.env.NEXT_PUBLIC_SJC_CANVAS_ENABLED=old;}
+}));
+test('Canvas feed drains forward after newest, merges groups, changes claim on kill and clears cached source',()=>clientScope(async()=>{
+ const old=process.env.NEXT_PUBLIC_SJC_CANVAS_ENABLED,doc=globalThis.document,fetch=globalThis.fetch,interval=globalThis.setInterval,clear=globalThis.clearInterval;
+ process.env.NEXT_PUBLIC_SJC_CANVAS_ENABLED='1';globalThis.document={hidden:false,addEventListener(){},removeEventListener(){}};globalThis.setInterval=()=>1;globalThis.clearInterval=()=>{};
+ globalThis.__canvasIdentity=async()=>({ok:true,userId:'u'});
+ let killed=false;const calls=[];const event=n=>({id:String(n),thread_id:'thread',actor_user_id:'u',run_id:'r',at:cv.created_at,group_id:'run:r:canvas:canvas',kind:'updated',canvas_id:'canvas',version:{...cv,version:n}});
+ globalThis.fetch=async url=>{calls.push(url);if(url.includes('/canvases?'))return {ok:true,json:async()=>({ok:true,canvases:killed?[]:[{canvas:cm,latest:{...cv,version:3}}],next_cursor:null,availability:killed?{...av,revision:'2',master:false}:av})};const after=new URL('https://s'+url).searchParams.get('after');return {ok:true,json:async()=>({ok:true,events:killed?[]:after==='2'?[event(3)]:after?[event(2)]:[event(1)],cursor:killed?'4':after==='2'?'3':after?'2':'1',next_before:'older',has_more:!after||after==='1',availability:killed?{...av,revision:'2',master:false}:av})};};
+ const props={threadId:'thread',pending:true,blocked:false,activeRunId:'r',prefill(){}};const h=lifecycle(()=>useCanvasFeed(props));
+ try{
+  h.render();h.effects();await tick();await tick();
+  const state=h.render();assert.equal(state.events.length,3);assert.equal(calls.filter(x=>x.includes('canvas-events')).length,3);assert.ok(calls.some(x=>x.includes('after=2')));
+  const claim=canvasStore.canvasState().scope.claimToken;canvasStore.patchCanvas('canvas',{code:{code:'private source'}});killed=true;
+  // Changing run cadence triggers an immediate refresh without dropping history.
+  props.pending=false;h.render();h.effects();await tick();await tick();
+  assert.notEqual(canvasStore.canvasState().scope.claimToken,claim);assert.deepEqual(canvasStore.canvasState().views,{});assert.deepEqual(canvasStore.canvasState().items,[]);
+ }finally{h.dispose();canvasStore.clearCanvas();setAskPaneScope(null);globalThis.document=doc;globalThis.fetch=fetch;globalThis.setInterval=interval;globalThis.clearInterval=clear;delete globalThis.__canvasIdentity;if(old===undefined)delete process.env.NEXT_PUBLIC_SJC_CANVAS_ENABLED;else process.env.NEXT_PUBLIC_SJC_CANVAS_ENABLED=old;}
+}));
+
+test('DiagramStage verifies exact frame/null origin/nonce, sends only source and disposes its port on abort',()=>clientScope(async()=>{
+ const {DiagramStage}=await import('../components/panel/canvas/DiagramStage.tsx');
+ const context=canvasSetup(),controller=new AbortController();context.signal=controller.signal;
+ const old={document:globalThis.document,MessageChannel:globalThis.MessageChannel,ResizeObserver:globalThis.ResizeObserver,matchMedia:globalThis.matchMedia,setTimeout:globalThis.setTimeout,clearTimeout:globalThis.clearTimeout};
+ const callbacks=new Map(),ports=[],sent=[],removed=[],boundary=[];
+ window.addEventListener=(name,fn)=>callbacks.set(name,fn);window.removeEventListener=(name)=>callbacks.delete(name);
+ globalThis.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}});
+ globalThis.ResizeObserver=class{observe(){}disconnect(){}};
+ globalThis.MessageChannel=class{constructor(){this.port1={onmessage:null,postMessage:m=>sent.push(m),start(){},close(){this.closed=true;}};this.port2={};ports.push(this);}};
+ globalThis.setTimeout=()=>1;globalThis.clearTimeout=()=>{};
+ const contentWindow={postMessage:(...args)=>sent.push(args)};
+ context.frameBoundary=(...args)=>boundary.push(args);
+ const h=lifecycle(DiagramStage,{id:'canvas',version:cv,code:canvasStore.canvasState().views.canvas.code,context});
+ try{
+  h.render();h.slots[0].current={contentWindow,removeAttribute:name=>removed.push(name)};
+  h.slots[1].current={getBoundingClientRect:()=>({width:480,height:500}),addEventListener(){},removeEventListener(){}};
+  h.effects();
+  const ready={type:'canvas-ready',instance_id:'a'.repeat(32),nonce:'b'.repeat(32)};
+  callbacks.get('message')({source:{},origin:'null',data:ready});assert.equal(ports.length,0);
+  callbacks.get('message')({source:contentWindow,origin:'https://app.test',data:ready});assert.equal(ports.length,0);
+  callbacks.get('message')({source:contentWindow,origin:'null',data:ready});assert.equal(ports.length,1);
+  const receive=data=>ports[0].port1.onmessage({data:{instance_id:ready.instance_id,nonce:ready.nonce,sequence:0,...data}});
+  receive({type:'ready',nonce:'wrong'});assert.equal(sent.length,1);
+  receive({type:'ready'});assert.equal(sent[1].type,'render');assert.equal(sent[1].source,canvasStore.canvasState().views.canvas.code.code);assert.equal(sent[1].version,2);assert.doesNotMatch(JSON.stringify(sent),/Cookie|Authorization|grant|token|secret/);
+  receive({type:'escape',sequence:1});assert.equal(boundary[0][1],'escape');
+  receive({type:'rendered',sequence:1,canvas_id:'other',version:2,svg:'<svg/>',width:100,height:100});assert.notEqual(canvasStore.canvasState().views.canvas.ready,true);
+  receive({type:'rendered',sequence:1,canvas_id:'canvas',version:2,svg:'<svg/>',width:100,height:100});assert.equal(canvasStore.canvasState().views.canvas.ready,true);
+  controller.abort();assert.equal(ports[0].port1.closed,true);assert.deepEqual(removed,['src']);
+ }finally{h.dispose();for(const [k,v]of Object.entries(old))globalThis[k]=v;canvasStore.clearCanvas();setAskPaneScope(null);}
+}));
+
+test('enabled Canvas offers an authenticated empty pane before the first chat is created',()=>clientScope(async()=>{
+ const old=process.env.NEXT_PUBLIC_SJC_CANVAS_ENABLED,doc=globalThis.document,interval=globalThis.setInterval,clear=globalThis.clearInterval;
+ process.env.NEXT_PUBLIC_SJC_CANVAS_ENABLED='1';globalThis.document={hidden:false,addEventListener(){},removeEventListener(){}};globalThis.setInterval=()=>1;globalThis.clearInterval=()=>{};globalThis.__canvasIdentity=async()=>({ok:true,userId:'u',availability:av});
+ const h=lifecycle(()=>useCanvasFeed({threadId:null,pending:false,blocked:false,activeRunId:null,prefill(){}}));
+ try{h.render();h.effects();await tick();assert.equal(h.render().scope.threadId,'new-chat');const {getAskPaneFeed}=await import('../components/panel/askPaneRegistry.ts');assert.equal(getAskPaneFeed().snapshots[0].id,'empty');assert.equal(getAskPaneFeed().snapshots[0].selected_version,0);}finally{h.dispose();globalThis.document=doc;globalThis.setInterval=interval;globalThis.clearInterval=clear;delete globalThis.__canvasIdentity;if(old===undefined)delete process.env.NEXT_PUBLIC_SJC_CANVAS_ENABLED;else process.env.NEXT_PUBLIC_SJC_CANVAS_ENABLED=old;}
+}));
+test('late canvas source cannot repaint after the person/thread claim changes',async()=>{
+ canvasSetup();const prior=globalThis.fetch;let finish;globalThis.fetch=()=>new Promise(resolve=>{finish=resolve;});
+ const c=new AbortController();const load=canvasStore.loadCanvas('canvas',2,c.signal);
+ const next={userId:'other',threadId:'other-thread',claimToken:'next'};canvasStore.clearCanvas();canvasStore.updateCanvas({scope:next});
+ try{finish({ok:true,json:async()=>({...cd,capabilities:{...cd.capabilities,code:false}})});await load;assert.deepEqual(canvasStore.canvasState().views,{});}finally{c.abort();globalThis.fetch=prior;canvasStore.clearCanvas();setAskPaneScope(null);}
 });

@@ -42,7 +42,7 @@ try {
  const {withAskJournal}=await import('../lib/ask-thread-journal.mjs');
  const {pool}=await import('@/lib/db');
  await withAskJournal(pool,async()=>{});
- await db.query(`INSERT INTO app_settings(key,value) VALUES ('canvas.pages_enabled','true'),('canvas.diagrams_enabled','true'),('canvas.staff_enabled','true'),('canvas.exports_enabled','true'),('canvas.source_enabled','true') ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`);
+ await db.query(`INSERT INTO app_settings(key,value) VALUES ('canvas.pages_enabled','true'),('canvas.diagrams_enabled','true'),('canvas.staff_enabled','true'),('canvas.exports_enabled','true'),('canvas.source_enabled','true'),('canvas.floor_enabled','true') ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value`);
  const people=[['joe','c03946ca-cfbb-4e21-83de-a277b6334045','Joe','owner'],['abigail','4fc912de-1aa6-4a55-a555-ae163c9dc42e','Abigail','staff']];
  for(const [key,id,name,role] of people){
   // Preserve existing QA users, credentials and permissions. Fresh harness DBs
@@ -84,6 +84,24 @@ try {
   const large='flowchart LR\n'+Array.from({length:99},(_,n)=>` N${n}[Step ${n+1}]-->N${n+1}[Step ${n+2}]`).join('\n');
   output(`${key}_large`,threadId,await show('100 nodes at complexity limit',large));
   output(`${key}_${role==='owner'?'unknown_operator':'complete_narrow'}`,threadId,await show(role==='owner'?'UNKNOWN operator Save policy':'COMPLETE narrow Save policy','flowchart TD\n A[Review]-->B[Save to project]'));
+  // Floor (Phase 3): real geometry through the real MCP floor tools, then pin it.
+  {
+   const {registerFloorTools}=await import('../mcp/floor-tools.mjs');const {pool}=await import('@/lib/db');
+   const tools={};const json=data=>({content:[{type:'text',text:JSON.stringify(data)}]});
+   registerFloorTools({registerTool:(n,_s,h)=>{tools[n]=h;}},{rows:async(sql,params=[])=>(await db.query(sql,params)).rows,json,pool,currentPrincipal:async()=>({userId:id,runId:run.id}),saveSnapshot:input=>canvasInternal('floor_save',input,context)});
+   const call=async(n,a)=>{const r=JSON.parse((await tools[n](a)).content[0].text);if(r.ok===false)throw Error(`${n}: ${r.error}`);return r;};
+   const fslug=`qa-canvas-floor-${key}-${randomUUID().slice(0,6)}`;
+   await db.query(`INSERT INTO projects(slug,name,client_name,status) VALUES($1,$2,'QA only','floor_plan')`,[fslug,`QA ${name} floor project`]);
+   const d=await call('create_plan_design',{project_slug:fslug,name:`QA ${name} kitchen`});
+   const r1=await call('apply_plan_ops',{design_id:d.id,expected_rev:d.rev??0,ops:[{op:'addRoomRect',p:{x:0,y:0},q:{x:148.5,y:172.5},name:'Kitchen'}]});
+   const [top,,bottom]=r1.created.walls;
+   const r2=await call('apply_plan_ops',{design_id:d.id,expected_rev:r1.rev,ops:[{op:'addOpening',wallId:bottom,atIn:56,kind:'door'},{op:'placeRun',wallId:top,side:'right',startIn:0,keys:['base-SB36','appl-dw-24','base-B24']}]});
+   const floor=await canvasInternal('show',{request_id:randomUUID(),title:`QA ${name} · Kitchen floor plan`,summary:'Kitchen with sink base, dishwasher and door.',required_areas:[],content:{kind:'floor_plan',design_id:String(d.id),expected_design_rev:r2.rev}},context);
+   output(`${key}_floor_v1`,threadId,floor);
+   // Live design moves on after pinning: canvas must keep the pinned snapshot and offer Load latest.
+   await call('apply_plan_ops',{design_id:d.id,expected_rev:r2.rev,ops:[{op:'placeRun',wallId:top,side:'right',startIn:84,keys:['base-B24']}]});
+   states[`${key}_floor_v1`].designId=d.id;states[`${key}_floor_v1`].urls.floor=`/floor/${d.id}`;
+  }
   await db.query(`UPDATE dev_agent_runs SET status='done' WHERE id=$1`,[run.id]);
  }
  const slug=`qa-canvas-empty-${randomUUID().slice(0,8)}`;

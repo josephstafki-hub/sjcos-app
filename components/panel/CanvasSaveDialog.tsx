@@ -31,8 +31,8 @@ export function CanvasSaveDialog({data,onClose}:{data:CanvasGetResponse;onClose:
  // Build R4-1: the reason Save is off lives in the sticky footer, never under it.
  const hint=!project?'Choose a project.':needsAck&&!ack?'Tick the line above to save.':null;
  useEffect(()=>{if(!needsAck){ackShown.current=false;return;}if(ackShown.current)return;ackShown.current=true;ackRow.current?.scrollIntoView({block:'nearest'});},[needsAck]);
- // R5-1: an error (e.g. the 10-minute acknowledgement expiry) can untick the row while the
- // taller footer covers it; bring it back into view whenever that happens.
+ // R5-1: any error (a failed save, or the 10-minute acknowledgement expiry that unticks the
+ // row) makes the footer taller; bring the acknowledgement back into view whenever it shows.
  useEffect(()=>{if(error&&needsAck)ackRow.current?.scrollIntoView({block:'nearest'});},[error,needsAck]);
  const change=(next:string[])=>{reset();setSelected(next);};
  const acknowledge=async(checked:boolean)=>{

@@ -68,3 +68,38 @@ Each file ran by itself with `node --test tests/<file>.test.mjs` (never the full
    - Phone owner/staff ⋯ and Save captures, expanded-dock browser Back and app-nav click (exit once/navigate once), title focus/announcements, nested sheet Escape/Tab/focus return, actual Safari/iOS input zoom and opaque iframe boundaries, no cross-person pixels or console errors. Complete all deferred host captures in the design review, not just popout images.
 
 No browser/HTTP/Safari/device evidence or release approval is claimed by these unit tests.
+
+## Round-2 build fixes (2026-11-05)
+
+Started from `28f57f4c1225adf14e6dd039fc59f0721356d495` on
+`t3/in-app-browser-agent-tools`. One implementation agent; no delegation.
+
+| Finding | Change | Security round-2 preservation |
+|---|---|---|
+| R2-1 / engineering 1 | Save passes its own authenticated Canvas project search through JobPicker.search. Failure and bordered Try again sit below the search row; failed search does not also claim no matches. | The rail's owner-only search is unchanged. New action returns only project kind/name/slug, max 20; current source session, areas, project/folder scope and Projects access are checked server-side. No private folder, contact, money or Canvas metadata is added to responses. |
+| R2-2 | projectOnly suppresses FILED and folder tooltips. Inline names use text-body; secondary text, kind header and loading/empty states use text-meta. | Presentation only; folder metadata is never fetched by the Save action. Legacy rail behavior stays available in its original mode. |
+| R2-3 | Project toggle uses ▴ when expanded and ▾ when closed; open-state test updated. | No authorization or policy/acknowledgement reset changes. |
+| R2-4 | Fuller Save and compact-menu Save are absent for RENDER_FAILED/RENDER_TIMEOUT. Loading/LOAD_TIMEOUT retain disabled Save until an accepted derivative is ready. | Server derivative validation, immutable hashes and Save authorization still determine what can be exported; hiding a button creates no bypass. |
+| R2-5 | All listed state-action controls and Untick all use rounded-md border border-rule bg-card px-3, retaining their min heights and semantic colors. | Styling only. Untick all still clears acknowledgement and cannot grant declassification or send/publish anything. |
+
+Verification: canvas-ui **38/38**, canvas-save-dialog **29/29**. The latter uses
+controlled hooks for interaction; the added canvas-project-search-db file uses
+the real action, signed owner/staff sessions and real website DB identity through
+mounted Save/picker → actual policy → actual Save. It covers staff without
+Projects, foreign source, folder and immutable project scope, permission loss,
+revocation, query bounds/wildcards and minimal response fields. **1/1** passes.
+See integration handoff's round-2 verification table for security regression
+files, migration replay, scans and TypeScript.
+
+Opaque renderer origin, CSP hashes/resource denial, SVG normalization, private
+404s and saved-file audience enforcement are unchanged. No renderer, content
+validator, source API, owner-grant or external-delivery logic changed. No browser,
+Next dev/build/start, install, live/QA DB or service operation, deployment, or exit
+137 occurred; node_modules remains the live symlink, untouched.
+
+Coordinator visual checks remain required: owner UNKNOWN and staff COMPLETE Save
+at 1280/360 (click the already-open project row directly), all-21 audience and
+Untick-all/acknowledgement states, picker retry below input, toggle arrows and no
+FILED, read-only staff chips, syntax/complexity Save absence and bordered state
+controls. Repeat the review's widths/sheets/wrappers and generic foreign 404
+all-response isolation checks. This handoff does not claim browser acceptance.

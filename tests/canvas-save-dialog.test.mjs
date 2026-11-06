@@ -31,28 +31,20 @@ const root=new URL('../',import.meta.url);
 registerHooks({resolve(s,c,n){
  if(c.parentURL==='save-react:hooks')return n(s,{...c,parentURL:import.meta.url});
  if(s==='react'&&c.parentURL?.includes('/components/panel/'))return {url:'save-react:hooks',shortCircuit:true};
+ if(s==='@/lib/actions/canvas-projects')return {url:'save-action:projects',shortCircuit:true};
  if(s==='@/lib/actions/ai-chat')return {url:'save-action:jobs',shortCircuit:true};
  if(s.startsWith('@/')||s.startsWith('.')){const u=s.startsWith('@/')?new URL(s.slice(2),root):new URL(s,c.parentURL);for(const ext of ['','.ts','.tsx'])if(existsSync(new URL(u.href+ext))&&statSync(new URL(u.href+ext)).isFile())return {url:u.href+ext,shortCircuit:true};}
  return n(s,c);
 },load(u,c,n){
- if(u==='save-react:hooks')return {format:'module',shortCircuit:true,source:`import * as R from 'react';export * from 'react';${['useState','useEffect','useRef','useLayoutEffect'].map(k=>`export const ${k}=(...a)=>(globalThis.__saveHooks?.${k}??R.${k})(...a);`).join('')}`};
+ if(u==='save-react:hooks')return {format:'module',shortCircuit:true,source:`import * as R from 'react';export * from 'react';${['useState','useEffect','useRef','useLayoutEffect','useCallback'].map(k=>`export const ${k}=(...a)=>(globalThis.__saveHooks?.${k}??R.${k})(...a);`).join('')}`};
+ if(u==='save-action:projects')return {format:'module',shortCircuit:true,source:`export const searchCanvasProjectsAction=(id,n,q)=>globalThis.__searchCanvasProjects(q);`};
  if(u==='save-action:jobs')return {format:'module',shortCircuit:true,source:`export const searchJobsAction=(q)=>globalThis.__searchCanvasProjects(q);`};
  if(/\.(ts|tsx)$/.test(u))return {format:'module',shortCircuit:true,source:ts.transpileModule(readFileSync(new URL(u),'utf8'),{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText};
  return n(u,c);
 }});
 const {CanvasSaveDialog,CanvasAudienceChips}=await import('../components/panel/CanvasSaveDialog.tsx');
 const {JobPicker}=await import('../components/panel/JobPicker.tsx');
-function mounted(Component,props){
- const slots=[],pending=[];let i=0,tree;
- const state=init=>{const index=i++;if(!(index in slots))slots[index]=typeof init==='function'?init():init;return [slots[index],next=>{slots[index]=typeof next==='function'?next(slots[index]):next;}];};
- const effect=(fn,deps)=>{const [slot]=state(()=>({}));if(!slot.deps||deps.some((d,k)=>!Object.is(d,slot.deps[k]))){pending.push(()=>{slot.cleanup?.();slot.cleanup=fn();slot.deps=deps;});}};
- const hooks={useState:state,useRef:init=>state(()=>({current:init}))[0],useEffect:effect,useLayoutEffect:effect};
- return {render(){i=0;globalThis.__saveHooks=hooks;try{tree=Component(props);return tree;}finally{delete globalThis.__saveHooks;}},effects(){while(pending.length)pending.shift()();},close(){for(const slot of slots)slot?.cleanup?.();},get tree(){return tree;}};
-}
-function elements(tree,predicate){if(!tree||typeof tree!=='object')return [];const children=React.Children.toArray(tree.props?.children);return [...(predicate(tree)?[tree]:[]),...children.flatMap(c=>elements(c,predicate))];}
-const text=tree=>typeof tree==='string'||typeof tree==='number'?String(tree):React.Children.toArray(tree?.props?.children).map(text).join('');
-const find=(tree,label)=>elements(tree,e=>e.type==='button'&&text(e)===label)[0];
-const settle=()=>new Promise(r=>setImmediate(r));
+import {mounted,elements,text,find,settle} from './fixtures/canvas-mount.mjs';
 const saveData={canvas:{id:'c',project_slug:null},selected:{title:'Permit steps',version:2}};
 const policy={owner:true,baseline_areas:options.map(o=>o.key),baseline_source:'unknown_context',policy_revision:'rev',area_options:options,project:{slug:'larson',name:'Larson bath'}};
 test('unbound dialog → actual inline project picker → owner policy → acknowledgement → Save; prebound project can change',async()=>{
@@ -61,8 +53,8 @@ test('unbound dialog → actual inline project picker → owner policy → ackno
  globalThis.fetch=async(url,init={})=>{calls.push([url,init]);return {ok:true,json:async()=>url.endsWith('/acknowledgement')?{token:'ack',expires_at:Date.now()+60000}:url.endsWith('/save')?{ok:true}:policy};};
  const dialog=mounted(CanvasSaveDialog,{data:saveData,onClose(){closed++;}});let picker;
  try{
-  let tree=dialog.render();dialog.effects();assert.ok(find(tree,'Pick a project ▾'));assert.ok(text(tree).includes('Choose a project.'));assert.equal(find(tree,'Save').props.disabled,true);assert.match(find(tree,'Save').props.className,/disabled:opacity-50/);
-  let pickElement=elements(tree,e=>e.type===JobPicker)[0];assert.equal(pickElement.props.inline,true);
+  let tree=dialog.render();dialog.effects();assert.ok(find(tree,'Pick a project ▴'));assert.ok(text(tree).includes('Choose a project.'));assert.equal(find(tree,'Save').props.disabled,true);assert.match(find(tree,'Save').props.className,/disabled:opacity-50/);
+  let pickElement=elements(tree,e=>e.type===JobPicker)[0];assert.equal(pickElement.props.inline,true);assert.equal(typeof pickElement.props.search,'function');
   picker=mounted(JobPicker,pickElement.props);let pickTree=picker.render();picker.effects();await new Promise(r=>setTimeout(r,25));pickTree=picker.render();
   assert.doesNotMatch(pickTree.props.className,/absolute|top-full/);
   assert.match(elements(pickTree,e=>e.type==='input')[0].props.className,/text-\[16px\]/);
@@ -72,6 +64,7 @@ test('unbound dialog → actual inline project picker → owner policy → ackno
   const radios=elements(tree,e=>e.type==='input'&&e.props.type==='radio');assert.equal(radios[0].props.checked,true);
   assert.equal(elements(tree,e=>e.type==='input'&&e.props.type==='checkbox'&&e.props.checked).length,21);
   assert.ok(text(tree).includes('Claude may have used anything in this chat, so every area is ticked.'));
+  assert.match(find(tree,'Untick all').props.className,/rounded-md border border-rule bg-card px-3/);
   find(tree,'Untick all').props.onClick();tree=dialog.render();
   assert.ok(text(tree).includes('Tick the line above to save.'));assert.ok(!text(tree).includes('Staff without Area'));
   const ack=elements(tree,e=>e.type==='input'&&e.props.type==='checkbox').at(-1);await ack.props.onChange({target:{checked:true}});await settle();tree=dialog.render();
@@ -87,4 +80,25 @@ test('staff audience is readonly catalog-order chips with three names + expandab
  assert.equal(elements(tree,e=>e.type==='span').length,3);assert.equal(tree.props.title,'Area 0, Area 1, Area 2, Area 3, Area 4');assert.equal(tree.props['aria-label'],tree.props.title);
  const more=find(tree,'+2 more');assert.match(more.props['aria-label'],/Area 4/);more.props.onClick();tree=chips.render();assert.equal(elements(tree,e=>e.type==='li').length,5);
  assert.equal(text(mounted(CanvasAudienceChips,{names:[]}).render()),'🔒 Staff');chips.close();
+});
+
+test('projectOnly hides rail folder metadata and inline typography is readable',async()=>{
+ globalThis.__searchCanvasProjects=async()=>[{kind:'project',slug:'p',name:'Project name',sub:'Secondary',current:true,folderId:'foreign',folderName:'Private folder'}];
+ const picker=mounted(JobPicker,{inline:true,projectOnly:true,search:globalThis.__searchCanvasProjects,onPick(){},onDone(){}});
+ try{picker.render();picker.effects();await new Promise(r=>setTimeout(r,25));const tree=picker.render(),row=find(tree,'Project nameSecondary');
+  assert.equal(row.props.title,'Project name');assert.doesNotMatch(text(tree),/filed|Private folder/);
+  assert.match(elements(row,e=>e.type==='span'&&text(e)==='Project name')[0].props.className,/text-body/);
+  assert.match(elements(row,e=>e.type==='span'&&text(e)==='Secondary')[0].props.className,/text-meta/);
+  assert.match(elements(tree,e=>e.type==='div'&&text(e)==='Projects')[0].props.className,/text-meta/);
+ }finally{picker.close();delete globalThis.__searchCanvasProjects;}
+});
+test('project search failure appears below search row with retry and no empty-result claim',async()=>{
+ let calls=0;const search=async()=>++calls===1?{ok:false,code:'CHAT_OFF'}:[{kind:'project',slug:'p',name:'Recovered'}];
+ const picker=mounted(JobPicker,{inline:true,projectOnly:true,search,onPick(){},onDone(){}});
+ try{picker.render();picker.effects();await new Promise(r=>setTimeout(r,25));let tree=picker.render();
+  assert.match(text(tree),/Couldn't load projects\./);assert.doesNotMatch(text(tree),/Chat isn't|No jobs match/);
+  const row=elements(tree,e=>e.type==='input')[0];
+  assert.equal(elements(tree,e=>e.props?.className?.includes('border-b')&&elements(e,x=>x===row).length&&elements(e,x=>x.props?.role==='status').length).length,0);
+  const retry=find(tree,'Try again');assert.ok(retry);retry.props.onClick();picker.render();picker.effects();await new Promise(r=>setTimeout(r,25));tree=picker.render();assert.ok(find(tree,'Recovered'));assert.doesNotMatch(text(tree),/Couldn't load/);
+ }finally{picker.close();}
 });

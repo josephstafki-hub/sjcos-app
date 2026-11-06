@@ -82,3 +82,20 @@ test('version times use time only today and month/day otherwise; notes have no e
  const now=new Date(2026,10,5,16,0);assert.equal(canvasVersionTime(new Date(2026,10,5,14,14).toISOString(),now),'2:14 PM');assert.equal(canvasVersionTime(new Date(2026,10,4,14,14).toISOString(),now),'Nov 4, 2:14 PM');
  assert.equal(canvasVersionByline('', 'Joe Stafki'),'Joe Stafki');assert.equal(canvasVersionByline('Moved inspection','Claude'),'Moved inspection · Claude');
 });
+
+for(const compact of [false,true])for(const renderError of ['RENDER_FAILED','RENDER_TIMEOUT','LOAD_TIMEOUT',undefined])test(`Save visibility for ${renderError??'loading'} compact=${compact}`,()=>{
+ loaded({renderError,exportReady:false,sheet:compact?'menu':undefined});
+ const html=render(CanvasPane,{context:{...context,compact},slot:'content'});
+ if(['RENDER_FAILED','RENDER_TIMEOUT'].includes(renderError))assert.doesNotMatch(html,/Save to project files/);
+ else assert.match(html,/<button[^>]*disabled=""[^>]*>Save to project files/);
+});
+function bordered(html,label){
+ const controls=[...html.matchAll(/<(button|a)\b([^>]*)>([^<]*)<\/(?:button|a)>/g)].filter(m=>m[3]===label);
+ assert.ok(controls.length,`missing ${label}`);for(const m of controls)assert.match(m[2],/rounded-md border border-rule bg-card px-3/,label);
+}
+test('all state-action controls have visible bordered button affordance',()=>{
+ for(const error of ['AUTH_REQUIRED','DELETE_FAILED','INTERNAL_ERROR']){loaded({error});bordered(render(CanvasPane,{context,slot:'content'}),error==='AUTH_REQUIRED'?'Sign in':'Try again');}
+ for(const renderError of ['RENDER_FAILED','RENDER_TIMEOUT','LOAD_TIMEOUT']){loaded({renderError});const html=render(CanvasPane,{context,slot:'content'});if(renderError==='RENDER_FAILED')bordered(html,'Ask Claude to fix it');else{bordered(html,'Show code');bordered(html,renderError==='LOAD_TIMEOUT'?'Try again':'Ask Claude to simplify it');}}
+ for(const [sheet,label] of [['restore','Use this version'],['delete','Delete canvas']]){loaded({sheet});bordered(render(CanvasPane,{context,slot:'content'}),label);}
+ store.clearCanvas();bordered(render(CanvasPane,{context:{...context,snapshot:{...context.snapshot,id:'empty'}},slot:'content'}),'Draw the steps for a permit');
+});

@@ -109,3 +109,89 @@ because unapplied on live; 0108 unchanged. No actual data migration was run.
 
 Coordinator still owns visual/browser/served-byte/CSP acceptance and deployment.
 This server handoff does not claim renderer or Save-dialog visual acceptance.
+
+## Round-2 implementation completion (2026-11-05)
+
+Base `28f57f4c1225adf14e6dd039fc59f0721356d495`, branch
+`t3/in-app-browser-agent-tools`. One implementation agent, no subagents.
+All five design REQUIRED findings and both engineering REQUIRED findings are
+addressed; detailed changes and per-change security preservation are appended
+to the UI, files and provenance HANDOFFs.
+
+- **Design R2-1 / engineering 1:** independent authenticated Canvas destination
+  search through JobPicker.search; shared ordinary file-area access and Save
+  project/folder scope; only bounded project name/slug rows, fixed typed errors.
+  Error/retry below search input. The real signed owner/staff/without-Projects
+  test mounts Save/picker and performs actual policy and Save calls.
+- **Engineering 2:** all four current Fix diagnostics, default, Simplify and
+  trimmed Change classify exactly against same-thread immutable version records.
+  Actual UI helper outputs after composer trim drive the DB regression through
+  message/epoch/update/render/Save. Forged/unknown controls remain incomplete.
+- **Design R2-2/3/4/5:** no Save-picker FILED/tooltips; readable inline typography;
+  correct open/closed arrows; no Save on syntax/complexity failures; all listed
+  state-action controls bordered, with existing target sizes/semantic colors.
+
+**Migration:** only new additive `0110_canvas_control_envelopes.sql`. No edits to
+0106–0108, new tables/triggers or role-manifest/grant changes. 0110 replaces the
+existing website-only helper with fixed search_path and revoked PUBLIC execute.
+The rollout test applies it over a recorded 0107, verifies unchanged checksums,
+replays it and proves helper denial under agent/worker/readonly session users.
+It was applied only to disposable harness databases, never live or QA.
+
+**Security review preservation:** corrected contact/Subs classification and old
+snapshot withholding are exercised by the unchanged existing assertions; the
+new control tests retain their inherited six-area baseline across every Save.
+The new project search uses the same current active/revocation/ai/Projects/source
+and destination boundaries as Save, and introduces no contact/money/folder
+projection. No SVG normalization, renderer, CSP, source/private routes, external
+file delivery, immutable snapshot/acknowledgement or owner-grant logic changed.
+The guarded-pg import census/socket-only interlock and narrow-role restrictions
+all pass. No browser evidence is claimed: actual DOM/all-response isolation,
+served 404/header and responsive visual acceptance remain coordinator checks.
+
+Expectations were added before implementation (UI first run: 5 expected new
+failures in canvas-ui, 3 in canvas-save-dialog); positive provenance tests now
+use real helper text rather than obsolete literals. Each test file ran alone,
+sequentially, under `SJC_TEST_CLUSTER_TAG=c1r2fix-<timestamp>`; DB clusters were
+stopped by EXIT traps and between files. Final relevant results:
+
+| Test file (`tests/…test.mjs`) | Pass | Fail / skip |
+|---|---:|---:|
+| canvas-ui | 38 | 0 / 0 |
+| canvas-save-dialog | 29 | 0 / 0 |
+| canvas-project-search-db | 1 | 0 / 0 |
+| canvas-provenance-db | 5 | 0 / 0 |
+| canvas-rollout-db | 7 | 0 / 0 |
+| canvas-exports-db | 2 | 0 / 0 |
+| canvas-input-gates-db | 25 | 0 / 0 |
+| canvas-classification | 8 | 0 / 0 |
+| canvas-routes | 20 | 0 / 0 |
+| canvas-content | 54 | 0 / 0 |
+| canvas-renderer | 7 | 0 / 0 |
+| canvas-render-bridge | 29 | 0 / 0 |
+| canvas-commands-db | 21 | 0 / 0 |
+| test-db-guard | 23 | 0 / 0 |
+| db-roles-manifest-db | 6 | 0 / 0 |
+| db-roles-paths-db | 3 | 0 / 0 |
+| ask-private-query-scan | 9 | 0 / 0 |
+
+Relevant total **287 pass**, no failures/skips. Additional exploratory
+`api-auth-coverage.test.mjs`: **1 pass / 1 fail**, an existing unrelated static
+regex census that flags 58 route files using shared authentication wrappers.
+`git diff --quiet HEAD -- app/api tests/api-auth-coverage.test.mjs` exits 0:
+the entire scanned route tree and that test are identical to the base commit.
+No route auth behavior changed for this finding, and that old scanner was not
+weakened or expanded as part of Canvas fixes.
+
+`flock /tmp/sjcos-tsc.lock nice -n 19 npx tsc --noEmit -p .`: **exit 0**, one run.
+`node scripts/db-roles-scan.mjs --diff`: **exit 0**; reported differences remain
+intentional manifest withholds for owner/private tables, not missing grants.
+Private-query scan: **9/9**, **525** reviewed groups / **1048** fragments /
+**227** sources / **0 violations**. Audit updates cover only the shared moved
+scope query and reviewed new control migration, plus the enclosing export source
+hash. `git diff --check`: passes.
+
+No install/ci/add/update, Next dev/build/start, browser, live/QA DB connection,
+protected deployment-state inspection/change, service action, deploy, or exit 137
+occurred. node_modules is still the untouched symlink to the live dependency
+tree. No processes started for this work remain; all test clusters stopped.

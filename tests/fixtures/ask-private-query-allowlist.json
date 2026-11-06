@@ -222,12 +222,13 @@
     "lib/ask-context-provenance.mjs": "95c80e0ea80037091bb18f49b13f358aaf9c5f9431e97455f47cc04389e86bca",
     "db/migrations/0107_ask_context_provenance.sql": "7bc8c79be39a9f22255a31cac6cfdfa901dcee56bde01af12ba2358f27bf4ddc",
     "lib/canvas-deletion-ledger.mjs": "3e6d36ac35edc8d5247979499249738d547c5ef36c2b7174fdada2a98614be9b",
-    "lib/canvas-exports.ts": "ee22fbcd52d58ff2481ed97a23375f33b42fa5b99362b6c91a4b49d20f0d3419",
+    "lib/canvas-exports.ts": "d9a1dcfaf0c4febcb0fcfbed5651d0c4adf2bb3f1af3735ef101e2f43c71112e",
     "lib/canvas-file-access.ts": "773cd733f86d645a4fe2cd84e26b92f26ecd9ea5a07c9ee2a23f505737a7491f",
     "db/migrations/0108_ask_canvas_files.sql": "7e9f4bd66bbdd24a1b3de3eb627610e5404dce19c202a4512b8f9f94d61b2bba",
     "app/api/internal/canvas-files/route.ts": "133f5fd6aea6328e21816ea17430ddeed8d46adc4394039dcc13614433bcd236",
     "mcp/canvas-file-call.mjs": "b907399c91f7347715966af7bc6b6d41b906451a062d5122e498282dfb3b7183",
-    "scripts/qa-seed-canvas.mjs": "28ceb73b9e8ceca6a4c3c5bd9edf75c57f41143e2611e9b8a1512a0582083146"
+    "scripts/qa-seed-canvas.mjs": "28ceb73b9e8ceca6a4c3c5bd9edf75c57f41143e2611e9b8a1512a0582083146",
+    "db/migrations/0110_canvas_control_envelopes.sql": "5af24530f4b16596e0e6d44028d73570a8c4fdda31e24a90ec77af155f4ff26f"
   },
   "entries": [
     {
@@ -5792,10 +5793,10 @@
     },
     {
       "file": "lib/canvas-exports.ts",
-      "function": "policy",
+      "function": "destinationScope",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Human commands hold canvasFileTransaction journal/session/own-thread locks; explicit source and current provenance policy checked before reservation and publication. Maintenance uses the original 0105 lease and checks current saver revocations, content policy, derivative hash and flags; no unattended audience downgrade.",
+      "explanation": "R2 reviewed shared Save/search guard: called inside authenticated canvasFileTransaction (or existing lease maintenance policy), checks the same owner/staff Projects area as ordinary file routes and uses explicit conversation and folder owner predicates. Search returns only bounded project names/slugs under the same source project and owned-folder scope; no rail folder metadata is selected.",
       "queries": [
         "c4ff2270ff548060e0bc1bfa14871907fbd9e96b52705b9174f715cbdae01071"
       ]
@@ -5981,6 +5982,16 @@
       "explanation": "R1 reviewed website-only saved-copy correction: exact snapshot/input ID join checks old get_project lineage and absent contact fences; staff reads/list metadata withheld until regenerated. No private source returned. Existing authenticated principal/current file policy retained. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
         "ffeb5bf0836a25f8c0842cb1803b2b301234339c67f10740f013b4d193437100"
+      ]
+    },
+    {
+      "file": "db/migrations/0110_canvas_control_envelopes.sql",
+      "function": "<sql>",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "R2 additive replacement of the website-only exact control helper: current UI bounded diagnostics and trimmed Change are matched against live same-thread versions, preserving baseline union, original prompt byte hash, legacy fixed controls, SECURITY DEFINER fixed search_path and PUBLIC revoke. Arbitrary suffixes/diagnostics, foreign threads and unknown versions remain unclassified; no table or privilege changes.",
+      "queries": [
+        "5af24530f4b16596e0e6d44028d73570a8c4fdda31e24a90ec77af155f4ff26f"
       ]
     }
   ]

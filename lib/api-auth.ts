@@ -2,7 +2,7 @@ import "server-only";
 import { queryOne } from "@/lib/db";
 import { decrypt, type Role, type SessionPayload } from "@/lib/session";
 import type { CurrentUser } from "@/lib/dal";
-import { normalizePermissions, type PermissionKey } from "@/lib/permissions";
+import { normalizePermissions } from "@/lib/permissions";
 
 // Bearer-token auth for the mobile API (/api/mobile/*). Native clients can't use
 // the httpOnly session cookie, so they send the same signed JWT in an
@@ -63,12 +63,5 @@ export function sessionRevoked(revokedBefore: string | null | undefined, session
   return new Date(revokedBefore).getTime() > mintedS * 1000;
 }
 
-/** Route-handler twin of lib/dal can(): owner always, staff per area. Plain
- *  function (no next/headers) so API routes can use it with either a cookie
- *  user (getCurrentUser) or a bearer user (getUserFromRequest). */
-export function hasAccess(user: Pick<CurrentUser, "role" | "permissions"> | null, perm: PermissionKey): boolean {
-  if (!user) return false;
-  if (user.role === "owner") return true;
-  if (user.role === "staff") return user.permissions.includes(perm);
-  return false;
-}
+// Shared area check for route handlers and authenticated Canvas destinations.
+export {hasAccess} from "./area-access";

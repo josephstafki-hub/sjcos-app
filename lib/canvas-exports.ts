@@ -5,6 +5,7 @@ import {canvasFileTransaction} from './ask-canvases';
 import {validateCanvasSvg} from './canvas-content.mjs';
 import {conversationProvenance} from './ask-context-provenance.mjs';
 import {CLASSIFICATION_REGISTRY} from './canvas-classification.mjs';
+import {hasAccess} from './area-access';
 import {PERMISSIONS} from './permissions';
 import {readSession} from './session';
 import {UPLOAD_DIR} from './uploads';
@@ -22,10 +23,27 @@ const saveSchema=z.object({...base,request_id:z.string().uuid(),filename:z.strin
 const ackSchema=z.object({...base,removed_areas:areas}).strict();
 function parse<T>(schema:z.ZodType<T>,input:unknown):T{const p=schema.safeParse(input);if(!p.success)fail('INVALID_INPUT');return p.data as T;}
 async function epoch(){const s=await readSession();const e=s?.authAt??s?.iat;if(!e)fail('AUTH_REQUIRED');return e!;}
-async function policy(db:PoolClient,a:any,c:any,v:any,slug:string){
- if(a.person.role!=='owner'&&!a.person.permissions.includes('projects'))fail('CANVAS_UNAVAILABLE');
+/** Same Projects-area rule as ordinary file routes; no per-project ACL exists.
+ * Also retain the Save source's project binding and owned folder scope. */
+async function destinationScope(db:PoolClient,a:any,c:any){
+ if(!hasAccess(a.person,'projects'))fail('CANVAS_UNAVAILABLE');
  if(c.lead_id)throw Object.assign(Error('UNSUPPORTED_KIND'),{code:'UNSUPPORTED_KIND',details:{rule:'LEAD_DESTINATION'}});
- const scope=(await db.query('SELECT f.entity_kind,f.entity_id FROM ai_conversations t LEFT JOIN ai_folders f ON f.id=t.folder_id AND f.owner_user_id=$2 WHERE t.id=$1 AND t.owner_user_id=$2',[c.conversation_id,a.person.id])).rows[0];
+ return (await db.query('SELECT f.entity_kind,f.entity_id FROM ai_conversations t LEFT JOIN ai_folders f ON f.id=t.folder_id AND f.owner_user_id=$2 WHERE t.id=$1 AND t.owner_user_id=$2',[c.conversation_id,a.person.id])).rows[0];
+}
+/** Authenticated read only: names/slugs, at most 20, no folder/contact/money data. */
+export async function canvasSearchProjects(id:string,n:number,query:unknown){
+ const q=parse(z.string().max(120),query).trim();
+ return canvasFileTransaction(id,n,async(db,a,c)=>{
+  const scope=await destinationScope(db,a,c);
+  const pattern='%'+q.replace(/[\\%_]/g,'\\$&')+'%';
+  const rows=(await db.query<{slug:string;name:string}>(`SELECT slug,name FROM projects
+   WHERE (name ILIKE $1 OR slug ILIKE $1) AND ($2::uuid IS NULL OR id=$2)
+   AND ($3::text IS NULL OR slug=$3) ORDER BY lower(name),slug LIMIT 20`,[pattern,c.project_id,scope?.entity_kind==='project'?scope.entity_id:null])).rows;
+  return rows.map(row=>({kind:'project' as const,slug:row.slug,name:row.name}));
+ });
+}
+async function policy(db:PoolClient,a:any,c:any,v:any,slug:string){
+ const scope=await destinationScope(db,a,c);
  if(scope?.entity_kind==='project'&&scope.entity_id!==slug)fail('CANVAS_UNAVAILABLE');
  const project=(await db.query('SELECT id,slug,name FROM projects WHERE slug=$1',[slug])).rows[0];
  if(!project||(c.project_id&&c.project_id!==project.id))fail('CANVAS_UNAVAILABLE');

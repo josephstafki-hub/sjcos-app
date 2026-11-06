@@ -156,3 +156,38 @@ Ordinary file profile predicates use to_jsonb(row), preserving profile exclusion
 when installed while avoiding missing-column errors on Phase 0. The central
 resolver/predicate/trash helpers recognize pre-0108 via trusted schema capability.
 0108 itself is unchanged. No narrow-role privileges were added.
+
+## Round-2 destination search correction (2026-11-05)
+
+R2 design-1 / engineering-1: `searchCanvasProjectsAction` is a separate typed
+server action used only by Canvas Save via JobPicker.search. Its real SQL search
+runs inside canvasFileTransaction: verified active/unrevoked current person,
+owned source thread/canvas/version, current areas and Canvas/export/staff flags.
+A shared destinationScope is used by both search and save-policy. It reuses the
+ordinary file routes' hasAccess(…, 'projects') check (now a pure area-access
+helper re-exported by api-auth), plus the existing owned folder and immutable
+canvas project binding. There is no additional per-project ACL in the current
+file routes. Without Projects there are no returned names; a scoped source
+returns only its project. Lead restrictions remain as before.
+
+Only `{kind:'project',slug,name}` crosses the action, at most 20 rows. Query is
+limited to 120 characters; LIKE wildcards/backslashes are escaped and bound as
+parameters. Errors are fixed AskResult failure codes, with no cause/SQL/records.
+The rail's owner-only search is unchanged. No folder/client/financial fields are
+selected. Existing file read/list policy still applies independently.
+
+This preserves security round-2's corrected get_project Leads/Subs provenance,
+historical-copy withholding, immutable saved policy/bytes, source ownership,
+no-ai reader support and external-delivery denial. No grants/tables/triggers,
+file resolver, renderer/SVG gate, CSP or test-DB guard changed. The shared area
+function's owner/staff semantics are identical to the original api-auth function.
+Save audience/acknowledgement/version/project revision bindings are unchanged.
+
+Real signed owner/staff sessions under sjcos_test_website exercise the ACTUAL
+search and mounted picker/dialog → actual policy → actual Save in
+canvas-project-search-db (**1/1**). It covers a staff user lacking Projects,
+foreign sources, wrong-scope destinations, current permission loss/revocation,
+20-row projection and wildcard bounds. Existing canvas-exports-db **2/2** retains
+historical-copy and other-reader denials. Full results and coordinator-only
+visual checks are in the round-2 integration/UI handoffs. No live/QA migration,
+DB/service operation, dependency change or deployment was performed.

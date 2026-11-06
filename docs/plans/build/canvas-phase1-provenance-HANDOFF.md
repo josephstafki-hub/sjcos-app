@@ -153,3 +153,41 @@ error fallback. The adapter latches installed tracking; recorded 0107 with missi
 tables fails closed. Phase 0 questions still validate stored choices and return
 the formatted typed answer before delivery. 0107 is edited in place because it
 is unapplied on live; no deployment or runtime data repair was executed.
+
+## Round-2 control envelope correction (2026-11-05)
+
+Engineering REQUIRED 2: additive **0110_canvas_control_envelopes.sql** replaces
+only ask_canvas_instruction. Recorded migrations 0106/0107/0108 are unchanged.
+It recognizes every bounded fixCanvasPrompt diagnostic (SOURCE_REJECTED,
+SYNTAX_ERROR, LAYOUT_FAILED/default, DRAWING_REJECTED), Simplify and the trimmed
+Change control sent by PanelChat.submitText. changeCanvasPrompt is now shared
+by the actual store prefill and tests. Legacy fixed Fix/untrimmed Change remain
+recognized to preserve existing recorded control callers. SQL/UI parity is
+checked with actual helper outputs after `.trim()`, rather than hand-written
+obsolete positive fixtures.
+
+Security round-2 preservation: lookup still requires an undeleted Canvas and
+unpurged immutable version in the SAME thread with exact title/version. It
+unions those version baselines, hashes the original delivered prompt bytes and
+returns only the existing record/hash envelope. No general prefix/keyword
+acceptance or actor-permission inheritance is added. Arbitrary appended facts,
+unknown diagnostics/versions and foreign threads/titles fail closed. The
+SECURITY DEFINER helper keeps fixed public,pg_temp search_path and PUBLIC revoke;
+no table, trigger, raw narrow-role privilege or owner grant is added. Corrected
+get_project contact/subcontractor areas and historical file withholding remain.
+The guarded-pg census and explicit socket-only test interlock are unchanged.
+
+canvas-provenance-db **5/5** now exercises all seven UI control variants on a
+COMPLETE staff conversation: exact envelope/input hashes and inherited areas,
+message insertion, verified epoch re-admission, real registered update_canvas,
+validated derivative, actual policy and Save. Unknown/forged control messages
+make complete staff provenance incomplete; fixture rollback alone restores it.
+Existing real detached first/second runner and contact/Subs reader-denial tests
+remain. canvas-rollout-db **7/7** includes already-recorded 0107 → additive 0110,
+unchanged earlier checksums, checksum replay and all three narrow logins denied
+helper execution. No applied/live/QA migration was rewritten or executed.
+
+See integration handoff for the final TypeScript, role/private-query scans and
+security regression counts. Renderer CSP/SVG normalization/private routes and
+immutable export policy were not changed by the control fix. Coordinator still
+owns actual served DOM/all-response isolation and visual acceptance.

@@ -1,7 +1,8 @@
 'use client';
-import {useEffect,useRef,useState} from 'react';
+import {useCallback,useEffect,useRef,useState} from 'react';
 import type {CanvasGetResponse} from '@/lib/canvas-api-types';
 import {CanvasOverlay} from './canvas/CanvasOverlay';
+import {searchCanvasProjectsAction} from '@/lib/actions/canvas-projects';
 import {JobPicker} from './JobPicker';
 import {removedAreas,showRowWarnings,audienceSentence,acknowledgementLabel} from '@/lib/canvas-save-policy.mjs';
 type Policy={owner:boolean;baseline_areas:string[];baseline_source:string;policy_revision:string;area_options:{key:string;label:string}[];project:{slug:string;name:string}};
@@ -16,6 +17,7 @@ export function CanvasAudienceChips({names}:{names:string[]}){
 }
 export function CanvasSaveDialog({data,onClose}:{data:CanvasGetResponse;onClose:()=>void}){
  const base=`/api/canvas/${data.canvas.id}/versions/${data.selected.version}`;
+ const searchProjects=useCallback((query:string)=>searchCanvasProjectsAction(data.canvas.id,data.selected.version,query),[data.canvas.id,data.selected.version]);
  const [project,setProject]=useState(data.canvas.project_slug??''),[pick,setPick]=useState(!project),[filename,setFilename]=useState(`${data.selected.title} (v${data.selected.version}).html`);
  const [p,setPolicy]=useState<Policy|null>(null),[kind,setKind]=useState('staff'),[selected,setSelected]=useState<string[]>([]),[ack,setAck]=useState<{token:string;expires:number}|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[refresh,setRefresh]=useState(0),[another,setAnother]=useState(false),[offerAnother,setOfferAnother]=useState(false);
  const selection=useRef(0),request=useRef<string|null>(null);
@@ -36,11 +38,11 @@ export function CanvasSaveDialog({data,onClose}:{data:CanvasGetResponse;onClose:
  return <CanvasOverlay title="Save to project files" onClose={onClose}><div className="flex max-h-[65dvh] flex-col gap-3 overflow-auto py-3">
  <p>Canvas: {data.selected.title} · Version {data.selected.version}</p>
  {data.canvas.lead_slug&&<p>Leads can&apos;t hold canvas copies yet. Pick a project, or download it.</p>}
- <div className="flex min-h-12 items-center gap-2"><span>Project</span><button className="min-h-12 min-w-0 flex-1 truncate rounded-md border border-rule bg-card px-3 text-left" aria-expanded={pick} onClick={()=>setPick(!pick)}>{p?.project.name||project||'Pick a project'} ▾</button></div>
- {pick&&<JobPicker inline projectOnly title="Project" placeholder="Search projects…" onPick={j=>{reset();setProject(j.slug);setPick(false);}} onDone={()=>setPick(false)}/>}
+ <div className="flex min-h-12 items-center gap-2"><span>Project</span><button className="min-h-12 min-w-0 flex-1 truncate rounded-md border border-rule bg-card px-3 text-left" aria-expanded={pick} onClick={()=>setPick(!pick)}>{p?.project.name||project||'Pick a project'} {pick?'▴':'▾'}</button></div>
+ {pick&&<JobPicker inline projectOnly search={searchProjects} title="Project" placeholder="Search projects…" onPick={j=>{reset();setProject(j.slug);setPick(false);}} onDone={()=>setPick(false)}/>}
  <label>Filename<input className="block min-h-12 w-full border border-rule bg-paper px-2 text-base" value={filename} onChange={e=>{request.current=null;setFilename(e.target.value);}}/></label>
  {p?.owner&&<><label className="flex min-h-12 items-center gap-2"><input type="radio" checked={kind==='staff'} onChange={()=>{reset();setKind('staff');}}/>Share with staff</label>
- {kind==='staff'&&<>{p.baseline_source==='unknown_context'&&<p>Claude may have used anything in this chat, so every area is ticked.</p>}<button className="min-h-12 text-left" onClick={()=>change([])}>Untick all</button>
+ {kind==='staff'&&<>{p.baseline_source==='unknown_context'&&<p>Claude may have used anything in this chat, so every area is ticked.</p>}<button className="min-h-12 rounded-md border border-rule bg-card px-3 text-left" onClick={()=>change([])}>Untick all</button>
  <div className="max-h-56 overflow-auto" aria-label="Required access areas">{p.area_options.map(o=><div key={o.key}><label className="flex min-h-12 items-center gap-2"><input type="checkbox" checked={selected.includes(o.key)} onChange={()=>change(selected.includes(o.key)?selected.filter(k=>k!==o.key):[...selected,o.key])}/>{o.label}</label>{warnings&&removed.includes(o.key)&&<p>Staff without {o.label} access will be able to read this. <button className="min-h-12 underline" onClick={()=>change([...selected,o.key])}>Keep {o.label} ticked</button></p>}</div>)}</div></>}
  <label className="flex min-h-12 items-center gap-2"><input type="radio" checked={kind==='owner_only'} onChange={()=>{reset();setKind('owner_only');}}/>Only Joe</label></>}
  {p&&!p.owner&&<CanvasAudienceChips names={p.area_options.filter(o=>selected.includes(o.key)).map(o=>o.label)}/>}

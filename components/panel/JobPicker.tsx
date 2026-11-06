@@ -46,9 +46,11 @@ export function JobPicker({
   onUnlink,
   onDone,
   onFailure,
+  search = searchJobsAction,
 }: {
   /** Accessible name only; the placeholder carries the visible context. */
   projectOnly?: boolean;
+  search?: (query: string) => Promise<JobPick[] | import('@/lib/ask-result-codes').AskResult<{jobs: (Pick<JobPick,'kind'|'slug'|'name'> & Partial<JobPick>)[]}>>;
   /** In-flow picker inside a scrolling dialog; preserves legacy dropdown mode. */
   inline?: boolean;
   title?: string;
@@ -64,6 +66,7 @@ export function JobPicker({
   onDone: () => void;
   onFailure?: (code: AskFailureCode) => void;
 }) {
+  const [retry, setRetry] = useState(0);
   const [error, setError] = useState("");
   const [q, setQ] = useState("");
   const [jobs, setJobs] = useState<JobPick[] | null>(null);
@@ -82,14 +85,14 @@ export function JobPicker({
     const id = ++seq.current;
     const t = setTimeout(async () => {
       try {
-        const r = await askCall(searchJobsAction(q));
-        if (seq.current === id) { setJobs("jobs" in r ? r.jobs : r); setError(""); }
+        const r = await askCall(search(q));
+        if (seq.current === id) { setJobs(("jobs" in r ? r.jobs : r).map(j=>({sub:null,current:false,folderId:null,folderName:null,...j}))); setError(""); }
       } catch (error) {
         if (seq.current === id) { setJobs([]); const code = askFailure(error)?.code ?? "ASK_PAUSED"; setError(ASK_STATUS_COPY[code]); onFailure?.(code); }
       }
     }, q ? 120 : 0);
     return () => { ++seq.current; clearTimeout(t); };
-  }, [q]);
+  }, [q, retry, search]);
 
   const term = q.trim();
   const rows: Row[] = [];
@@ -156,7 +159,6 @@ export function JobPicker({
         ) : (
           <Search className="size-3 flex-none text-ink-4" strokeWidth={2} />
         )}
-        {error && <p role="status" className="px-2 text-body text-ink-2">{error}</p>}
         <input
           ref={inputRef}
           value={q}
@@ -171,10 +173,11 @@ export function JobPicker({
         />
       </div>
 
+      {error && <p role="status" className="px-2 text-body text-ink-2">{projectOnly?"Couldn't load projects.":error} {projectOnly&&<button className="min-h-12 rounded-md border border-rule bg-card px-3" onClick={()=>{setError('');setJobs(null);setRetry(n=>n+1);}}>Try again</button>}</p>}
       <div ref={listRef} className="max-h-72 overflow-y-auto py-1">
-        {jobs === null && <p className="px-2.5 py-1.5 text-[11px] text-ink-4">Loading jobs…</p>}
-        {jobs !== null && rows.length === 0 && (
-          <p className="px-2.5 py-2 text-[11px] text-ink-4">No jobs match “{term}”.</p>
+        {jobs === null && <p className={`px-2.5 py-1.5 ${inline?"text-meta":"text-[11px]"} text-ink-4`}>Loading jobs…</p>}
+        {!error && jobs !== null && rows.length === 0 && (
+          <p className={`px-2.5 py-2 ${inline?"text-meta":"text-[11px]"} text-ink-4`}>No jobs match “{term}”.</p>
         )}
         {rows.map((row, idx) => {
           const active = idx === cur;
@@ -213,11 +216,11 @@ export function JobPicker({
           const header = j.kind !== lastKind;
           lastKind = j.kind;
           const linked = isCurrent(j);
-          const taken = !linked && j.folderId != null;
+          const taken = !projectOnly && !linked && j.folderId != null;
           return (
             <div key={row.key}>
               {header && (
-                <div className="px-2.5 pb-0.5 pt-1.5 font-mono text-[9.5px] uppercase tracking-[0.12em] text-ink-4">
+                <div className={`px-2.5 pb-0.5 pt-1.5 font-mono ${inline?"text-meta":"text-[9.5px]"} uppercase tracking-[0.12em] text-ink-4`}>
                   {KIND_LABEL[j.kind]}
                 </div>
               )}
@@ -229,8 +232,8 @@ export function JobPicker({
                 className={base}
               >
                 <span className="min-w-0 flex-1">
-                  <span className={`block truncate text-[12px] ${j.current ? "text-ink" : "text-ink-3"}`}>{j.name}</span>
-                  {j.sub && <span className="block truncate text-[10.5px] text-ink-4">{j.sub}</span>}
+                  <span className={`block truncate ${inline?"text-body":"text-[12px]"} ${j.current ? "text-ink" : "text-ink-3"}`}>{j.name}</span>
+                  {j.sub && <span className={`block truncate ${inline?"text-meta":"text-[10.5px]"} text-ink-4`}>{j.sub}</span>}
                 </span>
                 {linked ? (
                   <Check className="size-3 flex-none text-ai-2" strokeWidth={2} />

@@ -180,14 +180,35 @@ test('staff project geometry and schedule results create and save with only cont
   }
   await db.query('UPDATE users SET permissions=$2 WHERE id=$1',[p.noAi.id,['projects',...broad]]);
   assert.ok(await resolveCanvasFilePolicy({principal:{id:p.noAi.id},fileId:savedContact.file.id,operation:'read'}));
-  const fixPrompt='Fix the "Contacts" diagram (version 1). The error was: The diagram could not be drawn.';
-  await db.query("INSERT INTO ai_messages(conversation_id,role,body) VALUES($1,'user',$2)",[thread,fixPrompt]);
-  assert.equal((await conversationProvenance({client:db,threadId:thread})).complete,true);
-  const updated=await call('update_canvas',{request_id:crypto.randomUUID(),canvas_id:copy.canvas.id,base_version:1,change_note:'Fixed contacts',summary:'Fixed contacts',content:{kind:'diagram',source:'flowchart TD\n A-->C'}});
-  assert.equal(updated.selected.version,2);
-  await canvasRender(copy.canvas.id,2,{svg:'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><text x="10" y="20">Fixed</text></svg>'});
-  const changedPolicy=await canvasSavePolicy(copy.canvas.id,2,slug);
-  assert.equal((await canvasSave(copy.canvas.id,2,{project_slug:slug,expected_policy_revision:changedPolicy.policy_revision,request_id:crypto.randomUUID()})).ok,true);
+  // Use exactly the control helper text after PanelChat.submitText's trim.
+  const {fixCanvasPrompt,changeCanvasPrompt}=await import('../components/panel/canvas/state.ts');
+  const {instructionEnvelope}=await import('../lib/ask-context-inputs.mjs');
+  let latest=1;
+  for(const control of ['SOURCE_REJECTED','SYNTAX_ERROR','LAYOUT_FAILED','DRAWING_REJECTED',undefined,'change','simplify']){
+   const v={title:'Contacts',version:latest};
+   const prompt=(control==='change'?changeCanvasPrompt(v):fixCanvasPrompt(v,control==='simplify'?'RENDER_TIMEOUT':'RENDER_FAILED',control)).trim();
+   const envelope=await instructionEnvelope(db,thread,prompt);assert.equal(envelope.complete,true,control);assert.deepEqual([...envelope.areas].sort(),[...broad].sort());
+   const message=(await db.query("INSERT INTO ai_messages(conversation_id,role,body) VALUES($1,'user',$2) RETURNING id",[thread,prompt])).rows[0];
+   const tracked=(await db.query("SELECT complete,facts FROM ask_context_inputs WHERE kind='ai_messages' AND ref=$1",[message.id])).rows[0];
+   assert.equal(tracked.complete,true);assert.equal(tracked.facts.hash,hashBytes(prompt));
+   assert.deepEqual(tracked.facts.records,[{canvas_id:copy.canvas.id,version:latest}]);
+   await admitEpoch({client:db,threadId:thread,runId:run.id,policyHash:hashBytes('narrow-result-contracts'),valid:true,resumed:false});
+   assert.equal((await conversationProvenance({client:db,threadId:thread})).complete,true,control);
+   const updated=await call('update_canvas',{request_id:crypto.randomUUID(),canvas_id:copy.canvas.id,base_version:latest,change_note:'Fixed contacts',summary:'Fixed contacts',content:{kind:'diagram',source:'flowchart TD\n A-->C'}});
+   assert.equal(updated.selected.version,++latest);
+   await canvasRender(copy.canvas.id,latest,{svg:'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><text x="10" y="20">Fixed</text></svg>'});
+   const changedPolicy=await canvasSavePolicy(copy.canvas.id,latest,slug);
+   assert.deepEqual([...changedPolicy.baseline_areas].sort(),[...broad].sort());
+   assert.equal((await canvasSave(copy.canvas.id,latest,{project_slug:slug,expected_policy_revision:changedPolicy.policy_revision,request_id:crypto.randomUUID()})).ok,true);
+  }
+  for(const prompt of [changeCanvasPrompt({title:'Contacts',version:1})+'private arbitrary facts',fixCanvasPrompt({title:'Contacts',version:1},'RENDER_FAILED','SYNTAX_ERROR')+' private arbitrary facts',fixCanvasPrompt({title:'Foreign',version:1},'RENDER_FAILED'),changeCanvasPrompt({title:'Contacts',version:999}).trim(), 'Fix the "Contacts" diagram (version 1). The error was: Untrusted diagnostic']){
+   assert.equal((await instructionEnvelope(db,thread,prompt)).complete,false,prompt);
+   await db.query('BEGIN');try{
+    await db.query("INSERT INTO ai_messages(conversation_id,role,body) VALUES($1,'user',$2)",[thread,prompt]);
+    assert.equal((await conversationProvenance({client:db,threadId:thread})).complete,false,'unclassified message poisons complete staff provenance');
+   }finally{await db.query('ROLLBACK');}
+   assert.equal((await conversationProvenance({client:db,threadId:thread})).complete,true,'only fixture rollback restores completeness');
+  }
   // A rejected tool stores ONLY a fixed reason. Successful retry clears it.
   const unsafe={request_id:crypto.randomUUID(),title:'Refused',summary:'Refused',required_areas:[],content:{kind:'diagram',source:'flowchart TD\n A[<script>bad</script>]'}};
   let refusal=await server._registeredTools.show_canvas.handler(unsafe,{});assert.equal(refusal.isError,true);
@@ -196,11 +217,10 @@ test('staff project geometry and schedule results create and save with only cont
   await call('show_canvas',{request_id:crypto.randomUUID(),title:'Retry',summary:'Safe retry',required_areas:[],content:{kind:'diagram',source:'flowchart TD\n A-->B'}});
   assert.equal((await db.query('SELECT reason FROM ask_canvas_attempts WHERE run_id=$1',[run.id])).rows.length,0);
   refusal=await server._registeredTools.show_canvas.handler({...unsafe,request_id:crypto.randomUUID()},{});assert.equal(refusal.isError,true);
-  const {instructionEnvelope}=await import('../lib/ask-context-inputs.mjs');
-  for(const prompt of ['Fix the "Contacts" diagram (version 1). The error was: The diagram could not be drawn.','Simplify the "Contacts" diagram (version 1) so it can be shown here.','Change the "Contacts" diagram (version 1): ']){
-   const envelope=await instructionEnvelope(db,thread,prompt);assert.equal(envelope.complete,true);assert.deepEqual([...envelope.areas].sort(),[...broad].sort());
-  }
-  for(const prompt of ['Change the "Contacts" diagram (version 1): private arbitrary facts','Fix the "Foreign" diagram (version 1). The error was: The diagram could not be drawn.'])assert.equal((await instructionEnvelope(db,thread,prompt)).complete,false);
+  const foreignThread=(await db.query("INSERT INTO ai_conversations(agent,owner_user_id) VALUES('claude',$1) RETURNING id",[p.staff.id])).rows[0].id;
+  assert.equal((await instructionEnvelope(db,foreignThread,changeCanvasPrompt({title:'Contacts',version:1}).trim())).complete,false);
+  await db.query("INSERT INTO ai_messages(conversation_id,role,body) VALUES($1,'user',$2)",[foreignThread,changeCanvasPrompt({title:'Contacts',version:1}).trim()]);
+  assert.equal((await conversationProvenance({client:db,threadId:foreignThread})).complete,false,'forged control stays unknown');
   // Terminal recovery, including no-assistant/crash, is an atomic website command
   // trigger; it survives runner restarts and deduplicates terminal retries.
   const {writeFile}=await import('node:fs/promises');const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');

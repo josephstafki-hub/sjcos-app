@@ -2,7 +2,7 @@
 import type {RenderDiagnostic} from './bridge';
 import type {Availability,CanvasCodeResponse,CanvasEvent,CanvasGetResponse,CanvasListResponse} from '@/lib/canvas-api-types';
 import {getAskPaneFeed,publishAskPaneSnapshots,recalledAskPane,selectAskPane,type AskPaneScope} from '../askPaneRegistry';
-import {canvasFetch,versionPath} from './state';
+import {canvasFetch,versionPath,changeCanvasPrompt} from './state';
 export type CanvasView={data?:CanvasGetResponse;code?:CanvasCodeResponse;error?:string;renderError?:'RENDER_FAILED'|'RENDER_TIMEOUT'|'LOAD_TIMEOUT';renderDiagnostic?:RenderDiagnostic;ready?:boolean;exportReady?:boolean;loading?:boolean;tab?:'preview'|'code';sheet?:'menu'|'code'|'about'|'versions'|'picker'|'delete'|'restore'|'save';notice?:string};
 export type CanvasState={scope:AskPaneScope|null;items:CanvasListResponse['canvases'];events:CanvasEvent[];availability?:Availability;views:Record<string,CanvasView>;selection:Record<string,{version:number;follow:boolean}>;openCanvas?:((id:string,version:number)=>void)|null;updating?:boolean;prefill:((text:string,id?:string,version?:number)=>void)|null};
 const listeners=new Set<()=>void>();
@@ -56,4 +56,4 @@ export async function loadCanvas(id:string,version:number,signal:AbortSignal,for
   patchCanvas(id,{data,code,loading:false});
  }catch(e){if(!controller.signal.aborted&&state.scope===scope)patchCanvas(id,{loading:false,error:(e as {code?:string}).code??'INTERNAL_ERROR',data:undefined,code:undefined});}finally{clearTimeout(deadline);signal.removeEventListener('abort',abort);if(requests.get(key)===controller){inflight.delete(key);requests.delete(key);}}})();inflight.set(key,work);return work;
 }
-export function askCanvasChange(id:string,text?:string){const v=state.views[id]?.data?.selected;if(!v)return;state.prefill?.(text??`Change the "${v.title}" diagram (version ${v.version}): `,id,v.version);}
+export function askCanvasChange(id:string,text?:string){const v=state.views[id]?.data?.selected;if(!v)return;state.prefill?.(text??changeCanvasPrompt(v),id,v.version);}

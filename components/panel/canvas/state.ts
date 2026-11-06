@@ -18,6 +18,7 @@ export const renderDiagnosticCopy=(diagnostic?:RenderDiagnostic)=>({
  LAYOUT_FAILED:'Mermaid could not lay out the diagram.',
  DRAWING_REJECTED:'The drawing did not pass the supported SVG checks.',
 }[diagnostic??'LAYOUT_FAILED']);
+export const changeCanvasPrompt=(v:Pick<VersionMeta,'title'|'version'>)=>`Change the "${v.title}" diagram (version ${v.version}): `;
 export function fixCanvasPrompt(v:VersionMeta,code:'RENDER_FAILED'|'RENDER_TIMEOUT',diagnostic?:RenderDiagnostic){
  return code==='RENDER_TIMEOUT'?`Simplify the "${v.title}" diagram (version ${v.version}) so it can be shown here.`:`Fix the "${v.title}" diagram (version ${v.version}). The error was: ${renderDiagnosticCopy(diagnostic)}`;
 }

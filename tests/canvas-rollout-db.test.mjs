@@ -83,3 +83,20 @@ test('Phase 0 staff runner, MCP wrapper and question retain legacy operation bef
  assert.equal(await latched.enabled(),true);installed=false;await assert.rejects(latched.enabled(),/CONTEXT_PROVENANCE_INCOMPLETE/);
  }finally{globalThis.fetch=fetch;await server?.close();for(const k of Object.keys(process.env))if(!(k in before))delete process.env[k];Object.assign(process.env,before);await rm(dir,{recursive:true,force:true});}
 }));
+
+test('0110 upgrades the recorded 0107 control helper without checksum changes or narrow grants',()=>withMigrationSubset('canvas_control_upgrade',[100,105,106,107,108],async({db,apply,url})=>{
+ await apply();
+ const recorded=(await db.query('SELECT id,checksum FROM schema_migrations WHERE id>=100 ORDER BY id')).rows;
+ assert.deepEqual(recorded.map(r=>[r.id,r.checksum]),listMigrationFiles().filter(f=>[100,105,106,107,108].includes(f.id)).map(f=>[f.id,f.checksum]));
+ const before=(await db.query("SELECT pg_get_functiondef('ask_canvas_instruction(uuid,text)'::regprocedure) AS body")).rows[0].body;
+ assert.doesNotMatch(before,/Mermaid could not parse/);
+ await apply([100,105,106,107,108,110]);
+ const after=(await db.query("SELECT pg_get_functiondef('ask_canvas_instruction(uuid,text)'::regprocedure) AS body")).rows[0].body;
+ assert.match(after,/Mermaid could not parse/);assert.match(after,/SECURITY DEFINER/);assert.match(after,/search_path TO 'public', 'pg_temp'/);
+ assert.deepEqual((await db.query('SELECT id,checksum FROM schema_migrations WHERE id>=100 AND id<110 ORDER BY id')).rows,recorded);
+ const {withSessionIdentity}=await import('./_harness/testdb.mjs');
+ for(const role of ['sjcos_agent','sjcos_worker','sjcos_readonly'])await withSessionIdentity(url,role,async narrow=>{
+  await assert.rejects(narrow.query("SELECT * FROM ask_canvas_instruction($1,'Show permit steps.')",[crypto.randomUUID()]),e=>e.code==='42501');
+ });
+ await apply([100,105,106,107,108,110]); // exact checksum replay
+}));

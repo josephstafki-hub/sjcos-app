@@ -12,7 +12,7 @@ export async function lockPlanDesign(tx:Tx, id:string) {
  if(!d)fail('CANVAS_UNAVAILABLE');return d;
 }
 function currentDoc(raw:unknown) {const p=parseDoc(migrateDoc(raw));if(!p.ok)throw Error('INVALID_INPUT');return p.doc;}
-export async function ensurePlanSnapshot(tx:Tx,id:string,rev:number,actor:string|null,preferredId?:string):Promise<PlanSnapshot> {
+export async function ensurePlanSnapshot(tx:Tx,id:string,rev:number,actor:string|null,preferredId?:string,label=''):Promise<PlanSnapshot> {
  const d=await lockPlanDesign(tx,id);
  if(!Number.isSafeInteger(rev)||rev<0)fail('INVALID_INPUT');
  if(d.rev!==rev)fail('VERSION_CONFLICT');
@@ -24,7 +24,7 @@ export async function ensurePlanSnapshot(tx:Tx,id:string,rev:number,actor:string
   if(!equal)fail('SNAPSHOT_HASH_CONFLICT');
  }
  if(matches.length)return matches.find(m=>m.id===preferredId)??matches[0];
- return insertSnapshot(tx,id,bytes,rev,actor,'');
+ return insertSnapshot(tx,id,bytes,rev,actor,label);
 }
 async function insertSnapshot(tx:Tx,id:string,doc:string,rev:number,actor:string|null,label:string):Promise<PlanSnapshot> {
  return (await tx.query(`INSERT INTO plan_design_versions(design_id,number,label,doc,source_rev,created_by) VALUES($1,1,$2,$3::jsonb,$4,$5) RETURNING *`,[id,label.trim().slice(0,80),doc,rev,actor])).rows[0];

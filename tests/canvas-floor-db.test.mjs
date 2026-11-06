@@ -40,6 +40,13 @@ test('floor canonical snapshots, reference lifecycle, scope and atomicity',async
  const version=async n=>one(db,`INSERT INTO ask_canvas_versions(canvas_id,version,conversation_id,owner_user_id,actor_user_id,run_id,title,summary,change_note,source_text,source_bytes,source_sha256,provenance_revision,provenance_complete,provenance_manifest_hash,provenance_inputs,baseline_areas,baseline_hash) VALUES($1,$2,$3,$4,$4,$5,'Kitchen','Real geometry','',$6,$7,repeat('a',64),0,false,repeat('a',64),'[]','{}',repeat('a',64)) RETURNING *`,[canvas.id,n,people.thread,person.id,run.id,a.source,Buffer.byteLength(a.source)]);
  await version(1);await attachFloorCanvas(db,canvas,1,a.snapshot);await db.query('COMMIT');
  const load=()=>readFloorCanvas(db,actor,canvas,1);
+ await t.test('preview edit capability follows the full designer gate',async()=>{
+  assert.equal((await load()).canEdit,true);
+  const staff={...person,role:'staff',permissions:['projects']};
+  assert.equal((await readFloorCanvas(db,{person:staff},canvas,1)).canEdit,true);
+  await assert.rejects(readFloorCanvas(db,{person:{...staff,active:false}},canvas,1),/CANVAS_UNAVAILABLE/);
+  await assert.rejects(readFloorCanvas(db,{person:{...staff,permissions:[]}},canvas,1),/CANVAS_UNAVAILABLE/);
+ });
  assert.equal((await load()).props.design.doc.walls.length,4);
  await t.test('referenced snapshot deletion',async()=>{await assert.rejects(db.query('DELETE FROM plan_design_versions WHERE id=$1',[a.snapshot.id]));});
  await t.test('referenced design deletion',async()=>{await assert.rejects(db.query('DELETE FROM plan_designs WHERE id=$1',[d.id]));});

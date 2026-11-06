@@ -13,7 +13,9 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { revalidatePath } from "next/cache";
-import { query, queryOne } from "@/lib/db";
+import {savePlanSnapshot,lockPlanDesign} from "@/lib/plan-version-writes";
+import {assertFloorAccess} from "@/lib/canvas-floor";
+import { pool, query, queryOne } from "@/lib/db";
 import { requireAccess } from "@/lib/dal";
 import { getCompanyDocInfo } from "@/lib/documents";
 import { migrateDoc, type PlanDoc } from "@/lib/plan-doc";
@@ -209,15 +211,18 @@ export async function publishPlanVersion(
 
   let versionId = c.req.versionId;
   if (versionId === null) {
-    const src = await queryOne<{ doc: unknown }>(`SELECT doc FROM plan_designs WHERE id = $1`, [id]);
-    if (!src) return { ok: false, error: "Design not found." };
-    const row = await queryOne<{ id: string }>(
-      `INSERT INTO plan_design_versions (design_id, number, label, doc, created_by)
-       VALUES ($1, (SELECT COALESCE(MAX(number), 0) + 1 FROM plan_design_versions WHERE design_id = $1), 'Published', $2::jsonb, $3)
-       RETURNING id`,
-      [id, JSON.stringify(migrateDoc(src.doc)), user.id],
-    );
-    versionId = Number(row!.id);
+    const tx = await pool.connect();
+    try {
+      await tx.query('BEGIN');
+      const d = await lockPlanDesign(tx, String(id));
+      assertFloorAccess(user, d, true);
+      const snapshot = await savePlanSnapshot(tx, d.id, user.id, 'Published');
+      await tx.query('COMMIT');
+      versionId = Number(snapshot.id);
+    } catch (e) {
+      await tx.query('ROLLBACK');
+      return {ok:false,error:e instanceof Error ? e.message : 'Could not save floor plan.'};
+    } finally { tx.release(); }
   }
 
   const r = await resolveDesign(id, versionId);

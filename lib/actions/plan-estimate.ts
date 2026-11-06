@@ -9,14 +9,15 @@
 // names) and leaves hand-added lines alone.
 
 import { revalidatePath } from "next/cache";
-import { query, queryOne } from "@/lib/db";
+import {ensurePlanSnapshot,lockPlanDesign} from "@/lib/plan-version-writes";
+import {assertFloorAccess} from "@/lib/canvas-floor";
+import { pool, query, queryOne } from "@/lib/db";
 import { requireAccess } from "@/lib/dal";
 import { getDefaultMarkup } from "@/lib/cost-book";
 import { addTakeoffLines } from "@/lib/actions/estimates";
 import { migrateDoc } from "@/lib/plan-doc";
 import { computeMeasures, productLines, type Measure } from "@/lib/plan-measures";
 import type { Run } from "@/lib/commands/core";
-import { hashInput } from "@/lib/commands/core";
 import { pinDesignVersion } from "@/lib/designer-contract";
 
 type Result = { ok: boolean; error?: string };
@@ -66,30 +67,24 @@ export interface GenerateResult {
 
 const run: Run = async (sql, params) => (await query(sql, params)).rows as never;
 
-/** The version this generation reads: the newest saved version when it is
- *  exactly the live drawing, else a new snapshot of the live drawing. Either
- *  way it is pinned, so the estimate cites a drawing that can't change under
- *  it (A21: generating from the live autosave cited nothing). */
-async function pinnedVersionFor(design: { id: string; doc: unknown }, estimateTitle: string, userId: string | null) {
-  const doc = migrateDoc(design.doc);
-  const latest = await queryOne<{ id: string; number: number; doc: unknown }>(
-    `SELECT id, number, doc FROM plan_design_versions WHERE design_id = $1 ORDER BY number DESC LIMIT 1`,
-    [design.id],
-  );
-  let versionId = latest && hashInput(migrateDoc(latest.doc)) === hashInput(doc) ? Number(latest.id) : 0;
-  if (!versionId) {
-    const row = await queryOne<{ id: string }>(
-      `INSERT INTO plan_design_versions (design_id, number, label, doc, created_by)
-       VALUES ($1, (SELECT COALESCE(MAX(number), 0) + 1 FROM plan_design_versions WHERE design_id = $1), $2, $3::jsonb, $4)
-       RETURNING id`,
-      [design.id, `Estimate: ${estimateTitle}`.slice(0, 120), JSON.stringify(doc), userId],
-    );
-    versionId = Number(row!.id);
-  }
+/** Reuse a matching immutable snapshot or save the current drawing under
+ *  the shared design lock. The estimate always cites these pinned bytes,
+ *  never an earlier detached read of the live autosave. */
+async function pinnedVersionFor(designId: string, estimateTitle: string, person: {id:string;role:string;permissions:string[];active?:boolean}) {
+  const tx = await pool.connect();
+  let snapshot;
+  try {
+    await tx.query('BEGIN');
+    const d = await lockPlanDesign(tx, designId);
+    assertFloorAccess(person, d, true);
+    snapshot = await ensurePlanSnapshot(tx, d.id, d.rev, person.id, undefined, `Estimate: ${estimateTitle}`);
+    await tx.query('COMMIT');
+  } catch (e) { await tx.query('ROLLBACK'); throw e; }
+  finally { tx.release(); }
+  const versionId = Number(snapshot.id);
   const pinned = await pinDesignVersion(run, versionId, "estimate-from-plan");
   if ("error" in pinned) throw new Error(pinned.error);
-  const v = await queryOne<{ doc: unknown }>(`SELECT doc FROM plan_design_versions WHERE id = $1`, [versionId]);
-  return { doc: migrateDoc(v!.doc), revision: pinned.ref.revision, versionNumber: pinned.ref.versionNumber ?? 0 };
+  return { doc: migrateDoc(snapshot.doc), revision: pinned.ref.revision, versionNumber: pinned.ref.versionNumber ?? 0 };
 }
 
 /** Pick the rule for a measure: exact material tag first, then the blank tag. */
@@ -110,8 +105,8 @@ export async function generateEstimateFromDesign(
   target: { estimateId?: number; newTitle?: string },
 ): Promise<{ ok: true; result: GenerateResult } | { ok: false; error: string }> {
   const user = await requireAccess("estimates");
-  const design = await queryOne<{ id: string; name: string; doc: unknown; project_id: string | null; lead_slug: string | null; slug: string | null }>(
-    `SELECT d.id, d.name, d.doc, d.project_id, d.lead_slug, p.slug
+  const design = await queryOne<{ id: string; name: string; project_id: string | null; lead_slug: string | null; slug: string | null }>(
+    `SELECT d.id, d.name, d.project_id, d.lead_slug, p.slug
        FROM plan_designs d LEFT JOIN projects p ON p.id = d.project_id WHERE d.id = $1`,
     [designId],
   );
@@ -133,8 +128,8 @@ export async function generateEstimateFromDesign(
     if (est.status === "approved") return { ok: false, error: "That estimate is approved — generate into a new one." };
     if (est.out) return { ok: false, error: `That estimate is ${est.out === "signed" ? "signed" : "out with the client"}, so its lines are locked. Generate into a new one.` };
   }
-  const estTitle = (await queryOne<{ title: string }>(`SELECT title FROM estimates WHERE id = $1`, [estimateId]))?.title ?? design.name;
-  const { doc, revision, versionNumber } = await pinnedVersionFor(design, estTitle, user.id);
+  const estTitle = (await queryOne<{title:string}>(`SELECT title FROM estimates WHERE id=$1`, [estimateId]))?.title ?? design.name;
+  const { doc, revision, versionNumber } = await pinnedVersionFor(design.id, estTitle, user);
 
   // Snapshot what the generator wrote last time (for the delta), then clear it.
   const { rows: before } = await query<{ description: string; qty: string; section: string }>(

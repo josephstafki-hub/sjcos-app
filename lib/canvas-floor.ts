@@ -49,7 +49,9 @@ export async function readFloorCanvas(tx:Tx,actor:Actor,canvas:Canvas,version:nu
  // Compare canonical content, not snapshot.source_rev: restoring identical
  // content legitimately reuses a snapshot made at an older live revision.
  const current=(await tx.query(`SELECT v.doc=m.doc AS equal FROM plan_designs d CROSS JOIN LATERAL(SELECT d.doc) m JOIN plan_design_versions v ON v.id=$2 WHERE d.id=$1`,[r.design_id,r.id])).rows[0];
- return {props:floorPreviewProps(r),snapshotId:r.id,designId:r.design_id,number:r.number,latestRev:r.rev,changed:!current?.equal,href:`/floor/${r.design_id}`};
+ // Successful reads already passed the full-designer Projects + scoped Leads
+ // gate above; templates remain unavailable through Canvas.
+ return {canEdit:true,props:floorPreviewProps(r),snapshotId:r.id,designId:r.design_id,number:r.number,latestRev:r.rev,changed:!current?.equal,href:`/floor/${r.design_id}`};
 }
 export async function restoreFloorCanvas(tx:Tx,actor:Actor,canvas:Canvas,from:number,to:number) {
  const view=await readFloorCanvas(tx,actor,canvas,from);
@@ -57,7 +59,8 @@ export async function restoreFloorCanvas(tx:Tx,actor:Actor,canvas:Canvas,from:nu
  await attachFloorCanvas(tx,canvas,to,snapshot);return snapshot as PlanSnapshot;
 }
 export const FLOOR_DELETE_MESSAGE="A canvas still uses this floor plan, so it can't be deleted yet. Canvases deleted in the last 30 days count too.";
-export async function floorDeletionBlock(tx:Tx,person:Person,designId:string,snapshotId?:string) {
+export type FloorDeletionBlock={message:string;links:{title:string;href:string}[]};
+export async function floorDeletionBlock(tx:Tx,person:Person,designId:string,snapshotId?:string):Promise<FloorDeletionBlock|null> {
  // Owner command only; narrow MCP never SELECTs private refs for deletion.
  const refs=(await tx.query(`SELECT c.id,c.owner_user_id,c.project_id,c.lead_id,c.deleted_at,c.hold_until,t.deleted_at AS thread_deleted,t.purge_hold,t.owner_user_id AS thread_owner,c.required_areas,v.title,v.version
  FROM ask_canvas_floor_refs f JOIN ask_canvases c ON c.id=f.canvas_id JOIN ai_conversations t ON t.id=c.conversation_id

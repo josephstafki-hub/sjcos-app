@@ -62,3 +62,15 @@ test('actual wrapper redirect headers deny framing; API paths never receive wrap
 
 test('0108 SVG route uses accepted derivative and attachment, no CORS',async()=>{reset();globalThis.__canvasData.availability.exports=true;const response=await download.GET(new Request('https://app.test/?format=svg'),ctx);assert.equal(response.status,200);assert.match(response.headers.get('content-type'),/^image\/svg\+xml/);assert.match(response.headers.get('content-disposition'),/^attachment;/);assert.equal(response.headers.get('access-control-allow-origin'),null);assert.equal(await response.text(),'<svg/>');});
 test('0108 render forwards the strict derivative contract and selected version',async()=>{reset();globalThis.__canvasData.availability.exports=true;const response=await render.POST(new Request('https://app.test/render',{method:'POST',headers:{Origin:'https://app.test','Content-Type':'application/json'},body:JSON.stringify({svg:'<svg/>'})}),ctx);assert.equal(response.status,200);assert.deepEqual(await response.json(),{ok:true,canvas_id:'canvas-id',version:2,renderer_version:'1',sha256:'a'.repeat(64)});});
+
+test('actual renderer HTTP body script bytes match every script-src hash',async()=>{
+ reset();const old=process.env.SJC_CANVAS_ENABLED;process.env.SJC_CANVAS_ENABLED='1';
+ try{
+  const response=await renderer.GET();assert.equal(response.status,200);
+  const body=await response.text();
+  const scripts=[...body.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m=>m[1]);
+  const policy=response.headers.get('content-security-policy').split('script-src ')[1].split(';')[0];
+  assert.equal(scripts.length,2);
+  assert.deepEqual(policy.match(/'sha256-[^']+'/g).sort(),scripts.map(s=>`'sha256-${createHash('sha256').update(s,'utf8').digest('base64')}'`).sort());
+ }finally{if(old===undefined)delete process.env.SJC_CANVAS_ENABLED;else process.env.SJC_CANVAS_ENABLED=old;}
+});

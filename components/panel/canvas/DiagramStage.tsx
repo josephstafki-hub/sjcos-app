@@ -4,10 +4,10 @@ import type {CanvasCodeResponse,VersionMeta} from '@/lib/canvas-api-types';
 import type {AskPaneRenderContext} from '../askPaneRegistry';
 import {canvasFetch,versionPath} from './state';
 import {patchCanvas} from './store';
+import {connectCanvasRenderer} from './bridge';
 const clamp=(n:number)=>Math.min(4,Math.max(.25,n));
-const hex=/^[a-f0-9]{32}$/;
 export function DiagramStage({id,version,code,context,onReady}:{id:string;version:VersionMeta;code:CanvasCodeResponse;context:AskPaneRenderContext;onReady?:(height:number)=>void}){
- const frame=useRef<HTMLIFrameElement>(null),stage=useRef<HTMLDivElement>(null),port=useRef<MessagePort|null>(null);
+ const frame=useRef<HTMLIFrameElement>(null),stage=useRef<HTMLDivElement>(null);
  const [status,setStatus]=useState<'opening'|'ready'|'failed'>('opening');
  const [size,setSize]=useState({width:800,height:600}),[scale,setScale]=useState(1),[pan,setPan]=useState({x:0,y:0}),[fit,setFit]=useState(true),[fine,setFine]=useState(false);
  const gesture=useRef({x:0,y:0,moved:false,multi:false});
@@ -25,34 +25,20 @@ export function DiagramStage({id,version,code,context,onReady}:{id:string;versio
   const wheel=(e:WheelEvent)=>{if(!e.ctrlKey&&!e.metaKey)return;e.preventDefault();zoom(Math.exp(-e.deltaY*.003));};el.addEventListener('wheel',wheel,{passive:false});return ()=>el.removeEventListener('wheel',wheel);
  },[]);
  useEffect(()=>{
-  const controller=new AbortController();let connected=false,disposed=false,done=false,lastMessage=-Infinity;let watchdog:ReturnType<typeof setTimeout>;
-  const fail=(timeout=false,loading=false)=>{if(disposed)return;done=true;setStatus('failed');patchCanvas(id,{ready:false,renderError:loading?'LOAD_TIMEOUT':timeout?'RENDER_TIMEOUT':'RENDER_FAILED'});port.current?.close();port.current=null;frame.current?.removeAttribute('src');};
-  watchdog=setTimeout(()=>fail(true,true),10000);
-  const receive=(event:MessageEvent)=>{
-   const m=event.data;
-   if(disposed||connected||event.source!==frame.current?.contentWindow||event.origin!=='null'||!m||m.type!=='canvas-ready'||!hex.test(m.instance_id)||!hex.test(m.nonce)||Object.keys(m).sort().join(',')!=='instance_id,nonce,type')return;
-   connected=true;const {instance_id,nonce}=m;const channel=new MessageChannel();port.current=channel.port1;
-   const allowed:Record<string,string[]>={ready:[],height:['height','overflow'],focus:['focused'],escape:[],error:['code'],rendered:['canvas_id','version','svg','width','height']};
-   channel.port1.onmessage=ev=>{
-    const data=ev.data,now=performance.now();
-    if(disposed||context.signal.aborted||!data||typeof data!=='object'||Array.isArray(data)||data.instance_id!==instance_id||data.nonce!==nonce||![0,1].includes(data.sequence)||!Object.hasOwn(allowed,data.type))return;
-    if(Object.keys(data).some(k=>!['type','instance_id','nonce','sequence',...allowed[data.type]].includes(k)))return;
-    if(data.type==='ready'&&data.sequence===0){clearTimeout(watchdog);watchdog=setTimeout(()=>fail(true),3000);channel.port1.postMessage({type:'render',instance_id,nonce,sequence:1,canvas_id:id,version:version.version,source:code.code});}
-    if(data.type==='escape'&&frame.current)context.frameBoundary(frame.current,'escape');
-    if(data.type==='height'&&Number.isFinite(data.height)&&data.height>=0&&data.height<=8192&&typeof data.overflow==='boolean'){if(now-lastMessage<200)return;lastMessage=now;if(done)onReady?.(data.height);}
-    if(data.type==='error'&&data.code==='RENDER_FAILED')fail();
-    if(data.type==='rendered'&&!done&&data.sequence===1&&data.canvas_id===id&&data.version===version.version&&typeof data.svg==='string'&&new TextEncoder().encode(data.svg).length<=524288&&[data.width,data.height].every(n=>Number.isFinite(n)&&n>0&&n<=8192)){
-     done=true;clearTimeout(watchdog);setStatus('ready');setSize({width:data.width,height:data.height});patchCanvas(id,{ready:true,renderError:undefined});onReady?.(data.height);
-     // Rendering never writes project files. Server independently rebuilds the SVG.
-     if(code.availability.exports)void canvasFetch<{ok:true;canvas_id:string;version:number;renderer_version:string;sha256:string}>(versionPath(id,version.version)+'/render',controller.signal,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({svg:data.svg})}).then(result=>{if(!disposed&&result.canvas_id===id&&result.version===version.version&&typeof result.renderer_version==='string'&&/^[a-f0-9]{64}$/.test(result.sha256))patchCanvas(id,{exportReady:true});},()=>{if(!disposed)patchCanvas(id,{notice:"Couldn't prepare the file. Try again."});});
-    }
-   };
-   channel.port1.start();frame.current!.contentWindow!.postMessage({type:'connect',instance_id,nonce},'*',[channel.port2]);
-  };
-  window.addEventListener('message',receive);
-  const abort=()=>{disposed=true;clearTimeout(watchdog);controller.abort();port.current?.close();port.current=null;frame.current?.removeAttribute('src');};
+  const controller=new AbortController();let disposed=false;
+  const disconnect=connectCanvasRenderer({frame:frame.current!,id,version:version.version,source:code.code,signal:context.signal,
+   onFailure:renderError=>{setStatus('failed');patchCanvas(id,{ready:false,renderError});},
+   onHeight:height=>onReady?.(height),
+   onEscape:()=>{if(frame.current)context.frameBoundary(frame.current,'escape');},
+   onRendered:data=>{
+    setStatus('ready');setSize({width:data.width,height:data.height});patchCanvas(id,{ready:true,renderError:undefined});onReady?.(data.height);
+    // Rendering never writes project files. Server independently rebuilds the SVG.
+    if(code.availability.exports)void canvasFetch<{ok:true;canvas_id:string;version:number;renderer_version:string;sha256:string}>(versionPath(id,version.version)+'/render',controller.signal,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({svg:data.svg})}).then(result=>{if(!disposed&&result.canvas_id===id&&result.version===version.version&&typeof result.renderer_version==='string'&&/^[a-f0-9]{64}$/.test(result.sha256))patchCanvas(id,{exportReady:true});},()=>{if(!disposed)patchCanvas(id,{notice:"Couldn't prepare the file. Try again."});});
+   }
+  });
+  const abort=()=>{disposed=true;controller.abort();disconnect();};
   context.signal.addEventListener('abort',abort,{once:true});
-  return ()=>{abort();window.removeEventListener('message',receive);context.signal.removeEventListener('abort',abort);};
+  return ()=>{abort();context.signal.removeEventListener('abort',abort);};
  },[id,version.version,code.code,context.signal]); // context callbacks are host-owned
  const pointer=(e:ReactPointerEvent)=>{
   const prev=pointers.current.get(e.pointerId);if(!prev)return;

@@ -462,7 +462,7 @@ Computed with `scanTree` from `tests/_harness/ask-private-query-scan.mjs`. Merge
 ```json
 {
   "sources": {
-    "lib/canvas-floor.ts": "87f5a3fc328464bb4be92e62c7de82952505cc9b63b100b7356d309b71387802",
+    "lib/canvas-floor.ts": "7133631661a8a7b7261e7d545f2621f4d13f3d578ac4c30810af770de89b27f5",
     "db/migrations/0114_canvas_floor_refs.sql": "acfba36e45e39f956fb98c1c4325209f444baec7d5c08b2e4707b83126dbb6ab"
   },
   "entries": [
@@ -503,7 +503,7 @@ Computed with `scanTree` from `tests/_harness/ask-private-query-scan.mjs`. Merge
       "classification": "fenced",
       "explanation": "Owner Canvas transaction supplies current person, owned live thread, admitted run and current area checks; deletion preflight only returns own readable links, otherwise fixed generic refusal. Floor MCP uses captured currentPrincipal and rereads active area permissions.",
       "queries": [
-        "c2d98ae63767e17edf3d13889270f363ec4cba3f0407372bb3f8034c41eab933"
+        "92daf3abd02a1de45ed72c7263b0df65d5c8110ff394ac51eecf4a684e281df9"
       ]
     },
     {
@@ -549,3 +549,5 @@ Use a disposable practice project and an admitted owned Ask thread after the sha
 | Flag/auth change | Flip Floor off or revoke Projects while mounted in QA; next poll removes renderer and geometry/link, leaves the designed unavailable/off state. No cached old pixels on thread/account switch. |
 
 Keep the feature off until shared integration, all pending acceptance cases and the coordinator visual evidence pass.
+
+Final privacy check: own-reference deletion links additionally require current Projects and scoped Leads access, and an active account; losing those areas uses the generic notice. Regression included in the 16 passing DB tests.

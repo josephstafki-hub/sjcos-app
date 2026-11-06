@@ -59,12 +59,12 @@ export async function restoreFloorCanvas(tx:Tx,actor:Actor,canvas:Canvas,from:nu
 export const FLOOR_DELETE_MESSAGE="A canvas still uses this floor plan, so it can't be deleted yet. Canvases deleted in the last 30 days count too.";
 export async function floorDeletionBlock(tx:Tx,person:Person,designId:string,snapshotId?:string) {
  // Owner command only; narrow MCP never SELECTs private refs for deletion.
- const refs=(await tx.query(`SELECT c.id,c.owner_user_id,c.deleted_at,c.hold_until,t.deleted_at AS thread_deleted,t.purge_hold,t.owner_user_id AS thread_owner,c.required_areas,v.title,v.version
+ const refs=(await tx.query(`SELECT c.id,c.owner_user_id,c.project_id,c.lead_id,c.deleted_at,c.hold_until,t.deleted_at AS thread_deleted,t.purge_hold,t.owner_user_id AS thread_owner,c.required_areas,v.title,v.version
  FROM ask_canvas_floor_refs f JOIN ask_canvases c ON c.id=f.canvas_id JOIN ai_conversations t ON t.id=c.conversation_id
  JOIN ask_canvas_versions v ON (v.canvas_id,v.version)=(f.canvas_id,f.version)
  WHERE f.design_id=$1 AND ($2::bigint IS NULL OR f.snapshot_id=$2)`,[designId,snapshotId??null])).rows;
  if(!refs.length)return null;
- const own=refs.every(r=>r.owner_user_id===person.id&&!r.deleted_at&&!r.hold_until&&!r.thread_deleted&&!r.purge_hold&&r.thread_owner===person.id&&(person.role==='owner'||r.required_areas.every((a:string)=>person.permissions.includes(a))));
+ const own=person.active!==false&&refs.every(r=>r.owner_user_id===person.id&&!r.deleted_at&&!r.hold_until&&!r.thread_deleted&&!r.purge_hold&&r.thread_owner===person.id&&(person.role==='owner'||(person.permissions.includes('projects')&&(!r.lead_id||person.permissions.includes('leads'))))&&(person.role==='owner'||r.required_areas.every((a:string)=>person.permissions.includes(a))));
  return own?{message:`This floor plan is used by your canvas "${refs[0].title}".`,links:[...new Map(refs.map(r=>[r.id,{title:r.title,href:`/panel/canvas/${r.id}?v=${r.version}`}])).values()]}:{message:FLOOR_DELETE_MESSAGE,links:[]};
 }
 

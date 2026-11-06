@@ -56,6 +56,7 @@ test('floor canonical snapshots, reference lifecycle, scope and atomicity',async
  await transaction(db,async()=>{await version(2);await restoreFloorCanvas(db,actor,canvas,1,2);await db.query('UPDATE ask_canvases SET latest_version=2 WHERE id=$1',[canvas.id]);});assert.deepEqual((await one(db,'SELECT doc FROM plan_designs WHERE id=$1',[d.id])).doc,changed);
  assert.equal((await readFloorCanvas(db,actor,canvas,2)).snapshotId,a.snapshot.id);
  assert.match((await floorDeletionBlock(db,person,d.id)).message,/used by your canvas/);
+ assert.equal((await floorDeletionBlock(db,{...person,role:'staff',permissions:[]},d.id)).links.length,0);
  assert.equal((await floorDeletionBlock(db,{...person,id:people.staff.id},d.id)).links.length,0);
  // All allocators use the same live-design lock, on actual separate sessions.
  const clients=await Promise.all([1,2,3].map(async()=>{const x=new pg.Client({connectionString:url});await x.connect();await x.query('SET SESSION AUTHORIZATION sjcos_test_website');return x;}));

@@ -193,3 +193,4 @@ Branch note: T3 renamed this branch to `t3/in-app-browser-agent-tools`.
   3. Project-file save/exports come after that.
 - **Build round 1 is blocked on the deferred pane-host captures:** landscape strip, 839/840/1000, 1100 popout pane, and 1280 expansion + Back to app.
 - **Migration note (2026-11-05):** `0109_canvas_control_envelopes.sql` uses 0109, because main already ships `0110_phone_lines.sql` and `0111_sms_threads_per_line.sql`. Floor refs (Phase 3) will take the next free number on main at build time.
+- **Merge with main (2026-11-06):** `0112_ask_phone_copy_privacy.sql` is the additive fix that protects private copies in main's phone-push/phone-line paths. No other branch uses 0112. #119 was closed as superseded; #120 → main now holds Phase 0 + Canvas Phase 1.

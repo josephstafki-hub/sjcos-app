@@ -44,6 +44,12 @@ test('real expired/revoked/legacy cookies: Proxy to exported Ask actions and sta
   });
   const runs=load('lib/actions/dev-agents.ts',{'@/lib/thread-access':access});
   const dal=load('lib/dal.ts',{'server-only':{},react:{cache:fn=>fn},'next/navigation':{redirect:path=>{throw getRedirectError(path,'push');}},'@/lib/db':{queryOne:async(...a)=>(await c.query(...a)).rows[0]},'@/lib/session':session,'@/lib/permissions':load('lib/permissions.ts'),'@/lib/api-auth':load('lib/api-auth.ts',{'server-only':{},'jose':jose,...headers,'@/lib/db':{queryOne:async(...a)=>(await c.query(...a)).rows[0]},'@/lib/session':session,'@/lib/permissions':load('lib/permissions.ts')})});
+  let backgroundReads=0;
+  const live=load('lib/actions/live.ts',{'@/lib/dal':dal,'@/lib/live':{getLiveChanges:async()=>{backgroundReads++;return {cursor:2,scopes:['work_items'],agentScopes:[]};}}});
+  const queue=load('lib/actions/today.ts',{'@/lib/dal':dal,'@/lib/today':{getQueueSnapshot:async()=>{backgroundReads++;return {priorities:[],waiting:{items:[],total:0}};}}});
+  const inbox=load('lib/actions/inbox-drafts.ts',{'@/lib/dal':dal});
+  const workbench=load('lib/actions/workbench.ts',{'@/lib/dal':dal});
+  const calls=load('lib/actions/calls.ts',{'@/lib/dal':dal,'../comms/connection-copy':{}});
   const status=load('app/api/ai/status/route.ts',{'@/lib/dal':dal,'@/lib/db':{pool},'@/lib/ask-thread-journal.mjs':{withAskJournal:async(_p,fn)=>fn(),deletionCapabilities:async()=>({deleteAvailable:false})},'@/lib/thread-access':access,...contractDeps});
   const now=Math.floor(Date.now()/1000),key=new TextEncoder().encode(process.env.SESSION_SECRET);
   const sign=claims=>new jose.SignJWT(claims).setProtectedHeader({alg:'HS256'}).setIssuedAt(now-20).sign(key);
@@ -61,11 +67,17 @@ test('real expired/revoked/legacy cookies: Proxy to exported Ask actions and sta
     if(page.status===200)await assert.rejects(dal.requireUser(),e=>contract.normalizeAskFailure(e).code==='SIGN_IN_AGAIN');
     else assert.equal(page.status,307);
     for(const result of [await runs.pollAgentRun(randomUUID()),await actions.listThreadRailAction(),await actions.sendMessageAction(randomUUID(),'secret draft'),await actions.uploadChatFilesAction(new FormData()),await actions.loadConversationAction(randomUUID())])assert.deepEqual(plain(result),{ok:false,code:'SIGN_IN_AGAIN'});
+    const before=backgroundReads;
+    for(const result of [await live.pollLiveChanges(1),await queue.refreshTodayQueue(),await inbox.loadDrafts(['thread']),await workbench.getWorkbenchAction(randomUUID()),await calls.loadCall(randomUUID())])assert.deepEqual(plain(result),{ok:false,code:'SIGN_IN_AGAIN'});
+    assert.equal(backgroundReads,before);
     const res=await status.GET();assert.equal(res.status,401);assert.equal(res.headers.get('cache-control'),'no-store');assert.deepEqual(await res.json(),{ok:false,code:'SIGN_IN_AGAIN'});
-   }else{assert.equal((await proxy(req('GET',false))).status,200);assert.equal((await actions.sendMessageAction(thread,'authenticated private message')).kind,'pending');assert.equal((await status.GET()).status,200);}
+   }else{assert.equal((await live.pollLiveChanges(1)).cursor,2);assert.equal((await queue.refreshTodayQueue()).waiting.total,0);assert.equal((await proxy(req('GET',false))).status,200);assert.equal((await actions.sendMessageAction(thread,'authenticated private message')).kind,'pending');assert.equal((await status.GET()).status,200);}
   };
   for(const value of [undefined,expiredLegacy,expiredSid])await check(value,false);
   assert.equal(mutations,0);await check(active,true);await check(legacy,true);assert.equal(mutations,2);
+  const deniedDal={...dal,getCurrentUser:async()=>({role:'staff',permissions:['ai']})};
+  const deniedQueue=load('lib/actions/today.ts',{'@/lib/dal':deniedDal,'@/lib/today':{getQueueSnapshot:async()=>assert.fail('denied queue read')}});
+  assert.deepEqual(plain(await deniedQueue.refreshTodayQueue()),{ok:false,code:'ACCESS_DENIED'});
   const registryExpired=await web.createWebSession(user,now-20,3600);
   const registryExpiredToken=await sign({...registryExpired,role:'owner',iss:web.WEB_SESSION_ISSUER,aud:web.WEB_SESSION_AUDIENCE});
   await c.query("UPDATE web_sessions SET expires_at=now()-interval '1 second' WHERE id=$1",[registryExpired.sid]);

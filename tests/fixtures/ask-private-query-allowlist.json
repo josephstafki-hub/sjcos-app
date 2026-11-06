@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "note": "Manually reviewed privacy inventory. Query and full source hashes require explicit review on changes. No file-wide query wildcard. not-private entries explain business metadata/aggregate/conservative non-SQL matches. R3 includes shared reply fan-out/status columns, runtime execution/trigger/receipt carriers and all browser_* schema carriers. Removed storage is distinct from per-person private storage; a green scanner is only a reviewed-source change detector.",
+  "note": "Manually reviewed privacy inventory. Query and full source hashes require explicit review on changes. No file-wide query wildcard. not-private entries explain business metadata/aggregate/conservative non-SQL matches. R3 includes shared reply fan-out/status columns, runtime execution/trigger/receipt carriers and all browser_* schema carriers. Removed storage is distinct from per-person private storage; a green scanner is only a reviewed-source change detector. R4 explicitly inventories push_outbox producers/persistence/drain and immutable erasure; private_ask_push_sources stores only opaque associations.",
   "sources": {
     "lib/accounting/qbo/https.ts": "afb9c1021ccce50aa049de389b602e14d114283ef9748cde733d7d49374725e1",
     "lib/actions/ai-chat.ts": "f5c821ca2562c800851de64e36a6425f88f2c5f03ae30da51b7b2115f7d5a416",
@@ -15,7 +15,7 @@
     "lib/actions/record-ops.ts": "60156782345952f7b34300ff5ec267d69a32acf78077704d380f64a0acf06dff",
     "lib/actions/schedule.ts": "ef288bac42e2bae1fbaf7e58b94fcbe5e9ef9ba6cea81f8788b710fa2e254203",
     "lib/actions/selections.ts": "b83e2be933f031d62af3996712cd1e6db57b49623566fd461d893209d39e541e",
-    "lib/actions/today.ts": "0d4cf8d32fa7078a0a81c223621cef13cb42548a74376879f23fe8a23d693892",
+    "lib/actions/today.ts": "f97f79324b361fc7345e3118bfced1400c8942d575795c1994818d4f574f701e",
     "lib/agent-interactions.ts": "b3c9c62363c44be68a954cf635accb6c331f033e36099fd0bf1dd36a0e17517f",
     "lib/agent-runtime/context.ts": "2915fe8ed231f05d152f76baa3e9b63d09f2c7f97fd30a42b45b4c302693b5b7",
     "lib/agent-runtime/executions.ts": "bc8ed77edf161072a5dfa188a9a639acff24fcc397b5f7ada477decb1afa003f",
@@ -34,7 +34,7 @@
     "lib/ask-private-transport.mjs": "526f608724370f95444e33c5612c0e74433d58c43a161bda8d2a0bde820caab5",
     "lib/ask-run-admission.ts": "f07318d9ee3666da83dd659a20c257cbf30b12a5b0f3fd51a1e0b359019188a4",
     "lib/ask-thread-journal-interactions.mjs": "bb7cc8fc617e99d1eea8131a590f4089fec6be00e065ec16624fb7dcba67be55",
-    "lib/ask-thread-journal.mjs": "728415c820b02d2139a8f97cc08a199fb4959e23b39e63a5fa71ae04358ca563",
+    "lib/ask-thread-journal.mjs": "34240ece5dc96160e9c8b085825bd3b8ff8730d546d2df48d185e6b1af866e28",
     "lib/attachments.ts": "22837ed0d5a1e347a6b08dc1f45cb5670a042daeead7084d42e7db311471d5d5",
     "lib/authority/usage.ts": "0e86785e1c48d24d132c974f2f612985dccb225e5b2baeb947cac19d35252cf1",
     "lib/bidding.ts": "0de197af352cc857144caf150eb212c47fed701814236be194a5f63888c470af",
@@ -80,7 +80,7 @@
     "lib/measure/capability-checks.ts": "e97dacfbbdf447d96595269a692c3aaddbae534e39a532f05895f027907c3754",
     "lib/measure/cases.ts": "130d79c27bf30cbe5923238736c19bed4901884a33a344cbb206e718d75aa36f",
     "lib/notifications.ts": "ae57dcd88908d8e3ae7ad762bd30bdd96d2ccf37b92fc0f1ee57216aaaafa2de",
-    "lib/notify-owner.ts": "b5f45812271abc4031c384fc5bbbbe7a9db55c89b65d1c47e7594c56c70b4b01",
+    "lib/notify-owner.ts": "c3683293bceeb0447a1c4127e43425ddcba6cdac647fd488edd4b95b4910ea6b",
     "lib/notify.ts": "caec10b29bad5e8574db0c871b4599b79fd45aa241b2c5da1a4e707cb42e8797",
     "lib/obligations/email.ts": "c385e70f46ee5ff3491b87d11a641c3bac066e7caa2afcb5fa2c26e4e0a64315",
     "lib/obligations/work-items.ts": "e65efccee104093a1c7fc767663306369814ee9947b7913f8db7c0ec5941926f",
@@ -128,7 +128,7 @@
     "app/(os)/workbench/page.tsx": "66aa0cb08b2e1746177bb01c1ea6592e8cf8e7d74ce016f5be633a9e10f523ef",
     "app/api/cron/_lib/guard.ts": "de6409edc6d2006f99049395c3ee5523c7f3cad663f210bee4e0aafaf8f3584a",
     "app/api/internal/bidding/route.ts": "da2268c32accf7fabeac498d118346238fff348f72d9c09ad9ee9f034aa44dc1",
-    "app/api/internal/canvas-maintenance/route.ts": "149d93f2d35ec25b5faaf1aa1832bc2a45b1d7e7eadd6fe9b8262755937633dc",
+    "app/api/internal/canvas-maintenance/route.ts": "fdac3a6986f684977302e83b57bb8931dbdac46d083a9a4d5d1a89662bceab90",
     "app/api/internal/doc-drafts/route.ts": "521e4c33c46a0315a8e6d3e67845fb83ba139b8b17847d3483b20eb04713c5eb",
     "app/api/internal/newsletter/route.ts": "05063bda49fc713884bc9a5f0605ac7c6a27e48a4757d3df5f0d851986915a97",
     "app/api/internal/purchase-orders/route.ts": "5f84a4cc021872d2d7b7c5b39f753c2f7628653b99acd858cadc4d14a6f7131a",
@@ -207,10 +207,13 @@
     "db/migrations/0060_db_roles.sql": "fbd0efeb23fed602640eabe5d42c4694b98b1509c30d9c3feaa1d5ce9132ce24",
     "db/migrations/0062_portal_telegram.sql": "85878f8cf90c1ec4731c51ec5cd45ff1409ebc1ef3a5bf9e902394e90780155e",
     "db/migrations/0100_ask_launch_sessions_browser_core.sql": "dd0deca0d6bc5ec0ea573fe6214d62889d238027e5d91a69256d0b4aa2d99f04",
-    "db/migrations/0105_ask_thread_ownership.sql": "cb5b528ad0d6c7d18f05235f2b7248ef5ee6d3142ce91d1d61d384f9e2fe32f3",
+    "db/migrations/0105_ask_thread_ownership.sql": "48b07a74680ea5bd6f4a291732f5e0df015977b2a1a56fa8324aa4b1dd096678",
     "db/schema.sql": "8af22913669451c5f4dbb3aad8da113a06b022924ac7db326ea506f81fa79e79",
     "db/seed-workflow-runbooks.mjs": "d7bc6de5467359b85364c72042184f34aed5baabf61093347b4dd8ff81ad5dad",
-    "db/seed.sql": "fe0fa36f0ade311fe5d64ae7d878e249977ab3f653e29d9b24178dba87745400"
+    "db/seed.sql": "fe0fa36f0ade311fe5d64ae7d878e249977ab3f653e29d9b24178dba87745400",
+    "db/apply-push-outbox.mjs": "d03f2a72e47ceae67df7a2d7d3416d96e65d992960eb89b6dc32b9f8d18d43c5",
+    "db/migrations/0031_payment_push.sql": "a8966c4e6eefdc555fab618955c522910288b85122aa6fd9384140784df7892c",
+    "db/migrations/0039_contract_signed_push.sql": "e4b4936b69c08a3876d0fd671f48083f9bacc449315c999b2b88708aedca6063"
   },
   "entries": [
     {
@@ -887,7 +890,8 @@
       "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review.",
       "queries": [
         "709f11d14fb087aa94c03406108ca33396abb13ebdf913397116c5359f4d693c",
-        "c14387cbec7809a29d837666421ee15daab31594c750da3396e2bdb4ae4da393"
+        "c14387cbec7809a29d837666421ee15daab31594c750da3396e2bdb4ae4da393",
+        "2512eae878e520af751a89566fb24048b093e23615d89b19bfc2e8fd0fd8f269"
       ]
     },
     {
@@ -1210,7 +1214,7 @@
     },
     {
       "file": "lib/ask-thread-journal.mjs",
-      "function": "maintainThreads",
+      "function": "maintainThreadsChecked",
       "classification": "trusted-background",
       "reason": "trusted-background",
       "explanation": "Journal recovery/replay/purge under the OS lock, independent durability and maintenance lease; trusted internal website identity, no user payload returned.",
@@ -2483,9 +2487,9 @@
     {
       "file": "lib/notify-owner.ts",
       "function": "sendOwnerPushesNow",
-      "classification": "not-private",
-      "reason": "owner-health-opaque-ids",
-      "explanation": "Reviewed intentional business event/card producer or audience-scoped consumer; no automatic Ask prompt/answer source. Approval grant data is a deliberately staged business send, never an Express prompt excerpt; automatic excerpts removed by 0105.",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Push persistence/drain reviewed: safePush fixed status for private associations before immediate/queued/stale-snapshot sends; per-write immutable erasure and 0105/replay historical cleanup. Boolean-only opaque registry survives source purge. No private text stored as business status.",
       "queries": [
         "30d706515a9721eb2ba5903849531696c14316b4c1bf37111f89ce91839a8062",
         "74c67b225cae404c43967b08006cef13f5d002156b574756838db63c1f28904d",
@@ -2495,9 +2499,9 @@
     {
       "file": "lib/notify-owner.ts",
       "function": "runPushDrain",
-      "classification": "not-private",
-      "reason": "owner-health-opaque-ids",
-      "explanation": "Reviewed intentional business event/card producer or audience-scoped consumer; no automatic Ask prompt/answer source. Approval grant data is a deliberately staged business send, never an Express prompt excerpt; automatic excerpts removed by 0105.",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Push persistence/drain reviewed: safePush fixed status for private associations before immediate/queued/stale-snapshot sends; per-write immutable erasure and 0105/replay historical cleanup. Boolean-only opaque registry survives source purge. No private text stored as business status.",
       "queries": [
         "e40ca70e35cfed925415ba6f1fb33a3b0d8d2d06f06499e4cec0d87647b834f2",
         "d678357d3c4e2d78fa649cd96ed6eed54ca6881492de669a391bc2cc0e91a4e0",
@@ -2508,9 +2512,9 @@
     {
       "file": "lib/notify-owner.ts",
       "function": "unclaim",
-      "classification": "not-private",
-      "reason": "owner-health-opaque-ids",
-      "explanation": "Reviewed intentional business event/card producer or audience-scoped consumer; no automatic Ask prompt/answer source. Approval grant data is a deliberately staged business send, never an Express prompt excerpt; automatic excerpts removed by 0105.",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Push persistence/drain reviewed: safePush fixed status for private associations before immediate/queued/stale-snapshot sends; per-write immutable erasure and 0105/replay historical cleanup. Boolean-only opaque registry survives source purge. No private text stored as business status.",
       "queries": [
         "c251cf2c32adf9452b3957ff3a432bade6e60e5bd75afc2980d50c2093cf4d4a"
       ]
@@ -2982,7 +2986,8 @@
       "reason": "owner-health-opaque-ids",
       "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review.",
       "queries": [
-        "12e0be7dc9dc1cd946b315f532aca2720c761800d476c3836c8a4a818afac67e"
+        "12e0be7dc9dc1cd946b315f532aca2720c761800d476c3836c8a4a818afac67e",
+        "1c0be5e9ebc0925ddc0c331d0b192b78acfec05a96f57ee8c400efe9c43f368b"
       ]
     },
     {
@@ -4758,7 +4763,9 @@
       "reason": "trusted-background",
       "explanation": "Owner-invoked schema/import/repair/report CLI, not a request reader. Migration 0105 removes automatic private reply fan-out, scopes runtime derivatives with FORCE RLS and restricts repair execution to the website session identity.",
       "queries": [
-        "dc43644a23c46fa34a53e483fe77be3701f7509ac2a39e7defe7b713fd0dfae3"
+        "dc43644a23c46fa34a53e483fe77be3701f7509ac2a39e7defe7b713fd0dfae3",
+        "c2e80277440672093f239d43f00ec2e0b9207fe9fa036cba11ae3caa70a3d352",
+        "92861585ddf4db2ec036b42af93a6a39b5613b0961f825b7a80e8c0abf0be26c"
       ]
     },
     {
@@ -5291,9 +5298,9 @@
       "function": "<sql>",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "0105 website-session/source-person FORCE RLS, immutable provenance, journal/tombstone fences; R3 removes shared reply copies and scrubs historical decision/event/intent/work-item/trigger/execution fan-out, with replay using the website-only erasure function. Runtime copies additionally inherit live source visibility. Backup SELECT is explicit; narrow identities cannot spoof website authority.",
+      "explanation": "0105 website-session/source-person FORCE RLS, immutable provenance, journal/tombstone fences; R3 removes shared reply copies and scrubs historical decision/event/intent/work-item/trigger/execution fan-out, with replay using the website-only erasure function. Runtime copies additionally inherit live source visibility. Backup SELECT is explicit; narrow identities cannot spoof website authority. R4 adds historical push cleanup, immutable per-write erasure and website-only opaque source registry with boolean lookup for narrow retry safety.",
       "queries": [
-        "cb5b528ad0d6c7d18f05235f2b7248ef5ee6d3142ce91d1d61d384f9e2fe32f3"
+        "48b07a74680ea5bd6f4a291732f5e0df015977b2a1a56fa8324aa4b1dd096678"
       ]
     },
     {
@@ -5324,6 +5331,77 @@
       "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers.",
       "queries": [
         "fe0fa36f0ade311fe5d64ae7d878e249977ab3f653e29d9b24178dba87745400"
+      ]
+    },
+    {
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-invoked schema migration/installer, never a request reader. Push schema/kind/index changes only. 0105 removes historical private card text, fences replay/late writes and keeps private source registry website-only; existing narrow push grants unchanged.",
+      "file": "db/apply-push-outbox.mjs",
+      "function": "<module>",
+      "queries": [
+        "c2e80277440672093f239d43f00ec2e0b9207fe9fa036cba11ae3caa70a3d352",
+        "898b6fae200eac612d94dbf0a7fd929e5843beea5f7f1be3b9ee98b6c4c39c92"
+      ]
+    },
+    {
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-invoked schema migration/installer, never a request reader. Push schema/kind/index changes only. 0105 removes historical private card text, fences replay/late writes and keeps private source registry website-only; existing narrow push grants unchanged.",
+      "file": "db/migrations/0031_payment_push.sql",
+      "function": "<sql>",
+      "queries": [
+        "a8966c4e6eefdc555fab618955c522910288b85122aa6fd9384140784df7892c"
+      ]
+    },
+    {
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-invoked schema migration/installer, never a request reader. Push schema/kind/index changes only. 0105 removes historical private card text, fences replay/late writes and keeps private source registry website-only; existing narrow push grants unchanged.",
+      "file": "db/migrations/0039_contract_signed_push.sql",
+      "function": "<sql>",
+      "queries": [
+        "e4b4936b69c08a3876d0fd671f48083f9bacc449315c999b2b88708aedca6063"
+      ]
+    },
+    {
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Only push count/quiet-hour timing, no stored text returned.",
+      "file": "lib/notify-owner.ts",
+      "function": "gate",
+      "queries": [
+        "96b48dc16472ad8528fc4df0f68c13bec80d648112b79c6e81569d2ab2abb714"
+      ]
+    },
+    {
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Push persistence/drain reviewed: safePush fixed status for private associations before immediate/queued/stale-snapshot sends; per-write immutable erasure and 0105/replay historical cleanup. Boolean-only opaque registry survives source purge. No private text stored as business status.",
+      "file": "lib/notify-owner.ts",
+      "function": "parkRow",
+      "queries": [
+        "75561e5c829af9bddb85b598c2e20782b958a9e5b4a2cc4fc2207affd2e183b3"
+      ]
+    },
+    {
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Push persistence/drain reviewed: safePush fixed status for private associations before immediate/queued/stale-snapshot sends; per-write immutable erasure and 0105/replay historical cleanup. Boolean-only opaque registry survives source purge. No private text stored as business status.",
+      "file": "lib/notify-owner.ts",
+      "function": "safePush",
+      "queries": [
+        "057a872ab6ce96a9971e8e7d631ab257d4d45818879d5f4fcf582f31d41fcb6b"
+      ]
+    },
+    {
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Push persistence/drain reviewed: safePush fixed status for private associations before immediate/queued/stale-snapshot sends; per-write immutable erasure and 0105/replay historical cleanup. Boolean-only opaque registry survives source purge. No private text stored as business status.",
+      "file": "lib/notify-owner.ts",
+      "function": "transmit",
+      "queries": [
+        "e8be1a7a330ab2b538a588a991569761d5f9f2ee2fdd852bc8ddf7c5c8cb55d6"
       ]
     }
   ]

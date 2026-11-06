@@ -4,7 +4,8 @@
 // subject id to its to-do and linked entity. Scoped to the viewer. Zero writes,
 // no revalidatePath.
 
-import { requireAccess } from "@/lib/dal";
+import type { BackgroundFailure } from "@/lib/background-result";
+import { getCurrentUser, can } from "@/lib/dal";
 import { resolveEntityRef, getWorkbenchSnapshot, type WorkbenchSnapshot } from "@/lib/workbench";
 
 import { getEngineWorkItem, type WorkItemView } from "@/lib/engine";
@@ -12,11 +13,13 @@ import { query } from "@/lib/db";
 
 export type WorkbenchResult =
   | { ok: true; snapshot: WorkbenchSnapshot | null; item: WorkItemView | null; canEdit: boolean; assignees: WorkItemView["assignedTo"] }
-  | { ok: false; error: string };
+  | { ok: false; error: string } | BackgroundFailure;
 
 /** subjectId = a TodayPriority.id or dev_agent_runs.subject_work_item_id. */
 export async function getWorkbenchAction(subjectId: string): Promise<WorkbenchResult> {
-  const user = await requireAccess("today");
+  const user = await getCurrentUser();
+  if (!user) return { ok: false, code: "SIGN_IN_AGAIN" };
+  if (!can(user, "today")) return { ok: false, code: "ACCESS_DENIED" };
   try {
     const isItem = /^[0-9a-f-]{36}$/i.test(subjectId);
     if (user.role !== "owner") {

@@ -1,4 +1,7 @@
 import {test} from 'node:test';
+// R4 expectations: mounted shell + focus reads never navigate after typed auth
+// loss; clear transcript/queue/follow work, keep draft and in-panel sign-in.
+// Send/upload/Retry retain the same boundary; positive refresh still works.
 import assert from 'node:assert/strict';
 import {readFileSync, existsSync, statSync} from 'node:fs';
 import {registerHooks} from 'node:module';
@@ -13,7 +16,7 @@ const root=new URL('../',import.meta.url);
 const stubs=new Map([
  ['@/components/today/PriorityCard',`export const PriorityCard=()=>null;`],
  ['@/components/today/ModelActionChips',`export const ModelActionChips=()=>null;`],
- ['next/navigation',`export const useRouter=()=>({push(){}});export const usePathname=()=>'/panel';`],
+ ['next/navigation',`export const useRouter=()=>globalThis.__panelRouter??({push(){},refresh(){}});export const usePathname=()=>'/panel';`],
  ['@/components/today/TodayQueueContext',`export const useTodayQueue=()=>({priorities:[],waiting:[],refresh:async()=>{}});`],
  ['@/lib/use-dictation',`export const useDictation=options=>{globalThis.__dictationOptions=options;return {state:'idle',supported:true,start(){},stop(){},cancel(){}};}`],
  ['@/lib/use-voice-round',`export const useVoiceRound=options=>{globalThis.__voiceOptions=options;return {phase:'idle',voiceMode:false,supported:options.availability?.enabled??true};};`],
@@ -30,7 +33,7 @@ const hookNames=['useState','useRef','useEffect','useLayoutEffect','useSyncExter
 registerHooks({
  resolve(s,c,n){
   if(c.parentURL==='panel-react:hooks')return n(s,{...c,parentURL:import.meta.url});
-  if(s==='react'&&c.parentURL?.includes('/components/panel/'))return {url:'panel-react:hooks',shortCircuit:true};
+  if(s==='react'&&/\/components\/(panel|shell|today)\//.test(c.parentURL??''))return {url:'panel-react:hooks',shortCircuit:true};
   if(stubs.has(s))return {url:'panel-stub:'+s,shortCircuit:true};
   if(s.startsWith('@/lib/actions/'))return {url:'panel-action:'+s,shortCircuit:true};
   if(s.startsWith('@/')||s.startsWith('.')){
@@ -45,7 +48,7 @@ registerHooks({
   if(u.startsWith('panel-action:')){
    // Export only imported runtime action names; calls are controlled per test.
    const files=['useAgentChat.ts','ThreadList.tsx','useChatAttachments.ts'];
-   const names=new Set();
+   const names=new Set(['pollLiveChanges','refreshTodayQueue','checkPriorityCompletion','completeTodayItem','snoozeTodayItem','assignTodayItem','promoteTodayItem','sendBackTodayItem']);
    for(const file of files){const s=readFileSync(new URL('components/panel/'+file,root),'utf8');for(const m of s.matchAll(/\b(\w+(?:Action|AgentRun))\b/g))names.add(m[1]);}
    return {format:'module',source:[...names].map(k=>`export const ${k}=(...a)=>globalThis.__panelActions?.['${k}']?.(...a);`).join('\n'),shortCircuit:true};
   }
@@ -107,11 +110,13 @@ const {ThreadList}=await import('../components/panel/ThreadList.tsx');
 const {useAgentChat}=await import('../components/panel/useAgentChat.ts');
 const {ASK_STATUS_COPY,askFailure,askCall}=await import('../components/panel/askStatusCopy.ts');
 const railProps={currentId:null,variant:'rail',scopeFolderId:null,onOpen(){},onNew(){},onNewFor(){},onScopeChange(){},onCurrentRemoved(){}};
+const background=await import("../components/shell/backgroundAuth.ts");
 function clientScope(work){
+ background.resumeBackgroundAuth();
  const prior={window:globalThis.window,sessionStorage:globalThis.sessionStorage,BroadcastChannel:globalThis.BroadcastChannel};
  const session=storage({});globalThis.sessionStorage=session;globalThis.BroadcastChannel=undefined;
  globalThis.window={sessionStorage:session,localStorage:storage({}),location:{search:''},addEventListener(){},removeEventListener(){},setTimeout(){},confirm(){return true;}};
- return Promise.resolve().then(work).finally(()=>{for(const [key,value]of Object.entries(prior)){if(value===undefined)delete globalThis[key];else globalThis[key]=value;}});
+ return Promise.resolve().then(work).finally(()=>{background.resumeBackgroundAuth();for(const [key,value]of Object.entries(prior)){if(value===undefined)delete globalThis[key];else globalThis[key]=value;}});
 }
 for(const code of Object.keys(ASK_STATUS_COPY).filter(code=>code!=='THREAD_UNAVAILABLE'))test(`rail renders ${code} without private metadata`,()=>{
  const html=render(()=>React.createElement(ThreadList,{...railProps,failureCode:code}));
@@ -518,4 +523,57 @@ for(const code of ['SIGN_IN_AGAIN','ASK_PAUSED'])test(`upload transport errors u
   await h.render().uploadFiles([new File(['photo'],'photo.jpg')]);const uploads=h.render();
   assert.deepEqual(failures,[code]);assert.deepEqual(errors,[ASK_STATUS_COPY[code]]);assert.deepEqual(uploads.attachments,[]);assert.equal(uploads.uploading,false);
  }finally{h.dispose();delete globalThis.__panelActions;globalThis.fetch=prior;}
+}));
+
+for(const source of ['poll','focus','send','upload','retry'])test(`mounted shell, queue and panel retain draft on ${source} auth loss`,()=>clientScope(async()=>{
+ const {LiveUpdates}=await import('../components/shell/LiveUpdates.tsx');
+ const {LiveActionNav}=await import('../components/panel/LiveActionNav.tsx');
+ const {postPanelMessage}=await import('../components/panel/panelBus.ts');
+ const {TodayQueueProvider}=await import('../components/today/TodayQueueContext.tsx');
+ const oldDoc=globalThis.document,oldInterval=globalThis.setInterval,oldClear=globalThis.clearInterval;
+ const events=new Map(),timers=[];let expired=false,reads=0,refreshes=0,pushes=0;
+ globalThis.document={hidden:false,addEventListener(){},removeEventListener(){}};
+ window.addEventListener=(name,fn)=>events.set(name,fn);window.removeEventListener=(name)=>events.delete(name);
+ globalThis.setInterval=fn=>{timers.push(fn);return timers.length;};globalThis.clearInterval=()=>{};
+ window.matchMedia=()=>({matches:true,addEventListener(){},removeEventListener(){}});
+ globalThis.__panelRouter={push(){pushes++;},refresh(){refreshes++;}};
+ const success={ok:true,rail:{folders:[],threads:[]}},failure={ok:false,code:'SIGN_IN_AGAIN'};
+ globalThis.__panelActions={
+  pollLiveChanges:async cursor=>{reads++;return expired?failure:{cursor:(cursor??0)+1,scopes:['work_items'],agentScopes:[]};},
+  refreshTodayQueue:async()=>expired?failure:{priorities:[],waiting:{items:[],total:0}},
+  listThreadRailAction:async()=>expired?failure:success,
+  loadConversationAction:async()=>({ok:true,conversation:{id:'own',agent:'claude',title:'Private title',messages:[{id:'old',body:'Private transcript'}]}}),
+  sendMessageAction:async()=>failure,uploadChatFilesAction:async()=>failure,
+ };
+ const nav=lifecycle(LiveActionNav),shell=lifecycle(LiveUpdates),queue=lifecycle(TodayQueueProvider,{initialPriorities:[],initialWaiting:{items:[],total:0}}),panel=lifecycle(PanelChat,{...chatProps,threadsRail:true});
+ try{
+  nav.render();nav.effects();
+  postPanelMessage({type:"run",phase:"start",runId:"run",agent:"claude",subjectId:"todo"},{local:true});assert.equal(pushes,1);
+  shell.render();shell.effects();queue.render();queue.effects();panel.render();panel.effects();await tick();
+  let tree=panel.render();let rail=nodes(tree,n=>n.type===ThreadList)[0];await rail.props.onOpen('own');await tick();tree=panel.render();
+  const composer=()=>nodes(panel.render(),n=>n.type==='input'&&n.props.placeholder?.startsWith('Tell '))[0];
+  composer().props.onChange({target:{value:'Keep my draft'}});panel.render();
+  // Positive live refresh, then leave a second refresh queued inside the gap.
+  await timers[0]();await tick();assert.equal(refreshes,1);
+  await timers[0]();await tick();assert.equal(refreshes,1);
+  expired=true;
+  if(source==='poll')await timers[0]();
+  if(source==='focus')await events.get('focus')();
+  if(source==='send')nodes(panel.render(),n=>n.type==='form')[0].props.onSubmit({preventDefault(){}});
+  if(source==='upload')await nodes(panel.render(),n=>n.type==='input'&&n.props.type==='file')[0].props.onChange({target:{files:[new File(['x'],'x.jpg',{type:'image/jpeg'})]}});
+  if(source==='retry')await nodes(panel.render(),n=>n.type===ThreadList)[0].props.onRetry();
+  await tick();panel.render();panel.effects();tree=panel.render();
+  const html=render(()=>tree);assert.match(html,/Sign in again to continue/);assert.doesNotMatch(html,/Private transcript|Private title/);assert.equal(composer().props.value,'Keep my draft');
+  assert.equal(nodes(tree,n=>n.type===ThreadList)[0].props.failureCode,'SIGN_IN_AGAIN');
+  const before=reads;await timers[0]();await events.get('focus')();await tick();assert.equal(reads,before);assert.equal(refreshes,1);
+  postPanelMessage({type:"run",phase:"end",runId:"run",agent:"claude",subjectId:"todo"},{local:true});
+  postPanelMessage({type:"focus",runId:"run",href:"/projects/private",label:"Private"},{local:true});
+  postPanelMessage({type:"run",phase:"start",runId:"other",agent:"claude",subjectId:"other"},{local:true});
+  assert.equal(pushes,1);assert.equal(refreshes,1);
+  // Known expiry Retry also remains local and cannot resume automatic work.
+  await nodes(tree,n=>n.type===ThreadList)[0].props.onRetry();assert.equal(background.backgroundAuthLost(),true);
+ }finally{
+  panel.dispose();queue.dispose();shell.dispose();nav.dispose();globalThis.document=oldDoc;globalThis.setInterval=oldInterval;globalThis.clearInterval=oldClear;
+  delete globalThis.__panelActions;delete globalThis.__panelRouter;
+ }
 }));

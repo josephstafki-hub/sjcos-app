@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { isBackgroundFailure } from "@/lib/background-result";
+import { backgroundAuthLost, noteBackgroundFailure, subscribeBackgroundAuth } from "@/components/shell/backgroundAuth";
 import { refreshTodayQueue } from "@/lib/actions/today";
 import { TodayQueueProvider, useTodayQueue } from "@/components/today/TodayQueueContext";
 import type { TodayPriority, WaitingItem } from "@/lib/today";
@@ -44,9 +46,12 @@ export function PanelQueueProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let cancelled = false;
+    if (backgroundAuthLost()) return;
     void refreshTodayQueue()
       .then((s) => {
-        if (!cancelled) setSnap(s);
+        if (cancelled) return;
+        if (isBackgroundFailure(s)) { noteBackgroundFailure(s); return; }
+        if (!backgroundAuthLost()) setSnap(s);
       })
       .catch(() => {
         // Fetch failure leaves the queue empty; the provider's focus refresh
@@ -90,12 +95,15 @@ function LiveQueueRefresh() {
     let trailing: number | null = null;
     const run = () => {
       trailing = null;
+      if (backgroundAuthLost()) return;
       last.current = Date.now();
       void refreshRef.current().catch(() => {});
     };
     // Local only: every window runs its own LiveUpdates, so another window's
     // copy of the same "changes" would refresh twice.
+    const stopAuth = subscribeBackgroundAuth(() => { if (trailing != null) window.clearTimeout(trailing); trailing = null; });
     const unsubscribe = subscribePanelBus((m, origin) => {
+      if (backgroundAuthLost()) return;
       if (origin !== "local" || m.type !== "changes") return;
       if (!m.scopes.some((s) => QUEUE_SCOPES.has(s))) return;
       if (trailing != null) return;
@@ -105,6 +113,7 @@ function LiveQueueRefresh() {
     });
     return () => {
       unsubscribe();
+      stopAuth();
       if (trailing != null) window.clearTimeout(trailing);
     };
   }, []);

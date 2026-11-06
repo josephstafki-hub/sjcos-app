@@ -238,12 +238,12 @@ ALTER TABLE owner_replies FORCE ROW LEVEL SECURITY;
 CREATE POLICY ask_grant_private ON owner_grants USING(ask_derivative_visible(conversation_id)) WITH CHECK(ask_derivative_visible(conversation_id));
 CREATE POLICY ask_reply_private ON owner_replies USING(ask_derivative_visible(conversation_id)) WITH CHECK(ask_derivative_visible(conversation_id));
 -- Matching manifest generator output (table privileges unchanged; RLS narrows rows).
-SELECT sjcos_grant('sjcos_agent', 'SELECT', 'owner_grants');
-SELECT sjcos_grant('sjcos_worker', 'SELECT, INSERT, UPDATE', 'owner_grants');
-SELECT sjcos_grant('sjcos_readonly', 'SELECT', 'owner_grants');
-SELECT sjcos_grant('sjcos_agent', 'SELECT', 'owner_replies');
-SELECT sjcos_grant('sjcos_worker', 'SELECT, INSERT, UPDATE', 'owner_replies');
-SELECT sjcos_grant('sjcos_readonly', 'SELECT', 'owner_replies');
+-- SELECT sjcos_grant('sjcos_agent', 'SELECT', 'owner_grants');
+-- SELECT sjcos_grant('sjcos_worker', 'SELECT, INSERT, UPDATE', 'owner_grants');
+-- SELECT sjcos_grant('sjcos_readonly', 'SELECT', 'owner_grants');
+-- SELECT sjcos_grant('sjcos_agent', 'SELECT', 'owner_replies');
+-- SELECT sjcos_grant('sjcos_worker', 'SELECT, INSERT, UPDATE', 'owner_replies');
+-- SELECT sjcos_grant('sjcos_readonly', 'SELECT', 'owner_replies');
 
 -- R3: a reply about a business card is not permission to publish chat text.
 -- Store the body/answer only in owner_replies (FORCE RLS above); shared cards,
@@ -270,6 +270,54 @@ REVOKE ALL ON FUNCTION guard_ask_erased_copy() FROM PUBLIC;
 CREATE TRIGGER guard_ask_erased_copy BEFORE INSERT OR UPDATE ON agent_triggers FOR EACH ROW EXECUTE FUNCTION guard_ask_erased_copy();
 CREATE TRIGGER guard_ask_erased_copy BEFORE INSERT OR UPDATE ON agent_executions FOR EACH ROW EXECUTE FUNCTION guard_ask_erased_copy();
 CREATE TRIGGER guard_ask_erased_copy BEFORE INSERT OR UPDATE ON dev_agent_runs FOR EACH ROW EXECUTE FUNCTION guard_ask_erased_copy();
+-- Durable Telegram cards include historical private reply notes, even when sent.
+-- Keep an immutable erased marker so late retries cannot repopulate the shell.
+ALTER TABLE push_outbox ADD COLUMN ask_reply_erased boolean NOT NULL DEFAULT false;
+-- Opaque associations survive source purge and are readable only through the
+-- boolean definer helper. Do not depend on RLS-hidden private reply rows when
+-- a narrow worker retries an old body or the website has a different actor.
+CREATE TABLE private_ask_push_sources (kind text NOT NULL, ref uuid NOT NULL, PRIMARY KEY(kind,ref));
+REVOKE ALL ON private_ask_push_sources FROM PUBLIC;
+INSERT INTO private_ask_push_sources
+ SELECT 'decision',decision_id FROM owner_replies WHERE conversation_id IS NOT NULL AND decision_id IS NOT NULL
+ UNION SELECT 'work',work_item_id FROM owner_replies WHERE conversation_id IS NOT NULL AND work_item_id IS NOT NULL
+ UNION SELECT 'grant',grant_id FROM owner_replies WHERE conversation_id IS NOT NULL AND grant_id IS NOT NULL
+ UNION SELECT 'decision',decision_id FROM owner_grants WHERE conversation_id IS NOT NULL AND decision_id IS NOT NULL
+ UNION SELECT 'grant',id FROM owner_grants WHERE conversation_id IS NOT NULL;
+CREATE OR REPLACE FUNCTION bind_ask_push_source() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+DECLARE obj jsonb;
+BEGIN
+ IF NEW.conversation_id IS NOT NULL THEN
+  obj:=to_jsonb(NEW);
+  INSERT INTO private_ask_push_sources(kind,ref)
+   SELECT kind,ref::uuid FROM (VALUES ('decision',obj->>'decision_id'),('work',obj->>'work_item_id'),
+    ('grant',CASE WHEN TG_TABLE_NAME='owner_grants' THEN obj->>'id' ELSE obj->>'grant_id' END)) x(kind,ref)
+   WHERE ref IS NOT NULL ON CONFLICT DO NOTHING;
+ END IF;
+ RETURN NEW;
+END $$;
+CREATE TRIGGER bind_ask_push_source AFTER INSERT OR UPDATE ON owner_replies FOR EACH ROW EXECUTE FUNCTION bind_ask_push_source();
+CREATE TRIGGER bind_ask_push_source AFTER INSERT OR UPDATE ON owner_grants FOR EACH ROW EXECUTE FUNCTION bind_ask_push_source();
+CREATE OR REPLACE FUNCTION ask_push_is_private(p jsonb, link text) RETURNS boolean
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $$
+ SELECT EXISTS (SELECT 1 FROM private_ask_push_sources s WHERE
+  strpos(COALESCE(p::text,''),s.ref::text)>0 OR strpos(COALESCE(link,''),s.ref::text)>0 OR
+  (s.kind='decision' AND EXISTS(SELECT 1 FROM decision_deliveries d WHERE d.decision_id=s.ref AND d.channel='telegram'
+   AND split_part(d.external_ref,':',2)=COALESCE(p->>'editMessageId',p->>'edit_message_id')))
+ );
+$$;
+CREATE OR REPLACE FUNCTION guard_ask_push_copy() RETURNS trigger
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+BEGIN
+ IF (TG_OP='UPDATE' AND OLD.ask_reply_erased) OR NEW.ask_reply_erased OR ask_push_is_private(NEW.payload,NEW.href) THEN
+  NEW.ask_reply_erased:=true;
+  NEW.title:='Private Ask request updated.';
+  NEW.body:=NULL; NEW.payload:='{}'; NEW.href:='/today';
+ END IF;
+ RETURN NEW;
+END $$;
+CREATE TRIGGER guard_ask_push_copy BEFORE INSERT OR UPDATE ON push_outbox FOR EACH ROW EXECUTE FUNCTION guard_ask_push_copy();
 CREATE OR REPLACE FUNCTION erase_ask_reply_copies(thread uuid) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
 DECLARE decisions_ids uuid[]; work_ids uuid[]; trigger_ids uuid[]; prior_purge text;
@@ -288,6 +336,9 @@ BEGIN
   t.payload->>'work_item_id'=ANY(SELECT unnest(work_ids)::text) OR
   EXISTS(SELECT 1 FROM unnest(decisions_ids) d WHERE t.ref LIKE 'decision:'||d::text||':%') OR
   EXISTS(SELECT 1 FROM owner_replies r WHERE r.conversation_id IS NOT NULL AND (thread IS NULL OR r.conversation_id=thread) AND (t.id=r.trigger_id OR t.ref='owner_reply:'||r.id::text));
+ -- Migration/replay scrub sent, failed and pending pushes, including legacy
+ -- href/button/delivery references. Global cleanup is deliberately idempotent.
+ UPDATE push_outbox SET ask_reply_erased=true WHERE ask_push_is_private(payload,href);
  UPDATE decisions SET decision_note='Private Ask reply recorded.',hold_note=NULL WHERE id=ANY(decisions_ids) AND (decision_note IS NOT NULL OR hold_note IS NOT NULL);
  UPDATE decision_events SET detail=detail-'note'-'reason' WHERE decision_id=ANY(decisions_ids);
  UPDATE action_intents SET last_error='Private Ask request updated.' WHERE last_error IS NOT NULL AND
@@ -410,3 +461,6 @@ END $$;
 -- SELECT sjcos_grant('sjcos_agent', 'SELECT, INSERT, UPDATE', 'agent_executions');
 -- SELECT sjcos_grant('sjcos_worker', 'SELECT, UPDATE', 'agent_executions');
 -- SELECT sjcos_grant('sjcos_readonly', 'SELECT', 'agent_executions');
+-- SELECT sjcos_grant('sjcos_agent', 'SELECT, INSERT', 'push_outbox');
+-- SELECT sjcos_grant('sjcos_worker', 'SELECT, INSERT, UPDATE', 'push_outbox');
+-- SELECT sjcos_grant('sjcos_readonly', 'SELECT', 'push_outbox');

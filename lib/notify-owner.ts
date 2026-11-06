@@ -222,6 +222,17 @@ async function noteDelivery(extras: TelegramExtras | null | undefined, messageId
   await recordDelivery(runDirect, extras.decisionId, "telegram", messageId ? `${chat}:${messageId}` : null, extras.editMessageId ? "updated" : "sent").catch(() => undefined);
 }
 
+/** Never send a pre-cleanup in-memory retry snapshot. Private associations
+ * always carry fixed status, so deletion cannot race a subsequent text send. */
+async function safePush<T extends { title: string; body?: string | null; href?: string | null; payload?: TelegramExtras | null; telegram?: TelegramExtras | null; id?: string }>(input: T): Promise<T> {
+  const state = await queryOne<{ private: boolean }>(
+    `SELECT ask_push_is_private($1::jsonb,$2::text) OR COALESCE((SELECT ask_reply_erased FROM push_outbox WHERE id=$3::bigint),false) AS private`,
+    [JSON.stringify(input.payload ?? input.telegram ?? {}), input.href ?? null, input.id ?? null],
+  );
+  if (!state || state.private) return { ...input, title: 'Private Ask request updated.', body: null, href: '/today', payload: null, telegram: null };
+  return input;
+}
+
 /** Transmit now; the sent row is what the rolling-hour throttle counts. A
  *  delivery failure parks the push instead so the next drain tick retries. */
 async function transmit(input: NotifyOwnerInput, now: Date): Promise<void> {
@@ -248,6 +259,7 @@ async function transmit(input: NotifyOwnerInput, now: Date): Promise<void> {
  *  a waiting agent is blocked on them — but still count toward it; nothing
  *  is exempt from quiet hours). Never throws. `nowOverride` is a test seam. */
 export async function notifyOwner(input: NotifyOwnerInput, nowOverride?: Date): Promise<void> {
+  try { input = await safePush(input); } catch { return; }
   if (!input.phoneOnly) {
     try {
       await emit({
@@ -310,7 +322,7 @@ export async function sendOwnerPushesNow(ids: (string | null | undefined)[], now
       }
       try {
         for (const ch of enabledChannels()) {
-          const id = await ch.send(pushText(row), row.payload);
+          const id = await safePush(row).then(safe => ch.send(pushText(safe), safe.payload));
           await noteDelivery(row.payload, id);
         }
       } catch (err) {
@@ -551,7 +563,7 @@ export async function runPushDrain(
     for (const row of direct) {
       try {
         for (const ch of enabledChannels()) {
-          const id = await ch.send(pushText(row), row.payload);
+          const id = await safePush(row).then(safe => ch.send(pushText(safe), safe.payload));
           await noteDelivery(row.payload, id);
         }
         result.sent++;

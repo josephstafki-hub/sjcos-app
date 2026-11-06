@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
 const stubs={
  '@/lib/db':`export const query=async(sql,p)=>globalThis.__draftActions.query(sql,p);`,
- '@/lib/dal':`export const requireAccess=async area=>{if(area!=='inbox')throw Error('wrong permission');if(globalThis.__draftActions.denied)throw Error('denied');return globalThis.__draftActions.user;};export const requireRole=async role=>{if(globalThis.__draftActions.user.role!==role)throw Error('denied')};`,
+ '@/lib/dal':`export const getCurrentUser=async()=>globalThis.__draftActions.user;export const can=()=>!globalThis.__draftActions.denied;export const requireAccess=async area=>{if(area!=='inbox')throw Error('wrong permission');if(globalThis.__draftActions.denied)throw Error('denied');return globalThis.__draftActions.user;};export const requireRole=async role=>{if(globalThis.__draftActions.user.role!==role)throw Error('denied')};`,
  '@/lib/mailbox-email':`export const ensureMailboxEmail=async()=>(globalThis.__draftActions.active?.email??'').toLowerCase();`,
  '@/lib/mailbox':`export const activeMailbox=()=>globalThis.__draftActions.active;
  export const withMailboxFor=async (user,fn)=>{const a=globalThis.__draftActions;a.scopes++;a.active={userId:user.id,email:a.email,refreshToken:a.email?'stub':null};return fn()};`,
@@ -63,7 +63,8 @@ test('one batch query; only own human drafts and owner-mailbox suggestions',asyn
  __draftActions.email='other@example.test';assert.deepEqual(await loadDrafts(['thread-1']),[]);
 });
 test('all actions enforce access, never use owner fallback for disconnected staff, and validate model',async()=>{
- __draftActions.denied=true;for(const action of [()=>loadDrafts(['thread-1']),()=>saveDraft(input),()=>discardDraft(input),()=>markDraftSent(input),()=>dismissSuggestion('00000000-0000-4000-8000-000000000001')])await assert.rejects(action,/denied/);
+ __draftActions.denied=true;for(const action of [()=>loadDrafts(['thread-1']),()=>saveDraft(input)])assert.deepEqual(await action(),{ok:false,code:'ACCESS_DENIED'});
+ for(const action of [()=>discardDraft(input),()=>markDraftSent(input),()=>dismissSuggestion('00000000-0000-4000-8000-000000000001')])await assert.rejects(action,/ACCESS_DENIED/);
  assert.equal(__draftActions.calls.length,0);__draftActions.denied=false;__draftActions.user={id:'staff',role:'staff'};__draftActions.email=null;
  await assert.rejects(()=>saveDraft(input),/Connect your mailbox/);await saveDraft({...input,channel:'sms',threadKey:'sms:1'});assert.equal(__draftActions.calls.at(-1).p[0],'user:staff');
  await assert.rejects(()=>setInboxDraftModel('claude'),/denied/);__draftActions.user.role='owner';await assert.rejects(()=>setInboxDraftModel('qwen'),/Choose Claude or Hermes/);

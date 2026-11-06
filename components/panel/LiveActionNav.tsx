@@ -6,6 +6,7 @@ import { ArrowRight, X } from "lucide-react";
 import { hrefForScope } from "@/lib/entity-href";
 import type { PanelAgent } from "@/lib/dev-agents-meta";
 import { subscribePanelBus, type PanelBusOrigin } from "./panelBus";
+import { backgroundAuthLost, subscribeBackgroundAuth } from "@/components/shell/backgroundAuth";
 import { usePanel } from "./PanelProvider";
 
 /** No pointer/keys/scroll INSIDE THE APP VIEW for this long = Joe isn't in
@@ -84,6 +85,7 @@ export function LiveActionNav() {
   const [chip, setChip] = useState<Chip | null>(null);
   const lastInteraction = useRef(0);
   const run = useRef<ActiveRun | null>(null);
+  useEffect(() => subscribeBackgroundAuth(() => { run.current = null; setChip(null); }), []);
   // Latest values for the long-lived bus subscription (assigned in effects).
   const env = useRef({ desktop, follow: layout.follow, where: layout.where });
   useEffect(() => {
@@ -118,6 +120,7 @@ export function LiveActionNav() {
   useEffect(
     () =>
       subscribePanelBus((m, origin: PanelBusOrigin) => {
+        if (backgroundAuthLost()) return;
         const { desktop: isDesktop, follow, where } = env.current;
         // Phones: never move the page, never chip over the sheet.
         if (!isDesktop) return;

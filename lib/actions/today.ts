@@ -1,7 +1,8 @@
 "use server";
 
+import type { BackgroundFailure } from "@/lib/background-result";
 import { revalidatePath } from "next/cache";
-import { requireAccess, requireRole } from "@/lib/dal";
+import { getCurrentUser, can, requireAccess, requireRole } from "@/lib/dal";
 import { runDirect } from "@/lib/commands/db";
 import { listRecoverableWork, recoverWorkItem } from "@/lib/today-recovery.mjs";
 import { ai } from "@/lib/ai";
@@ -123,8 +124,11 @@ async function mayWorkItem(
 // or a concurrent completion elsewhere can't corrupt anything.
 
 /** Re-read the live Priorities + Waiting queue (no schedule/brief/header). */
-export async function refreshTodayQueue(): Promise<QueueSnapshot> {
-  return getQueueSnapshot(await requireAccess("today"));
+export async function refreshTodayQueue(): Promise<QueueSnapshot | BackgroundFailure> {
+  const user = await getCurrentUser();
+  if (!user) return { ok: false, code: "SIGN_IN_AGAIN" };
+  if (!can(user, "today")) return { ok: false, code: "ACCESS_DENIED" };
+  return getQueueSnapshot(user);
 }
 
 /** Owner clicked "Mark done" on a card. Completes it through the evidence

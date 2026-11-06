@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { backgroundAuthLost, noteBackgroundFailure } from "@/components/shell/backgroundAuth";
 import Link from "next/link";
 import { getWorkbenchAction } from "@/lib/actions/workbench";
 import { Button, Chip } from "@/components/ui";
@@ -53,11 +54,13 @@ export function WorkbenchPanel({
       prev.current = null;
       return;
     }
-    let cancelled = false;
+    let cancelled = false, stopped = false;
 
     const tick = async () => {
+      if (stopped || backgroundAuthLost()) return;
       const r = await runAction(() => getWorkbenchAction(subjectId), { fallback: "Couldn't load the record." });
-      if (cancelled) return;
+      if (cancelled || backgroundAuthLost()) return;
+      if (noteBackgroundFailure(r)) { stopped = true; setEntry(null); prev.current = null; }
       if (!r.ok) {
         setError(r.error ?? "Couldn't load the record.");
         return;

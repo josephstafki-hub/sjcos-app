@@ -50,7 +50,7 @@ test('R2 attachment readers, grant excerpts, reply derivatives and composed name
 // still be reviewed even after those copies are removed; include Browser's
 // payload/manifest/audit carriers and runtime fan-out tables in the census.
 test('R3 reply fan-out and browser carriers cannot escape the scanner',()=>{
- for(const [table,column] of [['decisions','decision_note'],['decision_events','detail'],['action_intents','last_error'],['work_items','blocked_reason'],['agent_triggers','payload'],['agent_executions','tool_trace'],['browser_commands','safe_result'],['browser_read_manifests','public_entries'],['browser_audit','result_code']]){
+ for(const [table,column] of [['push_outbox','body'],['decisions','decision_note'],['decision_events','detail'],['action_intents','last_error'],['work_items','blocked_reason'],['agent_triggers','payload'],['agent_executions','tool_trace'],['browser_commands','safe_result'],['browser_read_manifests','public_entries'],['browser_audit','result_code']]){
   const source=`query("SELECT ${column} FROM ${table}")`;
   assert.ok(scanSource('lib/new-copy-reader.ts',source).length,source);
  }

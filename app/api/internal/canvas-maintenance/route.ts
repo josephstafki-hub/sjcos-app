@@ -1,3 +1,4 @@
+import { askHealthDiagnosis } from '@/lib/ask-health.mjs';
 import { timingSafeEqual } from 'node:crypto';
 import { refreshSourcedWorkItem } from '@/lib/obligations/work-items';
 import { completeWorkItem } from '@/lib/completion/complete';
@@ -20,8 +21,9 @@ async function reportHealth(failed:boolean){
   if(state.health_code==='JOURNAL_NOT_CONFIGURED'&&!state.deletion_enabled&&state.recovery_ready){
    await c.query('COMMIT');return; // owner status JSON carries the warning, not an outage
   }
+  const diagnosis=askHealthDiagnosis(state.health_code);
   if(failed||state.late||state.blocked||state.overdue){
-   await refreshSourcedWorkItem(run,{sourceKind:'maintenance',sourceId:'canvas-maintenance-health',provider:'sjcos',title:'Check chat recovery',body:`Chat recovery needs checking. Codes: ${failed?'RECOVERY_FAILED':state.blocked?'RECOVERY_BLOCKED':state.late?'HEARTBEAT_LATE':'PURGE_OVERDUE'}. Overdue count: ${state.overdue}.`,status:'waiting_on_human',priority:'high',createdBy:'canvas-maintenance',recurring:true,requiresApproval:false});
+   await refreshSourcedWorkItem(run,{sourceKind:'maintenance',sourceId:'canvas-maintenance-health',provider:'sjcos',title:'Check chat recovery',body:`Chat recovery needs checking. Codes: ${diagnosis?.code??(failed?'RECOVERY_FAILED':state.blocked?'RECOVERY_BLOCKED':state.late?'HEARTBEAT_LATE':'PURGE_OVERDUE')}. ${diagnosis?.message??''} Overdue count: ${state.overdue}.`,status:'waiting_on_human',priority:'high',createdBy:'canvas-maintenance',recurring:true,requiresApproval:false});
   }else{
    const row=(await c.query(`SELECT id FROM work_items WHERE source_kind='maintenance' AND source_id='canvas-maintenance-health' AND status NOT IN ('done','cancelled') ORDER BY created_at DESC LIMIT 1`)).rows[0];
    if(row)await completeWorkItem(run,{workItemId:row.id,principal:{kind:'service',name:'cron:canvas-maintenance'},evidence:{kind:'manual',actor:'cron:canvas-maintenance',reason:'Live independent authority verified; recovery ready and retention caught up.'}});

@@ -647,3 +647,151 @@ intact current authority replays the tombstone first, with the flag off.
 Final validation for this correction is recorded in
 `phase0-privacy-leak-HANDOFF.md` below the prior-round inventory. That earlier
 119-function classification is historical, not the current completeness claim.
+
+## Round-4 build corrections (2026-11-05)
+
+0105 changed **in place and remains unapplied on live**. Rebuild disposable QA
+from migrations; do not skip checksum verification on an existing database.
+No deployment, live/QA DB, service, browser or Next process was used here.
+
+Background actions now authenticate without redirecting: `pollLiveChanges`
+(shell and client portal), `refreshTodayQueue` (Today focus, panel queue mount,
+live/trailing refresh and settled turn), `getWorkbenchAction`, `loadDrafts`,
+`saveDraft` (debounced inbox sync), and `loadCall`. The Unsorted photo-reading
+interval and Designer focus refresh now authenticate through `pollLiveChanges`
+before requesting an RSC refresh. Existing `pollNotificationCenter` (null) and
+`getNavCounts` (zero counts) already fail safely; panel run/history polls already
+return fixed Ask failures. ActivityEmitter calls an authenticated HTTP API,
+not a redirecting action; panel liveness/claim timers are local storage/bus work.
+Portal has no separate redirecting message-read timer; its LiveUpdates uses the
+same fixed boundary. Explicit page navigation keeps Proxy/DAL protection;
+Next-Action POST passthrough is unchanged.
+
+The document-local auth-loss latch stops live refresh, focus queue reads and
+follow navigation, drops pending trailing refreshes, and invokes the panel's
+existing failure path. Transcript/pane/private queue state clears; composer
+text stays. The next Ask failure displays “Sign in again to continue.” with
+Sign in returning to the current page through the existing validated link.
+A successful explicit Retry can clear the auth latch; actual sign-in starts a
+new document. Typed area denial is checked before any business callback.
+
+### Safe folder setup and repair (operator deployment steps)
+
+Let the app create the configured **journal leaf** directory as its runtime
+account: `mkdir({recursive:true,mode:0700})` creates a missing leaf but does
+**not** fix an existing directory's mode or ownership. Do not pre-create it as
+0775. Protected deployment identity remains separately provisioned **only for a
+new installation** by the documented bootstrap command; it must remain outside
+both DB and journal restore/loss sets. Bootstrap likewise requires 0700 and the
+runtime account's ownership. Neither admission nor maintenance chmods folders.
+
+For an owner status diagnosis `JOURNAL_PERMISSIONS` or
+`JOURNAL_DEPLOYMENT_PERMISSIONS`:
+
+1. Resolve the configured journal/deployment-state paths from deployment config
+   on the operator host. Verify each leaf and its ancestors using `namei -l`
+   and `stat`; confirm the configured leaf is a real directory, not a symlink,
+   and belongs to the app's runtime uid. Fix an incorrect configured path or
+   symlink under operator control before touching permissions.
+2. With the correct runtime account/ownership verified, repair **only that
+   leaf**: `chmod 700 <journal-dir>` or `chmod 700 <deployment-state-dir>`.
+   If ownership is wrong, the administrator must correct that exact directory
+   to the runtime account. Never `chmod -R` the parent or shared checkout.
+3. Preserve and inspect existing ledger/binding/identity files. Verify they are
+   regular, non-symlink files owned by the runtime account and mode 0600; repair
+   individual files to 0600 if needed. Never remove `intents.jsonl`, reset a
+   deletion latch, or re-bootstrap a restored deployment as a permissions fix.
+4. Retry authenticated owner `/api/ai/status`, then the normal maintenance tick.
+   Expect ready (or the existing never-enabled authority warning). Missing or
+   mismatched authority, binding and corrupt records are separate problems;
+   safe folder modes do not override those fences.
+
+Owner status includes only allowlisted diagnosis codes and fixed remediation
+text with placeholder paths. Staff/unauthenticated probes reveal no diagnosis;
+public Ask still returns `ASK_PAUSED`. Maintenance retains the same safe cause
+in the deduplicated owner repair item. No raw exception/path is serialized.
+
+### Push copy protection
+
+Historical sent and parked `push_outbox` cards are scrubbed in 0105 and the
+website-only replay erasure helper. Associations include decision/work/grant IDs
+in payload/href/buttons and legacy Telegram edit IDs via decision deliveries.
+`private_ask_push_sources` holds **only opaque kind/UUID pairs**, with no narrow
+table grants; a boolean SECURITY DEFINER helper supports existing push writers
+without reading RLS-hidden reply bodies. Source triggers capture new links;
+associations persist across tombstone/purge. Every push write sanitizes private
+cards to fixed status and retains an immutable erased marker. Immediate sends,
+row-ID sends and drain retries sanitize before transmit, including stale
+already-selected snapshots. Shared business decision status remains in its
+normal record. No provider history/forensic erasure claim is made.
+
+Manifest generator for `private_ask_push_sources` prints **empty output**
+(website only). Existing push privileges are unchanged; exact generator output
+is also pasted in 0105:
+
+```sql
+SELECT sjcos_grant('sjcos_agent', 'SELECT, INSERT', 'push_outbox');
+SELECT sjcos_grant('sjcos_worker', 'SELECT, INSERT, UPDATE', 'push_outbox');
+SELECT sjcos_grant('sjcos_readonly', 'SELECT', 'push_outbox');
+```
+
+Coordinator visual checks remain: at desk1280 and phone360, type draft before
+expiring session, wait >4 s with shell polling active, Send and focus the window;
+verify `/panel` stays, fixed sign-in line/link and draft remain, History agrees,
+and sign-in returns to `/panel`. Also check the disabled Delete menu, expanded
+empty folder and /today 900 History shots listed by the design judge. No visual
+verification is claimed by the component lifecycle tests.
+
+### Round-4 verification
+
+Expectations were recorded before implementation (including unattended auth,
+folder diagnosis/repair, migration installer identity, historical push copies,
+real narrow logins, replay and queued retry safety) and are maintained in test
+headers/assertions. Controlled component lifecycles execute the actual shell,
+Today provider, follow-navigation component and panel together; they are not
+browser/HTTP-navigation certification. The signed-cookie fixture executes real
+DAL/action/Proxy boundaries for expired/revoked legacy and sid sessions.
+
+Each test file ran sequentially with `SJC_TEST_CLUSTER_TAG=p0r4fix-<timestamp>`,
+`SJC_OUTBOUND_DISABLED=1` and an EXIT trap stopping its disposable cluster even
+on assertion failure. Every cluster stopped. Final results:
+
+| `tests/<name>.test.mjs` | Pass | Fail / skip |
+|---|---:|---:|
+| ask-panel-ssr | 82 | 0 / 0 |
+| ask-r4-server-db | 2 | 0 / 0 |
+| ask-r3-auth-db | 4 | 0 / 0 |
+| ask-run-admission-db | 4 | 0 / 0 |
+| inbox-drafts-actions | 9 | 0 / 0 |
+| ask-private-query-scan | 6 | 0 / 0 |
+| ask-r3-reply-copies-db | 6 | 0 / 0 |
+| ask-thread-recovery-db | 43 | 0 / 0 |
+| ask-thread-access-db | 33 | 0 / 0 |
+| db-roles-manifest-db | 6 | 0 / 0 |
+| db-roles-paths-db | 3 | 0 / 0 |
+| inbox-draft-flow | 39 | 0 / 0 |
+| inbox-draft-sync | 15 | 0 / 0 |
+| workbench-detail | 3 | 0 / 0 |
+| ask-r2-server-db | 11 | 0 / 0 |
+
+**266 passed across 15 files, zero final failures/skips.** Initial harness-only
+failures were corrected: health asserted an obsolete exception string instead
+of the public PAUSED constant; the expanded auth VM needed the call module's
+existing relative dependency seam. Initial tsc caught the newly typed queue
+mount consumer; it now handles failures before applying a snapshot. No failing
+product assertion was weakened or skipped.
+
+Final `flock /tmp/sjcos-tsc.lock nice -n 19 npx tsc --noEmit -p .`: **exit 0**.
+Final `node scripts/db-roles-scan.mjs --diff`: **exit 0**; every printed difference
+is explicitly withheld: owner-control settings/authority/policies/permissions /
+users/revocations; website-only private maintenance/session/interaction/message
+paths; payment authorizations, QBO and mailbox credentials. No narrow grants
+expanded. The new opaque push-source registry has no narrow grants, and both
+real role-manifest/path files pass. `git diff --check` passes. No exit 137.
+
+Private-query inventory: **475 entries / 921 conservative SQL fragments / 212
+files** (104 fenced, 157 trusted-background, 214 not-private), zero violations.
+Newly inventoried push schema/CLI/payment/cost-cap producers were individually
+reviewed: schema-only owner CLIs, business payment text, and fixed aggregate
+cost notices; they do not introduce private body readers. Push persistence and
+drain entries are now classified as fenced, not blanket business-only.

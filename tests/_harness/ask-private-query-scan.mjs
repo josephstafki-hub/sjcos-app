@@ -4,7 +4,7 @@ import path from 'node:path';
 import ts from 'typescript';
 // Include private derivatives, not just the five source tables. SQL fragments
 // and their interpolating callers are tracked; comments do not authorize SQL.
-const tables=/\b(?:ai_conversations|ai_messages|dev_agent_runs|agent_interactions|owner_replies|owner_grants|decisions|decision_events|action_intents|action_attempts|work_items|agent_triggers|agent_executions|agent_receipts|agent_runs|owner_touches|browser_[a-z0-9_]+|notifications|telegram_reply_targets|private_[a-z0-9_]+|ai_folders|run_steers|run_effects|agent_pending_actions|orchestration_tasks|orchestration_events)\b/i;
+const tables=/\b(?:ai_conversations|ai_messages|dev_agent_runs|agent_interactions|owner_replies|owner_grants|decisions|decision_events|action_intents|action_attempts|work_items|agent_triggers|agent_executions|agent_receipts|agent_runs|owner_touches|browser_[a-z0-9_]+|push_outbox|notifications|telegram_reply_targets|private_[a-z0-9_]+|ai_folders|run_steers|run_effects|agent_pending_actions|orchestration_tasks|orchestration_events)\b/i;
 const sql=/\b(?:SELECT|INSERT|UPDATE|DELETE|FROM|JOIN|TRUNCATE|ALTER|COPY)\b/i;
 export const digest=text=>createHash('sha256').update(text).digest('hex');
 export function scanSource(file,source){

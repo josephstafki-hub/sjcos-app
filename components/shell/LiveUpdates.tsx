@@ -3,6 +3,8 @@
 import { useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { pollLiveChanges } from "@/lib/actions/live";
+import { isBackgroundFailure } from "@/lib/background-result";
+import { backgroundAuthLost, noteBackgroundFailure, subscribeBackgroundAuth } from "./backgroundAuth";
 import { postPanelMessage } from "@/components/panel/panelBus";
 
 /** How often to ask "did anything change?" while the tab is visible. */
@@ -37,16 +39,23 @@ export function LiveUpdates() {
 
   useEffect(() => {
     let cancelled = false;
+    const unsubscribe = subscribeBackgroundAuth(() => { needsRefresh.current = false; });
 
     async function tick() {
-      if (cancelled || document.hidden || inFlight.current) return;
+      if (cancelled || backgroundAuthLost() || document.hidden || inFlight.current) return;
       if (Date.now() < retryAt.current) return;
 
       inFlight.current = true;
       try {
-        const { cursor: next, scopes, agentScopes } = await pollLiveChanges(cursor.current);
+        const result = await pollLiveChanges(cursor.current);
+        if (isBackgroundFailure(result)) {
+          needsRefresh.current = false;
+          noteBackgroundFailure(result);
+          return;
+        }
+        const { cursor: next, scopes, agentScopes } = result;
         failures.current = 0;
-        if (cancelled) return;
+        if (cancelled || backgroundAuthLost()) return;
         // First poll just sets the baseline — the page rendered fresh data on load.
         if (cursor.current != null && next > cursor.current) {
           if (scopes.length === 0 || scopes.some((s) => !BOOKKEEPING.has(s))) needsRefresh.current = true;
@@ -63,7 +72,7 @@ export function LiveUpdates() {
         inFlight.current = false;
       }
 
-      if (needsRefresh.current && Date.now() - lastRefresh.current >= MIN_REFRESH_GAP_MS) {
+      if (!cancelled && !backgroundAuthLost() && needsRefresh.current && Date.now() - lastRefresh.current >= MIN_REFRESH_GAP_MS) {
         needsRefresh.current = false;
         lastRefresh.current = Date.now();
         router.refresh();
@@ -81,6 +90,7 @@ export function LiveUpdates() {
 
     return () => {
       cancelled = true;
+      unsubscribe();
       clearInterval(id);
       document.removeEventListener("visibilitychange", onVisible);
     };

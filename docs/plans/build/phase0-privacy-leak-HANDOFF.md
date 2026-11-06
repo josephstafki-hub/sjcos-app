@@ -1,9 +1,9 @@
-# Round-3 private-text census and server evidence (2026-11-05)
+# Round-4 private-text census and server evidence (2026-11-05)
 
 This is the current inventory; earlier round-1/2 counts and business-only
 classifications below are historical. Implementation/status contracts are in
 [phase0-B-HANDOFF.md](phase0-B-HANDOFF.md). **0105 changed in place and remains
-unapplied on live.** No panel-owned files were edited/staged by the server task.
+unapplied on live.** Round 4 includes both panel and server fixes; earlier validation below is historical.
 
 ## Where text can live
 
@@ -36,7 +36,9 @@ not a claim that a static scanner proves arbitrary future model/tool dataflows.
 | `orchestration_events.note` | Additional answer/judgment copy: task-source FORCE RLS, immutable task/run consistency and write guards; tombstone clears note. |
 | `agent_runs`, `agent_receipts`, `knowledge_items` | Reviewed producers record explicit business run/receipt/draft/knowledge artifacts, not automatic Ask transcripts. Draft receipt metadata supplies opaque run/conversation IDs for routing; labels/content are explicitly submitted business artifacts. Existing business/file permissions apply. These must never be used as an automatic private-reply sink. |
 | `action_attempts`, `owner_touches`, `decision_deliveries`, `telegram_reply_targets` | Status/provider/audit/opaque reference carriers, included in scan. No additional automatic full chat copy found: decision touch has via/kind, Telegram target has IDs only, delivery stores status/reference/error, provider attempts do not consume the Telegram note. Explicit business provider summaries keep their business policy. |
-| `notifications.title/subline`, digests/push | Reviewed decision notifications use the explicitly submitted business card's title/summary, not session reply or chat title. No automatic Ask completion/reply text writer found in the reviewed Ask/runner/Telegram paths. Removing downstream private status copies prevents context/digest re-publication. Existing audience rules are not being claimed as a substitute for private-text protection. |
+| `push_outbox.title/body/payload/href` | Confirmed historical private reply card carrier. 0105/replay scrub sent and pending/failed rows using decision/work/grant and legacy href/button/edit-delivery associations. Per-write trigger irreversibly sanitizes to fixed status; immediate and queued/retry sends sanitize even stale snapshots. Real agent/worker/readonly login tests cannot read the sentinel. |
+| `private_ask_push_sources.kind/ref` | Website-only opaque association registry, no private text or narrow table privileges; source triggers capture links and retain them after purge, boolean-only definer lookup supports worker sanitization. |
+| `notifications.title/subline`, digests | Reviewed decision notifications use the explicitly submitted business card's title/summary, not session reply or chat title. No automatic Ask completion/reply text writer found in the reviewed Ask/runner/Telegram paths. Removing downstream private status copies prevents context/digest re-publication. Existing audience rules are not being claimed as a substitute for private-text protection. |
 | `browser_tasks.purpose`, `browser_commands.safe_result`, `browser_web_commands.safe_result`, `browser_read_manifests.public_entries/private_entries_ciphertext/envelope` | Potential Browser title/name/result carriers now included by all-`browser_*` scanner coverage. 0100 revokes all narrow logins' table privileges and enforces source/session identity; Browser remains disabled pending Phase 0b. This task makes no Browser runtime/presence/vault certification. |
 | `browser_audit` (origin/result code/opaque IDs), related Browser identity/audit tables | Included in scanner; schema has no arbitrary chat-body/detail column. Website-only privileges and append-only/source guards from 0100; Phase 0b remains separate. |
 
@@ -478,3 +480,42 @@ plus staff MCP grant list/check and denied foreign filing. Production restore /
 loss/authority acceptance and protected deployment-state provisioning remain ops
 work; no runtime Browser or actual deployed authority-service certification is
 claimed by the fixture tests.
+
+
+## Round-4 transitive outbox/queue/log re-sweep
+
+The earlier “18-table” claim missed `push_outbox`; it is superseded by the
+explicit carrier row above. Reviewed schema/migration definitions and direct
+writers/consumers again, not merely the old hash allowlist:
+
+| Table / queue | Reviewed disposition |
+|---|---|
+| `push_outbox` | Private historical card copies removed; irreversible sanitizer and stale-retry protection, migration/replay and three real narrow-login regression controls. |
+| `newsletter_outbox` | Explicitly composed newsletter/welcome/drip text; owner grant on release. No automatic Ask/reply producer found. |
+| `bid_invite_emails` | Explicit business bid/package email text; existing owner-approved dispatch, not automatic chat copying. |
+| `inbox_drafts` | Mailbox/person human drafts and owner-mailbox AI reply suggestions from business messages; per-user/mailbox queries. No Ask transcript/reply producer found. |
+| `sms_messages` / `sms_threads` | Explicit/inbound SMS records and grant-gated sends/retries, not automatic private Ask text. |
+| `chat_messages` | Explicit/inbound portal/sub communication; channel authorization. Private session reply delivery does not publish here. |
+| `notifications` / `notification_reads` | Business card title/summary or fixed status, audience-scoped bell/read state. Phone-only resolved decision refresh bypasses bell. No additional automatic private body/name producer found. |
+| `telegram_reply_targets` / `telegram_updates` / `decision_deliveries` | Opaque message/thread/provider IDs, dedup and delivery status; no Telegram body outbox. The durable owner Telegram body queue is `push_outbox`; direct private answer transport remains journal/person fenced. |
+| `action_intents` / `action_attempts` | Explicit business send payloads/provider outcomes; historical reply-derived errors erased, new private reply errors fixed. Existing grant dispatch boundaries remain. |
+| `agent_triggers` / `agent_executions` / `dev_agent_runs` | Private reply fan-out scrubbed and erased-shell guarded; private run copies use source FORCE RLS. Shared history/context excludes private runs. |
+| `agent_pending_actions` / `run_effects` / `orchestration_tasks` / `orchestration_events` / `run_steers` / `agent_interactions` | Private run/thread association, immutable source and person/live-thread RLS; deletion/replay erasure. |
+| `work_items` / `decision_events` / `decisions` / `owner_grants` / `owner_replies` | Protected originals or fixed/redacted reply-derived fields as detailed above. Explicit filed business artifacts retain business policy. |
+| `agent_runs` / `agent_receipts` / `knowledge_items` / `document_drafts` / `marketing_drafts` | Explicit submitted business artifacts, no additional automatic private chat producer found. |
+| `app_change_log` / `reminder_log` / `cron_runs` / usage/audit logs | Table names, dedup keys, fixed status/count/IDs/usage; no additional automatic private text producer found. Detached runner stdout remains ignored. |
+
+No separate `email_outbox`, `sms_outbox` or `telegram_outbox` table exists in
+the reviewed schema/migrations. Email dispatch uses business drafts/intents and
+bid/newsletter records; SMS uses `sms_messages`; Telegram uses `push_outbox` or
+the private direct delivery adapter. These are traced producer conclusions,
+not a proof against future explicit model-authored business artifacts or host /
+provider histories. Scanner now inventories `push_outbox` queries and source
+hashes, including its producers and drain paths; counterexample coverage includes
+that table. New table registry is opaque metadata, not a private-text copy.
+
+Round-4 final scanner inventory: **475 entries, 921 conservative fragments,
+212 files** (104 fenced, 157 trusted-background, 214 not-private), zero
+violations. Final round-4 validation is **266 passed / 0 failed / 0 skipped**
+across 15 single-file runs; exact per-file counts and scan/typecheck evidence
+are in the round-4 section of `phase0-B-HANDOFF.md`. No live migration applied.

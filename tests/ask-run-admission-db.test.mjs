@@ -51,7 +51,8 @@ test('admitAskRun checks authentication, source, 0105 seam, profile, resume and 
   await assert.rejects(admitAskRun(input,'panel_web'),/ASK_THREAD_PRIVACY_REQUIRED/);
   // Real 0105 via isolated checksummed ledger; recovery is a test-only ready
   // fixture here. Full independent recovery is tested separately.
-  await apply([105]);
+  await c.query('SET SESSION AUTHORIZATION sjcos_test_website');
+  try { await apply([105]); } finally { await c.query('RESET SESSION AUTHORIZATION'); }
   await withSessionIdentity(url,'sjcos_test_website',async()=>{});
   await db.query('UPDATE ask_canvas_maintenance SET recovery_ready=true');
   for(const source of ['panel_web','panel_mobile','panel_voice']){

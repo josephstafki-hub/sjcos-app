@@ -2169,7 +2169,8 @@
       ],
       "sjcos_readonly": [
         "SELECT"
-      ]
+      ],
+      "note": "Private Ask reply-derived cards are irreversibly sanitized by 0105 guard_ask_push_copy on every write and erase_ask_reply_copies on upgrade/replay. Existing business writers/privileges unchanged."
     },
     "qbo_connection": {
       "note": "QuickBooks OAuth connection; QBO sync runs inside the website (cron route)"
@@ -3080,6 +3081,9 @@
     },
     "ask_canvas_maintenance": {
       "note": "0105 private recovery epoch/lease/checkpoint; website only. No narrow grants. Backup via pg_read_all_data."
+    },
+    "private_ask_push_sources": {
+      "note": "0105 website-only opaque private-reply decision/work/grant associations retained across tombstone/purge; only ask_push_is_private returns a boolean to existing push writers. No narrow table grants. Backup via pg_read_all_data."
     }
   }
 }

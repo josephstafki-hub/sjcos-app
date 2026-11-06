@@ -1,4 +1,5 @@
 "use client";
+import { noteBackgroundFailure, resumeBackgroundAuth, subscribeBackgroundAuth } from "@/components/shell/backgroundAuth";
 
 import { startTransition, useEffect, useRef, useState } from "react";
 import {
@@ -353,6 +354,7 @@ export function useAgentChat({
 
   const reportFailure = (value: AskFailureCode) => {
     failureRef.current = value;
+    if (value === "SIGN_IN_AGAIN") noteBackgroundFailure({ ok: false, code: value });
     setFailureCode(value);
     const unsent = unsentRef.current;
     detachRun();
@@ -366,12 +368,14 @@ export function useAgentChat({
     setConversationTitle("New chat");
     writePanelState({conversationId:null, folderId:null});
   };
+  useEffect(() => subscribeBackgroundAuth(() => { if (failureRef.current !== "SIGN_IN_AGAIN") reportFailure("SIGN_IN_AGAIN"); }), []);
   const handleFailure = (error: unknown) => reportFailure(askFailure(error)?.code ?? "ASK_PAUSED");
   const retry = async () => {
     const live = liveRef.current;
     try {
       await askCall(listThreadRailAction());
       if (!live.alive) return;
+      resumeBackgroundAuth();
       failureRef.current = null;
       setFailureCode(null);
       setRecoveryGeneration(value => value + 1);
@@ -400,6 +404,7 @@ export function useAgentChat({
       if (!live.alive) return;
       if (!detail) { reportFailure("THREAD_UNAVAILABLE"); return; }
       if (failureRef.current) setRecoveryGeneration(value => value + 1);
+      resumeBackgroundAuth();
       failureRef.current = null;
       setFailureCode(null);
       setAgent(detail.agent);

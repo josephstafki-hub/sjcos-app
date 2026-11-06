@@ -78,3 +78,15 @@ test('exact runtime pins and metadata cannot enable release; all flags off',()=>
   assert.deepEqual(verifyInstalledMetadata(x),{ok:true,releaseReady:false});
   assert.deepEqual(verifyInstalledMetadata({...x,browsers:{browsers:[{name:'chromium',revision:'1228'}]}}),{ok:false,releaseReady:false});
 });
+
+import {registerBrowserTools} from '../mcp/browser-tools.mjs';
+test('stdio wrapper refuses global/unverified registration and has exact v1 catalog',async()=>{
+ const records=new Map(),server={registerTool:(name,config,handler)=>records.set(name,{config,handler})};
+ assert.throws(()=>registerBrowserTools(server,{transportKind:'http'}));assert.equal(records.size,0);
+ const taskId='11111111-1111-4111-8111-111111111111';let calls=0;
+ registerBrowserTools(server,{transportKind:'stdio',verifiedRun:{profile:'browser',capability:'memory-only',taskId},authorize:async()=>true,invoke:async()=>{calls++;throw Error('secret upstream details');}});
+ assert.deepEqual([...records.keys()],TOOL_NAMES);
+ const h=records.get('browser_status').handler;
+ for(const input of [{task_id:'22222222-2222-4222-8222-222222222222'},{task_id:taskId,approve:true}]){const result=await h(input);assert.equal(result.isError,true);assert.equal(calls,0);}
+ const result=await h({task_id:taskId});assert.equal(calls,1);assert.equal(result.isError,true);assert.equal(result.content[0].text.includes('secret'),false);
+});

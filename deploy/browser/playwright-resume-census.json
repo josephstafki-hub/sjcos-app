@@ -1,0 +1,81 @@
+{
+  "version": "1.64.1",
+  "bundleSha256": "829521b67ed7be90c7d6d6098ff39f2241562d47e4ad7ccab13710924a56001d",
+  "occurrences": [
+    {
+      "line": 36391,
+      "text": "await this._sendMayFail(\"Runtime.runIfWaitingForDebugger\");",
+      "sha256": "8e1509258ca45db9dbd12377faa0b84cbc0d782aecd7a9c2cda0fd2f750d07c0"
+    },
+    {
+      "line": 37470,
+      "text": "fetchPromise = info.session.send(\"Fetch.enable\", { handleAuthRequests: true, patterns: [{ urlPattern: \"*\", requestStage: \"Request\" }] });",
+      "sha256": "f7d7c8f9d2dc2e90b5d2bf4280b7c65579823f691e02ee2bea3d0387db9512a5"
+    },
+    {
+      "line": 37472,
+      "text": "fetchPromise = info.session.send(\"Fetch.disable\");",
+      "sha256": "6beab4b6b4ca3e7fab167defcaea6131a317f6f45820483b94bcf2ac4f23588e"
+    },
+    {
+      "line": 39015,
+      "text": "this._client.send(\"Target.setAutoAttach\", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true })",
+      "sha256": "5b786392848e3be1a5f573fcdf73533c4d842d70935a4cd21e2bd5bd40a4e58f"
+    },
+    {
+      "line": 39059,
+      "text": "promises2.push(this._client.send(\"Runtime.runIfWaitingForDebugger\"));",
+      "sha256": "ec4e7b5b8c4852f671f9b9ac92abf578553df349973a133a2b559577c681a2c7"
+    },
+    {
+      "line": 39236,
+      "text": "session._sendMayFail(\"Runtime.runIfWaitingForDebugger\");",
+      "sha256": "2c8e47a326d1c3cef7b7dc3a989f10b6339902a32bdba903882fd4f9b0677954"
+    },
+    {
+      "line": 39237,
+      "text": "session._sendMayFail(\"Target.setAutoAttach\", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });",
+      "sha256": "f9c56d6305ba32c472c480d1ea93aa0282faf20910137ec28d55350f3a0613b2"
+    },
+    {
+      "line": 39642,
+      "text": "session.send(\"Runtime.runIfWaitingForDebugger\").catch((e) => {",
+      "sha256": "e0d0569e7f23792b569252ecd9bb90719ade72f20fe49bafa76be2131b95dcdf"
+    },
+    {
+      "line": 39645,
+      "text": "session._sendMayFail(\"Runtime.runIfWaitingForDebugger\", {});",
+      "sha256": "ece198e356994ff3f3005cb9e9f2209a711d4a5781fc1c4b296f6c33916e7a0a"
+    },
+    {
+      "line": 39776,
+      "text": "await session.send(\"Target.setAutoAttach\", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });",
+      "sha256": "eab29f8140ff0a78d34a99e0ccb6c6c908f81d634439c1d9a5e403d01ea88ac4"
+    },
+    {
+      "line": 39783,
+      "text": "session.send(\"Target.setAutoAttach\", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }).then(async () => {",
+      "sha256": "a19f00cb2dc45d935b062fe37b1ceff01ac4b687f224383b8dba4610d4745534"
+    },
+    {
+      "line": 44326,
+      "text": "session.send(\"Runtime.runIfWaitingForDebugger\")",
+      "sha256": "1c0c83ed986206190c4c7d9cbcff908cd51b8cefc500265b4885a84714f2539e"
+    },
+    {
+      "line": 44603,
+      "text": "session._sendMayFail(\"Runtime.runIfWaitingForDebugger\");",
+      "sha256": "2c8e47a326d1c3cef7b7dc3a989f10b6339902a32bdba903882fd4f9b0677954"
+    },
+    {
+      "line": 74955,
+      "text": "// Called in response to Playwright's `Target.setAutoAttach` on the root session.",
+      "sha256": "ad5fe673f2dcfc4457accc27327a689aae6da1facea6a74978a6b6a21380dd7f"
+    },
+    {
+      "line": 75122,
+      "text": "case \"Target.setAutoAttach\": {",
+      "sha256": "29bf0aabbcb6b20f2115abba725d9fb320cc86d0606e4455c467164d68a49a7d"
+    }
+  ]
+}

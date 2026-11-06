@@ -1,9 +1,11 @@
 import "server-only";
+import { isAskFailure, askFailureStatus, askRedirectPath } from "@/lib/ask-result-codes";
+import { askFailure, askBoundary } from "@/lib/thread-access";
 import { z } from "zod";
 import { getUserFromRequest, hasAccess } from "@/lib/api-auth";
 import { getCurrentUser, type CurrentUser } from "@/lib/dal";
 import * as chat from "@/lib/actions/ai-chat";
-import { pollAgentRun, listRunApprovals } from "@/lib/actions/dev-agents";
+import { listRunApprovals } from "@/lib/actions/dev-agents";
 import { loadRunReview } from "@/lib/actions/panel-review";
 import { getProject } from "@/lib/projects";
 import { getLead } from "@/lib/leads";
@@ -11,6 +13,9 @@ import { projectContext, leadContext } from "@/lib/page-context";
 import { AGENT_ORDER, AGENT_META, CLAUDE_DEFAULTS, CLAUDE_MODEL_OPTIONS, CLAUDE_CONTEXT_OPTIONS, CLAUDE_MODE_OPTIONS, CLAUDE_EFFORT_OPTIONS } from "@/lib/dev-agents-meta";
 import { resolveThreadStatus, STATUS_META, isThreadBusy, ms, type RailThread } from "@/lib/thread-rail";
 import { startersForRoute } from "@/components/panel/panelStarters";
+import {pollAgentRunWithCanvas,loadConversationWithCanvas} from '@/components/panel/canvas/run-actions';
+import {canvasEvents,canvasFailure} from '@/lib/ask-canvases';
+import {mobileCanvasFallback,appendCanvasLines} from './canvas-fallback';
 import { MobileInputError } from "./dispatch";
 
 export interface OperatorContext { type: "project" | "lead" | "vendor" | "sub"; slug: string }
@@ -38,21 +43,21 @@ export async function operatorPageContext(context: OperatorContext | undefined, 
 export async function mobileOperatorRead(req: Request, ownerOnly: boolean, read: (user: CurrentUser) => Promise<unknown>): Promise<Response> {
   try {
     const user = await getUserFromRequest(req);
-    if (!user || (await getCurrentUser())?.id !== user.id) return Response.json({ error: "Unauthorized" }, { status: 401 });
-    if (!hasAccess(user, "ai") || (ownerOnly && user.role !== "owner")) return Response.json({ error: "You don't have access to that." }, { status: 403 });
-    const result = await read(user);
+    if (!user || (await getCurrentUser())?.id !== user.id) return Response.json({ ok:false,code:"SIGN_IN_AGAIN" }, { status: 401 });
+    if (!hasAccess(user, "ai") || (ownerOnly && user.role !== "owner")) return Response.json({ ok:false,code:"CHAT_OFF" }, { status: 403 });
+    const result = await askBoundary(()=>read(user));
+    if(isAskFailure(result))return Response.json(result,{status:askFailureStatus(result)});
     return result instanceof Response ? result : Response.json(result);
   } catch (error) {
     if (error instanceof z.ZodError || error instanceof MobileInputError) return Response.json({ error: error instanceof z.ZodError ? error.issues[0]?.message : error.message }, { status: 400 });
-    // Match the RPC route's treatment of DAL authentication redirects.
-    if (typeof error === "object" && error && "digest" in error && String(error.digest).startsWith("NEXT_REDIRECT;")) return Response.json({ error: "You don't have access to that." }, { status: 403 });
-    console.error("[mobile-operator] Request failed", error);
-    return Response.json({ error: "Something went wrong. Please try again." }, { status: 500 });
+    const redirect=askRedirectPath(error);
+    const failure=redirect && !['/login','/logout'].includes(redirect) ? {ok:false as const,code:'CHAT_OFF' as const} : askFailure(error);
+    return Response.json(failure, { status: askFailureStatus(failure) });
   }
 }
 const iso = (value: string | null) => value == null ? null : new Date(ms(value)).toISOString();
 export const threadActions = ["operator.send", "operator.rename", "operator.pin", "operator.move", "operator.fileUnder", "operator.resetSession", "operator.delete", "operator.unsettle"];
-export function operatorThread(t: RailThread, req: Request, user: CurrentUser) {
+export function operatorThread(t: RailThread, req: Request, user: CurrentUser, deleteAvailable=false) {
   const query = new URL(req.url).searchParams;
   const seen = new Set((query.get("seenRunIds") ?? "").split(",").slice(0, 500));
   const since = query.get("since");
@@ -60,22 +65,47 @@ export function operatorThread(t: RailThread, req: Request, user: CurrentUser) {
   const status = resolveThreadStatus(t, { seen: id => seen.has(id), currentId: query.get("currentId"), sinceMs: since ? Date.parse(since) : undefined });
   return { ...t, createdAt: iso(t.createdAt)!, updatedAt: iso(t.updatedAt)!, lastActivityAt: iso(t.lastActivityAt), unsettledAt: iso(t.unsettledAt), settledAt: iso(t.settledAt), archivedAt: iso(t.archivedAt), pinnedAt: iso(t.pinnedAt), workingSince: iso(t.workingSince), lastRunEndedAt: iso(t.lastRunEndedAt),
     status, label: STATUS_META[status].label || "Ready", unread: status === "completed" || status === "failed", pendingRunId: t.working ? t.lastRunId : null,
-    allowedActions: [...threadActions.filter(action => action !== "operator.send" || user.role === "owner" || t.agent === "auto" || t.agent === "claude"), ...(!isThreadBusy(t) ? ["operator.settle"] : []), ...(!t.working ? ["operator.archive"] : [])] };
+    allowedActions: [...threadActions.filter(action => (action!=="operator.delete"||deleteAvailable) && (action !== "operator.send" || user.role === "owner" || t.agent === "auto" || t.agent === "claude")), ...(!isThreadBusy(t) ? ["operator.settle"] : []), ...(!t.working ? ["operator.archive"] : [])] };
 }
 export async function operatorRail(req: Request, user: CurrentUser) {
-  const rail = await chat.listThreadRailAction();
-  return { folders: rail.folders.map(f => ({ ...f, archivedAt: iso(f.archivedAt), allowedActions: ["operator.renameFolder", "operator.collapseFolder", "operator.archiveFolder"] })), threads: rail.threads.map(t => operatorThread(t, req, user)), allowedActions: ["operator.new", "operator.createFolder", ...(user.role === "owner" ? ["searchJobs", "operator.approveGrant", "operator.denyGrant"] : [])] };
+  const result = await chat.listThreadRailAction();
+  if(isAskFailure(result))return result;
+  const {rail,capabilities}=result;
+  return { capabilities, folders: rail.folders.map(f => ({ ...f, archivedAt: iso(f.archivedAt), allowedActions: ["operator.renameFolder", "operator.collapseFolder", "operator.archiveFolder"] })), threads: rail.threads.map(t => operatorThread(t, req, user,capabilities.deleteAvailable)), allowedActions: ["operator.new", "operator.createFolder", ...(user.role === "owner" ? ["searchJobs", "operator.approveGrant", "operator.denyGrant"] : [])] };
 }
 export async function operatorConversation(id: string) {
   z.uuid().parse(id);
-  const conversation = await chat.loadConversationAction(id);
-  if (!conversation) return Response.json({ error: "That conversation no longer exists." }, { status: 404 });
-  return { ...conversation, messages: conversation.messages.map(m => ({ ...m, createdAt: iso(m.createdAt)! })), allowedActions: threadActions };
+  const result = process.env.SJC_CANVAS_ENABLED==='1'?await loadConversationWithCanvas(id):await chat.loadConversationAction(id) as Awaited<ReturnType<typeof loadConversationWithCanvas>>;
+  if(isAskFailure(result))return result;
+  const {conversation,capabilities}=result;
+  const cards=mobileCanvasFallback(result.canvas_changes);
+  const used=new Set<string>();
+  const messages=conversation.messages.map(m=>{
+    const matching=m.role==='assistant'?cards.filter(c=>c.run_id===m.runId&&!used.has(c.group_id)):[];
+    matching.forEach(c=>used.add(c.group_id));
+    return {...m,body:appendCanvasLines(m.body,matching),createdAt:iso(m.createdAt)!};
+  });
+  // An interrupted runner may never have written an assistant message.
+  for(const card of cards.filter(c=>!used.has(c.group_id)))messages.push({id:`canvas-${card.group_id}`,runId:card.run_id??undefined,role:'assistant',body:card.line,createdAt:card.at,costUsd:null,subjectWorkItemId:null,agent:null,attachments:null});
+  if(cards.length)messages.sort((a,b)=>a.createdAt.localeCompare(b.createdAt));
+  return { ...conversation, capabilities, ...(result.canvas_changes?{canvas_changes:result.canvas_changes,canvas_fallback:cards}:{}), messages, allowedActions: threadActions.filter(action=>action!=="operator.delete"||capabilities.deleteAvailable) };
 }
-export async function operatorArchived(req: Request, user: CurrentUser) { return { threads: (await chat.listArchivedThreadsAction()).map(t => operatorThread(t, req, user)) }; }
-export async function operatorRun(id: string) { z.uuid().parse(id); return pollAgentRun(id); }
-export async function operatorRunReview(id: string) { z.uuid().parse(id); return { review: await loadRunReview(id), grants: await listRunApprovals(id) }; }
-export async function operatorJobs(req: Request) { const q = z.string().max(200).parse(new URL(req.url).searchParams.get("q") ?? ""); return { jobs: await chat.searchJobsAction(q) }; }
+export async function operatorArchived(req: Request, user: CurrentUser) { const result=await chat.listArchivedThreadsAction();if(isAskFailure(result))return result;return {capabilities:result.capabilities,threads:result.threads.map(t=>operatorThread(t,req,user,result.capabilities.deleteAvailable))}; }
+export async function operatorRun(id: string, after?:string) {
+ z.uuid().parse(id);
+ const result=await pollAgentRunWithCanvas(id,after);
+ if(isAskFailure(result))return result;
+ const cards=mobileCanvasFallback(result.canvas_changes).filter(c=>c.run_id===id);
+ if(!result.canvas_changes)return result;
+ if(!result.ok)return {...result,error:appendCanvasLines(result.error,cards),canvas_fallback:cards};
+ if(result.status==='done')return {...result,answer:appendCanvasLines(result.answer,cards),canvas_fallback:cards};
+ return {...result,canvas_fallback:cards};
+}
+export async function operatorCanvasEvents(id:string,input:unknown={}){
+ try{z.uuid().parse(id);return await canvasEvents(id,input);}catch(e){return canvasFailure(e);}
+}
+export async function operatorRunReview(id: string) { z.uuid().parse(id); const review=await loadRunReview(id);if(isAskFailure(review))return review;const grants=await listRunApprovals(id);if(isAskFailure(grants))return grants;return {...review,...grants}; }
+export async function operatorJobs(req: Request) { const q = z.string().max(200).parse(new URL(req.url).searchParams.get("q") ?? ""); return chat.searchJobsAction(q); }
 export async function operatorConfig(req: Request, user: CurrentUser) {
   const query = new URL(req.url).searchParams;
   const agent = z.enum(["auto", "claude", "qwen", "hermes"]).parse(query.get("agent") ?? "auto");

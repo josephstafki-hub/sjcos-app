@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useDictation } from "@/lib/use-dictation";
-import { useVoiceAvailable } from "@/lib/use-voice-available";
+import { useVoiceAvailable, type VoiceAvailability } from "@/lib/use-voice-available";
 import { useTtsAvailable } from "@/lib/use-tts-available";
 
 // Hands-free voice conversation for the operator panel. One tap starts a
@@ -53,13 +53,15 @@ export function stripForSpeech(text: string): string {
 export function useVoiceRound({
   send,
   onError,
+  availability,
 }: {
   /** Deliver a transcript to the chat (voice path). */
   send: (text: string) => Promise<void> | void;
   onError?: (message: string) => void;
+  availability?: VoiceAvailability;
 }) {
-  const stt = useVoiceAvailable();
-  const tts = useTtsAvailable();
+  const stt = useVoiceAvailable(availability);
+  const tts = useTtsAvailable(availability);
   const supported = stt === true && tts === true;
 
   const [voiceMode, setVoiceModeState] = useState(false);
@@ -95,6 +97,7 @@ export function useVoiceRound({
   });
 
   const dictation = useDictation({
+    availability,
     onText: (text) => void handleTranscript(text),
     onError: (message) => onErrorRef.current?.(message),
     onLevel: setLevel,

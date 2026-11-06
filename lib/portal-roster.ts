@@ -34,8 +34,7 @@ export async function getClientUploadsForOwner(scope: PortalScope): Promise<Proj
             COALESCE(NULLIF(f.subtitle, ''), f.tag, '') AS subtitle,
             ${ABS("f.created_at")} AS uploaded_label,
             (f.project_key IS DISTINCT FROM $1) AS from_lead
-       FROM files f
-      WHERE f.storage_path IS NOT NULL AND f.client_slug IS NOT NULL AND ${where}
+       FROM files f WHERE to_jsonb(f)->>'security_profile' IS NULL AND f.storage_path IS NOT NULL AND f.client_slug IS NOT NULL AND ${where}
       ORDER BY f.created_at DESC`,
     params,
   );

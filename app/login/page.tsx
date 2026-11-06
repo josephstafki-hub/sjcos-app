@@ -1,3 +1,5 @@
+import { readSession } from "@/lib/session";
+import { validateAppReturnPath, validateBrowserReturnPath } from "@/lib/web-sessions";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Logo } from "@/components/shell/Logo";
@@ -34,13 +36,15 @@ const INVITE_NOTICE: Record<string, string> = {
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ invite?: string }>;
+  searchParams: Promise<{ invite?: string; returnTo?: string }>;
 }) {
+  const { invite, returnTo: rawReturn } = await searchParams;
+  const returnTo = rawReturn === undefined ? null : validateAppReturnPath(rawReturn);
+  const browserReturn = validateBrowserReturnPath(rawReturn);
   const user = await getCurrentUser();
-  if (user) redirect(homeForRole(user.role));
-
-  const { invite } = await searchParams;
-  const notice = invite ? (INVITE_NOTICE[invite] ?? INVITE_NOTICE.failed) : null;
+  const session = await readSession();
+  if (user && (!browserReturn || session?.sid)) redirect(returnTo ?? homeForRole(user.role, user.permissions));
+  const notice = browserReturn ? "Sign in to open the review." : returnTo ? "Sign in to return to your page." : invite ? (INVITE_NOTICE[invite] ?? INVITE_NOTICE.failed) : null;
 
   return (
     <div className="flex min-h-dvh items-center justify-center bg-paper px-4 py-8">
@@ -64,7 +68,7 @@ export default async function LoginPage({
         )}
 
         <div className="rounded-xl border border-rule bg-card p-6 shadow-sm">
-          <LoginForm />
+          <LoginForm returnTo={returnTo} />
         </div>
 
         {/* No self-serve reset by design: the owner resets staff passwords (Settings › Team),

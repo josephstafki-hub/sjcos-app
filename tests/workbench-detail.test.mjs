@@ -5,9 +5,10 @@ import { registerHooks } from 'node:module';
 import ts from 'typescript';
 let role = 'owner', assigned = true, entityCalls = 0;
 const item = { id: '11111111-1111-1111-1111-111111111111', title: 'Call supplier', body: 'Confirm delivery', status: 'todo', assignedTo: [] };
-globalThis.__detail = { requireAccess: async()=>({id:'me',role}), getEngineWorkItem: async()=>item, query: async()=>({rows:assigned?[{one:1}]:[]}), resolveEntityRef:async()=>{entityCalls++;return null;}, getWorkbenchSnapshot:async()=>null };
+// R4: the actual background read uses nonredirecting auth; keep role/assignment controls.
+globalThis.__detail = { getCurrentUser:async()=>({id:'me',role}),can:()=>true,requireAccess: async()=>({id:'me',role}), getEngineWorkItem: async()=>item, query: async()=>({rows:assigned?[{one:1}]:[]}), resolveEntityRef:async()=>{entityCalls++;return null;}, getWorkbenchSnapshot:async()=>null };
 registerHooks({resolve(s,c,next){if(s.startsWith('@/'))return {url:`stub:${s}`,shortCircuit:true};return next(s,c);},load(url,c,next){
- if(url.startsWith('stub:'))return {format:'module',source:'export const {requireAccess,getEngineWorkItem,query,resolveEntityRef,getWorkbenchSnapshot}=globalThis.__detail;',shortCircuit:true};
+ if(url.startsWith('stub:'))return {format:'module',source:'export const {getCurrentUser,can,requireAccess,getEngineWorkItem,query,resolveEntityRef,getWorkbenchSnapshot}=globalThis.__detail;',shortCircuit:true};
  if(url.endsWith('/lib/actions/workbench.ts'))return {format:'module',source:ts.transpileModule(readFileSync(new URL(url),'utf8'),{compilerOptions:{module:ts.ModuleKind.ESNext}}).outputText,shortCircuit:true};return next(url,c);
 }});
 const {getWorkbenchAction}=await import('../lib/actions/workbench.ts');

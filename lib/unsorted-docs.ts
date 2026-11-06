@@ -1,4 +1,7 @@
 import "server-only";
+import type { AskFailure } from "@/lib/ask-result-codes";
+import { privateRunner, privatePerson } from "@/lib/ask-private-bridge.mjs";
+import { pool } from "@/lib/db";
 
 // Unsorted documents — the app side: Gmail + blob storage around the pure DB
 // module (lib/unsorted-docs-core.ts). Used by the /unsorted page's actions and
@@ -10,8 +13,8 @@ import "server-only";
 // (lib/gmail.ts fetchMessageForFiling). For a document that didn't come from
 // Gmail an agent may pass the body text and base64 attachments instead, or
 // the server path of a file it was handed — a file dropped into the Ask
-// window (uploads/ai-chat/…), or under a root listed in
-// SJCOS_FILING_PATH_ROOTS (colon-separated). Nothing outside those is read.
+// window (uploads/ai-chat/…), from this person's live thread in a bound Ask run, or under a shared root listed in
+// SJCOS_FILING_PATH_ROOTS (colon-separated). Shared roots never override Ask privacy.
 //
 // Sorting wakes the filing agent at once (lib/agent-kick.ts).
 
@@ -90,14 +93,16 @@ const MIME_BY_EXT: Record<string, string> = {
 };
 
 function pathRoots(): string[] {
-  return [path.join(process.cwd(), "uploads", "ai-chat"), ...(process.env.SJCOS_FILING_PATH_ROOTS ?? "").split(":")]
+  return (process.env.SJCOS_FILING_PATH_ROOTS ?? "").split(":")
     .map((r) => r.trim())
     .filter(Boolean)
     .map((r) => path.resolve(r));
 }
 
 /** Read files an agent named by path — only from the allowed roots. */
-async function readHandedFiles(paths: string[]): Promise<{ ok: true; files: { filename: string; mimeType: string; bytes: Buffer }[] } | { ok: false; error: string }> {
+async function readHandedFiles(paths: string[]): Promise<{ ok: true; files: { filename: string; mimeType: string; bytes: Buffer }[] } | AskFailure> {
+  const askRoot=path.join(process.cwd(),"uploads","ai-chat");
+  const realAskRoot=await realpath(askRoot).catch(()=>askRoot);
   const roots = await Promise.all(pathRoots().map((r) => realpath(r).catch(() => r)));
   const files: { filename: string; mimeType: string; bytes: Buffer }[] = [];
   for (const raw of paths.slice(0, 10)) {
@@ -105,13 +110,20 @@ async function readHandedFiles(paths: string[]): Promise<{ ok: true; files: { fi
     try {
       real = await realpath(String(raw));
     } catch {
-      return { ok: false, error: `File not found: ${raw}` };
+      return { ok: false, code: "THREAD_UNAVAILABLE" };
     }
-    if (!roots.some((r) => real.startsWith(r + path.sep))) {
-      return { ok: false, error: `${raw} is outside the folders filing may read (Ask-window uploads, or SJCOS_FILING_PATH_ROOTS).` };
-    }
+    // Ask takes precedence over any deliberately shared ancestor root or alias.
+    const isAsk=[askRoot,realAskRoot].some(r=>real.startsWith(r+path.sep)||path.resolve(raw).startsWith(r+path.sep));
+    if(isAsk){
+      const person=privatePerson(),context=privateRunner();
+      if(!person||!context?.active)return {ok:false,code:"THREAD_UNAVAILABLE"};
+      const ref=(await pool.query(`SELECT 1 FROM ai_messages m JOIN ai_conversations c ON c.id=m.conversation_id
+        WHERE c.id=$1 AND c.owner_user_id=$2 AND c.deleted_at IS NULL AND m.attachments @> $3::jsonb`,
+        [context.conversation_id,person,JSON.stringify([{path:path.resolve(raw)}])])).rows[0];
+      if(!ref)return {ok:false,code:"THREAD_UNAVAILABLE"};
+    }else if(!roots.some(r=>real.startsWith(r+path.sep)))return {ok:false,code:"THREAD_UNAVAILABLE"};
     const info = await stat(real);
-    if (!info.isFile() || info.size > MAX_UPLOAD_BYTES) return { ok: false, error: `${raw} isn't a file under 20 MB.` };
+    if (!info.isFile() || info.size > MAX_UPLOAD_BYTES) return { ok: false, code: "THREAD_UNAVAILABLE" };
     const ext = path.extname(real).slice(1).toLowerCase();
     // Ask-window uploads are saved as "<uuid>-<original name>".
     const filename = path.basename(real).replace(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-/i, "");
@@ -236,6 +248,7 @@ async function uploadedFiles(sourceRef: string, docId: number | null, uploadIds:
 }
 
 export type StageFromEmailResult =
+  | AskFailure
   | StageResult
   | (Extract<StageResult, { ok: true }> & {
       /** Files on the document now (attachments + the email copy). */

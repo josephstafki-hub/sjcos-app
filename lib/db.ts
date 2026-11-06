@@ -1,13 +1,20 @@
-import { Pool, type QueryResult, type QueryResultRow } from "pg";
+import type { Pool as PgPool, QueryResult, QueryResultRow } from "pg";
+import { Pool } from "./guarded-pg.mjs";
+
+import { assertTestDatabaseUrl, isNodeTest } from "./test-db-guard.mjs";
+
+// Check even when a pool is cached; never reuse a runtime pool in tests.
+const connectionString = isNodeTest() ? (process.env.SJC_TEST_DATABASE_URL ?? process.env.DATABASE_URL) : process.env.DATABASE_URL;
+assertTestDatabaseUrl(connectionString);
 
 // Single shared connection pool. Stashed on globalThis so Next.js hot-reload in
 // dev doesn't leak a new pool on every recompile.
-const globalForDb = globalThis as unknown as { sjcosPool?: Pool };
+const globalForDb = globalThis as unknown as { sjcosPool?: PgPool };
 
-export const pool: Pool =
-  globalForDb.sjcosPool ??
+export const pool: PgPool =
+  (!isNodeTest() ? globalForDb.sjcosPool : undefined) ??
   new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString,
     max: 10,
     idleTimeoutMillis: 30_000,
   });

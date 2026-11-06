@@ -1,5 +1,9 @@
 "use client";
 
+import { pollLiveChanges } from "@/lib/actions/live";
+import { isBackgroundFailure } from "@/lib/background-result";
+import { backgroundAuthLost, noteBackgroundFailure } from "@/components/shell/backgroundAuth";
+
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useTransition, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
@@ -120,7 +124,14 @@ export function UnsortedClient({
   const anyReading = open.some(readingNow);
   useEffect(() => {
     if (!anyReading) return;
-    const t = setInterval(() => router.refresh(), 4000);
+    const t = setInterval(async () => {
+      if (backgroundAuthLost()) return;
+      try {
+        const result = await pollLiveChanges(null);
+        if (isBackgroundFailure(result)) { noteBackgroundFailure(result); return; }
+        if (!backgroundAuthLost()) router.refresh();
+      } catch { /* Try the next interval after a network failure. */ }
+    }, 4000);
     return () => clearInterval(t);
   }, [anyReading, router]);
 

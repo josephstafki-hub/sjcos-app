@@ -24,7 +24,7 @@ import { readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
 import { CAPABILITIES, CAPABILITY_STATES, ensureCapabilities, setCapabilityState } from "../lib/measure/capabilities.ts";
 import { deriveCapabilities } from "../lib/measure/capability-checks.ts";
 

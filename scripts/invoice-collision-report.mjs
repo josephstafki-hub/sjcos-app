@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {testDatabaseUrl} from '../lib/test-db-guard.mjs';
 // Read-only invoice collision report (A07a).
 //
 //   DATABASE_URL=postgresql://… node scripts/invoice-collision-report.mjs
@@ -10,10 +11,11 @@
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
 import { invoiceCollisionReport } from "../lib/billing/core.ts";
 
 function databaseUrl() {
+  const testUrl=testDatabaseUrl();if(testUrl)return testUrl;
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
   const envFile = process.env.SJCOS_ENV ?? path.join(process.cwd(), ".env.local");
   const m = readFileSync(envFile, "utf8").match(/^DATABASE_URL=(.*)$/m);

@@ -40,7 +40,8 @@ after(async()=>{(await import('../lib/providers/apns.ts')).closeApnsSessions();a
 beforeEach(async()=>{
   process.env.SJC_OUTBOUND_DISABLED='1';providers.resetFakeOutbox();globalThis.phoneTelegramCalls=[];
   await f.run(`UPDATE users SET role='owner',active=true WHERE id=$1`,[f.owner.id]);
-  await f.run(`TRUNCATE work_items,decisions,owner_push_messages RESTART IDENTITY CASCADE`);
+  await f.run(`TRUNCATE push_actions,push_device_deliveries,owner_push_messages,push_outbox,telegram_updates,telegram_reply_targets RESTART IDENTITY CASCADE`);
+  await f.run(`DELETE FROM work_items`);await f.run(`DELETE FROM decisions`);
   globalThis.r7Session=f.bearer;
 });
 const sends=()=>providers.fakeOutbox.filter(x=>x.provider==='email');

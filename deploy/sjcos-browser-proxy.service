@@ -1,0 +1,45 @@
+# REVIEW SPEC ONLY. A pinned dispatcher/parser shim is a release prerequisite.
+[Unit]
+Description=SJC OS request-aware browser gate
+Requires=sjcos-browser-supervisor.service
+After=sjcos-browser-supervisor.service
+ConditionPathExists=/etc/sjcos-browser/runtime-attested.json
+ConditionPathExists=/etc/sjcos-browser/activation-approved
+
+[Service]
+Type=simple
+User=sjcos-browser-gate
+Group=sjcos-browser-gate
+Slice=user-@JOE_UID@-sjcosbrowser.slice
+NetworkNamespacePath=/run/netns/sjcos-browser-gate
+ExecStartPre=+/usr/local/libexec/sjcos-browser-latch check
+ExecStartPre=/usr/local/libexec/sjcos-browser-attest gate
+# Not stock mitmdump: mandatory fail-closed dispatcher and preallocation ledger.
+ExecStart=/opt/sjcos-browser/bin/sjc-mitmdump --options /etc/sjcos-browser/gate-options.conf
+ExecStopPost=+/usr/local/libexec/sjcos-browser-latch record
+Restart=no
+MemoryMax=384M
+MemorySwapMax=0
+CPUQuota=35%
+TasksMax=32
+Nice=15
+OOMPolicy=stop
+KillMode=control-group
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+LimitCORE=0
+RuntimeDirectory=sjcos-browser-gate
+RuntimeDirectoryMode=0700
+ReadWritePaths=/run/sjcos-browser-gate
+LoadCredential=gate-ca:/etc/sjcos-browser/credentials/gate-ca
+LoadCredential=gate-rpc:/etc/sjcos-browser/credentials/gate-rpc
+# Content-free event RPC only: no default pretty-printer, trace or error body.
+StandardOutput=null
+StandardError=null

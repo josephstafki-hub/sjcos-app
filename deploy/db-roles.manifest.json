@@ -55,7 +55,8 @@
       ],
       "sjcos_readonly": [
         "SELECT"
-      ]
+      ],
+      "note": "Phase 0 0105 FORCE RLS scopes automatic Ask copies to the source person; narrow session identities see background/business rows only. Website-only tombstone scrubbing adds no narrow grants."
     },
     "agent_instruction_versions": {
       "sjcos_agent": [
@@ -83,7 +84,8 @@
       ],
       "sjcos_readonly": [
         "SELECT"
-      ]
+      ],
+      "note": "Worker UPDATE intentionally withheld: private Ask recovery/purge is website-only; imported journal code does not grant worker execution."
     },
     "agent_memories": {
       "sjcos_agent": [
@@ -121,7 +123,8 @@
       ],
       "sjcos_readonly": [
         "SELECT"
-      ]
+      ],
+      "note": "Phase 0 0105 FORCE RLS scopes automatic Ask copies to the source person; narrow session identities see background/business rows only. Website-only tombstone scrubbing adds no narrow grants."
     },
     "agent_receipts": {
       "sjcos_agent": [
@@ -212,7 +215,8 @@
       ],
       "sjcos_readonly": [
         "SELECT"
-      ]
+      ],
+      "note": "Worker DELETE intentionally withheld: private Ask retention purge is website-only; INSERT/UPDATE background grants do not authorize private chat maintenance."
     },
     "app_change_log": {
       "sjcos_agent": [
@@ -1652,7 +1656,8 @@
       ],
       "sjcos_readonly": [
         "SELECT"
-      ]
+      ],
+      "note": "Phase 0 0105 FORCE RLS scopes automatic Ask copies to the source person; narrow session identities see background/business rows only. Website-only tombstone scrubbing adds no narrow grants."
     },
     "orchestration_tasks": {
       "sjcos_agent": [
@@ -1663,7 +1668,8 @@
       ],
       "sjcos_readonly": [
         "SELECT"
-      ]
+      ],
+      "note": "Phase 0 0105 FORCE RLS scopes automatic Ask copies to the source person; narrow session identities see background/business rows only. Website-only tombstone scrubbing adds no narrow grants."
     },
     "overhead_subscriptions": {
       "sjcos_agent": [
@@ -1690,7 +1696,8 @@
       ],
       "sjcos_readonly": [
         "SELECT"
-      ]
+      ],
+      "note": "0105 FORCE RLS: narrow roles can access shared business rows only; private conversation-linked derivatives require website bridge with verified live person/run and journal fence."
     },
     "owner_labor_rates": {
       "sjcos_agent": [
@@ -1716,7 +1723,8 @@
       ],
       "sjcos_readonly": [
         "SELECT"
-      ]
+      ],
+      "note": "0105 FORCE RLS: narrow roles can access shared business rows only; private conversation-linked derivatives require website bridge with verified live person/run and journal fence."
     },
     "owner_touches": {
       "sjcos_agent": [
@@ -2180,7 +2188,8 @@
       ],
       "sjcos_readonly": [
         "SELECT"
-      ]
+      ],
+      "note": "Private Ask reply-derived cards are irreversibly sanitized by 0105 guard_ask_push_copy on every write and erase_ask_reply_copies on upgrade/replay. Existing business writers/privileges unchanged."
     },
     "qbo_connection": {
       "note": "QuickBooks OAuth connection; QBO sync runs inside the website (cron route)"
@@ -2297,7 +2306,8 @@
       ],
       "sjcos_readonly": [
         "SELECT"
-      ]
+      ],
+      "note": "Phase 0 0105 FORCE RLS scopes automatic Ask copies to the source person; narrow session identities see background/business rows only. Website-only tombstone scrubbing adds no narrow grants."
     },
     "run_steers": {
       "sjcos_agent": [
@@ -3050,7 +3060,92 @@
         "SELECT"
       ]
     },
+    "web_sessions": {
+      "note": "0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."
+    },
+    "browser_tasks": {
+      "note": "0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."
+    },
+    "browser_task_runs": {
+      "note": "0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."
+    },
+    "browser_commands": {
+      "note": "0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."
+    },
+    "browser_viewers": {
+      "note": "0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."
+    },
+    "browser_web_commands": {
+      "note": "0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."
+    },
+    "browser_maintenance_jobs": {
+      "note": "0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."
+    },
+    "browser_read_manifests": {
+      "note": "0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."
+    },
+    "browser_read_uses": {
+      "note": "0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."
+    },
+    "browser_owner_views": {
+      "note": "0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."
+    },
+    "browser_audit": {
+      "note": "0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."
+    },
+    "browser_audit_heads": {
+      "note": "0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."
+    },
+    "browser_audit_checkpoints": {
+      "note": "0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."
+    },
+    "ask_canvas_maintenance": {
+      "note": "0105 private recovery epoch/lease/checkpoint; website only. No narrow grants. Backup via pg_read_all_data."
+    },
+    "private_ask_push_sources": {
+      "note": "0105 website-only opaque private-reply decision/work/grant associations retained across tombstone/purge; only ask_push_is_private returns a boolean to existing push writers. No narrow table grants. Backup via pg_read_all_data."
+    },
+    "ask_canvases": {
+      "note": "Private Ask data; all reads/writes via authenticated canvas app adapter; no narrow-role raw access."
+    },
+    "ask_canvas_versions": {
+      "note": "Private Ask data; all reads/writes via authenticated canvas app adapter; no narrow-role raw access."
+    },
+    "ask_canvas_requests": {
+      "note": "Private Ask data; all reads/writes via authenticated canvas app adapter; no narrow-role raw access."
+    },
+    "ask_canvas_events": {
+      "note": "Private Ask data; all reads/writes via authenticated canvas app adapter; no narrow-role raw access."
+    },
+    "ask_canvas_usage": {
+      "note": "Private Ask data; all reads/writes via authenticated canvas app adapter; no narrow-role raw access."
+    },
+    "ask_canvas_rate_windows": {
+      "note": "Private Ask data; all reads/writes via authenticated canvas app adapter; no narrow-role raw access."
+    },
+    "ask_context_provenance": {
+      "note": "Private Ask provenance; website-only. No raw narrow-role grants."
+    },
+    "ask_context_inputs": {
+      "note": "Private Ask provenance; website-only. No raw narrow-role grants."
+    },
+    "ask_canvas_derivatives": {
+      "note": "0108 private immutable canvas derivative/save policy records; website adapter only. No narrow grants."
+    },
+    "ask_canvas_file_saves": {
+      "note": "0108 private immutable canvas derivative/save policy records; website adapter only. No narrow grants."
+    },
+    "ask_canvas_derivative_usage": {
+      "note": "0108 private immutable canvas derivative/save policy records; website adapter only. No narrow grants."
+    },
+    "ask_canvas_file_requests": {
+      "note": "0108 private actor-bound Save replay identities; website only. No narrow grants."
+    },
+    "ask_canvas_attempts": {
+      "note": "0106 source-free latest refusal per admitted run; website-only commands/terminal trigger. No narrow grants."
+    },
     "owner_push_messages": {
+      "note": "0112: private Ask associations are irreversibly status-only, including historical rows and descendants; source registry remains website-only.",
       "sjcos_agent": [
         "SELECT",
         "INSERT",
@@ -3090,6 +3185,7 @@
     "approved_work_item_drafts": {
       "note": "Frozen approval evidence; worker reads for dispatch recovery but narrow logins may neither create nor alter a snapshot.",
       "sjcos_worker": ["SELECT"]
+
     }
   }
 }

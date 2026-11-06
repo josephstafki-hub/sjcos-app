@@ -5,7 +5,8 @@ import { useTodayQueue } from "./TodayQueueContext";
 
 /** A compact index; the complete, grouped list remains in the main column. */
 export function TodayWaitingSummary() {
-  const { waiting } = useTodayQueue();
+  const { waiting, signedOut } = useTodayQueue();
+  if (signedOut) return null;
   const items = waiting.filter(item => !item.waitingOnSub);
   return (
     <Card className="p-4">

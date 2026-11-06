@@ -10,12 +10,15 @@ import {
   promoteTodayItem,
   sendBackTodayItem,
 } from "@/lib/actions/today";
+import { isBackgroundFailure } from "@/lib/background-result";
+import { backgroundAuthLost, noteBackgroundFailure, subscribeBackgroundAuth } from "@/components/shell/backgroundAuth";
 import { toast } from "@/components/ui/Toast";
 import type { AssignedTo, TodayPriority, WaitingItem } from "@/lib/today";
 
 export type { WaitingItem };
 
 interface QueueState {
+  signedOut: boolean;
   priorities: TodayPriority[];
   setPriorities: React.Dispatch<React.SetStateAction<TodayPriority[]>>;
   waiting: WaitingItem[];
@@ -78,9 +81,12 @@ export function TodayQueueProvider({
 }) {
   const [priorities, setPriorities] = useState(initialPriorities);
   const [waiting, setWaiting] = useState(initialWaiting.items);
+  const [signedOut, setSignedOut] = useState(false);
   const [checkingId, setCheckingId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const lastRefresh = useRef(0);
+  const stopped = useRef(false);
+  useEffect(() => subscribeBackgroundAuth(() => { stopped.current = true; setSignedOut(true); setPriorities([]); setWaiting([]); }), []);
 
   const applySnapshot = (snap: { priorities: TodayPriority[]; waiting: { items: WaitingItem[] } }) => {
     setPriorities(snap.priorities);
@@ -112,8 +118,16 @@ export function TodayQueueProvider({
   };
 
   const refresh = async () => {
-    const snap = await refreshTodayQueue();
-    applySnapshot(snap);
+    if (stopped.current || backgroundAuthLost()) return;
+    try {
+      const snap = await refreshTodayQueue();
+      if (isBackgroundFailure(snap)) {
+        stopped.current = true; setPriorities([]); setWaiting([]);
+        if (snap.code === "SIGN_IN_AGAIN") setSignedOut(true);
+        noteBackgroundFailure(snap); return;
+      }
+      if (!stopped.current && !backgroundAuthLost()) applySnapshot(snap);
+    } catch { /* Network failure: keep the last successful queue. */ }
   };
 
   const complete = async (id: string) => {
@@ -179,8 +193,9 @@ export function TodayQueueProvider({
   const [prevInitial, setPrevInitial] = useState({ initialPriorities, initialWaiting });
   if (prevInitial.initialPriorities !== initialPriorities || prevInitial.initialWaiting !== initialWaiting) {
     setPrevInitial({ initialPriorities, initialWaiting });
-    setPriorities(initialPriorities);
-    setWaiting(initialWaiting.items);
+    if (!stopped.current && !backgroundAuthLost()) {
+      setPriorities(initialPriorities); setWaiting(initialWaiting.items);
+    }
   }
 
   // Refresh when the tab regains focus (Hermes may have worked items on the
@@ -198,6 +213,7 @@ export function TodayQueueProvider({
   return (
     <QueueContext.Provider
       value={{
+        signedOut,
         priorities,
         setPriorities,
         waiting,

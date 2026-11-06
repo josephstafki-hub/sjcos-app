@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+import {trackingAvailable} from '../lib/ask-context-inputs.mjs';
+import {createCanvasFileCall} from './canvas-file-call.mjs';
+import {registerCanvasTools,createCanvasCall} from './canvas-tools.mjs';
+import {registerAskInputTools} from './ask-input-tools.mjs';
+import {createContextAdapter,createContextForwarder,trackedInteractions} from '../lib/ask-context-inputs.mjs';
+import {CLASSIFICATION_REGISTRY,assertEveryToolClassified} from '../lib/canvas-classification.mjs';
+import {createPrivateBridgeContext} from '../lib/ask-private-transport.mjs';
 import { COMPLIANCE_SOURCE, CENTRAL_TODAY } from "../lib/compliance-source.mjs";
 // SJC OS — MCP server (AI-agnostic).
 //
@@ -54,7 +61,8 @@ import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer as createHttpServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
+import { assertTestDatabaseUrl, isNodeTest } from "../lib/test-db-guard.mjs";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -81,6 +89,7 @@ import { registerChatgptTools } from "./chatgpt-tools.mjs";
 import { registerGrantTools } from "./grants-tools.mjs";
 import { registerCommsTools } from "./comms-tools.mjs";
 import { registerRunbookTools } from "./runbook-tools.mjs";
+import { createInteractionAdapter } from "../lib/ask-thread-journal-transport.mjs";
 import { registerAskOwner } from "./interact-tools.mjs";
 import { prepareEmailWorkItem } from "../lib/obligations/email.ts";
 import { registerObligationTools } from "./obligation-tools.mjs";
@@ -116,7 +125,11 @@ function databaseUrl() {
   return databaseUrlFor(DB_LOGIN, { envFile: path.join(__dirname, "..", ".env.local") });
 }
 
-const pool = new pg.Pool({ connectionString: databaseUrl(), max: 4 });
+const connectionString = isNodeTest()
+  ? (process.env.SJC_TEST_DATABASE_URL ?? process.env["DATABASE_URL" + (mcpLogin() === "owner" ? "" : "_AGENT")] ?? process.env.DATABASE_URL)
+  : databaseUrl();
+assertTestDatabaseUrl(connectionString);
+const pool = new pg.Pool({ connectionString, max: 4 });
 
 /** Read a key from env or .env.local (same fallback as databaseUrl). */
 function envValue(key) {
@@ -278,8 +291,8 @@ async function biddingCall(action, payload = {}) {
  * Gmail message, stores the email + attachments as files, and logs the cost.
  * Internal records only; nothing is sent.
  */
-async function filingCall(action, payload = {}) {
-  return internalCall("filing", action, payload, "Is the sjcos service running?");
+async function filingCall(action, payload = {}, context = null) {
+  return internalCall("filing", action, {...payload,context}, "Is the sjcos service running?");
 }
 
 /**
@@ -287,7 +300,7 @@ async function filingCall(action, payload = {}) {
  * PERFORM a granted send. The route spends the grant atomically for the exact
  * action + target before anything transmits (lib/agent-sends.ts).
  */
-async function grantsCall(action, payload = {}) {
+async function grantsCall(action, payload = {}, context = null) {
   // A22 gate: a PERSON behind the agent must be allowed to release this send.
   //   no person   → unchanged: the owner grant alone decides (claude.ai /
   //                 Hermes / plain stdio clients, where Joe minted the grant)
@@ -304,7 +317,7 @@ async function grantsCall(action, payload = {}) {
       if (!gate.ok) return { ok: false, error: gate.reason };
     }
   }
-  return internalCall("owner-grants", action, payload, "Is the sjcos service running?");
+  return internalCall("owner-grants", action, {...payload,context}, "Is the sjcos service running?");
 }
 
 /** principalMaySpendGrant (lib/authority/mcp-gate.ts) over our pool. Loaded
@@ -432,25 +445,49 @@ export const SERVER_INSTRUCTIONS = [
   "Write money as \"$\" amounts through the tools; pass long text through mcp/call-tool.mjs stdin, never as a double-quoted shell argument.",
 ].join("\n\n");
 
-function buildServer() {
+export function buildServer({transportKind}) {
+const privateContext=createPrivateBridgeContext({transportKind,httpActive:()=>!!principalStore.getStore()});
+const boundFilingCall=(action,payload)=>filingCall(action,payload,privateContext());
+const boundGrantsCall=(action,payload)=>grantsCall(action,payload,privateContext());
+const forward=createContextForwarder(envValue);
+const contextAdapter=createContextAdapter({trackingAvailable:()=>trackingAvailable(pool),transportKind,httpActive:()=>!!principalStore.getStore(),internalCall:forward});
+const baseInteractionAdapter=createInteractionAdapter({transportKind,config:envValue,httpActive:()=>!!principalStore.getStore()});
+const interactionAdapter=trackedInteractions(baseInteractionAdapter,contextAdapter);
+const canvasFileCall=createCanvasFileCall({transportKind,env:process.env,httpActive:()=>!!principalStore.getStore(),internalCall:forward});
+const canvasCall=createCanvasCall({transportKind,env:process.env,httpActive:()=>!!principalStore.getStore(),internalCall:forward});
+const registeredNames=[];
 const server = new McpServer({ name: "sjcos", version: "1.0.0" }, { instructions: SERVER_INSTRUCTIONS });
 
 // A refusal from the narrow database login (deploy/db-roles.md) comes back as
 // a plain answer the agent can act on, not a crash. Every register*Tools
 // module below registers through this same server object.
 const registerToolRaw = server.registerTool.bind(server);
-server.registerTool = (name, spec, handler) =>
-  registerToolRaw(name, spec, async (...args) => {
+server.registerTool = (name, spec, handler) => {
+  registeredNames.push(name);
+  return registerToolRaw(name, spec, async (...args) => {
+    // Panel stdio MUST ingest before work and before result delivery. External
+    // business tools retain their authority paths, never establish provenance.
+    const tracked=await contextAdapter.enabled();
+    let pending;
     try {
-      return await handler(...args);
-    } catch (e) {
-      if (e?.code !== "42501") throw e;
-      return {
-        isError: true,
-        content: [{ type: "text", text: `${e.message}. This connection's database login may not make that change — it is Joe's to do in the app or from his own Ask window. Stage it for him instead (stage_decision, request_owner_permission or ask_owner).` }],
-      };
+      if(tracked){
+        pending=await contextAdapter.begin('tool',name);
+        // Canvas command consumes its own context before entry; its result is
+        // bookkeeping only and cannot introduce source bytes on mutations.
+        if(['show_canvas','update_canvas','list_canvases'].includes(name))await contextAdapter.complete(pending,{input:args[0]});
+      }
+      let result;
+      try { result=await handler(...args); }
+      catch(e){
+        result={isError:true,content:[{type:'text',text:JSON.stringify({ok:false,code:e?.code==='42501'?'AUTH_REQUIRED':'TOOL_FAILED'})}]};
+      }
+      if(tracked&&!['show_canvas','update_canvas','list_canvases'].includes(name))await contextAdapter.complete(pending,result);
+      return result;
+    } catch {
+      return {isError:true,content:[{type:'text',text:JSON.stringify({ok:false,code:'CONTEXT_PROVENANCE_INCOMPLETE'})}]};
     }
   });
+};
 
 server.registerTool(
   "business_snapshot",
@@ -2936,14 +2973,14 @@ server.registerTool(
   // Bidding lives in its own module too: stage, record + award. Sending a package is
   // real email, so it is NOT here — it's a granted send (below).
   registerBiddingTools(server, {
-    rows, json, biddingCall, envValue, strippedDollarError,
+    rows, json, biddingCall, envValue, strippedDollarError, canvasFileCall,
     uploadDir: path.join(__dirname, "..", "uploads"),
   });
 
   // Owner-granted sends + the request/check/list tools around them. These are
   // the only tools that can reach a real inbox, and each one needs an owner
   // grant id for its exact target. See mcp/grants-tools.mjs.
-  registerGrantTools(server, { json, grantsCall, rows });
+  registerGrantTools(server, { json, grantsCall:boundGrantsCall, rows });
 
   // SMS threads + phone calls, READ ONLY here (texting and dialing are the
   // granted send_sms / place_call tools above). See mcp/comms-tools.mjs.
@@ -2975,7 +3012,7 @@ server.registerTool(
   // (Hermes, claude.ai, the Claude runner) gets interactive questions. Rows in
   // agent_interactions; the panel's run poll renders + answers them. See
   // mcp/interact-tools.mjs.
-  registerAskOwner(server, { pool, json });
+  registerAskOwner(server, { pool, json, interactionAdapter });
 
   // Employee / portal login accounts — the agent-side twin of Settings › Team
   // & roles: list, create (staff areas / sub + client portal links), edit
@@ -2993,14 +3030,14 @@ server.registerTool(
 
   // Emailed invoices / receipts / rebates: file the sure ones to a job (or
   // overhead), stage the rest in Joe's Unsorted tray. See mcp/filing-tools.mjs.
-  registerFilingTools(server, { json, filingCall, strippedDollarError });
+  registerFilingTools(server, { json, filingCall:boundFilingCall, strippedDollarError });
 
   // Binary files (PDF plan sets, photos, xlsx/docx/csv) into a project's
   // Files: create → signed PUT or base64 parts → commit (size + sha256
   // checked), plus delete/restore through a 30-day trash. No cost, no
   // Unsorted, never client-visible. See mcp/upload-tools.mjs.
   registerUploadTools(server, {
-    rows, json, pool, envValue, currentPrincipal,
+    rows, json, pool, envValue, currentPrincipal, canvasFileCall,
     uploadDir: path.join(__dirname, "..", "uploads"),
   });
 
@@ -3013,6 +3050,9 @@ server.registerTool(
     appUrl: envValue("NEXT_PUBLIC_APP_URL") || "https://os.sjcarpentryllc.com",
   });
 
+  registerAskInputTools(server,{json,contextAdapter,transportKind,httpActive:()=>!!principalStore.getStore()});
+  registerCanvasTools(server,{json,canvasCall});
+  assertEveryToolClassified(registeredNames,CLASSIFICATION_REGISTRY);
   return server;
 }
 
@@ -3059,14 +3099,16 @@ async function scopedSectionId(projectId, sectionId) {
 // systemd unit sets this, via its own `Environment=MCP_HTTP_PORT=...` line.
 const httpPort = Number(process.env.MCP_HTTP_PORT || 0);
 
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
 if (!Number.isFinite(httpPort) || httpPort <= 0) {
   // Default: a single server over stdio.
-  const server = buildServer();
+  const server = buildServer({transportKind:'stdio'});
   await server.connect(new StdioServerTransport());
   // stdio servers stay alive on the transport; nothing to log to stdout (it's the
   // JSON-RPC channel). Errors go to stderr.
 } else {
   startHttpServer(httpPort);
+}
 }
 
 /**
@@ -3177,7 +3219,7 @@ function startHttpServer(port) {
           transport.onclose = () => {
             if (transport.sessionId) delete transports[transport.sessionId];
           };
-          const server = buildServer();
+          const server = buildServer({transportKind:'http'});
           await server.connect(transport);
         } else if (!transport) {
           // Spec: a request carrying a session id the server no longer knows

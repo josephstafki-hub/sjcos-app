@@ -41,7 +41,7 @@
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
 import { assembleBudgetView } from "../lib/budget-assemble.ts";
 import { EGAN_AS_OF, EGAN_RAW } from "../lib/budget-fixtures.ts";
 import { findProjects, loadRawProjectMoney, todayCentral } from "../lib/budget-queries.ts";

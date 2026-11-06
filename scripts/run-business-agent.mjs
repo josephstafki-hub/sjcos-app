@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {testDatabaseUrl} from '../lib/test-db-guard.mjs';
 // Background operating-agent worker (A24). Run by the sjcos-agent-worker
 // systemd user timer every 3 minutes with --once, or by hand.
 //
@@ -30,7 +31,7 @@
 
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
 import { runWorkerOnce, processTrigger, WORKER_NAME } from "../lib/agent-runtime/worker.ts";
 import { getAgentTrigger, listPendingTriggers, sweepStrandedTriggers } from "../lib/agent-runtime/triggers.ts";
 import { enqueueMissingFinancials } from "../lib/workflow/financials-fill.ts";
@@ -51,6 +52,7 @@ const has = (name) => process.argv.includes(name);
 // explicit DATABASE_URL (harness / evals), else .env.local — see lib/db-login.mjs.
 // The same URL goes to the MCP server each run spawns.
 function databaseUrl() {
+  const testUrl=testDatabaseUrl();if(testUrl)return testUrl;
   return databaseUrlFor("agent", { envFile: path.join(REPO, ".env.local") });
 }
 

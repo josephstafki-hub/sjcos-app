@@ -117,7 +117,7 @@ export function registerMoodTools(server, { rows, json, uploadDir }) {
                   m.pos_x, m.pos_y, m.pos_w, m.pos_h, m.pos_rot, m.sort_order,
                   f.name AS file_name, f.subtitle AS source
              FROM project_mood m
-             LEFT JOIN files f ON f.id = m.image_file_id
+             LEFT JOIN files f ON to_jsonb(f)->>'security_profile' IS NULL AND f.id = m.image_file_id
             WHERE m.project_id=$1 ORDER BY m.room, m.sort_order, m.id`,
           [pid],
         );
@@ -375,7 +375,7 @@ export function registerMoodTools(server, { rows, json, uploadDir }) {
         const pid = await projectId(project_slug);
         const all = await rows(
           `SELECT m.id, m.room, m.kind, m.pos_w, f.storage_path, f.tag
-             FROM project_mood m LEFT JOIN files f ON f.id=m.image_file_id
+             FROM project_mood m LEFT JOIN files f ON to_jsonb(f)->>'security_profile' IS NULL AND f.id=m.image_file_id
             WHERE m.project_id=$1 ${room ? "AND m.room=$2" : ""}
             ORDER BY m.room, m.sort_order, m.id`,
           room ? [pid, cleanRoom(room)] : [pid],

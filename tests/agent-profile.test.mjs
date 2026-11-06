@@ -1,3 +1,4 @@
+import {startCluster} from './_harness/testdb.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -30,7 +31,7 @@ test("profileFor: staff and unattended runs are business; only an active owner g
   assert.equal(profileFor({ role: "client", active: true }, "operator"), "business");
 });
 
-test("business profile args: --restricted, disallowed tools, docs-only --add-dir, scratch cwd, finite limits", () => {
+test("business profile args: --restricted, disallowed tools, server-side readers, no --add-dir, scratch cwd, finite limits", () => {
   const p = profileArgs("business", { repo: REPO, scratchDir: "/tmp/sjcos-agent-x", maxBudgetUsd: 2.5 });
   assert.ok(p.args.includes("--restricted"));
   const i = p.args.indexOf("--disallowedTools");
@@ -39,8 +40,9 @@ test("business profile args: --restricted, disallowed tools, docs-only --add-dir
   for (const t of ["Bash", "Write", "Edit", "MultiEdit", "NotebookEdit", "WebFetch"]) assert.ok(disallowed.includes(t), `${t} disallowed`);
   assert.deepEqual(disallowed, [...BUSINESS_DISALLOWED_TOOLS]);
   assert.equal(argsGrantRepoAccess(p.args, REPO), false, "no repo-wide --add-dir");
-  const d = p.args.indexOf("--add-dir");
-  assert.equal(p.args[d + 1], `${REPO}/${BUSINESS_DOCS_DIR}`);
+  assert.equal(p.args.includes("--add-dir"),false);
+  assert.equal(p.args[p.args.indexOf("--tools")+1],"ToolSearch");
+  for(const t of ["Read","Glob","Grep","NotebookRead"])assert.ok(disallowed.includes(t));
   assert.equal(p.cwd, "/tmp/sjcos-agent-x");
   assert.equal(p.maxTurns, 60);
   assert.equal(p.timeoutMs, 20 * 60 * 1000);
@@ -56,7 +58,7 @@ test("operator profile keeps the repo and no caps; business self-check refuses a
   assert.equal(o.timeoutMs, null);
   assert.throws(() => assertBusinessArgs([...profileArgs("business", { repo: REPO, scratchDir: "/tmp/x" }).args, "--add-dir", REPO], REPO), /repo --add-dir/);
   assert.throws(() => assertBusinessArgs(["--disallowedTools", "Bash Write Edit"], REPO), /--restricted/);
-  assert.throws(() => assertBusinessArgs(["--restricted", "--disallowedTools", "Bash Write"], REPO), /Edit not disallowed/);
+  assert.throws(() => assertBusinessArgs(["--restricted", "--disallowedTools", "Bash Write"], REPO), /Read not disallowed/);
 });
 
 test("business runs cannot run bypassPermissions / auto / dontAsk; owner modes pass through", () => {
@@ -108,4 +110,58 @@ test("authority catalog: DECISIONS.md kinds present, 'grant' never delegable, ga
   assert.equal(authorityForGatedAction("send_invoice"), "proposal");
   assert.equal(authorityForGatedAction("send_email"), null, "one-off email is not delegable through an agent");
   assert.equal(authorityForGatedAction("made_up"), null);
+});
+
+test('unattended runtime stamps background identity after extraEnv, never person/panel tags', async () => {
+  const {businessMcpConfig}=await import('../lib/agent-runtime/claude-runner.mjs');
+  const env=businessMcpConfig({repo:REPO,databaseUrl:'test',extraEnv:{SJC_RUN_PROFILE:'operator',SJC_LAUNCH_SOURCE:'panel_web',SJC_PRINCIPAL_USER_ID:'owner',SJC_CONVERSATION_ID:'private'}}).mcpServers.sjcos.env;
+  assert.equal(env.SJC_RUN_PROFILE,'business'); assert.equal(env.SJC_LAUNCH_SOURCE,'background');
+  assert.equal(env.SJC_PRINCIPAL_USER_ID,''); assert.equal(env.SJC_CONVERSATION_ID,'');
+});
+
+test('0105 never promotes unattended or Telegram identity through a requested profile', async()=>{
+ const {browserEligible}=await import('../lib/authority/run-profile.mjs');
+ for(const source of ['background','telegram','legacy','panel_mobile','panel_voice'])assert.equal(browserEligible({user:{role:'owner',active:true},launchSource:source,withMcp:true}),false);
+ assert.equal(browserEligible({user:{role:'owner',active:true},launchSource:'panel_web',withMcp:false}),false);
+ assert.equal(profileFor({role:'staff',active:true},'operator'),'business');
+});
+
+test('tracked business rejects every native reader, hooks and extra filesystem roots before spawn',async()=>{
+ const {assertTrackedBusinessArgs}=await import('../lib/authority/run-profile.mjs');
+ const args=[...profileArgs('business',{repo:REPO,scratchDir:'/tmp/scratch'}).args,'--strict-mcp-config'];
+ assert.doesNotThrow(()=>assertTrackedBusinessArgs(args,REPO));
+ for(const name of ['Read','Glob','Grep','NotebookRead','Bash','Write','Edit']){
+  const unsafe=args.map(v=>v===BUSINESS_DISALLOWED_TOOLS.join(' ')?v.split(' ').filter(t=>t!==name).join(' '):v);
+  assert.throws(()=>assertTrackedBusinessArgs(unsafe,REPO),new RegExp(name+' not disallowed'));
+ }
+ for(const flag of ['--strict-mcp-config','--disable-slash-commands','--safe-mode'])assert.throws(()=>assertTrackedBusinessArgs(args.filter(v=>v!==flag),REPO));
+ assert.throws(()=>assertTrackedBusinessArgs([...args,'--add-dir','/tmp/docs'],REPO));
+ assert.throws(()=>assertTrackedBusinessArgs([...args,'--plugin-dir','/tmp/evil'],REPO));
+});
+
+test('real unattended runner constructs a reader-free argv for a fake CLI, including web exception',async()=>{
+ const {mkdtemp,writeFile,rm}=await import('node:fs/promises');const {tmpdir}=await import('node:os');const path=await import('node:path');
+ const {runClaudeBusiness}=await import('../lib/agent-runtime/claude-runner.mjs');
+ const dir=await mkdtemp(path.join(tmpdir(),'c1prov-cli-'));
+ try{
+  const fake=path.join(dir,'fake-cli');
+  await writeFile(fake,'#!/usr/bin/env node\nconsole.log(JSON.stringify({type:"result",result:JSON.stringify(process.argv.slice(2)),session_id:"fake",total_cost_usd:0}));\n',{mode:0o700});
+  for(const webResearch of [false,true]){
+   const r=await runClaudeBusiness({prompt:'instruction',repo:process.cwd(),databaseUrl:'postgresql://invalid/unused',claudeBin:fake,webResearch,timeoutMs:5000});
+   const args=JSON.parse(r.resultText);
+   assert.ok(!args.includes('--add-dir'));assert.equal(args[args.indexOf('--tools')+1],webResearch?'ToolSearch WebSearch WebFetch':'ToolSearch');
+  }
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
+
+test('every actual sjcos registration is classified, including canvas and server readers',async()=>{
+ // Building a server registers schemas only. Dead URL prevents any live DB access.
+ process.env.DATABASE_URL_AGENT=startCluster().url;process.env.SJC_DB_LOGIN='agent';
+ const {buildServer}=await import('../mcp/sjcos-mcp.mjs');
+ const {CLASSIFICATION_REGISTRY,assertEveryToolClassified}=await import('../lib/canvas-classification.mjs');
+ const server=buildServer({transportKind:'http'}),names=Object.keys(server._registeredTools);
+ assertEveryToolClassified(names,CLASSIFICATION_REGISTRY);
+ assert.ok(names.includes('read_chat_attachment'));assert.ok(names.includes('show_canvas'));
+ console.log(`classification registered=${names.length} classified=${names.filter(n=>Object.hasOwn(CLASSIFICATION_REGISTRY.tools,n)).length} registry=${Object.keys(CLASSIFICATION_REGISTRY.tools).length}`);
+ await server.close();
 });

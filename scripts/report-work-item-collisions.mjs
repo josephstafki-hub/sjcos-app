@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {testDatabaseUrl} from '../lib/test-db-guard.mjs';
 // READ-ONLY collision report for the A01 obligation migration. Prints open
 // work items that share a title, or share a stable source id, across
 // different leads/projects — the cases the old title-based inbox merge could
@@ -11,9 +12,10 @@
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
 
 function databaseUrl() {
+  const testUrl=testDatabaseUrl();if(testUrl)return testUrl;
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
   const envFile = process.env.SJCOS_ENV ?? path.join(process.cwd(), ".env.local");
   const env = readFileSync(envFile, "utf8");

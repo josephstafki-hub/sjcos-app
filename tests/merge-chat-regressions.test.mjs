@@ -12,8 +12,10 @@ function actionFor(agent) {
   const forbidden = () => { throw new Error('Unexpected external dependency'); };
   const unused = new Proxy({}, { get: () => forbidden });
   const stubs = {
+    '@/lib/ask-run-admission': { currentAskLaunchSource: async () => "panel_web" },
     '@/lib/dal': { requireAccess: async () => ({ role: 'staff', name: 'Staff' }) },
     '@/lib/db': { queryOne: async () => ({ agent }) },
+    '@/lib/thread-access': { askBoundary: async callback => callback(), queryOne: async () => ({ agent }), threadQueryOne: async () => ({ agent }), requireThreadAccess: async () => {}, threadPrincipal: async () => ({id:'staff',role:'staff'}) },
     '@/lib/panel-context': { loadPanelContext: async refs => { calls.context.push(refs); return 'Explicit job context'; } },
     '@/lib/attachments': { sanitizeAttachments: () => [] },
     '@/lib/orchestrator/proposals': { setEscalateHook() {} },
@@ -56,6 +58,7 @@ test('staff Auto routes through Claude while keeping explicit context and one-me
   assert.equal(calls.runs[0][0], 'Review this job');
   assert.equal(calls.runs[0][1], 'Filed job context\n\nPage context\n\nExplicit job context');
   assert.equal(calls.runs[0][5].allowSends, true);
+  assert.equal(calls.runs[0][5].launchSource, "panel_web");
   assert.equal(calls.messages[0][3].pageContext, calls.runs[0][1]);
   assert.equal(calls.context[0], refs);
 });

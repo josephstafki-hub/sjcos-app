@@ -1,3 +1,4 @@
+import { isAskFailure } from "@/lib/ask-result-codes";
 import { mobileOperatorRead } from "@/lib/mobile-rpc/operator-reads";
 import { uploadChatFilesAction } from "@/lib/actions/ai-chat";
 export const runtime = "nodejs";
@@ -8,6 +9,7 @@ export async function POST(req: Request) {
     try { form = await req.formData(); }
     catch { return Response.json({ error: "Invalid multipart files." }, { status: 400 }); }
     const result = await uploadChatFilesAction(form);
+    if(isAskFailure(result))return result;
     return result.ok ? result : Response.json({ error: result.error }, { status: 400 });
   });
 }

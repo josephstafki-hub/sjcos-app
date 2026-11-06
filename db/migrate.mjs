@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {testDatabaseUrl} from '../lib/test-db-guard.mjs';
 // Ordered, checksummed migration ledger (A00).
 //
 // db/schema.sql + the historical db/apply-*.mjs scripts are the BASELINE that
@@ -23,7 +24,7 @@ import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export const MIGRATIONS_DIR = path.join(__dirname, "migrations");
@@ -39,6 +40,7 @@ export function listMigrationFiles() {
 }
 
 function envDatabaseUrl() {
+  const testUrl=testDatabaseUrl();if(testUrl)return testUrl;
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
   const envFile = process.env.SJCOS_ENV ?? path.join(process.cwd(), ".env.local");
   const env = readFileSync(envFile, "utf8");

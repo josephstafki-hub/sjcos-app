@@ -20,7 +20,7 @@ import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import { hostname } from "node:os";
 import path from "node:path";
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
 import { importApp, loadEnvFile, REPO_ROOT } from "../lib/worker/load-app.mjs";
 import { resolveDatabaseUrl } from "../lib/db-login.mjs";
 import { runOnce, supervise, WORKER_NAME } from "../lib/worker/loop.ts";
@@ -47,7 +47,8 @@ if (args.get("url")) {
 let login;
 try {
   login = resolveDatabaseUrl("worker");
-} catch {
+} catch (e) {
+  if(e.message?.includes("TEST_DATABASE_REQUIRED"))throw e;
   console.error("[worker] DATABASE_URL is not set (pass --url or SJCOS_ENV)");
   process.exit(2);
 }

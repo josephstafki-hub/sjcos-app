@@ -1,6 +1,9 @@
+import { requireRunThreadAccess, requireThreadAccess, threadQuery, threadQueryOne } from "@/lib/thread-access";
+import { withAskJournal } from "@/lib/ask-thread-journal.mjs";
 import "server-only";
 
-import { bumpLiveChange, pool, query, queryOne } from "@/lib/db";
+import { bumpLiveChange, pool } from "@/lib/db";
+const query=threadQuery,queryOne=threadQueryOne;
 import { insertMessage } from "@/lib/ai-chat";
 
 // Steering a live run: while an agent is working, what Joe types into the
@@ -55,6 +58,7 @@ export type EnqueueResult =
  *  and its transcript line commit together, so a runtime that sees the row
  *  can always read the line (Qwen re-reads the thread on restart). */
 export async function enqueueSteer(runId: string, body: string): Promise<EnqueueResult> {
+  await requireRunThreadAccess(runId);
   const text = body.trim();
   if (!text) return { ok: false, error: "Type something to steer with." };
   try {
@@ -84,6 +88,7 @@ export async function enqueueSteer(runId: string, body: string): Promise<Enqueue
 }
 
 async function tryEnqueue(runId: string, text: string): Promise<{ steerId: string; runId: string; messageId: string } | null> {
+  return withAskJournal(pool,async()=>{
   const c = await pool.connect();
   try {
     await c.query("BEGIN");
@@ -120,11 +125,13 @@ async function tryEnqueue(runId: string, text: string): Promise<{ steerId: strin
   } finally {
     c.release();
   }
+  });
 }
 
 /** Claim every pending steer addressed to this run (directly, or relayed to
  *  it from a ladder) as delivered. Oldest first. */
 export async function takePendingSteers(runId: string, via: SteerVia): Promise<SteerRow[]> {
+  await requireRunThreadAccess(runId);
   try {
     const { rows } = await query<{ id: string; body: string; message_id: string | null; created_at: string }>(
       `UPDATE run_steers SET status = 'delivered', via = $2, delivered_at = now()
@@ -142,6 +149,7 @@ export async function takePendingSteers(runId: string, via: SteerVia): Promise<S
 
 /** Cheap "anything waiting?" check for the per-second tickers. */
 export async function hasPendingSteers(runId: string): Promise<boolean> {
+  await requireRunThreadAccess(runId);
   try {
     const r = await queryOne<{ one: number }>(
       `SELECT 1 AS one FROM run_steers WHERE status = 'pending' AND (run_id = $1 OR relay_run_id = $1) LIMIT 1`,
@@ -153,7 +161,8 @@ export async function hasPendingSteers(runId: string): Promise<boolean> {
   }
 }
 
-/** Put claimed steers back (the runtime couldn't take them this tick — e.g.
+/** Runtime-only IDs returned by the owned-run claim; never accepts action/RPC input.
+ * Put claimed steers back (the runtime couldn't take them this tick — e.g.
  *  Hermes' run wasn't accepting steer input yet). */
 export async function releaseSteers(ids: string[]): Promise<void> {
   if (!ids.length) return;
@@ -163,7 +172,8 @@ export async function releaseSteers(ids: string[]): Promise<void> {
   ).catch(() => {});
 }
 
-/** Mark how already-claimed steers were finally delivered. */
+/** Runtime-only claim IDs, never action/RPC input.
+ * Mark how already-claimed steers were finally delivered. */
 export async function markSteersVia(ids: string[], via: SteerVia): Promise<void> {
   if (!ids.length) return;
   await query(`UPDATE run_steers SET via = $2 WHERE id = ANY($1::uuid[])`, [ids, via]).catch(() => {});
@@ -173,6 +183,7 @@ export async function markSteersVia(ids: string[], via: SteerVia): Promise<void>
  *  pending — the caller MUST deliver those (a follow-up turn). Call
  *  reopenSteering() if the same run keeps going to deliver them. */
 export async function closeSteering(runId: string, via: SteerVia = "follow-up"): Promise<SteerRow[]> {
+  await requireRunThreadAccess(runId);
   try {
     await query(`UPDATE dev_agent_runs SET steer_closed_at = now() WHERE id = $1 AND steer_closed_at IS NULL`, [runId]);
   } catch {
@@ -182,6 +193,7 @@ export async function closeSteering(runId: string, via: SteerVia = "follow-up"):
 }
 
 export async function reopenSteering(runId: string): Promise<void> {
+  await requireRunThreadAccess(runId);
   await query(`UPDATE dev_agent_runs SET steer_closed_at = NULL WHERE id = $1`, [runId]).catch(() => {});
 }
 
@@ -189,13 +201,15 @@ export async function reopenSteering(runId: string): Promise<void> {
  *  — only while that run still takes steers, under its row lock, so the
  *  relay can't race the takeover's own close. */
 export async function relaySteers(fromRunId: string, toRunId: string): Promise<number> {
+  await requireRunThreadAccess(fromRunId);await requireRunThreadAccess(toRunId);
+  return withAskJournal(pool,async()=>{
   const c = await pool.connect().catch(() => null);
   if (!c) return 0;
   try {
     await c.query("BEGIN");
     const open = await c.query(
-      `SELECT 1 FROM dev_agent_runs WHERE id = $1 AND status IN ('pending','running') AND steer_closed_at IS NULL FOR UPDATE`,
-      [toRunId],
+      `SELECT 1 FROM dev_agent_runs WHERE id = $1 AND conversation_id=(SELECT conversation_id FROM dev_agent_runs WHERE id=$2) AND status IN ('pending','running') AND steer_closed_at IS NULL FOR UPDATE`,
+      [toRunId,fromRunId],
     );
     if (!open.rows.length) {
       await c.query("ROLLBACK");
@@ -213,12 +227,14 @@ export async function relaySteers(fromRunId: string, toRunId: string): Promise<n
   } finally {
     c.release();
   }
+  });
 }
 
 /** Steer statuses for the panel's "↪ Steer · delivered" chips. */
 export async function steersForRun(runId: string): Promise<SteerStatus[]> {
+  await requireRunThreadAccess(runId);
   try {
-    const { rows } = await query<{ id: string; status: "pending" | "delivered"; via: string | null }>(
+    const { rows } = await threadQuery<{ id: string; status: "pending" | "delivered"; via: string | null }>(
       `SELECT id, status, via FROM run_steers WHERE run_id = $1 ORDER BY created_at`,
       [runId],
     );
@@ -282,6 +298,8 @@ export async function settleSteeredRun(opts: {
    *  must exist when this resolves). */
   followUp: (prompt: string) => Promise<unknown>;
 }): Promise<boolean> {
+  await requireThreadAccess(opts.conversationId);
+  await requireRunThreadAccess(opts.runId);
   const left = await closeSteering(opts.runId);
   const live = await queryOne<{ status: string }>(`SELECT status FROM dev_agent_runs WHERE id = $1`, [opts.runId]);
   if (!live || (live.status !== "pending" && live.status !== "running")) return false;

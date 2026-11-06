@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {testDatabaseUrl} from '../lib/test-db-guard.mjs';
 // Enqueue an operating-agent trigger by hand (A24). Same idempotent path the
 // feature hooks use (lib/agent-runtime/triggers.ts enqueueAgentTrigger).
 //
@@ -13,7 +14,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
 import { enqueueAgentTrigger, TRIGGER_KINDS } from "../lib/agent-runtime/triggers.ts";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -23,6 +24,7 @@ const arg = (n) => {
 };
 
 function databaseUrl() {
+  const testUrl=testDatabaseUrl();if(testUrl)return testUrl;
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
   const env = readFileSync(path.join(REPO, ".env.local"), "utf8");
   const m = env.match(/^DATABASE_URL=(.+)$/m);

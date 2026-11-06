@@ -32,7 +32,7 @@ export async function GET(
     lead_slug: string | null;
   }>(
     `SELECT storage_path, mime_type, name, client_slug, client_visible, project_key, lead_slug
-       FROM files WHERE id = $1`,
+       FROM files WHERE to_jsonb(files)->>'security_profile' IS NULL AND id = $1`,
     [id],
   );
   if (!file?.storage_path) return new Response("Not found", { status: 404 });

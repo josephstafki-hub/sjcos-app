@@ -6,6 +6,9 @@ import { searchJobsAction } from "@/lib/actions/ai-chat";
 import type { JobPick } from "@/lib/thread-folders";
 import type { FolderEntityKind, FolderEntityRef } from "@/lib/thread-rail";
 
+import { askCall, askFailure, ASK_STATUS_COPY } from "./askStatusCopy";
+import type { AskFailureCode } from "@/lib/ask-result-codes";
+
 /**
  * The rail's job picker: a sheet dropping from its anchor row (full rail
  * width) with a search box over
@@ -31,6 +34,8 @@ type Row =
   | { key: string; type: "unlink" };
 
 export function JobPicker({
+  projectOnly = false,
+  inline = false,
   title,
   placeholder = "Search jobs…",
   current = null,
@@ -40,8 +45,14 @@ export function JobPicker({
   onCreate,
   onUnlink,
   onDone,
+  onFailure,
+  search = searchJobsAction,
 }: {
   /** Accessible name only; the placeholder carries the visible context. */
+  projectOnly?: boolean;
+  search?: (query: string) => Promise<JobPick[] | import('@/lib/ask-result-codes').AskResult<{jobs: (Pick<JobPick,'kind'|'slug'|'name'> & Partial<JobPick>)[]}>>;
+  /** In-flow picker inside a scrolling dialog; preserves legacy dropdown mode. */
+  inline?: boolean;
   title?: string;
   placeholder?: string;
   /** The job currently linked (shows a check, excluded from "in use" dimming). */
@@ -53,7 +64,10 @@ export function JobPicker({
   onCreate?: (name: string) => void | Promise<void>;
   onUnlink?: () => void | Promise<void>;
   onDone: () => void;
+  onFailure?: (code: AskFailureCode) => void;
 }) {
+  const [retry, setRetry] = useState(0);
+  const [error, setError] = useState("");
   const [q, setQ] = useState("");
   const [jobs, setJobs] = useState<JobPick[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -71,20 +85,20 @@ export function JobPicker({
     const id = ++seq.current;
     const t = setTimeout(async () => {
       try {
-        const r = await searchJobsAction(q);
-        if (seq.current === id) setJobs(r);
-      } catch {
-        if (seq.current === id) setJobs([]);
+        const r = await askCall(search(q));
+        if (seq.current === id) { setJobs(("jobs" in r ? r.jobs : r).map(j=>({sub:null,current:false,folderId:null,folderName:null,...j}))); setError(""); }
+      } catch (error) {
+        if (seq.current === id) { setJobs([]); const code = askFailure(error)?.code ?? "ASK_PAUSED"; setError(ASK_STATUS_COPY[code]); onFailure?.(code); }
       }
     }, q ? 120 : 0);
-    return () => clearTimeout(t);
-  }, [q]);
+    return () => { ++seq.current; clearTimeout(t); };
+  }, [q, retry, search]);
 
   const term = q.trim();
   const rows: Row[] = [];
   if (allowUnlink && !term) rows.push({ key: "unlink", type: "unlink" });
   const grouped = new Map<FolderEntityKind, JobPick[]>();
-  for (const j of jobs ?? []) grouped.set(j.kind, [...(grouped.get(j.kind) ?? []), j]);
+  for (const j of (jobs ?? []).filter(j=>!projectOnly||j.kind==='project')) grouped.set(j.kind, [...(grouped.get(j.kind) ?? []), j]);
   for (const k of KIND_ORDER) for (const j of grouped.get(k) ?? []) rows.push({ key: `${j.kind}/${j.slug}`, type: "job", job: j });
   const exact = (jobs ?? []).some((j) => j.name.toLowerCase() === term.toLowerCase());
   if (allowCreate && term && !exact) rows.push({ key: "create", type: "create", name: term });
@@ -104,6 +118,8 @@ export function JobPicker({
       if (row.type === "job") await onPick(row.job);
       else if (row.type === "create") await onCreate?.(row.name);
       else await onUnlink?.();
+    } catch (error) {
+      const code = askFailure(error)?.code ?? "ASK_PAUSED"; setError(ASK_STATUS_COPY[code]); onFailure?.(code);
     } finally {
       setBusy(false);
     }
@@ -133,7 +149,7 @@ export function JobPicker({
     <div
       onMouseDown={(e) => e.stopPropagation()}
       onKeyDown={(e) => e.stopPropagation()}
-      className="absolute inset-x-0 top-full z-30 mt-0.5 overflow-hidden rounded-md border border-rule bg-paper shadow-card"
+      className={`${inline?"relative w-full shrink-0":"absolute inset-x-0 top-full z-30 mt-0.5"} overflow-hidden rounded-md border border-rule bg-paper shadow-card`}
       role="dialog"
       aria-label={title ?? "Pick a job"}
     >
@@ -153,18 +169,19 @@ export function JobPicker({
           onKeyDown={onKey}
           placeholder={placeholder}
           aria-label={placeholder}
-          className="min-w-0 flex-1 bg-transparent text-[12px] text-ink placeholder:text-ink-4 focus:outline-none"
+          className={`min-w-0 flex-1 bg-transparent ${inline?"min-h-12 text-[16px]":"text-[12px]"} text-ink placeholder:text-ink-4 focus:outline-none`}
         />
       </div>
 
+      {error && <p role="status" className="px-2 text-body text-ink-2">{projectOnly?"Couldn't load projects.":error} {projectOnly&&<button className="min-h-12 rounded-md border border-rule bg-card px-3" onClick={()=>{setError('');setJobs(null);setRetry(n=>n+1);}}>Try again</button>}</p>}
       <div ref={listRef} className="max-h-72 overflow-y-auto py-1">
-        {jobs === null && <p className="px-2.5 py-1.5 text-[11px] text-ink-4">Loading jobs…</p>}
-        {jobs !== null && rows.length === 0 && (
-          <p className="px-2.5 py-2 text-[11px] text-ink-4">No jobs match “{term}”.</p>
+        {jobs === null && <p className={`px-2.5 py-1.5 ${inline?"text-meta":"text-[11px]"} text-ink-4`}>Loading jobs…</p>}
+        {!error && jobs !== null && rows.length === 0 && (
+          <p className={`px-2.5 py-2 ${inline?"text-meta":"text-[11px]"} text-ink-4`}>No jobs match “{term}”.</p>
         )}
         {rows.map((row, idx) => {
           const active = idx === cur;
-          const base = `flex w-full items-center gap-2 px-2.5 py-1 text-left ${active ? "bg-paper-2" : ""}`;
+          const base = `flex ${inline?"min-h-12":""} w-full items-center gap-2 px-2.5 py-1 text-left ${active ? "bg-paper-2" : ""}`;
           if (row.type === "unlink") {
             return (
               <button
@@ -199,11 +216,11 @@ export function JobPicker({
           const header = j.kind !== lastKind;
           lastKind = j.kind;
           const linked = isCurrent(j);
-          const taken = !linked && j.folderId != null;
+          const taken = !projectOnly && !linked && j.folderId != null;
           return (
             <div key={row.key}>
               {header && (
-                <div className="px-2.5 pb-0.5 pt-1.5 font-mono text-[9.5px] uppercase tracking-[0.12em] text-ink-4">
+                <div className={`px-2.5 pb-0.5 pt-1.5 font-mono ${inline?"text-meta":"text-[9.5px]"} uppercase tracking-[0.12em] text-ink-4`}>
                   {KIND_LABEL[j.kind]}
                 </div>
               )}
@@ -215,8 +232,8 @@ export function JobPicker({
                 className={base}
               >
                 <span className="min-w-0 flex-1">
-                  <span className={`block truncate text-[12px] ${j.current ? "text-ink" : "text-ink-3"}`}>{j.name}</span>
-                  {j.sub && <span className="block truncate text-[10.5px] text-ink-4">{j.sub}</span>}
+                  <span className={`block truncate ${inline?"text-body":"text-[12px]"} ${j.current ? "text-ink" : "text-ink-3"}`}>{j.name}</span>
+                  {j.sub && <span className={`block truncate ${inline?"text-meta":"text-[10.5px]"} text-ink-4`}>{j.sub}</span>}
                 </span>
                 {linked ? (
                   <Check className="size-3 flex-none text-ai-2" strokeWidth={2} />

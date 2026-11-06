@@ -1,4 +1,5 @@
 "use client";
+import {PERMISSIONS} from '@/lib/permissions';
 
 import { useMemo, useRef, useState, useTransition } from "react";
 import { useServerState } from "@/lib/use-server-state";
@@ -213,7 +214,8 @@ export function ProjectFiles({
                   ) : (
                     <div className="truncate text-[13px] text-ink-2">{f.name}</div>
                   )}
-                  <div className="flex items-center gap-1.5 truncate font-mono text-[10px] text-ink-4">
+                  <div className="flex flex-wrap items-center gap-1.5 font-mono text-[10px] text-ink-4">
+                    {f.canvasPolicy&&<><span>Canvas</span><details className="inline"><summary title={f.canvasPolicy.required_areas.map(k=>PERMISSIONS.find(p=>p.key===k)?.label??k).join(', ')} className="cursor-pointer">🔒 {f.canvasPolicy.kind==='owner_only'?'Only Joe':f.canvasPolicy.required_areas.length?'Staff: '+(PERMISSIONS.find(p=>p.key===f.canvasPolicy?.required_areas[0])?.label??'')+(f.canvasPolicy.required_areas.length>1?` +${f.canvasPolicy.required_areas.length-1} more`:''):'Staff'}</summary>{f.canvasPolicy.required_areas.map(k=><span className="block" key={k}>{PERMISSIONS.find(p=>p.key===k)?.label}</span>)}</details><span>Version {f.canvasVersion}</span></>}
                     {f.clientUpload && (
                       <span className="inline-flex items-center gap-0.5 text-accent-2">
                         <User className="size-2.5" strokeWidth={1.75} />
@@ -234,7 +236,7 @@ export function ProjectFiles({
                   <span className="flex-none font-mono text-[11px] text-ink-4">saving…</span>
                 ) : (
                   <>
-                    <button
+                    {f.canvasPolicy?<span title="Canvas copies stay internal." aria-label="Canvas copies stay internal.">🔒</span>:<button
                       type="button"
                       onClick={() => toggleShare(f)}
                       disabled={toggling}
@@ -253,7 +255,7 @@ export function ProjectFiles({
                       ) : (
                         <EyeOff className="size-3.5" strokeWidth={1.5} />
                       )}
-                    </button>
+                    </button>}
                     <a
                       href={`/api/files/${f.id}?download=1`}
                       className="flex-none rounded p-0.5 text-ink-3 hover:text-ink"

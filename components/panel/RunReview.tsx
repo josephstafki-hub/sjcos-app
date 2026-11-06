@@ -4,12 +4,24 @@ import { GrantCard } from "./GrantCard";
 import { listRunApprovals, type PendingGrant } from "@/lib/actions/dev-agents";
 import { loadRunReview } from "@/lib/actions/panel-review";
 import { workSummary, type RunReview as Review } from "@/lib/agent-review";
-export function RunReview({runId}:{runId:string}) {
+import type { AskFailureCode } from "@/lib/ask-result-codes";
+import { askCall, askFailure, ASK_STATUS_COPY } from "./askStatusCopy";
+export function RunReview({runId,onFailure}:{runId:string;onFailure?:(code:AskFailureCode)=>void}) {
   const [approvals,setApprovals]=useState<PendingGrant[]>([]);
-  useEffect(()=>{let alive=true;void listRunApprovals(runId).then(r=>{if(alive)setApprovals(r);}).catch(()=>{});return ()=>{alive=false;};},[runId]);
-  const [review,setReview]=useState<Review|null>(null);const [error,setError]=useState(false);const [retry,setRetry]=useState(0);
-  useEffect(()=>{let alive=true;setError(false);void loadRunReview(runId).then(r=>{if(alive)setReview(r);}).catch(()=>{if(alive)setError(true);});return ()=>{alive=false;};},[runId,retry]);
-  if(error)return <button className="mt-2 text-meta text-flag underline" onClick={()=>setRetry(n=>n+1)}>Run details could not load · Retry</button>;
+  const [review,setReview]=useState<Review|null>(null);
+  const [error,setError]=useState<AskFailureCode|null>(null);
+  const [retry,setRetry]=useState(0);
+  useEffect(()=>{
+    let alive=true;
+    setReview(null); setApprovals([]); setError(null);
+    void Promise.all([askCall(listRunApprovals(runId)),askCall(loadRunReview(runId))]).then(([a,r])=>{
+      if(alive) { setApprovals("grants" in a ? a.grants : a); setReview(r && "review" in r ? r.review : r); }
+    }).catch(error=>{if(alive){const code=askFailure(error)?.code??"ASK_PAUSED";setReview(null);setApprovals([]);setError(code);onFailure?.(code);}});
+    return ()=>{alive=false;};
+    // Callback changes alone must not restart the request.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[runId,retry]);
+  if(error)return <div role="status" className="mt-2 text-body text-ink-2">{ASK_STATUS_COPY[error]}{error==='SIGN_IN_AGAIN'?<a href="/login" className="inline-flex min-h-11 items-center px-2 text-ai-2">Sign in</a>:<button className="min-h-11 px-2 text-ai-2" onClick={()=>setRetry(n=>n+1)}>Try again</button>}</div>;
   if(!review)return null;
   const steps=review.log.split('\n').filter(Boolean).length;
   const confirmed=review.changes.filter(c=>c.evidence==='Confirmed change');

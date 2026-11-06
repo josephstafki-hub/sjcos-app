@@ -13,7 +13,7 @@ export async function GET(req:Request,{params}:{params:Promise<{id:string}>}) {
     const doc=await getDoc(runDirect,Number(id));
     const fileId=new URL(req.url).searchParams.get("fileId") ?? doc?.attachment_file_ids[0] ?? doc?.email_file_id;
     if(!doc || !fileId || ![...doc.attachment_file_ids,doc.email_file_id].includes(fileId)) return Response.json({error:"File not found"},{status:404});
-    const f=await queryOne<{storage_path:string|null;mime_type:string|null;name:string}>(`SELECT storage_path,mime_type,name FROM files WHERE id=$1`,[fileId]);
+    const f=await queryOne<{storage_path:string|null;mime_type:string|null;name:string}>(`SELECT storage_path,mime_type,name FROM files WHERE to_jsonb(files)->>'security_profile' IS NULL AND id=$1`,[fileId]);
     if(!f?.storage_path) return Response.json({error:"File not found"},{status:404});
     return serveFile(req,fileId,{...f,storage_path:f.storage_path});
   } catch(e) {console.error("[mobile-unsorted-file]",e);return Response.json({error:"Unable to load file"},{status:500});}

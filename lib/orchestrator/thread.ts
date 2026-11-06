@@ -1,6 +1,6 @@
 import "server-only";
 
-import { queryOne } from "@/lib/db";
+import { threadQueryOne as queryOne } from "@/lib/thread-access";
 import { getThreadMessages, type ThreadMessage } from "@/lib/ai-chat";
 import {
   renderAttachmentsForPrompt,

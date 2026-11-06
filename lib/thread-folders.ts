@@ -1,6 +1,6 @@
 import "server-only";
 
-import { query, queryOne } from "@/lib/db";
+import { threadQuery as query, threadQueryOne as queryOne, requireThreadAccess, threadPrincipal } from "@/lib/thread-access";
 import type { PanelAgent } from "@/lib/dev-agents-meta";
 import {
   type FolderEntityKind,
@@ -10,10 +10,18 @@ import {
   sortKeysFor,
 } from "@/lib/thread-rail";
 
+// Explicit SQL fences also protect a website login that bypasses RLS.
+const ACTOR = "nullif(current_setting('sjcos.ask_actor',true),'')::uuid";
+const OWN_THREAD = `c.owner_user_id = ${ACTOR} AND c.deleted_at IS NULL`;
+const OWN_FOLDER = `owner_user_id = ${ACTOR}`;
+async function requireFolderAccess(id: string): Promise<void> {
+  if (!await queryOne(`SELECT id FROM ai_folders WHERE id=$1 AND ${OWN_FOLDER}`, [id])) throw Error('ASK_THREAD_UNAVAILABLE');
+}
+
 // Panel threads v2 — folders + lifecycle (docs/thread-folders-plan.md).
 // Read/build + row mutations for ai_folders and the lifecycle columns on
-// ai_conversations. Owner gating and the per-message hooks live in
-// lib/actions/ai-chat.ts. Pure partition/sort logic is lib/thread-rail.ts
+// ai_conversations. Privacy is enforced here, including direct callers;
+// public result envelopes and per-message hooks live in lib/actions/ai-chat.ts. Pure partition/sort logic is lib/thread-rail.ts
 // (client-safe) so the rail can re-partition without a round trip.
 
 // ─── Entities a folder can be bound to ───────────────────────────────────────
@@ -123,7 +131,7 @@ export async function searchFolderEntities(q: string, limit = 12): Promise<JobPi
      SELECT j.kind, j.slug, j.name, j.sub, j.current, f.id AS folder_id,
             CASE WHEN f.id IS NULL THEN NULL ELSE NULLIF(f.name, '') END AS folder_name
        FROM jobs j
-       LEFT JOIN ai_folders f ON f.entity_kind = j.kind AND f.entity_id = j.slug
+       LEFT JOIN ai_folders f ON f.entity_kind = j.kind AND f.entity_id = j.slug AND f.owner_user_id = ${ACTOR}
       WHERE $1::text IS NULL OR j.hay ILIKE $1
       ORDER BY
         (j.name ILIKE $2) DESC,          -- name starts with the term
@@ -182,18 +190,18 @@ async function hydrateFolders(rows: FolderRow[]): Promise<RailFolder[]> {
 }
 
 export async function listFolders(): Promise<RailFolder[]> {
-  const { rows } = await query<FolderRow>(`SELECT ${FOLDER_COLS} FROM ai_folders ORDER BY created_at ASC`);
+  const { rows } = await query<FolderRow>(`SELECT ${FOLDER_COLS} FROM ai_folders WHERE ${OWN_FOLDER} ORDER BY created_at ASC`);
   return hydrateFolders(rows);
 }
 
 export async function getFolder(id: string): Promise<RailFolder | null> {
-  const row = await queryOne<FolderRow>(`SELECT ${FOLDER_COLS} FROM ai_folders WHERE id = $1`, [id]);
+  const row = await queryOne<FolderRow>(`SELECT ${FOLDER_COLS} FROM ai_folders WHERE ${OWN_FOLDER} AND id = $1`, [id]);
   return row ? (await hydrateFolders([row]))[0] : null;
 }
 
 export async function createFolder(name: string): Promise<string> {
   const row = await queryOne<{ id: string }>(
-    `INSERT INTO ai_folders (name) VALUES ($1) RETURNING id`,
+    `INSERT INTO ai_folders (name,owner_user_id) VALUES ($1,nullif(current_setting('sjcos.ask_actor',true),'')::uuid) RETURNING id`,
     [name.replace(/\s+/g, " ").trim().slice(0, 80) || "New folder"],
   );
   return row!.id;
@@ -207,22 +215,23 @@ export async function ensureFolderForEntity(ref: FolderEntityRef): Promise<strin
   // Insert-or-select on the partial unique index; a concurrent first-use from
   // two tabs converges on one row.
   await query(
-    `INSERT INTO ai_folders (name, entity_kind, entity_id) VALUES ('', $1, $2)
-     ON CONFLICT (entity_kind, entity_id) WHERE entity_id IS NOT NULL DO NOTHING`,
+    `INSERT INTO ai_folders (name, entity_kind, entity_id,owner_user_id) VALUES ('', $1, $2,nullif(current_setting('sjcos.ask_actor',true),'')::uuid)
+     ON CONFLICT (owner_user_id, entity_kind, entity_id) WHERE entity_id IS NOT NULL DO NOTHING`,
     [e.kind, e.slug],
   );
   const row = await queryOne<{ id: string }>(
-    `SELECT id FROM ai_folders WHERE entity_kind = $1 AND entity_id = $2`,
+    `SELECT id FROM ai_folders WHERE ${OWN_FOLDER} AND entity_kind = $1 AND entity_id = $2`,
     [e.kind, e.slug],
   );
   if (!row) return null;
   // An archived job folder that gets a new thread comes back into the rail.
-  await query(`UPDATE ai_folders SET archived_at = NULL, updated_at = now() WHERE id = $1 AND archived_at IS NOT NULL`, [row.id]);
+  await query(`UPDATE ai_folders SET archived_at = NULL, updated_at = now() WHERE id = $1 AND ${OWN_FOLDER} AND archived_at IS NOT NULL`, [row.id]);
   return row.id;
 }
 
 export async function renameFolder(id: string, name: string): Promise<void> {
-  await query(`UPDATE ai_folders SET name = $2, updated_at = now() WHERE id = $1`, [
+  await requireFolderAccess(id);
+  await query(`UPDATE ai_folders SET name = $2, updated_at = now() WHERE id = $1 AND ${OWN_FOLDER}`, [
     id,
     name.replace(/\s+/g, " ").trim().slice(0, 80),
   ]);
@@ -234,36 +243,39 @@ export async function bindFolder(
   id: string,
   ref: FolderEntityRef | null,
 ): Promise<{ ok: true } | { ok: false; error: string; existingFolderId?: string }> {
+  await requireFolderAccess(id);
   if (!ref) {
-    await query(`UPDATE ai_folders SET entity_kind = NULL, entity_id = NULL, updated_at = now() WHERE id = $1`, [id]);
+    await query(`UPDATE ai_folders SET entity_kind = NULL, entity_id = NULL, updated_at = now() WHERE id = $1 AND ${OWN_FOLDER}`, [id]);
     return { ok: true };
   }
   const e = await resolveEntity(ref);
   if (!e) return { ok: false, error: "That job could not be found." };
   const other = await queryOne<{ id: string }>(
-    `SELECT id FROM ai_folders WHERE entity_kind = $1 AND entity_id = $2 AND id <> $3`,
+    `SELECT id FROM ai_folders WHERE ${OWN_FOLDER} AND entity_kind = $1 AND entity_id = $2 AND id <> $3`,
     [e.kind, e.slug, id],
   );
   if (other) return { ok: false, error: `Another folder is already linked to ${e.name}.`, existingFolderId: other.id };
-  await query(`UPDATE ai_folders SET entity_kind = $2, entity_id = $3, updated_at = now() WHERE id = $1`, [id, e.kind, e.slug]);
+  await query(`UPDATE ai_folders SET entity_kind = $2, entity_id = $3, updated_at = now() WHERE id = $1 AND ${OWN_FOLDER}`, [id, e.kind, e.slug]);
   return { ok: true };
 }
 
 /** Persist a manual order: every listed folder gets a zero-padded sort_key
  *  in one statement (a handful of rows, so no fractional indexing). */
 export async function reorderFolders(ids: string[]): Promise<void> {
+  for (const id of ids) await requireFolderAccess(id);
   const keys = sortKeysFor(ids);
   if (!keys.length) return;
   await query(
     `UPDATE ai_folders f SET sort_key = k.sort_key, updated_at = now()
        FROM unnest($1::uuid[], $2::text[]) AS k(id, sort_key)
-      WHERE f.id = k.id`,
+      WHERE f.id = k.id AND f.owner_user_id = ${ACTOR}`,
     [keys.map((k) => k.id), keys.map((k) => k.sortKey)],
   );
 }
 
 export async function setFolderCollapsed(id: string, collapsed: boolean): Promise<void> {
-  await query(`UPDATE ai_folders SET collapsed = $2, updated_at = now() WHERE id = $1`, [id, collapsed]);
+  await requireFolderAccess(id);
+  await query(`UPDATE ai_folders SET collapsed = $2, updated_at = now() WHERE id = $1 AND ${OWN_FOLDER}`, [id, collapsed]);
 }
 
 /** Archive hides the folder and everything in it from the rail (threads keep
@@ -273,15 +285,16 @@ export async function setFolderArchived(
   id: string,
   archived: boolean,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireFolderAccess(id);
   if (archived) {
     const busy = await queryOne<{ n: string }>(
       `SELECT count(*) AS n FROM dev_agent_runs r JOIN ai_conversations c ON c.id = r.conversation_id
-        WHERE c.folder_id = $1 AND r.status IN ('pending','running')`,
+        WHERE ${OWN_THREAD} AND c.folder_id = $1 AND r.status IN ('pending','running')`,
       [id],
     );
     if (Number(busy?.n ?? 0) > 0) return { ok: false, error: "A thread in this folder is still working." };
   }
-  await query(`UPDATE ai_folders SET archived_at = $2, updated_at = now() WHERE id = $1`, [
+  await query(`UPDATE ai_folders SET archived_at = $2, updated_at = now() WHERE id = $1 AND ${OWN_FOLDER}`, [
     id,
     archived ? new Date().toISOString() : null,
   ]);
@@ -290,13 +303,14 @@ export async function setFolderArchived(
 
 /** Delete the folder; its threads become Unfiled (FK ON DELETE SET NULL). */
 export async function deleteFolder(id: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireFolderAccess(id);
   const busy = await queryOne<{ n: string }>(
     `SELECT count(*) AS n FROM dev_agent_runs r JOIN ai_conversations c ON c.id = r.conversation_id
-      WHERE c.folder_id = $1 AND r.status IN ('pending','running')`,
+      WHERE ${OWN_THREAD} AND c.folder_id = $1 AND r.status IN ('pending','running')`,
     [id],
   );
   if (Number(busy?.n ?? 0) > 0) return { ok: false, error: "A thread in this folder is still working." };
-  await query(`DELETE FROM ai_folders WHERE id = $1`, [id]);
+  await query(`DELETE FROM ai_folders WHERE ${OWN_FOLDER} AND id = $1`, [id]);
   return { ok: true };
 }
 
@@ -406,13 +420,12 @@ export interface ThreadRail {
   threads: RailThread[];
 }
 
-/** Everything the rail shows: all folders (archived ones too, flagged) and
- *  every non-archived thread with its status inputs. Unpaginated like T3 —
- *  one operator, a few hundred threads at most. */
+/** Only this person's folders and non-archived threads, including status
+ * inputs and suggestions. Apply the owner fence before LIMIT or aggregation. */
 export async function listThreadRail(): Promise<ThreadRail> {
   const [folders, { rows }] = await Promise.all([
     listFolders(),
-    query<ThreadRow>(`${THREAD_SELECT} WHERE c.archived_at IS NULL ORDER BY c.created_at DESC LIMIT 500`),
+    query<ThreadRow>(`${THREAD_SELECT} WHERE ${OWN_THREAD} AND c.archived_at IS NULL ORDER BY c.created_at DESC LIMIT 500`),
   ]);
   return { folders, threads: await hydrateThreads(rows) };
 }
@@ -423,7 +436,7 @@ export async function listArchivedThreads(): Promise<RailThread[]> {
   const { rows } = await query<ThreadRow>(
     `${THREAD_SELECT}
       LEFT JOIN ai_folders f ON f.id = c.folder_id
-      WHERE c.archived_at IS NOT NULL OR f.archived_at IS NOT NULL
+      WHERE ${OWN_THREAD} AND (c.archived_at IS NOT NULL OR f.archived_at IS NOT NULL)
       ORDER BY COALESCE(c.archived_at, f.archived_at) DESC LIMIT 200`,
   );
   return hydrateThreads(rows);
@@ -432,6 +445,7 @@ export async function listArchivedThreads(): Promise<RailThread[]> {
 // ─── Threads: lifecycle mutations ────────────────────────────────────────────
 
 async function threadBusy(id: string): Promise<{ working: boolean; blocked: boolean }> {
+  await requireThreadAccess(id);
   const row = await queryOne<{ working: boolean; blocked: boolean }>(
     `SELECT EXISTS (SELECT 1 FROM dev_agent_runs r WHERE r.conversation_id = $1 AND r.status IN ('pending','running')) AS working,
             (EXISTS (SELECT 1 FROM owner_grants g WHERE g.conversation_id = $1 AND g.status = 'requested' AND g.expires_at > now())
@@ -453,7 +467,7 @@ export async function settleThread(id: string): Promise<{ ok: true } | { ok: fal
             settled_at = COALESCE(last_activity_at, updated_at),
             pinned_at = NULL, pin_order_key = NULL,
             snoozed_until = NULL, snoozed_at = NULL
-      WHERE id = $1`,
+      WHERE id = $1 AND owner_user_id = ${ACTOR} AND deleted_at IS NULL`,
     [id],
   );
   return { ok: true };
@@ -461,10 +475,11 @@ export async function settleThread(id: string): Promise<{ ok: true } | { ok: fal
 
 /** Explicit "keep active": the override that auto-settle respects. */
 export async function unsettleThread(id: string): Promise<void> {
+  await requireThreadAccess(id);
   await query(
     `UPDATE ai_conversations
         SET settled_override = 'active', settled_at = NULL, unsettled_at = now()
-      WHERE id = $1`,
+      WHERE id = $1 AND owner_user_id = ${ACTOR} AND deleted_at IS NULL`,
     [id],
   );
 }
@@ -472,18 +487,20 @@ export async function unsettleThread(id: string): Promise<void> {
 /** A new user message is real activity: it clears ANY override (settled or
  *  keep-active) and re-anchors the thread only if it was actually parked. */
 export async function touchThreadActivity(id: string): Promise<void> {
+  await requireThreadAccess(id);
   await query(
     `UPDATE ai_conversations
         SET unsettled_at = CASE WHEN settled_override IS NOT NULL OR snoozed_until IS NOT NULL THEN now() ELSE unsettled_at END,
             settled_override = NULL, settled_at = NULL,
             snoozed_until = NULL, snoozed_at = NULL,
             last_activity_at = now()
-      WHERE id = $1`,
+      WHERE id = $1 AND owner_user_id = ${ACTOR} AND deleted_at IS NULL`,
     [id],
   );
 }
 
 export async function setThreadPinned(id: string, pinned: boolean): Promise<void> {
+  await requireThreadAccess(id);
   if (pinned) {
     // Pinning is "this matters now": an unsettle rides along like T3.
     await query(
@@ -492,11 +509,11 @@ export async function setThreadPinned(id: string, pinned: boolean): Promise<void
               settled_override = CASE WHEN settled_override = 'settled' THEN 'active' ELSE settled_override END,
               settled_at = NULL,
               unsettled_at = CASE WHEN settled_override = 'settled' THEN now() ELSE unsettled_at END
-        WHERE id = $1`,
+        WHERE id = $1 AND owner_user_id = ${ACTOR} AND deleted_at IS NULL`,
       [id],
     );
   } else {
-    await query(`UPDATE ai_conversations SET pinned_at = NULL, pin_order_key = NULL WHERE id = $1`, [id]);
+    await query(`UPDATE ai_conversations SET pinned_at = NULL, pin_order_key = NULL WHERE id = $1 AND owner_user_id = ${ACTOR} AND deleted_at IS NULL`, [id]);
   }
 }
 
@@ -506,6 +523,7 @@ export async function setThreadArchived(
   id: string,
   archived: boolean,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireThreadAccess(id);
   if (archived) {
     const b = await threadBusy(id);
     if (b.working) return { ok: false, error: "Still working — stop the run or let it finish first." };
@@ -513,18 +531,21 @@ export async function setThreadArchived(
   await query(
     `UPDATE ai_conversations
         SET archived = $2, archived_at = CASE WHEN $2 THEN now() ELSE NULL END, updated_at = now()
-      WHERE id = $1`,
+      WHERE id = $1 AND owner_user_id = ${ACTOR} AND deleted_at IS NULL`,
     [id, archived],
   );
   return { ok: true };
 }
 
 export async function moveThread(id: string, folderId: string | null): Promise<void> {
-  await query(`UPDATE ai_conversations SET folder_id = $2 WHERE id = $1`, [id, folderId]);
+  await requireThreadAccess(id);
+  if (folderId) await requireFolderAccess(folderId);
+  await query(`UPDATE ai_conversations SET folder_id = $2 WHERE id = $1 AND owner_user_id = ${ACTOR} AND deleted_at IS NULL`, [id, folderId]);
 }
 
 /** File a thread under an entity's folder (created on first use). */
 export async function fileThreadUnderEntity(id: string, ref: FolderEntityRef): Promise<string | null> {
+  await requireThreadAccess(id);
   const folderId = await ensureFolderForEntity(ref);
   if (folderId) await moveThread(id, folderId);
   return folderId;
@@ -535,7 +556,7 @@ export async function fileThreadUnderEntity(id: string, ref: FolderEntityRef): P
 export const AUTO_SETTLE_SETTING = "panel.autoSettleAfterDays";
 const AUTO_SETTLE_DEFAULT_DAYS = 3;
 const SWEEP_MIN_INTERVAL_MS = 60_000;
-let lastSweepAt = 0;
+const lastSweepAt = new Map<string, number>();
 
 /** Days of quiet before a neutral thread settles itself; null = off. */
 export async function getAutoSettleDays(): Promise<number | null> {
@@ -551,13 +572,15 @@ export async function getAutoSettleDays(): Promise<number | null> {
  * T3's staleness rule: a thread with no override, nothing live, nothing
  * waiting on Joe, and no activity for N days settles itself, stamped with
  * when the work ended (not when the sweep ran). Called on every poll
- * (throttled in-process to once a minute) and from the agent-retries cron so
- * it also runs when nobody has the panel open.
+ * (throttled per person to once a minute). The secret-authenticated cron uses
+ * the separate thread-folder-maintenance adapter when nobody has the panel open.
  */
 export async function autoSettleQuietThreads(opts: { force?: boolean } = {}): Promise<{ settled: number }> {
+  const person = await threadPrincipal();
   const now = Date.now();
-  if (!opts.force && now - lastSweepAt < SWEEP_MIN_INTERVAL_MS) return { settled: 0 };
-  lastSweepAt = now;
+  if (!opts.force && now - (lastSweepAt.get(person.id) ?? 0) < SWEEP_MIN_INTERVAL_MS) return { settled: 0 };
+  if (lastSweepAt.size > 1000) lastSweepAt.clear();
+  lastSweepAt.set(person.id, now);
   const days = await getAutoSettleDays();
   if (days == null) return { settled: 0 };
   const { rowCount } = await query(
@@ -565,7 +588,7 @@ export async function autoSettleQuietThreads(opts: { force?: boolean } = {}): Pr
         SET settled_override = 'settled',
             settled_at = COALESCE(c.last_activity_at, c.updated_at),
             pinned_at = NULL, pin_order_key = NULL
-      WHERE c.archived_at IS NULL
+      WHERE ${OWN_THREAD} AND c.archived_at IS NULL
         AND c.settled_override IS NULL
         AND c.pinned_at IS NULL
         AND COALESCE(c.last_activity_at, c.updated_at) < now() - ($1::numeric * interval '1 day')
@@ -582,9 +605,10 @@ export async function autoSettleQuietThreads(opts: { force?: boolean } = {}): Pr
 /** One line for the agent's page-context block naming the job this thread is
  *  filed under, or null when unfiled. */
 export async function folderContextLine(conversationId: string): Promise<string | null> {
+  await requireThreadAccess(conversationId);
   const row = await queryOne<FolderRow>(
     `SELECT f.id, f.name, f.entity_kind, f.entity_id, f.collapsed, f.sort_key, f.archived_at::text AS archived_at
-       FROM ai_folders f JOIN ai_conversations c ON c.folder_id = f.id WHERE c.id = $1`,
+       FROM ai_folders f JOIN ai_conversations c ON c.folder_id = f.id WHERE c.id = $1 AND ${OWN_THREAD}`,
     [conversationId],
   );
   if (!row) return null;

@@ -40,7 +40,8 @@ async function handle(req:Request,context:{params:Promise<{path:string[]}>}) {
   }
   if(name==='action'&&req.method==='POST'){
    const b=actionSchema.parse(await req.json());
-   const exists=await queryOne(`SELECT id FROM owner_push_messages WHERE id=$1`,[b.messageId]);if(!exists)return Response.json({error:'That alert no longer exists.'},{status:404});
+   const exists=await queryOne(`SELECT id,ask_reply_erased FROM owner_push_messages WHERE id=$1`,[b.messageId]);if(!exists)return Response.json({error:'That alert no longer exists.'},{status:404});
+   if(exists.ask_reply_erased)return Response.json({ok:false,code:'THREAD_UNAVAILABLE',message:'Open your private Ask chat to continue.',outcome:'unavailable'});
    const inserted=await queryOne(`INSERT INTO push_actions(id,message_id,user_id,action,text,lease_until) VALUES($1,$2,$3,$4,$5,now()+interval '2 minutes') ON CONFLICT DO NOTHING RETURNING generation`,[b.actionId,b.messageId,user.id,b.action,b.text]);
    let generation=Number(inserted?.generation);
    if(!inserted){

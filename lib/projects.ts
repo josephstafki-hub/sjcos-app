@@ -1,3 +1,4 @@
+import {canvasFilePredicate,canvasTrashList} from './canvas-file-access';
 import { structuredRowSummary, nextRowTodoSql, type RowTodo } from "./list-row-summary";
 // Projects data builder. DB-backed (Phase 7.2): list + detail read the
 // projects table via lib/db. Detail merges curated rich content (milestones,
@@ -420,10 +421,12 @@ export interface ProjectFile {
   uploadedLabel: string;
   /** Row came from the project's lead stage (still keyed by lead_slug). */
   fromLead: boolean;
+  canvasPolicy?: {kind:string;required_areas:string[]};
+  canvasVersion?: number;
 }
 
 const FILE_ROW_SELECT = `
-  f.id, f.name, f.type, f.size_label, f.modified_label, f.client_visible,
+  f.canvas_policy, f.canvas_version, f.id, f.name, f.type, f.size_label, f.modified_label, f.client_visible,
   (f.client_slug IS NOT NULL) AS client_upload,
   COALESCE(NULLIF(f.subtitle, ''), f.tag, '') AS subtitle,
   to_char(f.created_at AT TIME ZONE 'America/Chicago', 'Mon FMDD, FMHH12:MIam') AS uploaded_label`;
@@ -439,6 +442,8 @@ interface FileRow {
   subtitle: string;
   uploaded_label: string;
   from_lead?: boolean;
+  canvas_policy?: {kind:string;required_areas:string[]};
+  canvas_version?: number;
 }
 
 function fileRowToProjectFile(r: FileRow): ProjectFile {
@@ -453,19 +458,20 @@ function fileRowToProjectFile(r: FileRow): ProjectFile {
     subtitle: r.subtitle,
     uploadedLabel: r.uploaded_label,
     fromLead: !!r.from_lead,
+    canvasPolicy:r.canvas_policy, canvasVersion:r.canvas_version,
   };
 }
 
 /** Real uploaded files for a project, newest first (uploads only — showcase
  *  rows have no storage_path). Scoped by project_key = slug. */
-export async function getProjectFiles(slug: string): Promise<ProjectFile[]> {
+export async function getProjectFiles(slug: string, principal?:{id:string}): Promise<ProjectFile[]> {
   // Includes files still keyed to the project's origin lead (uploaded during
   // the lead stage) — conversion now re-keys them, but older rows may not be.
   const { rows } = await query<FileRow>(
     `SELECT ${FILE_ROW_SELECT},
             (f.project_key IS DISTINCT FROM $1) AS from_lead
        FROM files f
-      WHERE f.storage_path IS NOT NULL
+      WHERE f.storage_path IS NOT NULL AND ${await canvasFilePredicate('f',principal)}
         AND (f.project_key = $1
              OR f.lead_slug IN (SELECT l.slug FROM leads l JOIN projects p ON p.lead_id = l.id WHERE p.slug = $1))
       ORDER BY f.created_at DESC`,
@@ -478,7 +484,7 @@ export async function getProjectFiles(slug: string): Promise<ProjectFile[]> {
  *  Restore list. Empty (not an error) before migration 0032 is applied. */
 export async function getProjectFileTrash(slug: string): Promise<TrashedFile[]> {
   const run = (async (sql: string, params?: unknown[]) => (await query(sql, params)).rows) as Run;
-  return listFileTrash(run, slug).catch(() => []);
+  return [...await listFileTrash(run, slug),...await canvasTrashList(slug)].sort((a,b)=>Date.parse(b.deleted_at)-Date.parse(a.deleted_at));
 }
 
 /** Real uploaded files attached to a LEAD (files.lead_slug), newest first —
@@ -489,7 +495,7 @@ export async function getLeadFiles(slug: string): Promise<ProjectFile[]> {
   const { rows } = await query<FileRow>(
     `SELECT ${FILE_ROW_SELECT}
        FROM files f
-      WHERE f.lead_slug = $1 AND f.storage_path IS NOT NULL
+      WHERE to_jsonb(f)->>'security_profile' IS NULL AND f.lead_slug = $1 AND f.storage_path IS NOT NULL
       ORDER BY f.created_at DESC`,
     [slug],
   );

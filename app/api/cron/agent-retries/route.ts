@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { retryFailedApprovalPings } from "@/lib/dev-agents";
-import { autoSettleQuietThreads } from "@/lib/thread-folders";
+import { autoSettleQuietThreadsInBackground } from "@/lib/thread-folder-maintenance";
 
 // POST/GET /api/cron/agent-retries — periodic sweep that re-pings a work
 // item's owner agent (Hermes/Claude) when the approval-ping from
@@ -24,7 +24,7 @@ async function handle(req: Request) {
   const result = await retryFailedApprovalPings();
   // Panel thread auto-settle (docs/thread-folders-plan.md §3.3) shares this
   // 10-minute timer so quiet threads settle even when nobody is polling.
-  const threads = await autoSettleQuietThreads({ force: true }).catch(() => ({ settled: 0 }));
+  const threads = await autoSettleQuietThreadsInBackground().catch(() => ({ settled: 0 }));
   return NextResponse.json({ ok: true, ran_at: new Date().toISOString(), ...result, threads_settled: threads.settled });
 }
 

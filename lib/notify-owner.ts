@@ -147,6 +147,7 @@ const telegram: OwnerChannel = {
 const CHANNELS: Record<string, OwnerChannel> = { telegram, app: { enabled: apnsConfigured, send: async () => null } };
 
 async function deliverChannels(input: {kind: string; title: string; body?:string|null;href?:string|null;telegram?:TelegramExtras|null}, outboxId?:string): Promise<void> {
+ input=await safePush({...input,id:outboxId});
  const settings=await pushSettings();
  if(outboxId){const row=await queryOne<{channels:string[]|null}>(`SELECT channels FROM push_outbox WHERE id=$1`,[outboxId]);if(row?.channels)settings.channels={app:row.channels.includes('app'),telegram:row.channels.includes('telegram')};}
  const message=input.telegram?.existingMessageId ? (await queryOne<import('./providers/apns').AppAlert>(`SELECT * FROM owner_push_messages WHERE id=$1`,[input.telegram.existingMessageId]))! : await recordAppMessage(input,outboxId);
@@ -266,6 +267,17 @@ async function noteDelivery(extras: TelegramExtras | null | undefined, messageId
   await recordDelivery(runDirect, extras.decisionId, "telegram", messageId ? `${chat}:${messageId}` : null, extras.editMessageId ? "updated" : "sent").catch(() => undefined);
 }
 
+/** Never send a pre-cleanup in-memory retry snapshot. Private associations
+ * always carry fixed status, so deletion cannot race a subsequent text send. */
+async function safePush<T extends { title: string; body?: string | null; href?: string | null; payload?: TelegramExtras | null; telegram?: TelegramExtras | null; id?: string }>(input: T): Promise<T> {
+  const state = await queryOne<{ private: boolean }>(
+    `SELECT ask_push_is_private($1::jsonb,$2::text) OR COALESCE((SELECT ask_reply_erased FROM push_outbox WHERE id=$3::bigint),false) AS private`,
+    [JSON.stringify(input.payload ?? input.telegram ?? {}), input.href ?? null, input.id ?? null],
+  );
+  if (!state || state.private) return { ...input, title: 'Private Ask request updated.', body: null, href: '/today', payload: null, telegram: null, ...(Object.hasOwn(input, "emit") ? {emit: {title: "Private Ask request updated.", subline: undefined, href: "/today"}} : {}) };
+  return input;
+}
+
 /** Transmit now; the sent row is what the rolling-hour throttle counts. A
  *  delivery failure parks the push instead so the next drain tick retries. */
 async function transmit(input: NotifyOwnerInput, now: Date): Promise<void> {
@@ -284,6 +296,7 @@ async function transmit(input: NotifyOwnerInput, now: Date): Promise<void> {
  *  a waiting agent is blocked on them — but still count toward it; nothing
  *  is exempt from quiet hours). Never throws. `nowOverride` is a test seam. */
 export async function notifyOwner(input: NotifyOwnerInput, nowOverride?: Date): Promise<void> {
+  try { input = await safePush(input); } catch { return; }
   if (!input.phoneOnly) {
     try {
       await emit({
@@ -343,6 +356,7 @@ export async function sendOwnerPushesNow(ids: (string | null | undefined)[], now
     for(const row of rows){
      if(!CAP_EXEMPT.has(row.kind)&&!row.payload?.conversation&&room--<=0){await query(`UPDATE push_outbox SET claimed_until=NULL,send_after=$2 WHERE id=$1`,[row.id,g.next_hour]);continue;}
      await deliverClaimed(row,now);
+
     }
   } catch (err) {
     console.error("[notify-owner] sendOwnerPushesNow failed", err);
@@ -582,6 +596,7 @@ export async function runPushDrain(
       if(!CAP_EXEMPT.has(row.kind)&&!row.payload?.conversation&&room--<=0){await query(`UPDATE push_outbox SET claimed_until=NULL,send_after=$2 WHERE id=$1`,[row.id,g.next_hour]);continue;}
       try {
         if(await deliverClaimed(row,now))result.sent++;
+
       } catch (err) {
         console.error(`[notify-owner] drain send failed (row ${row.id})`, err);
         await unclaim([row.id]);
@@ -590,7 +605,8 @@ export async function runPushDrain(
     // Delegate constituents atomically to a stable job with their original
     // channel snapshot. All retries use the ordinary leased delivery/receipts.
     const groups=new Map<string,OutboxRow[]>();
-    for(const row of folded){
+    for(const snapshot of folded){
+     const row=await safePush(snapshot);
      const channels=row.channels??Object.entries((await pushSettings()).channels).filter(([,on])=>on).map(([c])=>c);
      const key=JSON.stringify([...channels].sort());
      groups.set(key,[...(groups.get(key)??[]),row]);
@@ -602,7 +618,7 @@ export async function runPushDrain(
       const summary=await withTransaction(async run=>{
        const locked=await run(`SELECT id FROM push_outbox WHERE id=ANY($1::bigint[]) AND sent_at IS NULL AND summary_id IS NULL FOR UPDATE`,[rows.map(r=>r.id)]);
        if(locked.length!==rows.length)throw new Error('Summary already delegated');
-       const [job]=await run<OutboxRow>(`INSERT INTO push_outbox(kind,title,body,href,send_after,payload,channels,claimed_until) VALUES('urgent_item',$1,$2,'/notifications',$3,'{"isSummary":true}'::jsonb,$4,CASE WHEN $5 THEN now()+interval '5 minutes' ELSE NULL END) RETURNING *`,[`…and ${rows.length} more waiting in the app`,rows.map(r=>r.title.replace(/^Approve: /,'')).join('\n'),canSend?now:g.next_hour,JSON.parse(key),canSend]);
+       const [job]=await run<OutboxRow>(`INSERT INTO push_outbox(kind,title,body,href,send_after,payload,channels,claimed_until) VALUES('urgent_item',$1,$2,'/notifications',$3,'{"isSummary":true}'::jsonb,$4,CASE WHEN $5 THEN now()+interval '5 minutes' ELSE NULL END) RETURNING *`,[`…and ${rows.length} more waiting in the app`,(await Promise.all(rows.map(r=>safePush(r)))).map(r=>r.title.replace(/^Approve: /,'')).join('\n'),canSend?now:g.next_hour,JSON.parse(key),canSend]);
        await run(`UPDATE push_outbox SET summary_id=$2,sent_at=$3,claimed_until=NULL WHERE id=ANY($1::bigint[])`,[rows.map(r=>r.id),job.id,now]);
        return job;
       });
@@ -703,6 +719,7 @@ async function deliverClaimed(row:OutboxRow,now:Date):Promise<boolean> {
 }
 /** Durable conversational sends deliberately bypass quiet hours/cap, as Telegram did. */
 export async function enqueueOwnerConversation(input:NotifyOwnerInput,opts:{onAttempt?:()=>void}={}) {
+ input=await safePush(input);
  const channels=(await pushSettings()).channels;if(input.telegram?.appOnly)channels.telegram=false;
  const {createHash}=await import('node:crypto');
  const key=createHash('sha256').update(JSON.stringify([input.body,input.telegram?.ownerReplyId,input.telegram?.pushReplyToId,input.telegram?.replyToMessageId])).digest('hex');

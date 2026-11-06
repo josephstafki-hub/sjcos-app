@@ -8,7 +8,8 @@
 
 import { connectionCopy } from "../comms/connection-copy";
 import { revalidatePath } from "next/cache";
-import { requireAccess } from "@/lib/dal";
+import type { BackgroundFailure } from "@/lib/background-result";
+import { getCurrentUser, can, requireAccess } from "@/lib/dal";
 import { createGrant } from "@/lib/owner-grants";
 import { normalizeE164 } from "@/lib/comms/phone";
 import { getCall, getCallEvents, placeCall, voiceConfigured, type CallRow } from "@/lib/voice";
@@ -42,9 +43,23 @@ export interface CallDetail {
   events: { event_type: string; note: string; occurred_at: string | null; created_at: string }[];
 }
 
-export async function loadCall(id: string): Promise<CallDetail | null> {
+export async function loadCall(id: string): Promise<CallDetail | null | BackgroundFailure> {
+  const user = await getCurrentUser();
+  if (!user) return { ok: false, code: "SIGN_IN_AGAIN" };
+  if (!can(user, "comms")) return { ok: false, code: "ACCESS_DENIED" };
+  return authorizedCallDetail(id, user);
+}
+
+/** Explicit call selection keeps the DAL navigation path, including for staff
+ *  who do not have Ask. BrowserPhone timers continue to use loadCall. */
+export async function loadSelectedCall(id: string): Promise<CallDetail | null> {
   const user = await requireAccess("comms");
+  return authorizedCallDetail(id, user);
+}
+
+async function authorizedCallDetail(id: string, user: NonNullable<Awaited<ReturnType<typeof getCurrentUser>>>): Promise<CallDetail | null> {
   const call = await getCall(id, user);
+
   if (!call) return null;
   const events = await getCallEvents(id);
   return { call, events };

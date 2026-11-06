@@ -1,7 +1,8 @@
 'use server';
 
+import type { BackgroundFailure } from '@/lib/background-result';
 import { query } from '@/lib/db';
-import { requireAccess, requireRole } from '@/lib/dal';
+import { getCurrentUser, can, requireAccess, requireRole, type CurrentUser } from '@/lib/dal';
 import { activeMailbox, withMailboxFor } from '@/lib/mailbox';
 import { ensureMailboxEmail } from '@/lib/mailbox-email';
 import { revalidatePath } from 'next/cache';
@@ -9,8 +10,13 @@ import type { DraftIdentity, DraftWriteResult, InboxDraft, SaveDraftInput } from
 
 // Never take mailbox or user_id from a caller. A disconnected staff mailbox
 // has its own namespace for SMS/portal drafts, never the owner's fallback.
-async function scoped<T>(fn: (mailbox: string, userId: string, owner: boolean, connected: boolean) => Promise<T>) {
-  const user = await requireAccess('inbox');
+type MailboxCallback<T> = (mailbox: string, userId: string, owner: boolean, connected: boolean) => Promise<T>;
+
+async function scoped<T>(fn: MailboxCallback<T>) {
+  return mailboxScoped(await requireAccess('inbox'), fn);
+}
+
+async function mailboxScoped<T>(user: CurrentUser, fn: MailboxCallback<T>) {
   return withMailboxFor(user, async () => {
     const mb = activeMailbox();
     if (!mb || mb.userId !== user.id) throw new Error('Mailbox scope is unavailable.');
@@ -19,6 +25,13 @@ async function scoped<T>(fn: (mailbox: string, userId: string, owner: boolean, c
     const email = mb.refreshToken ? await ensureMailboxEmail() : '';
     return fn(email || `user:${user.id}`, user.id, user.role === 'owner', Boolean(email && mb.refreshToken));
   });
+}
+
+async function backgroundScoped<T>(fn: MailboxCallback<T>): Promise<T | BackgroundFailure> {
+  const user = await getCurrentUser();
+  if (!user) return { ok: false, code: 'SIGN_IN_AGAIN' };
+  if (!can(user, 'inbox')) return { ok: false, code: 'ACCESS_DENIED' };
+  return mailboxScoped(user, fn);
 }
 
 const columns = `id, thread_key AS "threadKey", channel, source, source_message_id AS "sourceMessageId",
@@ -31,9 +44,9 @@ function validateIdentity(input: DraftIdentity) {
 
 /** One query for the whole visible window. Human terminal rows are returned
  * as versioned tombstones so other devices can clear their saved copies. */
-export async function loadDrafts(threadKeys: string[]): Promise<InboxDraft[]> {
+export async function loadDrafts(threadKeys: string[]): Promise<InboxDraft[] | BackgroundFailure> {
   if (!Array.isArray(threadKeys) || threadKeys.length > 200 || threadKeys.some(k => typeof k !== 'string' || !k || k.length > 500)) throw new Error('Invalid thread keys.');
-  return scoped(async (mailbox, userId, owner, connected) => {
+  return backgroundScoped(async (mailbox, userId, owner, connected) => {
     if (!threadKeys.length) return [];
     const { rows } = await query<InboxDraft>(
       `SELECT ${columns} FROM inbox_drafts WHERE mailbox=$1 AND thread_key=ANY($2::text[])
@@ -50,7 +63,7 @@ async function currentDraft(mailbox: string, userId: string, input: DraftIdentit
   return rows[0] ?? null;
 }
 
-export async function saveDraft(input: SaveDraftInput): Promise<DraftWriteResult> {
+export async function saveDraft(input: SaveDraftInput): Promise<DraftWriteResult | BackgroundFailure> {
   validateIdentity(input);
   if (typeof input.body !== 'string' || input.body.length > 100_000 ||
       typeof input.toEmail !== 'string' || input.toEmail.length > 2000 ||
@@ -61,7 +74,7 @@ export async function saveDraft(input: SaveDraftInput): Promise<DraftWriteResult
     (provenance.model!==null&&!['claude','hermes','qwen'].includes(provenance.model))||
     typeof provenance.humanEdited!=='boolean'||(provenance.acceptedSuggestionId!==null&&!/^[a-f\d-]{36}$/i.test(provenance.acceptedSuggestionId))))throw Error('Invalid draft provenance.');
   if(provenance?.sources&&(!Array.isArray(provenance.sources)||provenance.sources.length>20||provenance.sources.some(s=>!s||typeof s.label!=='string'||s.label.length>2000||(s.kind==='message'?typeof s.messageId!=='string'||typeof s.threadId!=='string'||s.threadId!==input.threadKey:!['project','lead'].includes(s.kind)||typeof s.slug!=='string'||s.slug.length>500))))throw Error('Invalid draft sources.');
-  return scoped(async (mailbox, userId, _owner, connected) => {
+  return backgroundScoped(async (mailbox, userId, _owner, connected) => {
     if (input.channel === 'email' && !connected) throw new Error('Connect your mailbox to sync email drafts.');
     const params = [mailbox, userId, input.threadKey, input.channel, input.toEmail, input.cc, input.subject, input.body, input.baseVersion, provenance?.model??null, provenance?.basedOn??'',provenance?.acceptedSuggestionId??null,provenance?.humanEdited??false,JSON.stringify(provenance?.sources??[])];
     // Initial saves race on the unique index; existing saves compare-and-swap.

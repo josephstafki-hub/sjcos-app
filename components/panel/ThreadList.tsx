@@ -63,6 +63,10 @@ import { JobPicker } from "./JobPicker";
 import { postPanelMessage, requestAppNav, subscribePanelBus } from "./panelBus";
 import { isRunSeen, markRunSeen, panelUnreadSince, readPanelState } from "./panelStore";
 
+import type { AskFailureCode, AskThreadCapabilities } from "@/lib/ask-result-codes";
+import { askCall, askFailure, ASK_STATUS_COPY, ASK_DELETE_CONFIRM, ASK_EMPTY_COPY } from "./askStatusCopy";
+import { AskSignInLink } from "./AskSignInLink";
+
 /** "2m" / "3h" / "5d" / "Aug 12" from a pg timestamptz::text. */
 function timeAgo(ts: string | null, now: number): string {
   const t = ms(ts);
@@ -107,6 +111,9 @@ export function ThreadList({
   onScopeChange,
   pageRoute,
   className = "",
+  failureCode,
+  onFailure,
+  onRetry,
 }: {
   /** The open thread, for highlight. */
   currentId: string | null;
@@ -130,7 +137,18 @@ export function ThreadList({
   /** The app view's route — a project/lead page highlights its folder. */
   pageRoute?: string | null;
   className?: string;
+  failureCode?: AskFailureCode | null;
+  onFailure?: (code: AskFailureCode) => void;
+  onRetry?: () => Promise<void>;
 }) {
+  const [localFailure, setLocalFailure] = useState<AskFailureCode | null>(null);
+  const [capabilities, setCapabilities] = useState<AskThreadCapabilities>({deleteAvailable:false});
+  type DeleteAttempt = {id:string; operationId:string; state:'pending'|'error'};
+  const [deletion, setDeletionState] = useState<DeleteAttempt | null>(null);
+  const deletionRef = useRef<DeleteAttempt | null>(null);
+  const setDeletion = (value: DeleteAttempt | null) => { deletionRef.current = value; setDeletionState(value); };
+  const deleteBusy = useRef(false);
+  const failure = (failureCode === 'THREAD_UNAVAILABLE' ? null : failureCode) ?? localFailure;
   const [search, setSearch] = useState("");
   const [folders, setFolders] = useState<RailFolder[]>([]);
   const [threads, setThreads] = useState<RailThread[]>([]);
@@ -179,19 +197,42 @@ export function ThreadList({
     window.setTimeout(() => setFlash((n) => (n === msg ? "" : n)), 3000);
   };
 
+  const fail = (error: unknown) => {
+    const code = askFailure(error)?.code ?? "ASK_PAUSED";
+    if (code === "THREAD_UNAVAILABLE") {
+      flashNotice(ASK_STATUS_COPY.THREAD_UNAVAILABLE);
+      void reload();
+      return;
+    }
+    ++seqRef.current;
+    setLocalFailure(code);
+    setFolders([]); setThreads([]); setArchived(null); setSearch("");
+    setMenu(null); setMover(null); setPicker(null); setFlash("");
+    setShelf({}); setCapabilities({deleteAvailable:false});
+    onFailure?.(code);
+  };
+  const guarded = <A extends unknown[]>(work: (...args: A) => Promise<void>) => async (...args: A) => {
+    try { await work(...args); } catch (error) { fail(error); }
+  };
   const reload = async () => {
     const seq = ++seqRef.current;
-    const [rail, arch] = await Promise.all([
-      listThreadRailAction(),
-      showArchived ? listArchivedThreadsAction() : Promise.resolve(null),
-    ]);
-    if (seq !== seqRef.current) return;
-    setFolders(rail.folders);
-    setThreads(rail.threads);
-    setArchived(arch);
-    setLoaded(true);
-    setNow(Date.now());
-    setSinceMs(panelUnreadSince());
+    try {
+      const [result, archivedResult] = await Promise.all([
+        askCall(listThreadRailAction()),
+        showArchived ? askCall(listArchivedThreadsAction()) : Promise.resolve(null),
+      ]);
+      if (seq !== seqRef.current) return;
+      const rail = "rail" in result ? result.rail : result;
+      const arch = archivedResult && "threads" in archivedResult ? archivedResult.threads : archivedResult;
+      setFolders(rail.folders);
+      setThreads(rail.threads.filter(row => row.id !== deletionRef.current?.id));
+      setCapabilities((result as {capabilities?:AskThreadCapabilities}).capabilities ?? {deleteAvailable:false});
+      setArchived(arch?.filter(row => row.id !== deletionRef.current?.id) ?? null);
+      setLocalFailure(null);
+      setLoaded(true);
+      setNow(Date.now());
+      setSinceMs(panelUnreadSince());
+    } catch (error) { if (seq === seqRef.current) fail(error); }
   };
 
   // Reload on triggers, plus a slow tick: an abandoned thread's run settles
@@ -200,9 +241,17 @@ export function ThreadList({
   useEffect(() => {
     void reload();
     const t = setInterval(() => void reload(), 30_000);
-    return () => clearInterval(t);
+    return () => { ++seqRef.current; clearInterval(t); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showArchived, refreshKey]);
+
+  useEffect(() => {
+    if (!failureCode || failureCode === 'THREAD_UNAVAILABLE') return;
+    ++seqRef.current;
+    setFolders([]); setThreads([]); setArchived(null); setSearch("");
+    setMenu(null); setMover(null); setPicker(null); setFlash("");
+    setCapabilities({deleteAvailable:false});
+  }, [failureCode]);
 
   // Elapsed labels on working rows tick without a round trip.
   useEffect(() => {
@@ -255,53 +304,78 @@ export function ThreadList({
 
   // ─── Thread actions ────────────────────────────────────────────────────────
 
-  const rename = async (id: string, current: string) => {
+  const rename = guarded(async (id: string, current: string) => {
     const next = window.prompt("Rename conversation", current);
     if (next && next.trim()) {
-      await renameConversationAction(id, next.trim());
+      await askCall(renameConversationAction(id, next.trim()));
       await changed();
     }
-  };
+  });
 
-  const setArchivedThread = async (id: string, value: boolean) => {
-    const r = await archiveConversationAction(id, value);
+  const setArchivedThread = guarded(async (id: string, value: boolean) => {
+    const r = await askCall(archiveConversationAction(id, value));
     if (!r.ok) return flashNotice(r.error ?? "Couldn't archive.");
     if (value && id === currentId) onCurrentRemoved();
     await changed();
-  };
+  });
 
-  const remove = async (id: string) => {
-    if (!window.confirm("Delete this conversation permanently?")) return;
-    await deleteConversationAction(id);
+  const remove = async (id: string, retry = false) => {
+    if (deleteBusy.current) return;
+    if (!retry && (!capabilities.deleteAvailable || deletionRef.current)) { flashNotice(ASK_STATUS_COPY.DELETE_NOT_READY); return; }
+    if (!retry && !window.confirm(ASK_DELETE_CONFIRM)) return;
+    const operationId = retry && deletionRef.current?.id === id ? deletionRef.current.operationId : crypto.randomUUID();
+    deleteBusy.current = true;
+    setMenu(null);
+    setDeletion({id,operationId,state:'pending'});
+    // Mask any title immediately, including after a lost response.
+    setThreads(rows => rows.filter(row => row.id !== id));
+    setArchived(rows => rows?.filter(row => row.id !== id) ?? null);
     if (id === currentId) onCurrentRemoved();
-    await changed();
+    try {
+      const result = await deleteConversationAction(id, operationId);
+      if (result.ok && result.state !== 'pending') {
+        setDeletion(null);
+        await changed();
+      } else if (result.ok) {
+        setDeletion({id,operationId,state:'pending'});
+      } else {
+        setDeletion({id,operationId,state:'error'});
+        if (result.code === 'DELETE_NOT_READY') setCapabilities({deleteAvailable:false});
+        flashNotice(ASK_STATUS_COPY[result.code]);
+        if (result.code !== 'DELETE_NOT_READY') fail(result);
+      }
+    } catch (error) {
+      setDeletion({id,operationId,state:'error'});
+      flashNotice("Couldn't confirm chat deletion. Try again.");
+      if (askFailure(error)) fail(error);
+    } finally { deleteBusy.current = false; }
   };
 
-  const settle = async (id: string) => {
-    const r = await settleConversationAction(id);
+  const settle = guarded(async (id: string) => {
+    const r = await askCall(settleConversationAction(id));
     if (!r.ok) return flashNotice(r.error ?? "Couldn't settle.");
     await changed();
-  };
+  });
 
-  const unsettle = async (id: string) => {
-    await unsettleConversationAction(id);
+  const unsettle = guarded(async (id: string) => {
+    await askCall(unsettleConversationAction(id));
     await changed();
-  };
+  });
 
-  const pin = async (id: string, value: boolean) => {
-    await pinConversationAction(id, value);
+  const pin = guarded(async (id: string, value: boolean) => {
+    await askCall(pinConversationAction(id, value));
     await changed();
-  };
+  });
 
-  const move = async (id: string, folderId: string | null) => {
+  const move = guarded(async (id: string, folderId: string | null) => {
     setMover(null);
-    await moveConversationAction(id, folderId);
+    await askCall(moveConversationAction(id, folderId));
     await changed();
-  };
+  });
 
   /** Persist a new folder order (optimistic: keys are rewritten locally so
    *  the rail re-sorts at once, then the same keys go to the server). */
-  const reorder = async (movedId: string, target: { id: string; pos: "before" | "after" }) => {
+  const reorder = guarded(async (movedId: string, target: { id: string; pos: "before" | "after" }) => {
     const cur = orderedFolders(folders).map((f) => f.id);
     if (movedId === target.id) return;
     const rest = cur.filter((id) => id !== movedId);
@@ -311,9 +385,9 @@ export function ThreadList({
     if (rest.join() === cur.join()) return;
     const keys = new Map(sortKeysFor(rest).map((k) => [k.id, k.sortKey]));
     setFolders((fs) => fs.map((f) => (keys.has(f.id) ? { ...f, sortKey: keys.get(f.id)! } : f)));
-    await reorderFoldersAction(rest);
+    await askCall(reorderFoldersAction(rest));
     postPanelMessage({ type: "threads" });
-  };
+  });
 
   /** Drop-target props for a group header: a dragged thread files into the
    *  folder (`folderId` null = Unfiled); a dragged folder header lands before
@@ -358,12 +432,12 @@ export function ThreadList({
     },
   });
 
-  const fileUnder = async (t: RailThread) => {
+  const fileUnder = guarded(async (t: RailThread) => {
     if (!t.suggestedFolder) return;
-    const r = await fileConversationUnderAction(t.id, { kind: t.suggestedFolder.kind, id: t.suggestedFolder.id });
+    const r = await askCall(fileConversationUnderAction(t.id, { kind: t.suggestedFolder.kind, id: t.suggestedFolder.id }));
     if (!r.ok) return flashNotice("That job could not be found.");
     await changed();
-  };
+  });
 
   // ─── Folder actions ────────────────────────────────────────────────────────
 
@@ -375,59 +449,59 @@ export function ThreadList({
     setPicker({ mode: "new", thenMove });
   };
 
-  const createFreeFolder = async (name: string, thenMove?: string) => {
-    const r = await createFolderAction(name.trim());
-    if (thenMove) await moveConversationAction(thenMove, r.id);
+  const createFreeFolder = guarded(async (name: string, thenMove?: string) => {
+    const r = await askCall(createFolderAction(name.trim()));
+    if (thenMove) await askCall(moveConversationAction(thenMove, r.id));
     setPicker(null);
     await changed();
-  };
+  });
 
-  const folderForJob = async (job: JobPick, thenMove?: string) => {
-    const r = await ensureEntityFolderAction({ kind: job.kind, id: job.slug });
+  const folderForJob = guarded(async (job: JobPick, thenMove?: string) => {
+    const r = await askCall(ensureEntityFolderAction({ kind: job.kind, id: job.slug }));
     if (!r.ok || !r.id) return flashNotice("Couldn't open a folder for that job.");
-    if (thenMove) await moveConversationAction(thenMove, r.id);
+    if (thenMove) await askCall(moveConversationAction(thenMove, r.id));
     setPicker(null);
     await changed();
-  };
+  });
 
-  const renameFolder = async (f: RailFolder) => {
+  const renameFolder = guarded(async (f: RailFolder) => {
     const next = window.prompt("Rename folder", f.name);
     if (next == null) return;
-    await renameFolderAction(f.id, next);
+    await askCall(renameFolderAction(f.id, next));
     await changed();
-  };
+  });
 
-  const linkFolderTo = async (f: RailFolder, job: JobPick | null) => {
-    const r = await bindFolderAction(f.id, job ? { kind: job.kind, id: job.slug } : null);
+  const linkFolderTo = guarded(async (f: RailFolder, job: JobPick | null) => {
+    const r = await askCall(bindFolderAction(f.id, job ? { kind: job.kind, id: job.slug } : null));
     if (!r.ok) return flashNotice(r.error ?? "Couldn't link.");
     setPicker(null);
     await changed();
-  };
+  });
 
-  const toggleCollapsed = async (f: RailFolder) => {
+  const toggleCollapsed = guarded(async (f: RailFolder) => {
     // Optimistic: the persisted flag is the same in every tab and window.
     setFolders((cur) => cur.map((x) => (x.id === f.id ? { ...x, collapsed: !f.collapsed } : x)));
-    await setFolderCollapsedAction(f.id, !f.collapsed);
+    await askCall(setFolderCollapsedAction(f.id, !f.collapsed));
     postPanelMessage({ type: "threads" });
-  };
+  });
 
-  const archiveFolder = async (f: RailFolder, value: boolean) => {
-    const r = await archiveFolderAction(f.id, value);
+  const archiveFolder = guarded(async (f: RailFolder, value: boolean) => {
+    const r = await askCall(archiveFolderAction(f.id, value));
     if (!r.ok) return flashNotice(r.error ?? "Couldn't archive.");
     if (value) {
       if (scopeFolderId === f.id) onScopeChange(null);
       if (currentId && threads.some((t) => t.id === currentId && t.folderId === f.id)) onCurrentRemoved();
     }
     await changed();
-  };
+  });
 
-  const removeFolder = async (f: RailFolder) => {
+  const removeFolder = guarded(async (f: RailFolder) => {
     if (!window.confirm(`Delete the folder "${f.name}"? Its threads move to Unfiled.`)) return;
-    const r = await deleteFolderAction(f.id);
+    const r = await askCall(deleteFolderAction(f.id));
     if (!r.ok) return flashNotice(r.error ?? "Couldn't delete.");
     if (scopeFolderId === f.id) onScopeChange(null);
     await changed();
-  };
+  });
 
   // ─── Derived view ──────────────────────────────────────────────────────────
 
@@ -454,6 +528,26 @@ export function ThreadList({
 
   const shelfState = (key: string) => shelf[key] ?? { open: false, count: SETTLED_INITIAL };
 
+  if (failure) return <aside
+    style={variant === "rail" ? { width: "18rem", minWidth: "14rem", maxWidth: "45%" } : undefined}
+    className={`flex min-h-0 flex-col overflow-hidden ${variant === "rail" ? "rounded-lg border border-rule bg-paper shadow-card" : "bg-paper"} ${className}`}
+  >
+    <div className="relative flex items-center gap-1.5 border-b border-rule px-3 py-2">
+      <span className="text-label font-semibold text-ink-3">Threads</span>
+      <div className="flex-1" />
+      {onClose && (
+        <button onClick={onClose} aria-label="Close threads" title="Close threads" className="rounded p-0.5 text-ink-3 hover:bg-paper-2">
+          <X className="size-3.5" strokeWidth={1.75} />
+        </button>
+      )}
+    </div>
+    <div className="p-3 text-body text-ink-2">
+      <p role="status">{ASK_STATUS_COPY[failure]}</p>
+      {failure === 'SIGN_IN_AGAIN' ? <AskSignInLink /> : <button className="min-h-11 text-left text-ai-2" onClick={() => void (async () => { try { await onRetry?.(); await reload(); } catch (error) { fail(error); } })()}>Try again</button>}
+      {deletion && <div role="status" className="text-body">Chat deletion {deletion.state === 'pending' ? 'is pending.' : "couldn't be confirmed."}<button className="min-h-11 px-2 text-ai-2" onClick={() => void remove(deletion.id,true)}>Retry deletion</button></div>}
+    </div>
+  </aside>;
+
   return (
     <aside
       style={variant === "rail" ? { width: "18rem", minWidth: "14rem", maxWidth: "45%" } : undefined}
@@ -461,9 +555,10 @@ export function ThreadList({
         variant === "rail" ? "rounded-lg border border-rule bg-paper shadow-card" : "bg-paper"
       } ${className}`}
     >
+      {deletion && <div role="status" className="border-b border-rule px-3 text-body">Chat deletion {deletion.state === 'pending' ? 'is pending.' : "couldn't be confirmed."}<button className="min-h-11 px-2 text-ai-2" onClick={() => void remove(deletion.id,true)}>Retry deletion</button></div>}
       <div className="relative flex items-center gap-1.5 border-b border-rule px-3 py-2">
         {picker?.mode === "new" && (
-          <JobPicker
+          <JobPicker onFailure={code => fail({ok:false,code})}
             title="New folder"
             placeholder="New folder: job or name…"
             allowCreate
@@ -473,7 +568,7 @@ export function ThreadList({
           />
         )}
         {picker?.mode === "newChat" && (
-          <JobPicker
+          <JobPicker onFailure={code => fail({ok:false,code})}
             title="New chat in"
             placeholder="New chat in a job…"
             onPick={(job) => {
@@ -537,9 +632,11 @@ export function ThreadList({
       {flash && <p className="border-b border-rule bg-flag-soft px-3 py-1.5 text-meta text-flag">{flash}</p>}
 
       <div className="flex-1 overflow-y-auto p-1.5">
-        {needle && scoped.length === 0 && <p role="status" className="px-2 py-3 text-body text-ink-3">No matching threads or folders.</p>}
-        {loaded && threads.length === 0 && folders.length === 0 ? (
-          <p className="px-2 py-3 text-meta text-ink-4">No chats yet.</p>
+        {loaded && needle && scoped.length === 0 && <p role="status" className="px-2 py-3 text-body text-ink-3">No matching threads or folders.</p>}
+        {!loaded ? (
+          <p role="status" className="px-2 py-3 text-meta text-ink-4">Loading chats…</p>
+        ) : threads.length === 0 && folders.length === 0 ? (
+          <p className="px-2 py-3 text-meta text-ink-4">{ASK_EMPTY_COPY}</p>
         ) : (
           scoped.map((g) => {
             const f = g.folder;
@@ -638,7 +735,7 @@ export function ThreadList({
                       </Menu>
                     )}
                     {f && picker?.mode === "link" && picker.folderId === f.id && (
-                      <JobPicker
+                      <JobPicker onFailure={code => fail({ok:false,code})}
                         title="Link"
                         placeholder="Link to a job…"
                         current={f.entityKind && f.entityId ? { kind: f.entityKind, id: f.entityId } : null}
@@ -719,9 +816,9 @@ export function ThreadList({
                       <ArchiveRestore className="size-3 text-ink-4" strokeWidth={1.5} />
                     </button>
                   )}
-                  <button onClick={() => void remove(t.id)} aria-label="Delete" title="Delete" className="rounded p-0.5 hover:bg-paper-2">
+                  {capabilities.deleteAvailable && <button onClick={() => void remove(t.id)} aria-label="Delete" disabled={!!deletion} title="Delete" className="flex size-11 items-center justify-center rounded hover:bg-paper-2 disabled:opacity-40">
                     <Trash2 className="size-3 text-flag" strokeWidth={1.5} />
-                  </button>
+                  </button>}
                 </div>
               </div>
             ))}
@@ -866,7 +963,7 @@ export function ThreadList({
               disabled={t.working}
               onClick={() => void setArchivedThread(t.id, true)}
             />
-            <MenuItem icon={Trash2} label="Delete" danger onClick={() => void remove(t.id)} />
+            <MenuItem icon={Trash2} label="Delete" disabled={!capabilities.deleteAvailable || !!deletion} description={!capabilities.deleteAvailable ? ASK_STATUS_COPY.DELETE_NOT_READY : undefined} danger onClick={() => void remove(t.id)} />
           </Menu>
         )}
         {moverOpen && (
@@ -935,6 +1032,7 @@ function MenuItem({
   danger = false,
   disabled = false,
   keepOpen = false,
+  description,
 }: {
   icon: React.ComponentType<{ className?: string; strokeWidth?: number }>;
   label: string;
@@ -942,18 +1040,20 @@ function MenuItem({
   danger?: boolean;
   disabled?: boolean;
   keepOpen?: boolean;
+  description?: string;
 }) {
   return (
     <button
       onClick={onClick}
       disabled={disabled}
+      title={description}
       data-keep-open={keepOpen ? "" : undefined}
-      className={`flex w-full items-center gap-2 px-2.5 py-1 text-left text-meta hover:bg-paper-2 disabled:opacity-40 ${
+      className={`flex min-h-11 w-full items-center gap-2 px-2.5 py-1 text-left text-label hover:bg-paper-2 disabled:opacity-40 ${
         danger ? "text-flag" : "text-ink-2"
       }`}
     >
       <Icon className="size-3 flex-none" strokeWidth={1.75} />
-      <span className="truncate">{label}</span>
+      <span className="min-w-0"><span className="block truncate">{label}</span>{description && <span className="block text-meta text-ink-4 whitespace-normal">{description}</span>}</span>
     </button>
   );
 }

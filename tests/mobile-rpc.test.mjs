@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { z } from 'zod';
+import { isAskFailure } from '../lib/ask-result-codes.ts';
 import { getRedirectError } from 'next/dist/client/components/redirect.js';
 import { defineAction, dispatchMobileAction } from '../lib/mobile-rpc/dispatch.ts';
 
@@ -80,10 +81,11 @@ async function isolatedModule(file,names,deps) {
  return Function(...Object.keys(deps),stripTypeScriptTypes(source)+`;return {${names.join(',')}};`)(...Object.values(deps));
 }
 test('mobile file route: inherited job, lead-only, unrelated, restricted and anonymous',async()=>{
- const check=async(user,file,inherited=false,restricted=false)=>{
+ const check=async(user,file,inherited=false,restricted=false,canvasAccess={ordinary:true})=>{
   const {GET}=await isolatedModule('../app/api/mobile/files/[id]/route.ts',['GET'],{
    getUserFromRequest:async()=>user,hasAccess:(u,area)=>u.permissions.includes(area),
    queryOne:async sql=>sql.includes('sub_documents')?(restricted?{}:null):sql.includes('JOIN leads')?(inherited?{}:null):file,
+   resolveCanvasFilePolicy:async()=>canvasAccess,canvasSnapshotResponse:async()=>new Response('snapshot'),
    serveFile:async()=>new Response('file')});
   return (await GET(new Request('http://local/file'),{params:Promise.resolve({id:'photo'})})).status;
  };
@@ -93,6 +95,8 @@ test('mobile file route: inherited job, lead-only, unrelated, restricted and ano
  assert.equal(await check({permissions:['projects']},file),403);
  assert.equal(await check({permissions:['projects']},file,true,true),403);
  assert.equal(await check(null,file),401);
+ assert.equal(await check({permissions:['projects']},file,false,false,{ordinary:false}),200);
+ assert.equal(await check({permissions:['projects']},file,false,false,null),404);
 });
 test('failed PDF storage rejects mobile report before incident INSERT; web behavior preserved',async()=>{
  let inserts=0;
@@ -263,7 +267,7 @@ test('call bridge selects caller cell, preserves owner fallback and refuses miss
   ['staff','+16125552222','6125552222',null],
  ]) {
   let payload,insert,grantChecks=0;
-  const deps={voiceConfig:()=>({forwardTo:'+16125550000',fromNumber:'+16125553333'}),normalizeE164,
+  const deps={outboundNumberFor:async()=>'+16125553333',voiceConfig:()=>({forwardTo:'+16125550000',fromNumber:'+16125553333'}),normalizeE164,
    queryOne:async()=>({phone,role}),checkGrantCovers:async()=>{grantChecks++;return {ok:true};},
    matchPhoneToRecord:async()=>null,randomUUID:()=> 'call',query:async(sql,values)=>{insert=values;},
    withTransaction:async run=>run(()=>{}),enqueueIntent:async(run,input)=>{payload=input;return {intent:{id:'intent'}};},
@@ -279,7 +283,8 @@ test('call bridge selects caller cell, preserves owner fallback and refuses miss
 
 async function operatorRegistry(overrides = {}) {
   const { createOperatorActions } = await isolatedModule('../lib/mobile-rpc/operator.ts', ['createOperatorActions'], {
-    z, defineAction, MobileInputError: (await import('../lib/mobile-rpc/dispatch.ts')).MobileInputError,
+    z, isAskFailure, askBoundary:async fn=>fn(), defineAction, MobileInputError: (await import('../lib/mobile-rpc/dispatch.ts')).MobileInputError,
+    withAskLaunchSource: (source, callback) => { assert.equal(source, "panel_mobile"); overrides.sources?.push(source); return callback(); },
     chat: {}, runs: {}, grants: {}, operatorPageContext: async () => undefined,
     CLAUDE_MODEL_VALUES: ['sonnet', 'opus'], CLAUDE_CONTEXT_VALUES: ['default', '1m'],
     CLAUDE_MODE_VALUES: ['acceptEdits', 'plan'], CLAUDE_EFFORT_OPTIONS: [{value:'default'}, {value:'high'}],
@@ -289,7 +294,7 @@ async function operatorRegistry(overrides = {}) {
 const operatorId = '11111111-1111-4111-8111-111111111111';
 test('operator dispatcher enforces AI area, owner grants, and staff agent restrictions', async () => {
   let called = 0;
-  const actions = await operatorRegistry({chat:{newConversationAction:async()=>{called++;return operatorId;}}});
+  const actions = await operatorRegistry({chat:{newConversationAction:async()=>{called++;return {ok:true,id:operatorId};}}});
   const aiStaff = {...staff, permissions:['ai']};
   assert.equal((await call('operator.new',{agent:'claude'},staff,actions)).status,403);
   for (const agent of ['qwen','hermes']) assert.equal((await call('operator.new',{agent},aiStaff,actions)).status,400);
@@ -311,22 +316,22 @@ test('operator send forwards context, options, attachments and express permissio
   const context={type:'project',slug:'kitchen'};
   const options={model:'opus',mode:'plan'};
   const attachments=[{name:'plan.pdf',path:'/uploads/plan.pdf'}];
-  const actions=await operatorRegistry({chat:{sendMessageAction:async(...args)=>{received=args;return {ok:true,kind:'pending',runId:operatorId,userMessageId:operatorId};}},context:async(c,u)=>{assert.deepEqual(c,context);assert.equal(u,owner);return 'Web page context';}});
+  const sources=[];
+  const actions=await operatorRegistry({sources,chat:{sendMessageAction:async(...args)=>{received=args;return {ok:true,kind:'pending',runId:operatorId,userMessageId:operatorId};}},context:async(c,u)=>{assert.deepEqual(c,context);assert.equal(u,owner);return 'Web page context';}});
   const response=await call('operator.send',{id:operatorId,prompt:'Review',context,options,attachments,allowSends:true},owner,actions);
   assert.equal(response.status,200);
   assert.deepEqual(received,[operatorId,'Review','Web page context',options,attachments,undefined,true]);
+  assert.deepEqual(sources,['panel_mobile']);
 });
-test('operator conversation read returns 404 for an unknown thread',async()=>{
-  const {operatorConversation}=await isolatedModule('../lib/mobile-rpc/operator-reads.ts',['operatorConversation'],{z,chat:{loadConversationAction:async()=>null}});
-  const response=await operatorConversation(operatorId);
-  assert.equal(response.status,404);
-  assert.deepEqual(await response.json(),{error:'That conversation no longer exists.'});
+test('operator conversation read returns a typed unavailable result for an unknown thread',async()=>{
+  const {operatorConversation}=await isolatedModule('../lib/mobile-rpc/operator-reads.ts',['operatorConversation'],{z,isAskFailure,chat:{loadConversationAction:async()=>({ok:false,code:'THREAD_UNAVAILABLE'})}});
+  assert.deepEqual(await operatorConversation(operatorId),{ok:false,code:'THREAD_UNAVAILABLE'});
 });
 test('operator read authentication rejects conflicting cookie identity and non-AI viewers',async()=>{
   const {MobileInputError}=await import('../lib/mobile-rpc/dispatch.ts');
   const check=async(bearer,cookie)=>{
     let loaded=false;
-    const {mobileOperatorRead}=await isolatedModule('../lib/mobile-rpc/operator-reads.ts',['mobileOperatorRead'],{z,MobileInputError,getUserFromRequest:async()=>bearer,getCurrentUser:async()=>cookie,hasAccess:u=>u.role==='owner'||u.permissions.includes('ai')});
+    const {mobileOperatorRead}=await isolatedModule('../lib/mobile-rpc/operator-reads.ts',['mobileOperatorRead'],{z,isAskFailure,askBoundary:async fn=>fn(),MobileInputError,getUserFromRequest:async()=>bearer,getCurrentUser:async()=>cookie,hasAccess:u=>u.role==='owner'||u.permissions.includes('ai')});
     const response=await mobileOperatorRead(new Request('http://local'),false,async()=>{loaded=true;return {value:'read'};});
     return {status:response.status,loaded};
   };
@@ -335,4 +340,18 @@ test('operator read authentication rejects conflicting cookie identity and non-A
   assert.deepEqual(await check(staff,staff),{status:403,loaded:false});
   const aiStaff={...staff,permissions:['ai']};
   assert.deepEqual(await check(aiStaff,aiStaff),{status:200,loaded:true});
+});
+
+test('operator delete requires and forwards a stable client operation UUID',async()=>{
+ const received=[];const operationId='22222222-2222-4222-8222-222222222222';
+ const actions=await operatorRegistry({chat:{deleteConversationAction:async(...args)=>{received.push(args);return {ok:true,state:'pending'};}}});
+ assert.equal((await call('operator.delete',{id:operatorId},owner,actions)).status,400);
+ for(let i=0;i<2;i++)assert.equal((await call('operator.delete',{id:operatorId,operationId},owner,actions)).status,200);
+ assert.deepEqual(received,[[operatorId,operationId],[operatorId,operationId]]);
+});
+test('operator typed failures stay fixed top-level JSON, never generic 500 or nested success',async()=>{
+ for(const code of ['ASK_PAUSED','THREAD_UNAVAILABLE','SIGN_IN_AGAIN','CHAT_OFF','DELETE_NOT_READY']){
+  const actions=await operatorRegistry({runs:{pollAgentRun:async()=>({ok:false,code})}});
+  const response=await call('operator.poll',{runId:operatorId},owner,actions);assert.equal(response.status,code==='ASK_PAUSED'?503:code==='SIGN_IN_AGAIN'?401:code==='CHAT_OFF'?403:409);assert.deepEqual(await response.json(),{ok:false,code});
+ }
 });

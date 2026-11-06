@@ -42,7 +42,8 @@ beforeEach(async () => {
   calls = []; emails = []; telegram.call = baseCall;
   process.env.SJC_OUTBOUND_DISABLED = '0'; // Both real transport objects are fake above.
   await f.run(`UPDATE users SET active=true,role='owner' WHERE id=$1`, [f.owner.id]);
-  await f.run(`TRUNCATE work_items,decisions,owner_push_messages,telegram_updates,telegram_reply_targets,push_outbox,source_events RESTART IDENTITY CASCADE`);
+  await f.run(`TRUNCATE push_actions,push_device_deliveries,owner_push_messages,push_outbox,telegram_updates,telegram_reply_targets RESTART IDENTITY CASCADE`);
+  await f.run(`DELETE FROM work_items`);await f.run(`DELETE FROM decisions`);
 });
 
 function callback(c, verb, overrides = {}) {

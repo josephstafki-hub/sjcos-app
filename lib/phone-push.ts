@@ -65,11 +65,15 @@ export async function recordAppMessage(input:{kind:string;title:string;body?:str
  const thread=parent?.thread_key??(decisionId?`decision:${decisionId}`:workItemId?`work_item:${workItemId}`:e?.portalChannelKey?`portal:${e.portalChannelKey}`:`info:${crypto.randomUUID()}`);
  const binding=workItemId?(e?.draftBinding??(await queryOne<{binding:string}>(`SELECT phone_push_draft_binding($1) AS binding`,[workItemId]))?.binding):null;
  const {rows}=await query<AppAlert>(`INSERT INTO owner_push_messages(kind,title,body,href,decision_id,work_item_id,portal_channel_key,portal_message_id,owner_reply_id,reply_to_id,thread_key,category,state,content_hash,sends,push_outbox_id,grant_id,draft_binding,"from",agent_name)
- VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING *`,[input.kind,input.title,input.body??null,input.href??null,decisionId??parent?.decision_id,workItemId??parent?.work_item_id,e?.portalChannelKey??parent?.portal_channel_key,e?.portalMessageId??parent?.portal_message_id,input.ownerReplyId??null,parent?.id??null,thread,category,decisionId||workItemId?(d&&d.status!=='pending'?'decided':'open'):'info',(cb?.hashPrefix && !d?.content_hash?.startsWith(cb.hashPrefix)?cb.hashPrefix:d?.content_hash)??null,sends,outboxId??null,grant?.id??parent?.grant_id??null,binding,input.from??'system',input.agentName??null]);
+ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) RETURNING *`,[input.kind,input.title,input.body??null,input.href??null,decisionId??parent?.decision_id,workItemId??parent?.work_item_id,e?.portalChannelKey??parent?.portal_channel_key,e?.portalMessageId??parent?.portal_message_id,input.ownerReplyId??e?.ownerReplyId??null,parent?.id??null,thread,category,decisionId||workItemId?(d&&d.status!=='pending'?'decided':'open'):'info',(cb?.hashPrefix && !d?.content_hash?.startsWith(cb.hashPrefix)?cb.hashPrefix:d?.content_hash)??null,sends,outboxId??null,grant?.id??parent?.grant_id??null,binding,input.from??'system',input.agentName??null]);
  await query(`SELECT phone_push_reconcile()`);
  return (await queryOne<AppAlert>(`SELECT * FROM owner_push_messages WHERE id=$1`,[rows[0].id]))!;
 }
 export async function deliverAppMessage(m:AppAlert,token?:string) {
+ // Re-read the persisted sanitized row, never transmit a stale snapshot.
+ const current=await queryOne<AppAlert>(`SELECT * FROM owner_push_messages WHERE id=$1`,[m.id]);
+ if(!current)throw new Error('That alert no longer exists.');
+ m=current;
  const result=await sendAppPayload(buildPushPayload(m,await pushBadge()),{token,messageId:m.id,collapseId:m.kind==='stale_approval'?m.thread_key:undefined});
  const prior=await queryOne(`SELECT 1 FROM push_device_deliveries WHERE message_id=$1 LIMIT 1`,[m.id]);
  if(result.accepted||prior)await query(`UPDATE owner_push_messages SET delivered_at=now(),delivered_channels=array_append(delivered_channels,'app') WHERE id=$1 AND NOT ('app'=ANY(delivered_channels))`,[m.id]);
@@ -88,7 +92,7 @@ export async function cleanupAppAlerts() {
 export function shapePushMessage(row:Record<string,unknown>) {
  const m=row as unknown as AppAlert; const key=approvalKey(m);
  const allowedActions=row.state==='open' && ['SJC_DECISION','SJC_GRANT','SJC_DECISION_SEND','SJC_GRANT_SEND','SJC_DRAFT','SJC_DRAFT_SEND'].includes(m.category)?(m.work_item_id?['approve','changes','decline']:m.decision_id?['approve','changes','hold']:[]):[];
- if(row.portal_channel_key||row.decision_id||row.work_item_id)allowedActions.push('reply');
+ if(!row.ask_reply_erased && (row.portal_channel_key||row.decision_id||row.work_item_id))allowedActions.push('reply');
  const result:Record<string,unknown>={};for(const [k,v] of Object.entries(row))result[k.replace(/_([a-z])/g,(_,c:string)=>c.toUpperCase())]=v;
  delete result.deliveredChannels;delete result.telegramMessageId;delete result.cleanupPending;delete result.pushOutboxId;
  return {...result,approvalKey:key,dest:buildPushPayload({...m,body:''},0).sjc.dest,allowedActions,replies:[]};

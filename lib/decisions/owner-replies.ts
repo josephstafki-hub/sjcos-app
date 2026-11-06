@@ -27,7 +27,7 @@
 // Pure over run(sql, params) — the webhook calls it inside its transaction.
 
 import type { Run } from "../commands/core.ts";
-import type { Principal } from "../commands/principal.ts";
+import { humanOf, type Principal } from "../commands/principal.ts";
 import { resolveFromChannel } from "./resolve.ts";
 import { enqueueAgentTrigger } from "../agent-runtime/triggers.ts";
 
@@ -130,6 +130,13 @@ export async function recordOwnerReply(
     [d.id],
   );
   const conversationId = g?.conversation_id ?? null;
+  if(conversationId){
+    const person=humanOf(input.principal);
+    const [allowed]=await run(`SELECT c.id FROM ai_conversations c JOIN users u ON u.id=c.owner_user_id
+      WHERE c.id=$1 AND u.id=$2 AND u.role='owner' AND u.active AND c.deleted_at IS NULL
+      AND EXISTS(SELECT 1 FROM ask_canvas_maintenance WHERE recovery_ready) FOR SHARE OF c`,[conversationId,person?.userId??null]);
+    if(!allowed)throw Error('ASK_THREAD_UNAVAILABLE');
+  }
   const route: "session" | "agent" = conversationId ? "session" : "agent";
 
   const [row] = await run<{ id: string }>(
@@ -148,7 +155,9 @@ export async function recordOwnerReply(
       via: input.channel ?? "telegram",
       principal: input.principal,
       outcome: "changes_requested",
-      note: input.text,
+      // A session reply is private. Shared card/history/intent/hook consumers
+      // receive status only; the body stays in the fenced owner_replies row.
+      note: conversationId ? "Private Ask reply recorded." : input.text,
     });
     pulled = r.ok;
   }
@@ -211,7 +220,8 @@ export function draftReplyHow(workItemId: string): string {
 /** Joe replied about a staged draft (a work item awaiting approval). */
 async function recordDraftReply(
   run: Run,
-  input: { workItemId: string; text: string; chatId: string; messageId: number; channel?:"app"|"telegram"; pushMessageId?:string },
+  input: { workItemId: string; text: string; chatId: string; messageId: number; principal:Principal; channel?:"app"|"telegram"; pushMessageId?:string },
+
 ): Promise<RecordedReply> {
   const [w] = await run<{ id: string; title: string; approval_status: string; lead_id: string | null; project_id: string | null }>(
     `SELECT id, title, approval_status, lead_id, project_id FROM work_items WHERE id = $1`,
@@ -230,6 +240,13 @@ async function recordDraftReply(
     [w.id],
   );
   const conversationId = src?.conversation_id ?? null;
+  if(conversationId){
+    const person=humanOf(input.principal);
+    const [allowed]=await run(`SELECT c.id FROM ai_conversations c JOIN users u ON u.id=c.owner_user_id
+      WHERE c.id=$1 AND u.id=$2 AND u.role='owner' AND u.active AND c.deleted_at IS NULL
+      AND EXISTS(SELECT 1 FROM ask_canvas_maintenance WHERE recovery_ready) FOR SHARE OF c`,[conversationId,person?.userId??null]);
+    if(!allowed)throw Error('ASK_THREAD_UNAVAILABLE');
+  }
   const route: "session" | "agent" = conversationId ? "session" : "agent";
 
   const [row] = await run<{ id: string }>(
@@ -249,7 +266,7 @@ async function recordDraftReply(
             blocked_reason = $2
       WHERE id = $1 AND approval_status = 'requested'
       RETURNING id`,
-    [w.id, `Joe asked for changes on Telegram: ${input.text}`.slice(0, 500)],
+    [w.id, conversationId ? "Changes requested in the private Ask chat." : `Joe asked for changes on Telegram: ${input.text}`.slice(0, 500)],
   );
   const pulled = pulledRows.length > 0;
 
@@ -332,7 +349,7 @@ export async function closeRepliesRevisedByDraft(run: Run, workItemId: string): 
        UPDATE owner_replies o
           SET state = 'answered', answer_kind = 'revised', answer = 'New draft: ' || fresh.title, answered_at = now()
          FROM fresh, work_items w
-        WHERE w.id = o.work_item_id AND o.state IN ('received','delivered') AND o.created_at > now() - interval '3 days'
+        WHERE o.conversation_id IS NULL AND w.id = o.work_item_id AND o.state IN ('received','delivered') AND o.created_at > now() - interval '3 days'
           AND (w.id = fresh.id
                OR (fresh.lead_id IS NOT NULL AND w.lead_id = fresh.lead_id)
                OR (fresh.project_id IS NOT NULL AND w.project_id = fresh.project_id))
@@ -354,7 +371,7 @@ export async function closeRepliesRevisedBy(
     `UPDATE owner_replies o
         SET state = 'answered', answer_kind = 'revised', answer = 'New request ' || $1::text, answered_at = now()
        FROM owner_grants g
-      WHERE o.grant_id = g.id AND o.state IN ('received','delivered') AND o.created_at > now() - interval '3 days'
+      WHERE o.grant_id = g.id AND (o.conversation_id IS NULL OR (o.conversation_id=$4 AND EXISTS(SELECT 1 FROM ai_conversations c WHERE c.id=o.conversation_id AND c.deleted_at IS NULL))) AND o.state IN ('received','delivered') AND o.created_at > now() - interval '3 days'
         AND g.actions = $2::text[]
         AND (($3::text IS NOT NULL AND lower(g.target_id) = lower($3)) OR ($4::uuid IS NOT NULL AND o.conversation_id = $4))
       RETURNING o.id, o.chat_id, o.message_id::text AS message_id, o.push_message_id`,

@@ -1,0 +1,58 @@
+# REVIEW SPEC ONLY. Render @JOE_UID@ at owner-authorized deployment.
+# Required executables, attestation and root-created namespaces do not exist yet.
+[Unit]
+Description=SJC OS isolated browser controller (activation gated)
+Requires=sjcos-browser-supervisor.service sjcos-browser-proxy.service
+After=sjcos-browser-supervisor.service sjcos-browser-proxy.service
+ConditionPathExists=/etc/sjcos-browser/runtime-attested.json
+ConditionPathExists=/etc/sjcos-browser/activation-approved
+
+[Service]
+Type=simple
+User=sjcos-browser
+Group=sjcos-browser-web
+Slice=user-@JOE_UID@-sjcosbrowser.slice
+NetworkNamespacePath=/run/netns/sjcos-browser
+Environment=SJC_BROWSER_ENABLED=0
+Environment=NODE_OPTIONS=--max-old-space-size=256
+Environment=HOME=/run/sjcos-browser/profile
+ExecStartPre=+/usr/local/libexec/sjcos-browser-latch check
+ExecStartPre=/usr/local/libexec/sjcos-browser-attest controller
+ExecStart=/usr/bin/node /opt/sjcos-browser/scripts/sjcos-browser.mjs
+ExecStopPost=+/usr/local/libexec/sjcos-browser-latch record
+Restart=no
+MemoryHigh=2G
+MemoryMax=3G
+MemorySwapMax=0
+CPUQuota=150%
+TasksMax=256
+Nice=15
+OOMPolicy=stop
+KillMode=control-group
+TimeoutStopSec=15
+UMask=0077
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+LimitCORE=0
+RuntimeDirectory=sjcos-browser
+RuntimeDirectoryMode=0750
+StateDirectory=sjcos-browser
+StateDirectoryMode=0700
+ReadWritePaths=/run/sjcos-browser /var/lib/sjcos-browser
+# Socket itself must be explicitly chmod 0660, group sjcos-browser-web.
+# Root must mount quota partitions 128/200/56 MiB inside the 384 MiB tmpfs.
+TemporaryFileSystem=/run/sjcos-browser/profile:rw,nosuid,nodev,size=128M,mode=0700,uid=@BROWSER_UID@,gid=@BROWSER_GID@
+TemporaryFileSystem=/run/sjcos-browser/downloads:rw,nosuid,nodev,size=200M,mode=0700,uid=@BROWSER_UID@,gid=@BROWSER_GID@
+TemporaryFileSystem=/run/sjcos-browser/scratch:rw,nosuid,nodev,size=56M,mode=0700,uid=@BROWSER_UID@,gid=@BROWSER_GID@
+TemporaryFileSystem=/dev/shm:rw,nosuid,nodev,noexec,size=128M,mode=1777
+LoadCredential=database:/etc/sjcos-browser/credentials/database
+LoadCredential=bridge:/etc/sjcos-browser/credentials/bridge
+LoadCredential=vault:/etc/sjcos-browser/credentials/vault
+LoadCredential=audit:/etc/sjcos-browser/credentials/audit
+StandardOutput=null
+StandardError=null

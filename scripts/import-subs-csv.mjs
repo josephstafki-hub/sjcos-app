@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {testDatabaseUrl} from '../lib/test-db-guard.mjs';
 // SJC OS — import subcontractors from a Houzz-style CSV export into the `subs`
 // table (Company Name, First/Last Name, Email, Phone, Address, Internal Notes,
 // Website, Trades). One-off import for the file Joe attached in chat.
@@ -13,7 +14,7 @@
 import { readFileSync, writeFileSync, existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const CSV = process.argv.find((a) => a.endsWith(".csv")) ??
@@ -25,6 +26,7 @@ const DO_UNDO = args.includes("--undo");
 const CONFIRM = args.includes("--confirm");
 
 function databaseUrl() {
+  const testUrl=testDatabaseUrl();if(testUrl)return testUrl;
   const env = readFileSync(path.join(__dirname, "..", ".env.local"), "utf8");
   const m = env.match(/^DATABASE_URL=(.+)$/m);
   return m[1].trim().replace(/^["']|["']$/g, "");

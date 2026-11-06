@@ -1,4 +1,5 @@
 import "server-only";
+import { requireThreadAccess, threadQuery } from "@/lib/thread-access";
 
 import { query, queryOne } from "@/lib/db";
 import { hermesChat, startClaudeRun, type ChatTurn } from "@/lib/dev-agents";
@@ -321,9 +322,10 @@ export async function runHermesLadder(input: LadderInput): Promise<string> {
  *  long a ladder may run. Rounds and the takeover poll both bump updated_at,
  *  so only a task that has gone QUIET for 45 minutes has a dead driver. */
 export async function failStaleTasks(): Promise<void> {
-  await query(
+  await threadQuery(
     `UPDATE orchestration_tasks SET status = 'error', updated_at = now()
-      WHERE status = 'running' AND updated_at < now() - interval '45 minutes'`,
+      WHERE status = 'running' AND updated_at < now() - interval '45 minutes'
+        AND EXISTS(SELECT 1 FROM ai_conversations c WHERE c.id=orchestration_tasks.conversation_id AND c.owner_user_id=nullif(current_setting('sjcos.ask_actor',true),'')::uuid AND c.deleted_at IS NULL)`,
   ).catch(() => {});
 }
 
@@ -353,6 +355,7 @@ async function startLadderRun(
   seed: string,
   initialFeedback?: string,
 ): Promise<string | null> {
+  await requireThreadAccess(conversationId);
   try {
     const run = await queryOne<{ id: string }>(
       `INSERT INTO dev_agent_runs (agent, prompt, page_context, status, conversation_id, activity)

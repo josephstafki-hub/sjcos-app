@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {testDatabaseUrl} from '../lib/test-db-guard.mjs';
 // SJC OS — temp CRM CSV importer (Open Brain / Open Engine migration, Phase 2).
 //
 // Reads the temporary CRM tracker (/home/joe/SJC OS Temp/data/leads.csv), maps
@@ -24,7 +25,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -41,6 +42,7 @@ const CSV_PATH = flag("--csv", "/home/joe/SJC OS Temp/data/leads.csv");
 
 // ─── DB connection (reads DATABASE_URL from the app .env.local) ──────────────
 function databaseUrl() {
+  const testUrl=testDatabaseUrl();if(testUrl)return testUrl;
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
   const env = readFileSync(path.join(__dirname, "..", ".env.local"), "utf8");
   const m = env.match(/^DATABASE_URL=(.+)$/m);

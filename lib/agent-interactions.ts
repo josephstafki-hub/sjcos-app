@@ -1,6 +1,10 @@
 import "server-only";
+import {validateQuestionResponse} from "@/lib/ask-context-inputs.mjs";
+import {pool} from "@/lib/db";
+import {withAskJournal} from "@/lib/ask-thread-journal.mjs";
+import {threadPrincipal} from "@/lib/thread-access";
 
-import { query, queryOne } from "@/lib/db";
+import { threadQuery as query, threadQueryOne as queryOne, requireRunThreadAccess, requireThreadAccess, requireInteractionThreadAccess } from "@/lib/thread-access";
 
 // Interactive agent runs — the read/answer layer over agent_interactions.
 //
@@ -95,18 +99,19 @@ export async function listPendingInteractions(
   runId: string,
   conversationId: string | null,
 ): Promise<AgentInteraction[]> {
+  await requireRunThreadAccess(runId);
+  if (conversationId) await requireThreadAccess(conversationId);
   // Orphan sweep first: an asker that died mid-poll leaves 'pending' forever —
   // expire anything older than 15 min so it can't haunt every future run.
   await query(
     `UPDATE agent_interactions SET status = 'expired'
-      WHERE status = 'pending' AND created_at < now() - interval '15 minutes'`,
+      WHERE EXISTS(SELECT 1 FROM ai_conversations c WHERE c.id=agent_interactions.conversation_id AND c.owner_user_id=nullif(current_setting('sjcos.ask_actor',true),'')::uuid AND c.deleted_at IS NULL) AND status = 'pending' AND created_at < now() - interval '15 minutes'`,
   );
   const { rows } = await query<Row>(
     `SELECT ${COLS} FROM agent_interactions
       WHERE status = 'pending'
         AND (run_id = $1
-             OR ($2::uuid IS NOT NULL AND conversation_id = $2)
-             OR (run_id IS NULL AND conversation_id IS NULL))
+             OR ($2::uuid IS NOT NULL AND conversation_id = $2))
       ORDER BY created_at ASC
       LIMIT 5`,
     [runId, conversationId],
@@ -119,18 +124,29 @@ export async function answerInteraction(
   id: string,
   response: InteractionResponse,
 ): Promise<AgentInteraction | null> {
-  const row = await queryOne<Row>(
-    `UPDATE agent_interactions
-        SET status = 'answered', response = $2::jsonb, answered_at = now()
-      WHERE id = $1 AND status = 'pending'
-      RETURNING ${COLS}`,
-    [id, JSON.stringify(response)],
-  );
-  return row ? fromRow(row) : null;
+  await requireInteractionThreadAccess(id);
+  const person=await threadPrincipal();
+  return withAskJournal(pool,async()=>{
+    const db=await pool.connect();
+    try{
+      await db.query('BEGIN');
+      await db.query("SELECT set_config('sjcos.ask_actor',$1,true)",[person.id]);
+      // Same thread row/order as Canvas and completion, before interaction row.
+      const owned=await db.query(`SELECT c.id FROM ai_conversations c JOIN agent_interactions i ON i.conversation_id=c.id WHERE i.id=$1 AND c.owner_user_id=$2 AND c.deleted_at IS NULL FOR UPDATE OF c`,[id,person.id]);
+      if(!owned.rows.length)throw Error('ASK_THREAD_UNAVAILABLE');
+      const old=(await db.query<Row>(`SELECT ${COLS} FROM agent_interactions WHERE id=$1 FOR UPDATE`,[id])).rows[0];
+      if(old.kind==='question')response=validateQuestionResponse(old.payload,response).response as InteractionResponse;
+      else if(response.kind!=='permission'||!['allow','deny'].includes(response.decision)||Object.keys(response).some(k=>!['kind','decision','note'].includes(k))||('note'in response&&(typeof response.note!=='string'||response.note.length>8000)))throw Error('INVALID_INPUT');
+      const row=(await db.query<Row>(`UPDATE agent_interactions SET status='answered',response=$2::jsonb,answered_at=now() WHERE id=$1 AND status='pending' RETURNING ${COLS}`,[id,JSON.stringify(response)])).rows[0];
+      // 0107 trigger records response hash + sticky classification before commit.
+      await db.query('COMMIT');return row?fromRow(row):null;
+    }catch(e){await db.query('ROLLBACK');throw e;}finally{db.release();}
+  });
 }
 
 /** Dismiss without answering — the asker's poll treats it like a timeout. */
 export async function dismissInteraction(id: string): Promise<void> {
+  await requireInteractionThreadAccess(id);
   await query(
     `UPDATE agent_interactions SET status = 'dismissed', answered_at = now()
       WHERE id = $1 AND status = 'pending'`,

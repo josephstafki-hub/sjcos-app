@@ -1,4 +1,6 @@
 "use client";
+import { backgroundAuthLost, noteBackgroundFailure } from "@/components/shell/backgroundAuth";
+import { isBackgroundFailure } from "@/lib/background-result";
 
 import {
   useMemo,
@@ -422,13 +424,16 @@ export function InboxClient({
   const draftWindow=JSON.stringify([...new Set([...threads,...(remoteData?.threads??[])].map(t=>t.id))].sort());
   const draftScope=JSON.stringify([selfEmail,userId,owner,draftWindow]);
   useEffect(()=>{
-    let alive=true,loading=false;
+    let alive=true,loading=false,stopped=false;
     const refresh=async()=>{
-      if(loading)return;loading=true;
+      if(loading||stopped||backgroundAuthLost())return;loading=true;
       try{
         const keys:string[]=JSON.parse(draftWindow),rows:InboxDraft[]=[];
         for(let offset=0;offset<keys.length;offset+=200){
-          rows.push(...await loadDrafts(keys.slice(offset,offset+200)));
+          const result=await loadDrafts(keys.slice(offset,offset+200));
+          if(isBackgroundFailure(result)){stopped=true;noteBackgroundFailure(result);setServerDrafts({key:draftScope,rows:[]});return;}
+          if(backgroundAuthLost())return;
+          rows.push(...result);
           if(!alive)return;
         }
         if(alive)setServerDrafts({key:draftScope,rows});

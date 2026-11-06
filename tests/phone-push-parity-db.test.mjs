@@ -24,7 +24,14 @@ for(const route of ['agent','conversation'])test(`real text reply routed to ${ro
  if(conv)await f.run(`INSERT INTO dev_agent_runs(conversation_id,agent,status,prompt) VALUES($1,'claude','running','QA')`,[conv.id]);
  const [g]=await f.run(`INSERT INTO owner_grants(actions,reason,requested_by,conversation_id) VALUES('{send_email}','QA permission','qa',$1) RETURNING *`,[conv?.id]);
  const {decision:d}=await stageGrantDecision(async(s,p)=>(await f.db.query(s,p)).rows,{...g,expires_at:g.expires_at.toISOString()},{kind:'agent',agent:'qa',onBehalfOf:null});const m=await f.recordAppMessage({kind:'grant',title:'Permission',telegram:{decisionId:d.id}});return {d,m,conv,g};};
- const a=await make(),b=await make();await tg(a,'reply','Confirm oak');assert.equal((await f.action(b.m,'reply','Confirm oak')).body.ok,true);assert.deepEqual(await state(a),await state(b));
+ const a=await make(),b=await make();if(route==='conversation'){
+  // An unattributed legacy Ask chat is quarantined by Phase 0. Neither
+  // transport may turn its private reply into a shared operating-agent note.
+  await assert.rejects(tg(a,'reply','Confirm oak'),/ASK_THREAD_UNAVAILABLE/);
+  assert.equal((await f.action(b.m,'reply','Confirm oak')).body.code,'THREAD_UNAVAILABLE');
+  for(const card of [a,b])assert.equal((await f.run('SELECT id FROM owner_replies WHERE decision_id=$1',[card.d.id])).length,0);
+  return;
+ }await tg(a,'reply','Confirm oak');assert.equal((await f.action(b.m,'reply','Confirm oak')).body.ok,true);assert.deepEqual(await state(a),await state(b));
  if(a.conv){const count=async c=>(await f.run(`SELECT count(*)::int AS n FROM run_steers s JOIN dev_agent_runs r ON r.id=s.run_id WHERE r.conversation_id=$1`,[c.id]))[0].n;assert.equal(await count(a.conv),await count(b.conv));}
 });
 test('real linked grant approval: webhook vs phone',async()=>{const {stageGrantDecision}=await import('../lib/decisions/grants.ts');const make=async()=>{const [g]=await f.run(`INSERT INTO owner_grants(actions,reason,requested_by) VALUES('{send_email}','QA permission','qa') RETURNING *`);const {decision:d}=await stageGrantDecision(async(s,p)=>(await f.db.query(s,p)).rows,{...g,expires_at:g.expires_at.toISOString()},{kind:'agent',agent:'qa',onBehalfOf:null});return {d,g,m:await f.recordAppMessage({kind:'grant',title:'Permission',telegram:{decisionId:d.id}})};};const a=await make(),b=await make();await tg(a,'approve');assert.equal((await f.action(b.m,'approve')).body.ok,true);const status=async g=>(await f.run(`SELECT status,uses FROM owner_grants WHERE id=$1`,[g.id]))[0];assert.deepEqual(await status(a.g),await status(b.g));assert.equal((await status(a.g)).status,'approved');});

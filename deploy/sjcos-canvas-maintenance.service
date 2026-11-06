@@ -1,0 +1,13 @@
+[Unit]
+Description=SJC OS bounded Ask/Canvas retention maintenance
+[Service]
+Type=oneshot
+WorkingDirectory=%h/sjcos-app
+EnvironmentFile=%h/.config/sjcos/canvas-maintenance.env
+ExecStart=/usr/bin/node scripts/canvas-maintenance.mjs
+Nice=19
+MemoryMax=128M
+CPUQuota=25%
+TimeoutStartSec=15
+Restart=no
+NoNewPrivileges=true

@@ -172,12 +172,12 @@ export async function finishExecution(run: Run, id: string, input: FinishExecuti
 }
 
 export async function getExecution(run: Run, id: string): Promise<AgentExecution | null> {
-  const [row] = await run<AgentExecution>(`SELECT ${COLS} FROM agent_executions WHERE id = $1`, [id]);
+  const [row] = await run<AgentExecution>(`SELECT ${COLS} FROM agent_executions WHERE id = $1 AND (dev_agent_run_id IS NULL OR EXISTS(SELECT 1 FROM dev_agent_runs r WHERE r.id=dev_agent_run_id AND r.conversation_id IS NULL))`, [id]);
   return row ?? null;
 }
 
 export async function listExecutions(run: Run, opts: { projectId?: string | null; leadId?: string | null; limit?: number } = {}): Promise<AgentExecution[]> {
-  const where: string[] = [];
+  const where: string[] = ["(dev_agent_run_id IS NULL OR EXISTS(SELECT 1 FROM dev_agent_runs r WHERE r.id=dev_agent_run_id AND r.conversation_id IS NULL))"];
   const params: unknown[] = [];
   if (opts.projectId) {
     params.push(opts.projectId);

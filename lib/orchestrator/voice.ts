@@ -1,4 +1,5 @@
 import "server-only";
+import { requireRunThreadAccess } from "@/lib/thread-access";
 
 import { chatReplyClaude } from "@/lib/dev-agents";
 import { queryOne, query } from "@/lib/db";
@@ -87,6 +88,7 @@ export async function conciergeTurn(
  *  dev_agent_runs.spoken_answer so replays don't pay again. Claude condenses
  *  whatever Hermes/Qwen wrote into what a person would say out loud. */
 export async function spokenUpdateForRun(runId: string): Promise<string | null> {
+  await requireRunThreadAccess(runId);
   const run = await queryOne<{ agent: string; prompt: string; answer: string | null; spoken: string | null }>(
     `SELECT agent, prompt, answer, spoken_answer AS spoken FROM dev_agent_runs WHERE id = $1`,
     [runId],

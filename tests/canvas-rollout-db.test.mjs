@@ -1,0 +1,102 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {withMigrationSubset} from './_harness/testdb.mjs';
+import {listMigrationFiles} from '../db/migrate.mjs';
+import {capabilities} from '../lib/ask-thread-journal.mjs';
+for(const [name,ids] of [['shared_canvas_phase0',[100,105]]])test(`Phase 0 ${name}: real ordered ledger, flags off, no later Canvas relations`,()=>withMigrationSubset(name,ids,async({db,apply})=>{
+ for(const k of ['SJC_CANVAS_ENABLED'])process.env[k]='0';
+ await apply();
+ assert.deepEqual(await capabilities(db),{thread:true,canvas:false,files:false});
+ for(const table of ['ask_canvases','ask_canvas_versions','ask_canvas_saves','ask_context_provenance'])assert.equal((await db.query('SELECT to_regclass($1) AS name',[table])).rows[0].name,null);
+ const recorded=(await db.query('SELECT id,checksum FROM schema_migrations WHERE id>=100 ORDER BY id')).rows;
+ const expected=listMigrationFiles().filter(f=>ids.includes(f.id));
+ assert.deepEqual(recorded.map(r=>[r.id,r.checksum]),expected.map(f=>[f.id,f.checksum]));
+ await apply(); // checksum replay, not duplicate DDL
+ assert.equal((await db.query('SELECT recovery_ready FROM ask_canvas_maintenance')).rows[0].recovery_ready,false);
+}));
+test('0105 without 0100 rolls back atomically, then additive 0100+0105 succeeds',()=>withMigrationSubset('missing_shared',[105],async({db,apply})=>{
+ await assert.rejects(apply(),/requires shared migration 0100/);
+ assert.equal((await db.query(`SELECT to_regclass('ask_canvas_maintenance') AS name`)).rows[0].name,null);
+ assert.equal((await db.query(`SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name='ai_conversations' AND column_name='owner_user_id'`)).rows[0].n,0);
+ assert.equal((await db.query('SELECT count(*)::int AS n FROM schema_migrations WHERE id=105')).rows[0].n,0);
+ await apply([100,105]);assert.equal((await capabilities(db)).thread,true);
+ // Add every presently available Browser/Canvas migration, checksummed normally.
+ await apply(listMigrationFiles().filter(f=>f.id>=100&&f.id<=109).map(f=>f.id));
+}));
+
+test('combined Browser matrix blocked: missing requests reject before applying any subset',()=>withMigrationSubset('blocked_combined',[100,101,102,103,104,105],async({db,apply})=>{
+ await assert.rejects(apply(),/Requested migrations do not exist: 101, 102, 103, 104/);
+ assert.equal((await db.query('SELECT count(*)::int AS n FROM schema_migrations WHERE id>=100')).rows[0].n,0);
+}));
+
+test('0106 core applies on Canvas-only prerequisites, page predeclared, no provenance FK or narrow grants',()=>withMigrationSubset('canvas_core_only',[100,105,106],async({db,apply,url})=>{
+ await apply();assert.deepEqual(await capabilities(db),{thread:true,canvas:true,files:false});
+ for(const t of ['ask_canvases','ask_canvas_versions','ask_canvas_requests','ask_canvas_events','ask_canvas_usage','ask_canvas_rate_windows'])assert.equal((await db.query('SELECT to_regclass($1)::text AS name',[t])).rows[0].name,t);
+ for(const t of ['ask_context_provenance','ask_canvas_file_saves','ask_canvas_renders'])assert.equal((await db.query('SELECT to_regclass($1) AS name',[t])).rows[0].name,null);
+ const refs=(await db.query(`SELECT confrelid::regclass::text AS target FROM pg_constraint WHERE conrelid='ask_canvas_versions'::regclass AND contype='f'`)).rows.map(r=>r.target);assert.ok(!refs.some(r=>/provenance/.test(r)));
+ assert.equal((await db.query(`SELECT count(*)::int AS n FROM pg_class WHERE relname='ask_canvas_maintenance'`)).rows[0].n,1);
+ await apply();
+}));
+
+test('Phase 0-only event endpoint stays schema-aware even with Canvas env enabled',()=>withMigrationSubset('canvas_core_not_installed',[100,105],async({db,apply,url})=>{
+ await apply();const {appHooks,seedPeople}=await import('./phase0a-fixtures.mjs');appHooks();const p=await seedPeople(db);
+ const {withSessionIdentity}=await import('./_harness/testdb.mjs');const core=await import('../lib/ask-canvases.ts');const {encrypt}=await import('../lib/session.ts');
+ process.env.SJC_CANVAS_ENABLED='1';process.env.SESSION_SECRET='rollout-cursor-key-at-least-32-characters';const token=await encrypt({userId:p.owner.id,role:'owner',authAt:Math.floor(Date.now()/1000)});globalThis.__phase0aCookies={get:()=>({value:token})};
+ await withSessionIdentity(url,'sjcos_test_website',async c=>{globalThis.__phase0aDb=c;const page=await core.canvasEvents(p.thread,{});assert.deepEqual(page.events,[]);assert.equal(page.availability.master,false);await assert.rejects(core.canvasGet(crypto.randomUUID(),{}),/CANVAS_DISABLED/);});
+}));
+
+// Expectations: actual Phase-0-only staff runner/tool/question paths work with
+// Canvas off; capability changes only after additive production migrations.
+test('Phase 0 staff runner, MCP wrapper and question retain legacy operation before additive upgrade',()=>withMigrationSubset('server_legacy',[100,105],async({db,apply,url})=>{
+ await apply();
+ const {appHooks,seedPeople}=await import('./phase0a-fixtures.mjs');appHooks();const p=await seedPeople(db);
+ const {withSessionIdentity}=await import('./_harness/testdb.mjs');
+ const {mkdtemp,writeFile,rm}=await import('node:fs/promises');const path=await import('node:path');const {tmpdir}=await import('node:os');const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');
+ const {trackingAvailable,trackedInteractions,createContextAdapter}=await import('../lib/ask-context-inputs.mjs');
+ const {createInteractionAdapter}=await import('../lib/ask-thread-journal-transport.mjs');const {interactionCommand}=await import('../lib/ask-thread-journal-interactions.mjs');
+ const dir=await mkdtemp(path.join(tmpdir(),'c1-legacy-')),before={...process.env},fetch=globalThis.fetch;let server;
+ try{await withSessionIdentity(url,'sjcos_test_website',async c=>{
+  globalThis.__phase0aDb=c;assert.equal(await trackingAvailable(c),false);
+  const thread=(await c.query(`INSERT INTO ai_conversations(agent,owner_user_id) VALUES('claude',$1) RETURNING id`,[p.staff.id])).rows[0].id;
+  const run=(await c.query(`INSERT INTO dev_agent_runs(prompt,profile,principal_user_id,conversation_id,launch_source,with_mcp) VALUES('ordinary staff question','business',$1,$2,'panel_web',true) RETURNING id,extract(epoch FROM created_at)::bigint AS started`,[p.staff.id,thread])).rows[0];
+  Object.assign(process.env,{SJC_CANVAS_ENABLED:'0',DATABASE_URL_AGENT:url,SJC_RUN_ID:run.id,SJC_CONVERSATION_ID:thread,SJC_PRINCIPAL_USER_ID:p.staff.id,SJC_RUN_PROFILE:'business',SJC_RUN_STARTED_S:String(run.started),CRON_SECRET:'legacy-test',APP_INTERNAL_URL:'http://127.0.0.1:1'});
+  const {buildServer}=await import('../mcp/sjcos-mcp.mjs');server=buildServer({transportKind:'stdio'});
+  const result=await server._registeredTools.list_projects.handler({},{});assert.ok(!result.isError,JSON.stringify(result));
+  const slug='zz-phase0-files';await c.query("INSERT INTO projects(slug,name,status) VALUES($1,'Phase 0 files','floor_plan')",[slug]);
+  const files=await server._registeredTools.list_project_files.handler({project_slug:slug},{});assert.ok(!files.isError,JSON.stringify(files));
+  const {canvasFilePredicate,resolveCanvasFilePolicy}=await import('../lib/canvas-file-access.ts');
+  assert.equal(await canvasFilePredicate('f',p.staff),'true');assert.deepEqual(await resolveCanvasFilePolicy({principal:p.staff,fileId:'missing',operation:'read'}),{ordinary:true});
+  globalThis.fetch=async(u,opts)=>{assert.equal(new URL(u).pathname,'/api/internal/ask-interactions');const b=JSON.parse(opts.body);return Response.json(await interactionCommand({query:(...a)=>c.query(...a)},b.action,b.input,b.context));};
+  const adapter=trackedInteractions(createInteractionAdapter({transportKind:'stdio'}),createContextAdapter({transportKind:'stdio',trackingAvailable:()=>trackingAvailable(c),internalCall(){assert.fail('Phase 0 must never call provenance route');}}));
+  const id=await adapter.create('question',{questions:[{question:'Which finish?',options:[{label:'Oak'},{label:'Paint'}],multiSelect:false,allowOther:true}]});
+  await c.query(`UPDATE agent_interactions SET status='answered',response=$2 WHERE id=$1`,[id,{kind:'question',answers:[{question:'Which finish?',choices:['Oak']}]}]);
+  assert.match((await adapter.beforeDeliver(id)).answer,/Joe's answer: Oak/);
+  await db.query('ALTER ROLE sjcos_test_website LOGIN');const database=new URL(url);database.username='sjcos_test_website';
+  const fake=path.join(dir,'cli');await writeFile(fake,`#!/usr/bin/env node\nprocess.stdin.once('data',()=>{console.log(JSON.stringify({type:'user',isReplay:true}));console.log(JSON.stringify({type:'result',subtype:'success',result:'Ordinary Phase 0 answer',num_turns:1}));});process.stdin.on('end',()=>process.exit(0));\n`,{mode:0o700});
+  await promisify(execFile)(process.execPath,['scripts/run-claude-agent.mjs',run.id],{timeout:20000,env:{...process.env,DATABASE_URL:database.toString(),DATABASE_URL_AGENT:database.toString(),CLAUDE_BIN:fake,SJC_CANVAS_DELETION_LEDGER_DIR:path.join(dir,'journal')}});
+  const finished=(await c.query('SELECT status,answer FROM dev_agent_runs WHERE id=$1',[run.id])).rows[0];assert.equal(finished.status,'done',finished.answer);
+  assert.equal(await trackingAvailable(c),false);
+ });
+ await apply([106,107,108]);assert.equal(await trackingAvailable(db),true);
+ await db.query('BEGIN');try{await db.query('ALTER TABLE ask_context_provenance RENAME TO temporarily_missing_provenance');await assert.rejects(trackingAvailable(db),/CONTEXT_PROVENANCE_INCOMPLETE/);}finally{await db.query('ROLLBACK');}
+ let installed=true;const latched=createContextAdapter({transportKind:'stdio',trackingAvailable:async()=>installed,internalCall(){assert.fail('capability only');}});
+ assert.equal(await latched.enabled(),true);installed=false;await assert.rejects(latched.enabled(),/CONTEXT_PROVENANCE_INCOMPLETE/);
+ }finally{globalThis.fetch=fetch;await server?.close();for(const k of Object.keys(process.env))if(!(k in before))delete process.env[k];Object.assign(process.env,before);await rm(dir,{recursive:true,force:true});}
+}));
+
+test('0109 upgrades the recorded 0107 control helper without checksum changes or narrow grants',()=>withMigrationSubset('canvas_control_upgrade',[100,105,106,107,108],async({db,apply,url})=>{
+ await apply();
+ const recorded=(await db.query('SELECT id,checksum FROM schema_migrations WHERE id>=100 ORDER BY id')).rows;
+ assert.deepEqual(recorded.map(r=>[r.id,r.checksum]),listMigrationFiles().filter(f=>[100,105,106,107,108].includes(f.id)).map(f=>[f.id,f.checksum]));
+ const before=(await db.query("SELECT pg_get_functiondef('ask_canvas_instruction(uuid,text)'::regprocedure) AS body")).rows[0].body;
+ assert.doesNotMatch(before,/Mermaid could not parse/);
+ await apply([100,105,106,107,108,109]);
+ const after=(await db.query("SELECT pg_get_functiondef('ask_canvas_instruction(uuid,text)'::regprocedure) AS body")).rows[0].body;
+ assert.match(after,/Mermaid could not parse/);assert.match(after,/SECURITY DEFINER/);assert.match(after,/search_path TO 'public', 'pg_temp'/);
+ assert.deepEqual((await db.query('SELECT id,checksum FROM schema_migrations WHERE id>=100 AND id<109 ORDER BY id')).rows,recorded);
+ const {withSessionIdentity}=await import('./_harness/testdb.mjs');
+ for(const role of ['sjcos_agent','sjcos_worker','sjcos_readonly'])await withSessionIdentity(url,role,async narrow=>{
+  await assert.rejects(narrow.query("SELECT * FROM ask_canvas_instruction($1,'Show permit steps.')",[crypto.randomUUID()]),e=>e.code==='42501');
+ });
+ await apply([100,105,106,107,108,109]); // exact checksum replay
+}));

@@ -1,5 +1,9 @@
 "use client";
 
+import { pollLiveChanges } from "@/lib/actions/live";
+import { isBackgroundFailure } from "@/lib/background-result";
+import { backgroundAuthLost, noteBackgroundFailure } from "@/components/shell/backgroundAuth";
+
 // The floor-plan designer shell (docs/floor-plan-designer-plan.md §2): top
 // bar, tool rail, canvas (plan / 3D / elevation / split), inspector, status
 // bar. State lives in useDesigner (doc + undo + autosave) and ViewState
@@ -87,7 +91,14 @@ export function Designer(props: DesignerProps) {
 
   // Refresh server-loaded lists (comments, files, versions) when the tab regains focus.
   useEffect(() => {
-    const onFocus = () => router.refresh();
+    const onFocus = async () => {
+      if (backgroundAuthLost()) return;
+      try {
+        const result = await pollLiveChanges(null);
+        if (isBackgroundFailure(result)) { noteBackgroundFailure(result); return; }
+        if (!backgroundAuthLost()) router.refresh();
+      } catch { /* Leave unsaved design state in place during an outage. */ }
+    };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, [router]);

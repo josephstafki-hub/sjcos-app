@@ -1,4 +1,6 @@
+import { isAskFailure } from "@/lib/ask-result-codes";
 import { finishOwnerAction } from "@/lib/owner-actions";
+
 import { NextResponse } from "next/server";
 import { withTransaction, runDirect } from "@/lib/commands/db";
 import type { Principal } from "@/lib/commands/principal";
@@ -61,7 +63,9 @@ export async function POST(req: Request) {
     );
 
     // No Telegram transport is passed into the owner/target-locked mutation.
-    await finishOwnerAction(result, update, answer, edit);
+    const finished=await finishOwnerAction(result, update, answer, edit);
+    if(isAskFailure(finished))return NextResponse.json(finished);
+
 
     return NextResponse.json({ ok: true, handled: result.handled, duplicate: result.duplicate, outcome: result.outcome });
   } catch (err) {

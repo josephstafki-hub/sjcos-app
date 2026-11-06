@@ -7,11 +7,12 @@ import { login, type LoginState } from "@/lib/actions/auth";
 const FIELD =
   "min-h-11 rounded-md border border-rule bg-paper px-3 py-2 text-subheading text-ink outline-none focus:border-accent";
 
-export function LoginForm() {
+export function LoginForm({ returnTo }: { returnTo?: string | null }) {
   const [state, action, pending] = useActionState<LoginState, FormData>(login, {});
 
   return (
     <form action={action} className="flex flex-col gap-3.5">
+      {returnTo && <input type="hidden" name="returnTo" value={returnTo} />}
       <label className="flex flex-col gap-1">
         <span className="font-sans text-meta text-ink-3">Email</span>
         <input

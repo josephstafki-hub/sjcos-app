@@ -14,12 +14,8 @@ registerHooks({resolve(s,c,next){
 export async function setup(){
  let db;await withTestDb(async url=>{process.env.DATABASE_URL=url;process.env.TELEGRAM_BOT_TOKEN='test';process.env.TELEGRAM_OWNER_CHAT_ID='549900123';process.env.TELEGRAM_WEBHOOK_SECRET='test-secret';db=await import('../../lib/db.ts');});
  const run=async(s,p)=>(await db.query(s,p)).rows;
- // Each file owns its harness database. Reset fixture rows, not the database:
- // repeated executions exercise the same migrated schema and FK graph.
- await run(`TRUNCATE users,projects,leads,work_items,knowledge_items,decisions,
-   owner_grants,ai_conversations,action_intents,notifications,push_devices,
-   push_actions,push_device_deliveries,owner_push_messages,push_outbox,
-   telegram_updates,telegram_reply_targets RESTART IDENTITY CASCADE`);
+ // withTestDb supplies a fresh database per file/process. Do not TRUNCATE
+ // users CASCADE: Phase 0 intentionally forbids truncating Browser evidence.
  const [owner]=await run(`INSERT INTO users(email,password_hash,name,role,initials) VALUES($1,'x','Joe Stafki','owner','JS') RETURNING *`,[`zz-phone-${crypto.randomUUID()}@example.test`]);
  const {encrypt}=await import('../../lib/session.ts');const bearer=await encrypt({userId:owner.id,role:'owner',authAt:Math.floor(Date.now()/1000)});
  const api=await import('../../app/api/mobile/push/[...path]/route.ts');

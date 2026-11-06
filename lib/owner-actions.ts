@@ -1,3 +1,4 @@
+import { isAskFailure, type AskFailure } from "@/lib/ask-result-codes";
 
 import { revalidatePath } from "next/cache";
 import { withTransaction, runDirect } from "@/lib/commands/db";
@@ -17,7 +18,7 @@ import { rememberReplyTarget } from "@/lib/decisions/owner-replies";
 
 function appUrl(): string { return (process.env.NEXT_PUBLIC_APP_URL ?? "https://os.sjcarpentryllc.com").replace(/\/$/, ""); }
 
-export async function finishOwnerAction(result: TelegramHandleResult, update: TelegramUpdate, answer: (id:string,text:string)=>Promise<void>, edit: (chatId:string,messageId:number,text:string)=>Promise<void>): Promise<void> {
+export async function finishOwnerAction(result: TelegramHandleResult, update: TelegramUpdate, answer: (id:string,text:string)=>Promise<void>, edit: (chatId:string,messageId:number,text:string)=>Promise<void>): Promise<void | AskFailure> {
     // Post-commit: an approval must DO the thing — dispatch the sends it
     // woke, email a first-draw invoice, perform a permission request's
     // staged send — and the phone is told what actually happened.
@@ -84,7 +85,8 @@ export async function finishOwnerAction(result: TelegramHandleResult, update: Te
         if (d) await refreshTelegramCard(d, "Changes requested from Telegram — your note went to the agent.").catch(() => undefined);
       }
       if (r.pulled && r.workItemId) await markDraftCardPulled(r.workItemId, "Pulled back for changes — your note went to the agent. Its revised draft comes as a new card.").catch(() => undefined);
-      await deliverOwnerReply(r, String(update.message?.text ?? "").trim().slice(0, 4000));
+      const delivered=await deliverOwnerReply(r, String(update.message?.text ?? "").trim().slice(0, 4000));
+      if(isAskFailure(delivered))return delivered;
     }
     // Joe answered a portal message from Telegram: it is already in the
     // thread (committed above). Refresh the pages that show it and confirm.
@@ -120,7 +122,7 @@ export async function finishOwnerAction(result: TelegramHandleResult, update: Te
 
 /** Phone and Telegram use the same domain operations and post-commit effects. */
 type PhoneActionInput = {actionId?:string;generation?:number;messageId:string;action:'approve'|'decline'|'changes'|'hold'|'reply';text?:string};
-type PhoneActionResult = {ok:boolean;message:string;outcome:string};
+type PhoneActionResult = {code?:AskFailure["code"];ok:boolean;message:string;outcome:string};
 
 export async function resolvePhoneAction(input:PhoneActionInput,principal:Principal):Promise<PhoneActionResult> {
  try {
@@ -139,6 +141,7 @@ async function resolvePhoneActionMutation(input:PhoneActionInput,principal:Princ
  const {recordPortalReply}=await import('./decisions/portal-replies');
  const {recordAppMessage,deliverAppMessage,pushSettings,cleanupAppAlerts}=await import('./phone-push');
  const m=await queryOne<{id:string;decision_id:string|null;work_item_id:string|null;portal_channel_key:string|null;content_hash:string|null;thread_key:string;draft_binding:string|null;category:string}>(`SELECT * FROM owner_push_messages WHERE id=$1`,[input.messageId]);
+ if((m as unknown as {ask_reply_erased?:boolean})?.ask_reply_erased)return {ok:false,code:'THREAD_UNAVAILABLE',message:'Open your private Ask chat to continue.',outcome:'unavailable'};
  if(!m)return {ok:false,message:'That alert no longer exists.',outcome:'not_found'};
  const {shapePushMessage}=await import('./phone-push');
  const isCard=['SJC_DECISION','SJC_GRANT','SJC_DECISION_SEND','SJC_GRANT_SEND'].includes(String((m as unknown as {category:string}).category));
@@ -188,7 +191,8 @@ async function resolvePhoneActionMutation(input:PhoneActionInput,principal:Princ
    const note=await recordAppMessage({kind:'reply',from:'owner',title:'Your reply',body:text,replyToId:m.id,ownerReplyId:r.id});
    await query(`UPDATE owner_replies SET push_message_id=$2 WHERE id=$1`,[r.id,note.id]);
    await mirrorPhoneText(note.id,m.id,text,r.id);
-   await deliverOwnerReply({...r,chatId:'app',messageId:0},text);
+   const delivered=await deliverOwnerReply({...r,chatId:'app',messageId:0},text);
+   if(isAskFailure(delivered))return {...delivered,message:'Open your private Ask chat to continue.',outcome:'unavailable'};
    if(r.decisionId){const d=await getDecision(runDirect,r.decisionId);if(d)await refreshTelegramCard(d,'Changes requested — your note went to the agent.');}
    if(r.workItemId)await markDraftCardPulled(r.workItemId,'Pulled back for changes — your note went to the agent.');
    line='Your note went to the agent.';

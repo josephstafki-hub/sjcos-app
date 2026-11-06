@@ -1,3 +1,6 @@
+import {privateRunner,withPrivateRunner} from "@/lib/ask-private-bridge.mjs";
+import {pool} from "@/lib/db";
+import {askFailure} from "@/lib/thread-access";
 // Internal agent surface for OWNER GRANTS (MCP -> app bridge): express
 // permission for the sends agents can't do on their own. Bearer-gated with
 // CRON_SECRET (trusted local caller, not a browser session).
@@ -14,7 +17,7 @@ import { NextResponse } from "next/server";
 import { revalidatePath } from "next/cache";
 import { performGrantedAction } from "@/lib/agent-sends";
 import { replyToOwner } from "@/lib/owner-reply-delivery";
-import { buildStagedSend, getGrant, grantLive, grantWaiting, listGrants, requestGrant, stagedResultOf, stagedSendOf } from "@/lib/owner-grants";
+import { buildStagedSend, getBridgeGrant, listBridgeGrants, getGrant, grantLive, grantWaiting, requestGrant, stagedResultOf, stagedSendOf } from "@/lib/owner-grants";
 import { principalMaySpendGrant } from "@/lib/authority/mcp-gate";
 import { runDirect } from "@/lib/commands/db";
 
@@ -62,139 +65,136 @@ export async function POST(req: Request) {
   const action = String(body.action ?? "");
   const str = (k: string) => (body[k] == null ? undefined : String(body[k]));
   try {
-    switch (action) {
-      case "request": {
-        const obj = (k: string) => (body[k] && typeof body[k] === "object" ? (body[k] as Record<string, unknown>) : null);
-        const em = obj("email");
-        const sm = obj("sms");
-        const cl = obj("call");
-        const built = buildStagedSend({
-          action: str("gated_action") ?? "",
-          targetId: str("target_id") ?? null,
-          email: em
-            ? {
-                to: em.to == null ? undefined : String(em.to),
-                subject: em.subject == null ? undefined : String(em.subject),
-                body: em.body == null ? undefined : String(em.body),
-                attachment_file_ids: Array.isArray(em.attachment_file_ids) ? em.attachment_file_ids.map(String) : undefined,
-                work_item_id: em.work_item_id == null ? (str("work_item_id") ?? null) : String(em.work_item_id),
-              }
-            : null,
-          sms: sm ? { to: sm.to == null ? undefined : String(sm.to), body: sm.body == null ? undefined : String(sm.body) } : null,
-          call: cl
-            ? { to: cl.to == null ? undefined : String(cl.to), contact_name: cl.contact_name == null ? null : String(cl.contact_name), via: cl.via == null ? null : String(cl.via) }
-            : null,
-          override: Boolean(body.override),
-          sendOnApproval: body.send_on_approval === false ? false : undefined,
-        });
-        if (!built.ok) return NextResponse.json(built, { status: 400 });
-        const r = await requestGrant({
-          action: str("gated_action") ?? "",
-          targetId: built.targetId,
-          reason: str("reason") ?? "",
-          requestedBy: str("agent") ?? "agent",
-          conversationId: uuidOrNull(str("conversation_id")),
-          runId: uuidOrNull(str("run_id")),
-          workItemId: str("work_item_id") ?? null,
-          staged: built.staged,
-        });
-        if (!r.ok) return NextResponse.json(r, { status: 400 });
-        revalidatePath("/notifications");
-        revalidatePath("/engine/permissions");
-        return NextResponse.json({ ok: true, grant: pub(r.grant), replaced: r.replaced ?? [] });
-      }
-      case "reply": {
-        const outcome = str("outcome");
-        if (outcome !== "no_change" && outcome !== "question" && outcome !== "done") {
-          return NextResponse.json({ ok: false, error: "outcome must be no_change, question or done." }, { status: 400 });
-        }
-        const r = await replyToOwner({
-          ownerReplyId: str("owner_reply_id") ?? null,
-          grantId: str("grant_id") ?? null,
-          decisionId: str("decision_id") ?? null,
-          text: str("message") ?? "",
-          outcome,
-          agent: str("agent") ?? "agent",
-        });
-        return NextResponse.json(r, { status: r.ok ? 200 : 400 });
-      }
-      case "check": {
-        const g = await getGrant(str("grant_id") ?? "");
-        if (!g) return NextResponse.json({ ok: false, error: "No such grant." }, { status: 404 });
-        return NextResponse.json({ ok: true, grant: pub(g) });
-      }
-      case "list": {
-        const all = await listGrants(40);
-        return NextResponse.json({
-          ok: true,
-          grants: all.filter((g) => grantWaiting(g) || grantLive(g)).map(pub),
-        });
-      }
-      case "perform": {
-        // A22: when a person is behind the agent, that person must hold the
-        // authority the gated action maps to (project/amount bounds apply).
-        // No person → the owner grant alone decides, as before.
-        const gate = await principalMaySpendGrant(runDirect, str("principal_user_id") ?? null, str("gated_action") ?? "", {
-          projectId: str("project_id") ?? null,
-          amountCents: body.amount_cents == null ? null : Number(body.amount_cents),
-        });
-        if (!gate.ok) return NextResponse.json({ ok: false, error: gate.reason }, { status: 403 });
-        // A request that carries its send is performed by the app on
-        // approval; an agent sending it too is the double-send this guards.
-        const spending = await getGrant(str("grant_id") ?? "");
-        if (spending && stagedSendOf(spending)) {
-          const done = stagedResultOf(spending);
-          return NextResponse.json(
-            {
-              ok: false,
-              already_handled: true,
-              error: done
-                ? `This permission did its own ${spending.actions.includes("place_call") ? "call" : "send"} when Joe approved it (${done.state}${done.summary ? `: ${done.summary}` : done.error ? `: ${done.error}` : ""}). Do not send it again.`
-                : `This permission ${spending.actions.includes("place_call") ? "places its own call" : "sends its own message"} the moment Joe approves it — don't call the ${spending.actions.includes("place_call") ? "place_call" : "send"} tool for it. Check it with check_owner_permission.`,
-            },
-            { status: 409 },
-          );
-        }
-        const email = body.email && typeof body.email === "object" ? (body.email as Record<string, unknown>) : undefined;
-        const sms = body.sms && typeof body.sms === "object" ? (body.sms as Record<string, unknown>) : undefined;
-        const call = body.call && typeof body.call === "object" ? (body.call as Record<string, unknown>) : undefined;
-        const r = await performGrantedAction({
-          action: str("gated_action") ?? "",
-          grantId: str("grant_id") ?? "",
-          target: str("target_id") ?? null,
-          email: email
-            ? {
-                to: String(email.to ?? ""),
-                subject: String(email.subject ?? ""),
-                body: String(email.body ?? ""),
-                attachment_file_ids: Array.isArray(email.attachment_file_ids) ? email.attachment_file_ids.map(String) : undefined,
-              }
-            : undefined,
-          sms: sms ? { to: String(sms.to ?? ""), body: String(sms.body ?? "") } : undefined,
-          call: call ? { to: String(call.to ?? ""), contact_name: call.contact_name == null ? null : String(call.contact_name), via: call.via === "browser" ? "browser" : "cell" } : undefined,
-          override: Boolean(body.override),
-          agent: str("agent") ?? "agent",
-        });
-        if (r.ok) {
-          revalidatePath("/projects/[slug]", "page");
-          revalidatePath("/newsletter");
+    return await withPrivateRunner(pool, body.context, async () => {
+      switch (action) {
+        case "request": {
+          const obj = (k: string) => (body[k] && typeof body[k] === "object" ? (body[k] as Record<string, unknown>) : null);
+          const em = obj("email");
+          const sm = obj("sms");
+          const cl = obj("call");
+          const built = buildStagedSend({
+            action: str("gated_action") ?? "",
+            targetId: str("target_id") ?? null,
+            email: em
+              ? {
+                  to: em.to == null ? undefined : String(em.to),
+                  subject: em.subject == null ? undefined : String(em.subject),
+                  body: em.body == null ? undefined : String(em.body),
+                  attachment_file_ids: Array.isArray(em.attachment_file_ids) ? em.attachment_file_ids.map(String) : undefined,
+                  work_item_id: em.work_item_id == null ? (str("work_item_id") ?? null) : String(em.work_item_id),
+                }
+              : null,
+            sms: sm ? { to: sm.to == null ? undefined : String(sm.to), body: sm.body == null ? undefined : String(sm.body) } : null,
+            call: cl
+              ? { to: cl.to == null ? undefined : String(cl.to), contact_name: cl.contact_name == null ? null : String(cl.contact_name), via: cl.via == null ? null : String(cl.via) }
+              : null,
+            override: Boolean(body.override),
+            sendOnApproval: body.send_on_approval === false ? false : undefined,
+          });
+          if (!built.ok) return NextResponse.json(built, { status: 400 });
+          const r = await requestGrant({
+            action: str("gated_action") ?? "",
+            targetId: built.targetId,
+            reason: str("reason") ?? "",
+            requestedBy: str("agent") ?? "agent",
+            conversationId: privateRunner()?.conversation_id ?? null,
+            runId: privateRunner()?.run_id ?? null,
+            workItemId: str("work_item_id") ?? null,
+            staged: built.staged,
+          });
+          if (!r.ok) return NextResponse.json(r, { status: 400 });
           revalidatePath("/notifications");
           revalidatePath("/engine/permissions");
-          revalidatePath("/messages");
-          revalidatePath("/calls");
+          return NextResponse.json({ ok: true, grant: pub(r.grant), replaced: r.replaced ?? [] });
         }
-        return NextResponse.json(r, { status: r.ok ? 200 : 400 });
+        case "reply": {
+          const outcome = str("outcome");
+          if (outcome !== "no_change" && outcome !== "question" && outcome !== "done") {
+            return NextResponse.json({ ok: false, error: "outcome must be no_change, question or done." }, { status: 400 });
+          }
+          const r = await replyToOwner({
+            ownerReplyId: str("owner_reply_id") ?? null,
+            grantId: str("grant_id") ?? null,
+            decisionId: str("decision_id") ?? null,
+            text: str("message") ?? "",
+            outcome,
+            agent: str("agent") ?? "agent",
+          });
+          return NextResponse.json(r, { status: r.ok ? 200 : 400 });
+        }
+        case "check": {
+          const g = await getBridgeGrant(str("grant_id") ?? "");
+          if (!g) return NextResponse.json({ ok: false, code: "THREAD_UNAVAILABLE" }, { status: 404 });
+          return NextResponse.json({ ok: true, grant: pub(g) });
+        }
+        case "list": {
+          const all = await listBridgeGrants(40);
+          return NextResponse.json({
+            ok: true,
+            grants: all.filter((g) => grantWaiting(g) || grantLive(g)).map(pub),
+          });
+        }
+        case "perform": {
+          // A22: when a person is behind the agent, that person must hold the
+          // authority the gated action maps to (project/amount bounds apply).
+          // No person → the owner grant alone decides, as before.
+          const gate = await principalMaySpendGrant(runDirect, str("principal_user_id") ?? null, str("gated_action") ?? "", {
+            projectId: str("project_id") ?? null,
+            amountCents: body.amount_cents == null ? null : Number(body.amount_cents),
+          });
+          if (!gate.ok) return NextResponse.json({ ok: false, error: gate.reason }, { status: 403 });
+          // A request that carries its send is performed by the app on
+          // approval; an agent sending it too is the double-send this guards.
+          const spending = await getBridgeGrant(str("grant_id") ?? "");
+          if(!spending)return NextResponse.json({ok:false,code:"THREAD_UNAVAILABLE"},{ status: 404 });
+          if (stagedSendOf(spending)) {
+            const done = stagedResultOf(spending);
+            return NextResponse.json(
+              {
+                ok: false,
+                already_handled: true,
+                error: done
+                  ? `This permission did its own ${spending.actions.includes("place_call") ? "call" : "send"} when Joe approved it (${done.state}${done.summary ? `: ${done.summary}` : done.error ? `: ${done.error}` : ""}). Do not send it again.`
+                  : `This permission ${spending.actions.includes("place_call") ? "places its own call" : "sends its own message"} the moment Joe approves it — don't call the ${spending.actions.includes("place_call") ? "place_call" : "send"} tool for it. Check it with check_owner_permission.`,
+              },
+              { status: 409 },
+            );
+          }
+          const email = body.email && typeof body.email === "object" ? (body.email as Record<string, unknown>) : undefined;
+          const sms = body.sms && typeof body.sms === "object" ? (body.sms as Record<string, unknown>) : undefined;
+          const call = body.call && typeof body.call === "object" ? (body.call as Record<string, unknown>) : undefined;
+          const r = await performGrantedAction({
+            action: str("gated_action") ?? "",
+            grantId: str("grant_id") ?? "",
+            target: str("target_id") ?? null,
+            email: email
+              ? {
+                  to: String(email.to ?? ""),
+                  subject: String(email.subject ?? ""),
+                  body: String(email.body ?? ""),
+                  attachment_file_ids: Array.isArray(email.attachment_file_ids) ? email.attachment_file_ids.map(String) : undefined,
+                }
+              : undefined,
+            sms: sms ? { to: String(sms.to ?? ""), body: String(sms.body ?? "") } : undefined,
+            call: call ? { to: String(call.to ?? ""), contact_name: call.contact_name == null ? null : String(call.contact_name), via: call.via === "browser" ? "browser" : "cell" } : undefined,
+            override: Boolean(body.override),
+            agent: str("agent") ?? "agent",
+          });
+          if (r.ok) {
+            revalidatePath("/projects/[slug]", "page");
+            revalidatePath("/newsletter");
+            revalidatePath("/notifications");
+            revalidatePath("/engine/permissions");
+            revalidatePath("/messages");
+            revalidatePath("/calls");
+          }
+          return NextResponse.json(r, { status: r.ok ? 200 : 400 });
+        }
+        default:
+          return NextResponse.json({ ok: false, error: `Unknown action "${action}"` }, { status: 400 });
       }
-      default:
-        return NextResponse.json({ ok: false, error: `Unknown action "${action}"` }, { status: 400 });
-    }
+    });
   } catch (e) {
-    return NextResponse.json({ ok: false, error: (e as Error).message || "Internal error" }, { status: 500 });
+    return NextResponse.json(askFailure(e), { status: 503 });
   }
-}
-
-/** Ids from an agent's environment are kept only when well-formed; a reply
- *  is routed to the thread only if it still exists (owner-replies.ts). */
-function uuidOrNull(v: string | null | undefined): string | null {
-  return v && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v) ? v : null;
 }

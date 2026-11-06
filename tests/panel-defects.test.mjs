@@ -9,11 +9,13 @@ const root = new URL('../', import.meta.url);
 registerHooks({
  resolve(s,c,n) {
   if(s==='server-only')return {url:'data:text/javascript,',shortCircuit:true};
+  if(s==='@/lib/thread-access')return {url:'stub:thread-access',shortCircuit:true};
   if(s==='@/lib/db')return {url:'stub:db',shortCircuit:true};
   if(s.startsWith('@/'))return n(new URL(s.slice(2)+(s.endsWith('.tsx')?'':'.ts'),root).href,c);
   return n(s,c);
  },
  load(u,c,n) {
+  if(u==='stub:thread-access')return {format:'module',source:'export const requireThreadAccess=async()=>{};export const threadQuery=(...a)=>globalThis.__query(...a);export const threadQueryOne=async(...a)=>(await threadQuery(...a)).rows[0]??null;',shortCircuit:true};
   if(u==='stub:db')return {format:'module',source:'export const query=(...a)=>globalThis.__query(...a); export const queryOne=async(...a)=>(await query(...a)).rows[0]??null;',shortCircuit:true};
   if(u.endsWith('.tsx'))return {format:'module',source:ts.transpileModule(readFileSync(new URL(u),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext}}).outputText,shortCircuit:true};
   return n(u,c);

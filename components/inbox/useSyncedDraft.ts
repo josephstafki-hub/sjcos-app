@@ -1,4 +1,6 @@
 'use client';
+import { backgroundAuthLost, noteBackgroundFailure } from '@/components/shell/backgroundAuth';
+import { isBackgroundFailure } from '@/lib/background-result';
 import { useEffect, useRef, useState } from 'react';
 import { loadDrafts, saveDraft } from '@/lib/actions/inbox-drafts';
 import {registerInboxDraft} from '@/lib/inbox-navigation';
@@ -38,7 +40,17 @@ export function useSyncedDraft(options: {
     try { storage = window.localStorage; }
     catch { storage = { getItem: () => null, setItem: () => {throw Error('Device storage unavailable.');}, removeItem: () => {} }; }
     const sync = createDraftSync({ mailbox, userId, threadKey, channel, initial: initial.current,
-      importLegacy: owner === true, latestMessageId, storage, load: () => loadDrafts([threadKey]), save: saveDraft, onChange: next => setEntry({ key, state: next }) });
+      importLegacy: owner === true, latestMessageId, storage, load: async () => {
+        if (backgroundAuthLost()) throw Error("SIGN_IN_AGAIN");
+        const result = await loadDrafts([threadKey]);
+        if (isBackgroundFailure(result)) { noteBackgroundFailure(result); throw Error(result.code); }
+        return result;
+      }, save: async input => {
+        if (backgroundAuthLost()) throw Error("SIGN_IN_AGAIN");
+        const result = await saveDraft(input);
+        if (isBackgroundFailure(result)) { noteBackgroundFailure(result); throw Error(result.code); }
+        return result;
+      }, onChange: next => setEntry({ key, state: next }) });
     controller.current = sync; controllerKey.current = key;
     setEntry({ key, state: sync.getSnapshot() });
     const unregister=registerInboxDraft(()=>sync.flushForNavigation());

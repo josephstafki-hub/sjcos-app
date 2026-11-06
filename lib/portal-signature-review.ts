@@ -17,7 +17,7 @@ export async function getPortalSignatureReviews(ids: number[]): Promise<Record<n
              (sr.status = 'signed' AND f.storage_path IS NOT NULL
                AND COALESCE(f.subtitle LIKE 'Executed copy · signed by %', false)) AS has_signed_copy
         FROM signature_requests sr
-        LEFT JOIN files f ON f.id = sr.file_id
+        LEFT JOIN files f ON to_jsonb(f)->>'security_profile' IS NULL AND f.id = sr.file_id
         LEFT JOIN change_orders co ON co.id = sr.change_order_id
         LEFT JOIN LATERAL (
           SELECT template_version, field_values FROM document_drafts

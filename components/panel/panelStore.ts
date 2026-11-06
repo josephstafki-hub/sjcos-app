@@ -1,4 +1,5 @@
 import { CLAUDE_DEFAULTS, type ClaudeOptions, type PanelAgent } from "@/lib/dev-agents-meta";
+import { getAskPaneFeed, setAskPaneScope } from "./askPaneRegistry";
 import { postPanelMessage, subscribePanelBus } from "./panelBus";
 
 /**
@@ -167,6 +168,7 @@ export function readPanelState(): PanelState {
 export function writePanelState(patch: Partial<PanelState>): PanelState {
   const next = { ...readPanelState(), ...patch };
   if (typeof window === "undefined") return next;
+  if ("conversationId" in patch && getAskPaneFeed().scope?.threadId !== patch.conversationId) setAskPaneScope(null);
   const touchesSession = SESSION_KEYS.some((k) => k in patch);
   const touchesLayout = LAYOUT_KEYS.some((k) => k in patch);
   if (touchesSession) {

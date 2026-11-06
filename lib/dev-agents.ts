@@ -1,5 +1,7 @@
+import { requireThreadAccess, requireRunThreadAccess, threadQuery, threadQueryOne } from "@/lib/thread-access";
 import "server-only";
 
+import { admitAskRun, type AskLaunchSource, type LaunchSource } from "@/lib/ask-run-admission";
 import { spawn, execFile } from "node:child_process";
 import http from "node:http";
 import { promisify } from "node:util";
@@ -7,7 +9,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { query, queryOne } from "@/lib/db";
 import { CLAUDE_DEFAULTS, claudeModelArg, type ClaudeOptions } from "@/lib/dev-agents-meta";
-import { insertConversation, insertMessage } from "@/lib/ai-chat";
+import { insertMessage } from "@/lib/ai-chat";
 import { ACTIONS_HINT, EFFECTS_HINT } from "@/lib/today-directives";
 import { standingInstructionsBlock } from "@/lib/agent-memory";
 import { finalizeHermesAnswer } from "@/lib/orchestrator/effects";
@@ -49,7 +51,7 @@ export type DevAgent = "claude" | "qwen" | "hermes";
 export const DEV_AGENTS: DevAgent[] = ["claude", "qwen", "hermes"];
 
 /** A08a run profiles — see lib/authority/run-profile.mjs. */
-export type RunProfile = "operator" | "business";
+export type RunProfile = "operator" | "business" | "browser";
 
 /** The signed-in person starting a run, or null when there is no request
  *  (cron sweep, runbook ping from a timer). getCurrentUser() needs a request
@@ -625,6 +627,7 @@ export interface DevAgentRun {
   profile: RunProfile;
   /** The person the run acts for (null = unattended). */
   principalUserId: string | null;
+  launchSource: LaunchSource;
   /** Set on a settled run when a newer run is already in flight in the same
    *  conversation — an orchestrator hand-off (e.g. Qwen's held proposal
    *  escalated to Hermes) or a follow-up for steers that arrived too late —
@@ -650,6 +653,8 @@ export async function startClaudeRun(
   options?: Partial<ClaudeOptions>,
   subjectWorkItemId?: string,
   extras?: {
+    launchSource?: AskLaunchSource | "telegram";
+    continuationOfRunId?: string;
     withMcp?: boolean;
     allowSends?: boolean;
     orchestrationTaskId?: string;
@@ -669,26 +674,37 @@ export async function startClaudeRun(
   //   staff  → 'business', bound to that staff member's id (the MCP layer
   //            scopes sends to their authority); they can never get 'operator'
   //   nobody → unattended 'business' (cron retries, runbook pings)
-  const starter = (await currentStarter()) ?? extras?.verifiedOwner ?? null;
+  const panelSource = extras?.launchSource && extras.launchSource !== "telegram" ? extras.launchSource : null;
+  const starter = panelSource ? await currentStarter() : extras?.launchSource === "telegram" ? extras.verifiedOwner ?? null : null;
+  if (extras?.profile === "browser") throw new Error("BROWSER_DISABLED");
   const profile = profileFor(starter ? { role: starter.role, active: true } : null, extras?.profile) as RunProfile;
   if (profile === "operator" && starter?.role !== "owner") throw new Error("Only the owner can start an operator run.");
   const principalUserId = starter?.id ?? null;
 
   // A08b: usage thresholds. Business runs are refused past the hourly cap;
   // owner runs proceed with a warning in the activity log.
-  const admission = await admitRun(runDirect, profile);
+  const admission = await admitRun(runDirect, profile === "operator" ? "operator" : "business");
   if (!admission.ok) throw new Error(admission.error);
 
-  const row = await queryOne<{ id: string }>(
+  const admitted = panelSource ? await admitAskRun({
+    prompt, pageContext, conversationId: conversationId!,
+    model: extras?.sameAs ? extras.sameAs.model : claudeModelArg(model, context),
+    mode: extras?.sameAs?.mode ?? mode, effort: extras?.sameAs?.effort ?? effort,
+    withMcp: extras?.sameAs?.withMcp ?? extras?.withMcp ?? withMcp,
+    subjectWorkItemId, orchestrationTaskId: extras?.orchestrationTaskId,
+    requestedProfile: extras?.profile, continuationOfRunId: extras?.continuationOfRunId,
+    activity: admission.warning ? `⚠ ${admission.warning}` : null,
+  }, panelSource) : null;
+  const row = admitted ?? await queryOne<{ id: string }>(
     `INSERT INTO dev_agent_runs
        (agent, prompt, page_context, status, conversation_id, model, mode, effort, subject_work_item_id, with_mcp, orchestration_task_id,
-        profile, principal_user_id, activity)
-     VALUES ('claude', $1, $2, 'pending', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        profile, principal_user_id, activity, launch_source)
+     VALUES ('claude', $1, $2, 'pending', $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
      RETURNING id`,
     [
       prompt,
       pageContext ?? null,
-      conversationId ?? null,
+      extras?.launchSource === "telegram" ? conversationId ?? null : null,
       // The exact --model string: alias or pinned id, plus "[1m]" for the 1M
       // window (null = no flag, the CLI's own default).
       extras?.sameAs ? extras.sameAs.model : claudeModelArg(model, context),
@@ -701,6 +717,7 @@ export async function startClaudeRun(
       profile,
       principalUserId,
       admission.warning ? `⚠ ${admission.warning}` : null,
+      extras?.launchSource === "telegram" ? "telegram" : "background",
     ],
   );
   const id = row!.id;
@@ -711,7 +728,7 @@ export async function startClaudeRun(
   // prompt can carry it. Only the OWNER's tick can mint one — a staff
   // member's checkbox is ignored (their sends are bounded by authority
   // grants checked in the MCP gate, not by an owner grant they cannot hold).
-  if (extras?.allowSends && starter?.role === "owner") {
+  if (extras?.allowSends && (admitted ? admitted.principalRole === "owner" : starter?.role === "owner")) {
     const grant = await mintRunGrant(id, conversationId ?? null, prompt);
     await query(`UPDATE dev_agent_runs SET grant_id = $2 WHERE id = $1`, [id, grant.id]);
   }
@@ -731,7 +748,8 @@ export async function startClaudeRun(
 
 /** Poll a Claude run's state for the chat UI. */
 export async function getDevAgentRun(id: string): Promise<DevAgentRun | null> {
-  const row = await queryOne<{
+  await requireRunThreadAccess(id);
+  const row = await threadQueryOne<{
     id: string;
     agent: string;
     status: DevAgentRun["status"];
@@ -745,17 +763,18 @@ export async function getDevAgentRun(id: string): Promise<DevAgentRun | null> {
     session_id: string | null;
     profile: string | null;
     principal_user_id: string | null;
+    launch_source: LaunchSource;
   }>(
     `SELECT id, agent, status, answer, activity, cost_usd, created_at::text AS created_at, conversation_id,
-            context_tokens, token_usage, session_id, profile, principal_user_id
-       FROM dev_agent_runs WHERE id = $1`,
+            context_tokens, token_usage, session_id, profile, principal_user_id, launch_source
+       FROM dev_agent_runs WHERE id = $1 AND EXISTS(SELECT 1 FROM ai_conversations c WHERE c.id=conversation_id AND c.deleted_at IS NULL)`,
     [id],
   );
   if (!row) return null;
   let nextRunId: string | undefined;
   // A settled run (done, or errored with a steer follow-up behind it).
   if ((row.status === "done" || row.status === "error") && row.conversation_id) {
-    const next = await queryOne<{ id: string }>(
+    const next = await threadQueryOne<{ id: string }>(
       `SELECT id FROM dev_agent_runs
         WHERE conversation_id = $1 AND id <> $2 AND status IN ('pending','running')
           AND created_at >= (SELECT created_at FROM dev_agent_runs WHERE id = $2)
@@ -777,8 +796,9 @@ export async function getDevAgentRun(id: string): Promise<DevAgentRun | null> {
     contextTokens: row.context_tokens == null ? null : Number(row.context_tokens),
     tokenUsage: row.token_usage,
     sessionId: row.session_id,
-    profile: row.profile === "operator" ? "operator" : "business",
+    profile: row.profile === "browser" ? "browser" : row.profile === "operator" ? "operator" : "business",
     principalUserId: row.principal_user_id,
+    launchSource: row.launch_source,
     nextRunId,
   };
 }
@@ -793,6 +813,7 @@ export async function getDevAgentRun(id: string): Promise<DevAgentRun | null> {
  * stays stopped.
  */
 export async function stopDevAgentRun(runId: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  await requireRunThreadAccess(runId);
   const run = await queryOne<{
     agent: string;
     status: string;
@@ -844,18 +865,6 @@ function approvalAgentFor(assigneeKey: string | null): ApprovalAgent | null {
   return null;
 }
 
-/** One thread per work item, reused across the initial ping and every retry,
- *  so the whole back-and-forth (and the agent's eventual reply) lives in one
- *  place Joe can open from the Ask window. */
-async function conversationForWorkItem(agent: ApprovalAgent, workItemId: string, title: string): Promise<string> {
-  const existing = await queryOne<{ conversation_id: string }>(
-    `SELECT conversation_id FROM ai_messages WHERE subject_work_item_id = $1 ORDER BY created_at ASC LIMIT 1`,
-    [workItemId],
-  );
-  if (existing) return existing.conversation_id;
-  return insertConversation(agent, `Approved: ${title}`);
-}
-
 /** Mirrors the Ask window's backgrounded Hermes turn (lib/actions/ai-chat.ts
  *  sendMessageAction): the row is created before this resolves so callers,
  *  retries and a steer follow-up can see it immediately, then updated with
@@ -863,7 +872,7 @@ async function conversationForWorkItem(agent: ApprovalAgent, workItemId: string,
  *  (long-lived server, not serverless). Steerable like any panel turn: steers
  *  relay into the live turn, late ones get a follow-up (lib/run-steers.ts). */
 async function runHermesTurnTracked(
-  conversationId: string,
+  conversationId: string | null,
   prompt: string,
   pageContext: string | undefined,
   subjectWorkItemId: string | null,
@@ -873,14 +882,14 @@ async function runHermesTurnTracked(
   let runId: string;
   try {
     const run = await queryOne<{ id: string }>(
-      `INSERT INTO dev_agent_runs (agent, prompt, page_context, status, conversation_id, activity, subject_work_item_id)
-       VALUES ('hermes', $1, $2, 'running', $3, 'Hermes is thinking…', $4)
+      `INSERT INTO dev_agent_runs (agent, prompt, page_context, status, conversation_id, activity, subject_work_item_id, launch_source)
+       VALUES ('hermes', $1, $2, 'running', $3, 'Hermes is thinking…', $4, $5)
        RETURNING id`,
-      [prompt, pageContext ?? null, conversationId, subjectWorkItemId],
+      [prompt, pageContext ?? null, conversationId, subjectWorkItemId, conversationId ? "telegram" : "background"],
     );
     runId = run!.id;
   } catch (err) {
-    await insertMessage(conversationId, "assistant", `⚠️ ${(err as Error).message}`, { agent: "hermes" }).catch(() => {});
+    if (conversationId) await insertMessage(conversationId, "assistant", `⚠️ ${(err as Error).message}`, { agent: "hermes" }).catch(() => {});
     return undefined;
   }
   const followUp = (text: string) => runHermesTurnTracked(conversationId, text, pageContext, subjectWorkItemId);
@@ -889,11 +898,11 @@ async function runHermesTurnTracked(
     try {
       // The thread turns Hermes hasn't seen (its gateway session only holds its
       // own) ride along with the ping — see lib/orchestrator/thread.ts.
-      const turn = await composeHermesTurn(conversationId, { text: prompt });
+      const turn = conversationId ? await composeHermesTurn(conversationId, { text: prompt }) : { content: prompt, images: undefined };
       const raw = await hermesChat(
         [{ role: "user", content: turn.content, images: turn.images }],
         pageContext,
-        conversationId,
+        conversationId ?? `background-${runId}`,
         hermesProgress(log),
         { runId, onDelivered: (b) => b.forEach((t) => log.push(`↪ Steer delivered: ${t}`)) },
       );
@@ -902,12 +911,14 @@ async function runHermesTurnTracked(
       const answer = await finalizeHermesAnswer(runId, raw);
       // Guarded on status inside: a run Joe ⏹-stopped is already 'error' —
       // don't overwrite it or double-post the late reply.
-      await settleSteeredRun({ runId, conversationId, agent: "hermes", status: "done", answer, followUp });
+      if (conversationId) await settleSteeredRun({ runId, conversationId, agent: "hermes", status: "done", answer, followUp });
+      else await query(`UPDATE dev_agent_runs SET status='done',answer=$2,updated_at=now() WHERE id=$1 AND status IN ('pending','running')`,[runId,answer]);
     } catch (err) {
       const msg = `⚠️ ${(err as Error).message}`;
       log.push(msg);
       await log.flush();
-      await settleSteeredRun({ runId, conversationId, agent: "hermes", status: "error", answer: msg, followUp }).catch(() => {});
+      if (conversationId) await settleSteeredRun({ runId, conversationId, agent: "hermes", status: "error", answer: msg, followUp }).catch(() => {});
+      else await query(`UPDATE dev_agent_runs SET status='error',answer=$2,updated_at=now() WHERE id=$1 AND status IN ('pending','running')`,[runId,msg]).catch(()=>{});
     }
   })();
   return runId;
@@ -929,28 +940,11 @@ export async function pingAgentWorkItem(
   const agent = approvalAgentFor(assigneeKey);
   if (!agent) return;
 
+  // Unattended work uses business context + work-item ID, never a private
+  // Ask transcript or a remembered owner principal/CLI session.
   try {
-    const conversationId = await conversationForWorkItem(agent, workItemId, title);
-    await insertMessage(conversationId, "user", prompt, { pageContext, subjectWorkItemId: workItemId });
-
-    if (agent === "hermes") {
-      // Not awaited past the DB insert: a live Hermes turn can run minutes of
-      // tool calls, and the caller can't sit there waiting on that.
-      void runHermesTurnTracked(conversationId, prompt, pageContext, workItemId);
-      return;
-    }
-    try {
-      // Every new turn re-derives the starter from the live session and
-      // re-checks active + session_revocations (startClaudeRun) — a revoked
-      // staff member gets no further turns even in an existing thread.
-      const me = await currentStarter();
-      if (me?.role === "staff" && (await sessionRevokedSince(runDirect, me.id, null))) {
-        throw new Error("Your session was signed out by the owner; sign in again.");
-      }
-      await startClaudeRun(prompt, pageContext, conversationId, undefined, workItemId);
-    } catch (err) {
-      await insertMessage(conversationId, "assistant", `⚠️ ${(err as Error).message}`, { agent: "claude" }).catch(() => {});
-    }
+    if (agent === "hermes") await runHermesTurnTracked(null, prompt, pageContext, workItemId);
+    else await startClaudeRun(prompt, pageContext, undefined, undefined, workItemId);
   } catch (err) {
     console.error("[dev-agents] pingAgentWorkItem failed", err);
   }
@@ -962,6 +956,7 @@ export async function pingAgentWorkItem(
  *  (unattended 'business' profile — no session cookie here), Hermes runs
  *  in-process. Returns the run id. Throws on a refused start. */
 export async function pingConversation(conversationId: string, agent: "claude" | "hermes", prompt: string): Promise<string | undefined> {
+  await requireThreadAccess(conversationId);
   if (agent === "hermes") {
     await insertMessage(conversationId, "user", prompt);
     return runHermesTurnTracked(conversationId, prompt, undefined, null);
@@ -985,6 +980,7 @@ export async function pingConversation(conversationId: string, agent: "claude" |
   await insertMessage(conversationId, "user", prompt);
   return startClaudeRun(prompt, undefined, conversationId, undefined, undefined, {
     verifiedOwner,
+    launchSource: "telegram",
     profile: (last?.profile === "operator" && verifiedOwner ? "operator" : "business") as RunProfile,
     ...(last ? { sameAs: { model: last.model, mode: last.mode, effort: last.effort, withMcp: last.with_mcp } } : {}),
   });
@@ -1031,17 +1027,16 @@ export async function retryFailedApprovalPings(): Promise<{ retried: number }> {
     work_item_id: string;
     title: string;
     assignee_key: string;
-    conversation_id: string;
     attempts: string;
   }>(
-    `SELECT w.id AS work_item_id, w.title, w.assignee_key, r.conversation_id, COUNT(r.id) AS attempts
+    `SELECT w.id AS work_item_id, w.title, w.assignee_key, COUNT(r.id) AS attempts
        FROM work_items w
-       JOIN dev_agent_runs r ON r.subject_work_item_id = w.id
+       JOIN dev_agent_runs r ON r.subject_work_item_id = w.id AND r.conversation_id IS NULL AND r.launch_source = 'background'
       WHERE (w.approval_status = 'approved'
              OR (w.runbook_instance_id IS NOT NULL AND w.status <> 'approval_needed'))
         AND w.status NOT IN ('done', 'cancelled')
         AND w.assignee_key IN ('hermes-telegram', 'claude-code-server')
-      GROUP BY w.id, w.title, w.assignee_key, r.conversation_id
+      GROUP BY w.id, w.title, w.assignee_key
      HAVING bool_and(r.status = 'error')
         AND count(r.id) < $1
         AND max(r.created_at) < now() - $2::interval`,
@@ -1055,18 +1050,8 @@ export async function retryFailedApprovalPings(): Promise<{ retried: number }> {
     const nudge =
       `Still waiting on work item "${r.title}" (retry ${attempt}/${MAX_APPROVAL_ATTEMPTS}). ` +
       `Please go complete it now.`;
-    await insertMessage(r.conversation_id, "user", nudge, { subjectWorkItemId: r.work_item_id });
-    if (agent === "hermes") {
-      // Fire-and-forget, same reason as the initial ping: the cron script has
-      // its own short timeout and shouldn't sit through a live Hermes turn.
-      void runHermesTurnTracked(r.conversation_id, nudge, undefined, r.work_item_id);
-    } else {
-      try {
-        await startClaudeRun(nudge, undefined, r.conversation_id, undefined, r.work_item_id);
-      } catch (err) {
-        await insertMessage(r.conversation_id, "assistant", `⚠️ ${(err as Error).message}`, { agent: "claude" });
-      }
-    }
+    if (agent === "hermes") await runHermesTurnTracked(null, nudge, undefined, r.work_item_id);
+    else await startClaudeRun(nudge, undefined, undefined, undefined, r.work_item_id);
   }
   return { retried: rows.length };
 }
@@ -1084,12 +1069,14 @@ export async function retryFailedApprovalPings(): Promise<{ retried: number }> {
  *  run that has gone QUIET for 15 minutes has a dead runner behind it.
  *  failStaleTasks() (45 min quiet) is the task-level backstop above this. */
 export async function failStaleRuns(): Promise<void> {
-  await query(
+  await threadQuery(
     `UPDATE dev_agent_runs
         SET status = 'error',
             answer = COALESCE(answer, 'The runner did not report back (timed out).'),
             updated_at = now()
-      WHERE status IN ('pending','running')
+      WHERE principal_user_id = nullif(current_setting('sjcos.ask_actor',true),'')::uuid
+        AND EXISTS(SELECT 1 FROM ai_conversations c WHERE c.id=conversation_id AND c.owner_user_id=principal_user_id AND c.deleted_at IS NULL)
+        AND status IN ('pending','running')
         AND updated_at < now() - interval '15 minutes'`,
   );
 }

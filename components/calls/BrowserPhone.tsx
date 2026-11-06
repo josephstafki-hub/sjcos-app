@@ -1,5 +1,8 @@
 "use client";
 
+import { isBackgroundFailure } from "@/lib/background-result";
+import { backgroundAuthLost, noteBackgroundFailure } from "@/components/shell/backgroundAuth";
+
 // The browser phone: lets a click-to-call use this tab as the caller's leg
 // instead of their cell. Mounted once in the (os) layout, so a call survives
 // moving between pages.
@@ -277,8 +280,10 @@ export function BrowserPhoneProvider({ enabled, children }: { enabled: boolean; 
     if (phase !== "live" || bridgedAt || !callId) return;
     let stop = false;
     const tick = async () => {
+      if (backgroundAuthLost()) return;
       const d = await loadCall(callId).catch(() => null);
-      if (stop || !d) return;
+      if (isBackgroundFailure(d)) { noteBackgroundFailure(d); return; }
+      if (stop || !d || backgroundAuthLost()) return;
       if (d.call.bridged) setBridgedAt(Date.now());
       else if (d.call.status === "no_answer") setStatus("No answer");
     };

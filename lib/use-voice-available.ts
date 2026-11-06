@@ -2,17 +2,20 @@
 
 import { useEffect, useState } from "react";
 
-// Client-side gate for the dictation mic. Server-side speech-to-text
-// (whisper.cpp) may or may not be set up on the box, and deeply-nested client
-// composers (AI chat, team chat, inbox) can't easily learn that from a server
-// prop. This probes GET /api/transcribe ONCE and shares the answer across every
-// mounted VoiceButton via a module-level promise — so N mics = one request.
+export type VoiceAvailability = { enabled: boolean; generation: number };
 
+// One shared in-flight capability request. Legacy callers keep the page-life
+// cache; explicit recovery generations invalidate it for all mounted consumers.
 let cached: Promise<boolean> | null = null;
+let cachedGeneration: number | undefined;
 
-function probe(): Promise<boolean> {
+function probe(generation?: number): Promise<boolean> {
+  if (generation !== undefined && generation !== cachedGeneration) {
+    cached = null;
+    cachedGeneration = generation;
+  }
   if (!cached) {
-    cached = fetch("/api/transcribe", { method: "GET" })
+    cached = fetch("/api/transcribe", { method: "GET", cache: "no-store" })
       .then((r) => (r.ok ? r.json() : { available: false }))
       .then((d) => Boolean(d?.available))
       .catch(() => false);
@@ -20,15 +23,17 @@ function probe(): Promise<boolean> {
   return cached;
 }
 
-/** Returns null while unknown, then true/false once the probe resolves. */
-export function useVoiceAvailable(): boolean | null {
-  const [available, setAvailable] = useState<boolean | null>(null);
+/** Disabled => no request; null while a new generation is still unknown. */
+export function useVoiceAvailable(availability?: VoiceAvailability): boolean | null {
+  const enabled = availability?.enabled ?? true;
+  const generation = availability?.generation;
+  const [result, setResult] = useState<{ generation: number | undefined; value: boolean } | null>(null);
   useEffect(() => {
+    if (!enabled) return;
     let alive = true;
-    probe().then((v) => alive && setAvailable(v));
-    return () => {
-      alive = false;
-    };
-  }, []);
-  return available;
+    probe(generation).then((value) => { if (alive) setResult({ generation, value }); });
+    return () => { alive = false; };
+  }, [enabled, generation]);
+  if (!enabled) return false;
+  return result?.generation === generation ? result?.value ?? null : null;
 }

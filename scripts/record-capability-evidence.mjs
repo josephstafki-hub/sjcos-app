@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {testDatabaseUrl} from '../lib/test-db-guard.mjs';
 // Record IMPLEMENTED evidence for the automation build (A18 capability
 // status). Run after the branch is merged/deployed, against the target
 // database, by the owner. It only sets `implemented = true` with the commit
@@ -10,7 +11,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
 import { CAPABILITIES, ensureCapabilities, setCapabilityState } from "../lib/measure/capabilities.ts";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -21,6 +22,7 @@ const tests = arg("--tests", null);
 if (!commit || !tests) { console.error("usage: --commit <sha> --tests \"<summary>\" [--dry-run]"); process.exit(2); }
 
 function databaseUrl() {
+  const testUrl=testDatabaseUrl();if(testUrl)return testUrl;
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
   const env = readFileSync(path.join(REPO, ".env.local"), "utf8");
   const m = env.match(/^DATABASE_URL=(.+)$/m);

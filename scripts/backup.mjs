@@ -26,7 +26,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { hostname } from "node:os";
 import path from "node:path";
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
 import { finishBackupRun, latestBackupRuns, recordFailedBackup, startBackupRun } from "../lib/backup/runs.ts";
 import { DEFAULT_RETENTION, parseSetStamp, planRetention, setStamp } from "../lib/backup/retention.ts";
 import { ARTIFACT_EXT, cipherFromEnv, encryptFile, fileSize, sha256File } from "../lib/backup/crypto.ts";

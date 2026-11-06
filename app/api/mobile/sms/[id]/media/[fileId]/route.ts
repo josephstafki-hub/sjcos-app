@@ -6,7 +6,7 @@ export async function GET(req:Request,{params}:{params:Promise<{id:string;fileId
  return commsRead(req,"comms",async user=>{
   const {id,fileId}=await params;const thread=await getSmsThread(positiveId(id),user);
   if(!thread?.messages.some(m=>m.media.some(a=>a.file_id===fileId)))throw new CommsReadError("Attachment not found.",404);
-  const file=await queryOne<{storage_path:string|null;mime_type:string|null;name:string}>("SELECT storage_path,mime_type,name FROM files WHERE id=$1",[fileId]);
+  const file=await queryOne<{storage_path:string|null;mime_type:string|null;name:string}>("SELECT storage_path,mime_type,name FROM files WHERE to_jsonb(files)->>'security_profile' IS NULL AND id=$1",[fileId]);
   if(!file?.storage_path)throw new CommsReadError("Attachment not found.",404);
   return serveFile(req,fileId,{...file,storage_path:file.storage_path});
  });

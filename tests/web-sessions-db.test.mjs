@@ -1,0 +1,83 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {SignJWT} from 'jose';
+import {withTestDb,withSessionIdentity} from './_harness/testdb.mjs';
+import {appHooks,seedPeople} from './phase0a-fixtures.mjs';
+appHooks();
+process.env.SESSION_SECRET='phase0a-test-secret-64-characters-long-and-not-a-live-key';
+const web=await import('../lib/web-sessions.ts');
+const session=await import('../lib/session.ts');
+const key=new TextEncoder().encode(process.env.SESSION_SECRET);
+const cookieMap=new Map();globalThis.__phase0aCookies={get:k=>cookieMap.has(k)?{value:cookieMap.get(k)}:undefined,set:(k,v)=>cookieMap.set(k,v),delete:k=>cookieMap.delete(k)};
+const sign=async(id,extra={})=>new SignJWT({...id,...extra}).setProtectedHeader({alg:'HS256'}).setIssuer(web.WEB_SESSION_ISSUER).setAudience(web.WEB_SESSION_AUDIENCE).setIssuedAt().sign(key);
+test('sid lifecycle: cookie only, fresh identity, renewal, logout/replacement, revocation and generations',async()=>withTestDb(async(url,c)=>{
+ const {owner,staff,thread}=await seedPeople(c);
+ await withSessionIdentity(url,'sjcos_test_website',async(db)=>{
+  globalThis.__phase0aDb=db;
+  const now=Math.floor(Date.now()/1000);
+  const id=await web.createWebSession(owner.id,now,3600);
+  const task=(await db.query(`INSERT INTO browser_tasks(initiator_user_id,conversation_id,purpose,required_areas,origins,initiating_web_session_id) VALUES($1,$2,'Fence fixture','{ai}','{}',$3) RETURNING id`,[owner.id,thread,id.sid])).rows[0].id;
+  const run=(await db.query(`INSERT INTO dev_agent_runs(prompt,profile,launch_source,principal_user_id,conversation_id,browser_task_id,with_mcp) VALUES('Fence fixture','browser','panel_web',$1,$2,$3,true) RETURNING id`,[owner.id,thread,task])).rows[0].id;
+  await db.query(`INSERT INTO browser_task_runs(task_id,run_id,initiator_user_id,conversation_id,launch_web_session_id) VALUES($1,$2,$3,$4,$5)`,[task,run,owner.id,thread,id.sid]);
+  const viewer=(await db.query(`INSERT INTO browser_viewers(task_id,web_session_id,user_id,device_hash,device_secret_hash,joined_role,visible_until) VALUES($1,$2,$3,decode(repeat('11',32),'hex'),decode(repeat('22',32),'hex'),'initiator',now()+interval '1 minute') RETURNING id`,[task,id.sid,owner.id])).rows[0].id;
+  const token=await sign(id); cookieMap.set('sjcos_session',token);
+  assert.deepEqual(await web.readBrowserCookieSession(),id);
+  assert.equal(await web.renewWebSession(id,7200),true);
+  assert.equal((await web.verifyWebSessionToken(token)).authAt,now);
+  assert.equal(await web.verifyWebSessionToken(await sign({...id,generation:2})),null);
+  assert.equal(await web.verifyWebSessionToken(await sign({...id,userId:staff.id})),null);
+  assert.equal(await web.verifyWebSessionToken(await sign({...id,authAt:now-1})),null);
+  assert.equal(await web.verifyWebSessionToken(await sign({...id,exp:now-1})),null);
+  const wrongIss=await new SignJWT(id).setProtectedHeader({alg:'HS256'}).setIssuer('other').setAudience(web.WEB_SESSION_AUDIENCE).sign(key);
+  assert.equal(await web.verifyWebSessionToken(wrongIss),null);
+  const wrongAud=await new SignJWT(id).setProtectedHeader({alg:'HS256'}).setIssuer(web.WEB_SESSION_ISSUER).setAudience('other').sign(key);
+  assert.equal(await web.verifyWebSessionToken(wrongAud),null);
+  cookieMap.clear();globalThis.__phase0aHeaders={authorization:`Bearer ${token}`};
+  assert.equal(await web.readBrowserCookieSession(),null);
+  assert.equal(await session.readSession(),null,'cookie sid cannot be laundered through bearer');
+  const legacy=await session.encrypt({userId:owner.id,role:'owner',authAt:now});
+  cookieMap.set('sjcos_session',legacy);
+  assert.ok(await session.readSession(),'ordinary existing cookie remains valid');
+  assert.equal(await web.readBrowserCookieSession(),null,'renewal cannot promote legacy login');
+  cookieMap.set('sjcos_session',token);
+  globalThis.__phase0aDb={query:async()=>{throw new Error('registry offline');}};
+  await assert.rejects(session.deleteSession(),/registry offline/);assert.equal(cookieMap.get('sjcos_session'),token,'failed revocation must not claim successful logout');
+  globalThis.__phase0aDb=db;await session.deleteSession();
+  assert.equal(cookieMap.size,0);assert.equal(await web.verifyWebSessionToken(token),null);
+  assert.ok((await db.query('SELECT capability_revoked_at FROM browser_task_runs WHERE run_id=$1',[run])).rows[0].capability_revoked_at);
+  const fenced=(await db.query('SELECT left_at,stream_generation FROM browser_viewers WHERE id=$1',[viewer])).rows[0];assert.ok(fenced.left_at);assert.equal(Number(fenced.stream_generation),2);
+  await assert.rejects(db.query('UPDATE web_sessions SET revoked_at=NULL WHERE id=$1',[id.sid]),e=>e.code==='42501');
+  await assert.rejects(db.query('UPDATE browser_tasks SET initiator_user_id=$2 WHERE id=$1',[task,staff.id]),e=>e.code==='42501');
+  await assert.rejects(db.query(`TRUNCATE browser_audit`),e=>e.code==='42501');
+  const old=await web.createWebSession(owner.id,now,3600);
+  const replacement=await web.createWebSession(owner.id,now,3600,old.sid);
+  assert.equal(await web.validateWebSession(old),false);assert.equal(await web.validateWebSession(replacement),true);
+  await db.query(`INSERT INTO session_revocations(user_id,revoked_before) VALUES($1,now()+interval '1 second')`,[owner.id]);
+  assert.equal(await web.validateWebSession(replacement),false);assert.equal(await web.renewWebSession(replacement,7200),false);
+  const inactive=await web.createWebSession(staff.id,now,3600);await db.query('UPDATE users SET active=false WHERE id=$1',[staff.id]);assert.equal(await web.validateWebSession(inactive),false);
+ });
+},{fresh:true}));
+test('browser secret activation rejects missing/development/short keys',()=>{
+ for(const secret of ['','dev-insecure-secret-change-me','x'.repeat(12),'development'+'x'.repeat(40)])assert.equal(web.browserSessionSecretReady(secret),false);
+ assert.equal(web.browserSessionSecretReady('x'.repeat(32)),true);
+});
+const uuid='11111111-1111-4111-8111-111111111111';
+test('only canonical review/Watch return paths survive login',()=>{
+ assert.equal(web.validateBrowserReturnPath(`/today?browser=${uuid}`),`/today?browser=${uuid}`);
+ assert.equal(web.validateBrowserReturnPath(`/today?review=${uuid}&browser=${uuid}`),`/today?browser=${uuid}&review=${uuid}`);
+ for(const bad of [`https://evil.test/today?browser=${uuid}`,`//evil.test/today?browser=${uuid}`,`/today?browser=${uuid}&browser=${uuid}`,`/today?browser=${uuid}&returnTo=x`,`/today?browser=${uuid}#secret`,`/today?browser=${uuid}%26review=${uuid}`,`/today?browser=${uuid}\\evil`,`/today?browser=${uuid}\n`,`/today?browser=bad`,`/today?review=${uuid}`,'/today?'+'a'.repeat(300)])assert.equal(web.validateBrowserReturnPath(bad),null,bad);
+});
+
+test('real createSession signs a cookie-only sid and replaces the preceding login',async()=>withTestDb(async(url,c)=>{
+ const {owner,staff}=await seedPeople(c);
+ await withSessionIdentity(url,'sjcos_test_website',async(db)=>{
+  globalThis.__phase0aDb=db;cookieMap.clear();let attributes;
+  globalThis.__phase0aCookies={get:k=>cookieMap.has(k)?{value:cookieMap.get(k)}:undefined,set:(k,v,opts)=>{attributes=opts;cookieMap.set(k,v);},delete:k=>cookieMap.delete(k)};
+  await session.createSession(owner.id,'owner');
+  const oldToken=cookieMap.get('sjcos_session');const old=await web.readBrowserCookieSession();assert.equal(old.userId,owner.id);
+  assert.equal(attributes.httpOnly,true);assert.equal(attributes.sameSite,'lax');assert.equal(attributes.path,'/');assert.equal(attributes.maxAge,604800);
+  await session.createSession(staff.id,'staff',['ai']);
+  const current=await web.readBrowserCookieSession();assert.equal(current.userId,staff.id);assert.notEqual(current.sid,old.sid);
+  assert.equal(await web.verifyWebSessionToken(oldToken),null);assert.equal((await session.readSession()).role,'staff');
+ });
+}));

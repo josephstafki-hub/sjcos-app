@@ -1,4 +1,5 @@
 "use client";
+import { noteBackgroundFailure, resumeBackgroundAuth, subscribeBackgroundAuth } from "@/components/shell/backgroundAuth";
 
 import { startTransition, useEffect, useRef, useState } from "react";
 import {
@@ -11,6 +12,7 @@ import {
 } from "@/lib/actions/dev-agents";
 import type { SteerStatus } from "@/lib/run-steers";
 import {
+  listThreadRailAction,
   loadConversationAction,
   newConversationAction,
   resetClaudeSessionAction,
@@ -28,6 +30,13 @@ import {
 import type { FolderEntityRef } from "@/lib/thread-rail";
 import { postPanelMessage } from "./panelBus";
 import { adoptPanelSession, claimConversation, writePanelState } from "./panelStore";
+
+import type { AskFailureCode } from "@/lib/ask-result-codes";
+import { askCall, askFailure } from "./askStatusCopy";
+
+import type {EventPage} from '@/lib/canvas-api-types';
+import {pollAgentRunWithCanvas,loadConversationWithCanvas,canvasRunPage} from './canvas/run-actions';
+import {drainCanvasPages} from './canvas/run-events';
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 /** Wall clock for run bookkeeping. Wrapped so calls inside the poll loop
@@ -131,12 +140,16 @@ export function useAgentChat({
   /** This tab's thread-rail scope (a folder id); new chats file under it. */
   const [folderScope, setFolderScopeState] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [canvasChanges, setCanvasChanges] = useState<EventPage | undefined>();
   const [activity, setActivity] = useState("");
   const [elapsed, setElapsed] = useState(0);
   /** When the turn being watched started (epoch ms). The timer counts from
    *  this, not from when this mount began waiting — so leaving a running
    *  thread and coming back shows the run's real age, not a restart at 0. */
   const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
+  const [failureCode, setFailureCode] = useState<AskFailureCode | null>(null);
+  const [recoveryGeneration, setRecoveryGeneration] = useState(0);
+  const failureRef = useRef<AskFailureCode | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [pending, setPending] = useState(false);
@@ -173,6 +186,7 @@ export function useAgentChat({
   useEffect(() => {
     conversationIdRef.current = conversationId;
   }, [conversationId]);
+  const unsentRef = useRef<PanelSend | null>(null);
   const earlySteersRef = useRef<{ localId: string; text: string }[]>([]);
 
   const liveRef = useRef({ alive: true });
@@ -186,6 +200,7 @@ export function useAgentChat({
     setNextHomeState(h);
   };
   const claim = () => {
+    setCanvasChanges(undefined);
     liveRef.current.alive = false;
     liveRef.current = { alive: true };
     return liveRef.current;
@@ -242,11 +257,20 @@ export function useAgentChat({
       startRun({ runId: nextRunId, agent: nextAgent, subjectId: subjectId ?? null, startedAt });
       await pollTurn(nextRunId, subjectId, live);
     };
+    let canvasCursor: string | undefined;
     for (let i = 0; i < 1440; i++) {
       await sleep(2000);
       if (!live.alive) return;
-      const p = await pollAgentRun(runId);
+      const p = await askCall(process.env.NEXT_PUBLIC_SJC_CANVAS_ENABLED==='1'?pollAgentRunWithCanvas(runId, canvasCursor):pollAgentRun(runId) as ReturnType<typeof pollAgentRunWithCanvas>);
       if (!live.alive) return;
+      if (p.canvas_changes) {
+        const apply = (page: EventPage) => { canvasCursor = page.cursor; setCanvasChanges(old => ({...page,events:[...new Map([...(old?.availability.revision===page.availability.revision?old.events:[]),...page.events].map(e=>[e.id,e])).values()]})); };
+        apply(p.canvas_changes);
+        if (!p.ok || p.status === 'done') {
+          await drainCanvasPages(p.canvas_changes, after => canvasRunPage(runId, after), apply, () => live.alive);
+          if (!live.alive) return;
+        }
+      }
       if (p.ok) relayFocus(p.focus);
       if (p.steers?.length) mergeSteers(p.steers);
       if (!p.ok) {
@@ -324,6 +348,7 @@ export function useAgentChat({
   const detachRun = (): boolean => {
     const wasLive = pending || activeRunId != null;
     claim();
+    unsentRef.current = null;
     // pending is cleared here because the abandoned loop's finally sees a dead
     // claim and won't. Its question boxes, grants and stop target belong to the
     // thread being left, not to whatever comes next.
@@ -342,6 +367,40 @@ export function useAgentChat({
     return wasLive;
   };
 
+  const reportFailure = (value: AskFailureCode) => {
+    failureRef.current = value;
+    if (value === "SIGN_IN_AGAIN") noteBackgroundFailure({ ok: false, code: value });
+    setFailureCode(value);
+    const unsent = unsentRef.current;
+    detachRun();
+    if (unsent) cbRef.current.onSendError?.(unsent);
+    resetView();
+    setLogs({});
+    setContextWindow(null);
+    setNextHome(null);
+    setFolderScopeState(null);
+    setConversationId(null);
+    setConversationTitle("New chat");
+    writePanelState({conversationId:null, folderId:null});
+  };
+  useEffect(() => subscribeBackgroundAuth(() => { if (failureRef.current !== "SIGN_IN_AGAIN") reportFailure("SIGN_IN_AGAIN"); }), []);
+  const handleFailure = (error: unknown) => reportFailure(askFailure(error)?.code ?? "ASK_PAUSED");
+  const retry = async () => {
+    const live = liveRef.current;
+    try {
+      await askCall(listThreadRailAction());
+      if (!live.alive) return;
+      resumeBackgroundAuth();
+      failureRef.current = null;
+      setFailureCode(null);
+      setRecoveryGeneration(value => value + 1);
+    } catch (error) { if (live.alive) handleFailure(error); }
+  };
+  const control = async (work: Promise<unknown>) => {
+    const live = liveRef.current;
+    try { await askCall(work); } catch (error) { if (live.alive) handleFailure(error); }
+  };
+
   /** Reopen a thread: transcript from the DB (which is what shows a reply that
    *  landed while the panel was elsewhere), and a still-running turn resumes
    *  its poll and its run focus. */
@@ -355,20 +414,20 @@ export function useAgentChat({
     setNotice("");
     setActivity("");
     try {
-      const detail = await loadConversationAction(id);
+      const loaded = await askCall(process.env.NEXT_PUBLIC_SJC_CANVAS_ENABLED==='1'?loadConversationWithCanvas(id):loadConversationAction(id) as ReturnType<typeof loadConversationWithCanvas>);
+      const detail = loaded && "conversation" in loaded ? loaded.conversation : loaded;
       if (!live.alive) return;
-      if (!detail) {
-        writePanelState({ conversationId: null });
-        setConversationId(null);
-        setConversationTitle("New chat");
-        setMessages([]);
-        return;
-      }
+      if (!detail) { reportFailure("THREAD_UNAVAILABLE"); return; }
+      if (failureRef.current) setRecoveryGeneration(value => value + 1);
+      resumeBackgroundAuth();
+      failureRef.current = null;
+      setFailureCode(null);
       setAgent(detail.agent);
       setConversationId(detail.id);
       setConversationTitle(detail.title || "New chat");
       setFolderName(detail.folderName);
       setMessages(detail.messages);
+      setCanvasChanges(loaded.canvas_changes);
       setClaudeSessionId(detail.claudeSessionId);
       setContextTokens(null);
       writePanelState({ conversationId: detail.id, agent: detail.agent });
@@ -389,6 +448,8 @@ export function useAgentChat({
         });
         await pollTurn(detail.pendingRunId, subjectId, live);
       }
+    } catch (error) {
+      if (live.alive) handleFailure(error);
     } finally {
       if (live.alive) setPending(false);
     }
@@ -404,6 +465,12 @@ export function useAgentChat({
     let deepLink: string | null = null;
     try {
       deepLink = new URLSearchParams(window.location.search).get("c");
+      const url = new URL(window.location.href);
+      if (url.searchParams.has("c") || url.searchParams.has("m")) {
+        url.searchParams.delete("c");
+        url.searchParams.delete("m");
+        window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+      }
     } catch {
       /* no location — fine */
     }
@@ -413,8 +480,9 @@ export function useAgentChat({
       const open = new URLSearchParams(window.location.search).has("new") ? null : deepLink ?? st.conversationId;
       if (open) {
         void openConversation(open);
-      } else if (st.agent !== PANEL_DEFAULT_AGENT) {
-        setAgent(st.agent);
+      } else {
+        if (st.agent !== PANEL_DEFAULT_AGENT) setAgent(st.agent);
+        void retry();
       }
     });
     return () => {
@@ -447,12 +515,17 @@ export function useAgentChat({
     setSteerStatus({});
   };
 
+  const clearUnavailable = () => {
+    if (failureRef.current === "THREAD_UNAVAILABLE") { failureRef.current = null; setFailureCode(null); }
+  };
+
   /** Start a fresh thread — Unfiled. The app view's page and any earlier
    *  "new chat in …" click are deliberately NOT consulted: that is what used
    *  to file every chat started beside a project page under that project.
    *  Allowed mid-run on purpose: the run finishes server-side and its reply
    *  lands in its own thread, marked live in the thread list. */
   const newChat = () => {
+    clearUnavailable();
     const leftRunning = detachRun();
     setNextHome(null);
     writePanelState({ conversationId: null });
@@ -516,7 +589,7 @@ export function useAgentChat({
    *  ("⏹ Stopped by Joe.") land as the run's error/answer within a tick. */
   const stop = () => {
     if (!activeRunId) return;
-    void stopAgentRun(activeRunId);
+    void control(stopAgentRun(activeRunId));
   };
 
   /** Answer a question box / permission prompt; the blocked agent resumes
@@ -524,13 +597,13 @@ export function useAgentChat({
    *  genuinely still pending. */
   const respond = (id: string, response: InteractionResponse) => {
     setInteractions((cur) => cur.filter((i) => i.id !== id));
-    void answerInteractionAction(id, response);
+    void control(answerInteractionAction(id, response));
   };
 
   /** Dismiss a question without answering (agent is told to use judgment). */
   const dismiss = (id: string) => {
     setInteractions((cur) => cur.filter((i) => i.id !== id));
-    void dismissInteractionAction(id);
+    void control(dismissInteractionAction(id));
   };
 
   /** Drop a grant card locally once Joe decided it (approve/deny happens via
@@ -543,7 +616,7 @@ export function useAgentChat({
     setClaudeSessionId(null);
     setContextTokens(null);
     setContextWindow(null);
-    void resetClaudeSessionAction(conversationId);
+    void control(resetClaudeSessionAction(conversationId));
   };
 
   const mergeSteers = (list: SteerStatus[]) =>
@@ -564,7 +637,11 @@ export function useAgentChat({
    *  poll's status lands on it. Refused (the run already took its last look)
    *  → it goes as the next message instead. */
   const deliverSteer = async (runId: string, localId: string, text: string) => {
-    const r = await steerAgentRun(runId, text).catch((err: Error) => ({ ok: false as const, error: err.message }));
+    const live = liveRef.current;
+    let r;
+    try { r = await askCall(steerAgentRun(runId, text)); }
+    catch (error) { if (live.alive) handleFailure(error); return; }
+    if (!live.alive) return;
     if (r.ok) {
       setMessages((m) => m.map((x) => (x.id === localId ? { ...x, id: `steer-${r.steerId}` } : x)));
       mergeSteers([{ id: r.steerId, status: "pending", via: null }]);
@@ -584,7 +661,7 @@ export function useAgentChat({
    *  boundary, Qwen starts over with it. Not mid-run → a normal turn. */
   const steer = (text: string) => {
     const body = text.trim();
-    if (!body) return;
+    if (!body || failureRef.current) return;
     if (!pending) {
       submit({ directive: body });
       return;
@@ -619,6 +696,10 @@ export function useAgentChat({
       setPending(true);
       try {
         await work(live);
+      } catch (error) {
+        if (live.alive) {
+          handleFailure(error);
+        }
       } finally {
         if (live.alive) setPending(false);
       }
@@ -627,8 +708,9 @@ export function useAgentChat({
 
   /** The one entry point for turns — free text, hand-offs, starters. */
   const submit = (spec: PanelSend) => {
-    if (pending) return;
+    if (pending || (failureRef.current && failureRef.current !== "THREAD_UNAVAILABLE")) return;
     if (!spec.directive.trim() && !spec.attachments?.length) return;
+    clearUnavailable();
     const from = agent;
     const target = spec.agent ?? from;
     const switching = target !== from;
@@ -637,23 +719,24 @@ export function useAgentChat({
     setElapsed(0);
     setRunStartedAt(Date.now());
     setActivity("");
+    unsentRef.current = spec;
     runTurn(async (live) => {
       let convId = switching ? null : conversationId;
       if (switching) {
         setAgent(target);
         setMessages([]);
       }
-      pushUser(spec.display ?? spec.directive, spec.subjectId);
       if (!convId) {
         // Files only where an explicit "new chat in …" said; else Unfiled.
         const home = nextHomeRef.current;
-        convId = await newConversationAction(
+        const created = await askCall(newConversationAction(
           target,
           home ? { folderId: home.folderId, entity: home.entity } : undefined,
-        );
+        ));
+        convId = typeof created === "string" ? created : created.id;
         if (!live.alive) {
           // Created after the panel went away — still remember it (rule 3).
-          writePanelState({ conversationId: convId, agent: target });
+          if (!failureRef.current) writePanelState({ conversationId: convId, agent: target });
           return;
         }
         writePanelState({ conversationId: convId, agent: target });
@@ -665,9 +748,11 @@ export function useAgentChat({
       if (spec.voice) {
         // Voice: Claude answers out loud right away; any OS work runs as a
         // delegated background run in this thread that we then follow.
-        const v = await voiceTurnAction(convId, spec.directive, cbRef.current.getPageContext());
+        const v = await askCall(voiceTurnAction(convId, spec.directive, cbRef.current.getPageContext()));
         if (!live.alive) return;
         if (!v.ok) {
+          unsentRef.current = null;
+          cbRef.current.onSendError?.(spec);
           setMessages((m) => [
             ...m,
             { id: `err-${Date.now()}`, role: "assistant", body: `⚠️ ${v.error}`, costUsd: null, createdAt: "", subjectWorkItemId: null, agent: null, attachments: null },
@@ -675,6 +760,8 @@ export function useAgentChat({
           await settle();
           return;
         }
+        unsentRef.current = null;
+        pushUser(spec.display ?? spec.directive, spec.subjectId);
         setMessages((m) => [
           ...m,
           { id: v.ackMessageId, role: "assistant", body: `🗣 ${v.speak}`, costUsd: null, createdAt: "", subjectWorkItemId: null, agent: "concierge", attachments: null },
@@ -689,7 +776,7 @@ export function useAgentChat({
         await pollTurn(v.runId, undefined, live);
         return;
       }
-      const r = await sendMessageAction(
+      const r = await askCall(sendMessageAction(
         convId,
         spec.directive,
         cbRef.current.getPageContext(),
@@ -698,17 +785,20 @@ export function useAgentChat({
         spec.subjectId,
         spec.allowSends,
         spec.contextRefs,
-      );
+      ));
       if (!live.alive) return;
       if (!r.ok) {
         setMessages((m) => [
           ...m,
           { id: `err-${Date.now()}`, role: "assistant", body: `⚠️ ${r.error}`, costUsd: null, createdAt: "", subjectWorkItemId: spec.subjectId ?? null, agent: null, attachments: null },
         ]);
+        unsentRef.current = null;
         cbRef.current.onSendError?.(spec);
         await settle();
         return;
       }
+      unsentRef.current = null;
+      pushUser(spec.display ?? spec.directive, spec.subjectId);
       if (r.kind === "answer") {
         // Rare synchronous path — no run row to poll.
         setMessages((m) => [...m, { ...r.message, subjectWorkItemId: spec.subjectId ?? r.message.subjectWorkItemId }]);
@@ -733,6 +823,7 @@ export function useAgentChat({
   }, [pending, queuedNext]);
 
   return {
+    canvasChanges,
     agent,
     selectAgent,
     conversationId,
@@ -749,6 +840,11 @@ export function useAgentChat({
     activity,
     elapsed,
     error,
+    failureCode,
+    recoveryGeneration,
+    clearUnavailable,
+    reportFailure,
+    retry,
     notice,
     pending,
     claudeOpts,

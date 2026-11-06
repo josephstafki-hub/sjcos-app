@@ -240,3 +240,28 @@ test("sjcos_worker: heartbeat, Telnyx inbound SMS and a Square payment completin
     { fresh: true },
   );
 });
+
+test('0105 actual MCP/worker sessions cannot claim private Ask identity with GUCs',async()=>{
+ const {withSessionIdentity}=await import('./_harness/testdb.mjs');
+ await withTestDb(async(url,c)=>{
+  const owner=(await c.query(`INSERT INTO users(email,name,role,password_hash,initials) VALUES($1,'Role fixture','owner','x','R') RETURNING id`,[`${crypto.randomUUID()}@example.test`])).rows[0].id;
+  const thread=(await c.query(`INSERT INTO ai_conversations(agent,title,owner_user_id) VALUES('claude','private',$1) RETURNING id`,[owner])).rows[0].id;
+  for(const role of ['sjcos_agent','sjcos_worker'])await withSessionIdentity(url,role,async(db,proof)=>{
+   assert.deepEqual(proof,{session_user:role,current_user:role});
+   await db.query(`SELECT set_config('sjcos.ask_actor',$1,false)`,[owner]);
+   assert.equal((await db.query('SELECT id FROM ai_conversations WHERE id=$1',[thread])).rows.length,0);
+   if(role==='sjcos_agent')await assert.rejects(db.query('UPDATE ai_conversations SET title=$2 WHERE id=$1',[thread,'hijack']),/permission denied/);
+   else assert.equal((await db.query('UPDATE ai_conversations SET title=$2 WHERE id=$1',[thread,'hijack'])).rowCount,0);
+   await assert.rejects(db.query(`INSERT INTO dev_agent_runs(prompt,launch_source,profile,conversation_id,principal_user_id) VALUES('forged','panel_web','operator',$1,$2)`,[thread,owner]),/denied|narrow|row-level/);
+   if(role==='sjcos_worker'){
+    await assert.rejects(db.query(`INSERT INTO dev_agent_runs(prompt,launch_source,profile,conversation_id,principal_user_id) VALUES('voice attack','panel_voice','business',$1,$2)`,[thread,owner]),e=>e.code==='42501');
+    assert.equal((await db.query("SELECT has_table_privilege(current_user,'agent_interactions','UPDATE') AS interactions,has_table_privilege(current_user,'ai_messages','DELETE') AS messages")).rows[0].interactions,false);
+    assert.equal((await db.query("SELECT has_table_privilege(current_user,'ai_messages','DELETE') AS messages")).rows[0].messages,false);
+    await assert.rejects(db.query(`UPDATE agent_interactions SET payload='{}' WHERE conversation_id=$1`,[thread]),e=>e.code==='42501');
+    await assert.rejects(db.query('DELETE FROM ai_messages WHERE conversation_id=$1',[thread]),e=>e.code==='42501');
+    const run=(await db.query(`INSERT INTO dev_agent_runs(prompt,launch_source,profile) VALUES('background','background','business') RETURNING id`)).rows[0].id;
+    assert.equal((await db.query(`UPDATE dev_agent_runs SET status='running',activity='retry' WHERE id=$1`,[run])).rowCount,1);
+   }
+  });
+ });
+});

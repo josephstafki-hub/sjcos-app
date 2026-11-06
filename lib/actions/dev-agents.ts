@@ -10,7 +10,8 @@ import {
   type AgentInteraction,
   type InteractionResponse,
 } from "@/lib/agent-interactions";
-import { query } from "@/lib/db";
+import type { AskFailure, AskResult } from "@/lib/ask-result-codes";
+import { askBoundary, requireRunThreadAccess, requireInteractionThreadAccess, threadQuery as query } from "@/lib/thread-access";
 import { ACTION_LABEL, type GrantDetail } from "@/lib/owner-grant-types";
 import { describeGrants } from "@/lib/grant-detail";
 import { getRunFocus } from "@/lib/run-focus";
@@ -121,27 +122,10 @@ async function pendingGrants(runId: string, conversationId: string | null): Prom
 
 /** A22: the owner sees every run; a staff member with the `ai` area may
  *  follow only runs started under their own identity. */
-async function requireRunAccess(runId: string) {
-  const user = await requireAccess("ai");
-  if (user.role === "owner") return user;
-  const run = await getDevAgentRun(runId);
-  if (!run || run.principalUserId !== user.id) throw new Error("That run is not yours.");
-  return user;
-}
+async function requireRunAccess(runId: string) { return requireRunThreadAccess(runId); }
+async function requireInteractionAccess(id: string) { return requireInteractionThreadAccess(id); }
 
-/** Same rule for a question box / permission prompt: it belongs to a run. */
-async function requireInteractionAccess(id: string) {
-  const user = await requireAccess("ai");
-  if (user.role === "owner") return user;
-  const { rows } = await query<{ principal_user_id: string | null }>(
-    `SELECT r.principal_user_id FROM agent_interactions i LEFT JOIN dev_agent_runs r ON r.id = i.run_id WHERE i.id = $1`,
-    [id],
-  );
-  if (!rows[0] || rows[0].principal_user_id !== user.id) throw new Error("That question is not from one of your runs.");
-  return user;
-}
-
-export async function pollAgentRun(runId: string): Promise<PollResult> {
+async function pollAgentRunImpl(runId: string): Promise<PollResult> {
   const user = await requireRunAccess(runId);
   await failStaleRuns();
   await failStaleTasks();
@@ -188,7 +172,7 @@ export async function pollAgentRun(runId: string): Promise<PollResult> {
 /** ⏹ Stop a live run. Claude: SIGTERMs the detached runner (which kills the
  *  CLI and records the stop); Hermes/Qwen: settles the row (their guarded
  *  pipelines then discard the late result). */
-export async function stopAgentRun(runId: string): Promise<{ ok: boolean; error?: string }> {
+async function stopAgentRunImpl(runId: string): Promise<{ ok: boolean; error?: string }> {
   await requireRunAccess(runId);
   const r = await stopDevAgentRun(runId);
   return r.ok ? { ok: true } : { ok: false, error: r.error };
@@ -202,7 +186,7 @@ export type SteerResult =
 /** Send a steer INTO a live run (the panel's composer while an agent works).
  *  `finished` = the run already took its last look at steers — the panel
  *  sends the text as the next message instead. */
-export async function steerAgentRun(runId: string, text: string): Promise<SteerResult> {
+async function steerAgentRunImpl(runId: string, text: string): Promise<SteerResult> {
   await requireRunAccess(runId);
   const r = await enqueueSteer(runId, text.slice(0, 8000));
   if (r.ok) return { ok: true, steerId: r.steerId, runId: r.runId };
@@ -212,7 +196,7 @@ export async function steerAgentRun(runId: string, text: string): Promise<SteerR
 
 /** Answer a question box / permission prompt — the blocked agent's poll picks
  *  it up within ~2s. */
-export async function answerInteractionAction(
+async function answerInteractionActionImpl(
   id: string,
   response: InteractionResponse,
 ): Promise<{ ok: boolean }> {
@@ -222,16 +206,25 @@ export async function answerInteractionAction(
 }
 
 /** Dismiss without answering (the agent is told to use its judgment). */
-export async function dismissInteractionAction(id: string): Promise<{ ok: boolean }> {
+async function dismissInteractionActionImpl(id: string): Promise<{ ok: boolean }> {
   await requireInteractionAccess(id);
   await dismissInteraction(id);
   return { ok: true };
 }
 
 /** Durable approval cards for a completed run; staff cannot decide owner grants. */
-export async function listRunApprovals(runId: string): Promise<PendingGrant[]> {
+async function listRunApprovalsImpl(runId: string): Promise<PendingGrant[]> {
   const user = await requireRunAccess(runId);
   if (user.role !== "owner") return [];
   const run = await getDevAgentRun(runId);
   return run ? pendingGrants(runId, null) : [];
+}
+
+export async function pollAgentRun(...args: Parameters<typeof pollAgentRunImpl>): Promise<Awaited<ReturnType<typeof pollAgentRunImpl>> | AskFailure> { return askBoundary(()=>pollAgentRunImpl(...args)); }
+export async function stopAgentRun(...args: Parameters<typeof stopAgentRunImpl>): Promise<Awaited<ReturnType<typeof stopAgentRunImpl>> | AskFailure> { return askBoundary(()=>stopAgentRunImpl(...args)); }
+export async function steerAgentRun(...args: Parameters<typeof steerAgentRunImpl>): Promise<Awaited<ReturnType<typeof steerAgentRunImpl>> | AskFailure> { return askBoundary(()=>steerAgentRunImpl(...args)); }
+export async function answerInteractionAction(...args: Parameters<typeof answerInteractionActionImpl>): Promise<Awaited<ReturnType<typeof answerInteractionActionImpl>> | AskFailure> { return askBoundary(()=>answerInteractionActionImpl(...args)); }
+export async function dismissInteractionAction(...args: Parameters<typeof dismissInteractionActionImpl>): Promise<Awaited<ReturnType<typeof dismissInteractionActionImpl>> | AskFailure> { return askBoundary(()=>dismissInteractionActionImpl(...args)); }
+export async function listRunApprovals(...args: Parameters<typeof listRunApprovalsImpl>): Promise<AskResult<{grants: Awaited<ReturnType<typeof listRunApprovalsImpl>>}>> {
+ return askBoundary(async()=>{const value=await listRunApprovalsImpl(...args);return {ok:true,grants:value};});
 }

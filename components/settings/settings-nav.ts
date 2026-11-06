@@ -4,6 +4,7 @@ export const SETTINGS_CATEGORIES = [
   { id: "profile", title: "Profile" },
   { id: "company", title: "Company & documents" },
   { id: "team", title: "Team & roles" },
+  { id: "phones", title: "Phone lines" },
   { id: "integrations", title: "Integrations" },
   { id: "ai", title: "AI" },
   { id: "notifications", title: "Notifications" },

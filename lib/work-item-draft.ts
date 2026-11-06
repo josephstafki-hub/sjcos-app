@@ -9,6 +9,8 @@ import { parseEmailDraft, parsePortalDraft, planApprovedSend } from "./approved-
 
 export interface WorkItemDraftPreview {
   id: string;
+  /** Read atomically with the displayed content and recipient. */
+  binding: string;
   title: string;
   createdAt: string;
   /** Present when the draft is an email ("To:/Subject:" header block), or
@@ -27,11 +29,12 @@ export interface WorkItemDraftPreview {
   href: string;
 }
 
-interface Row {
-  id: string;
+/** The owner-only source function is also used by the locked approval claim.
+ * Only the shaped preview below crosses the web boundary. */
+export interface DraftSource {
+  binding: string;
   title: string;
   body: string | null;
-  created_at: string;
   lead_slug: string | null;
   lead_email: string | null;
   project_slug: string | null;
@@ -41,9 +44,34 @@ interface Row {
   portal_client: string | null;
 }
 
+export function draftPreview(id: string, createdAt: string, r: DraftSource): WorkItemDraftPreview {
+  const draft = r.content ? parseEmailDraft(r.content) : null;
+  const portal = r.content ? parsePortalDraft(r.content) : null;
+  const record = r.lead_slug
+    ? { kind: "lead" as const, email: r.lead_email, portal: r.portal_login }
+    : r.project_slug
+      ? { kind: "project" as const, email: r.project_email, portal: r.portal_login }
+      : null;
+  const plan = planApprovedSend({ record, draft: r.content });
+  const sends = plan.outcome === "send" || plan.outcome === "portal";
+  return {
+    id, binding: r.binding, title: r.title, createdAt,
+    to: portal ? `${r.portal_client || "Client"} (client portal)` : draft?.to ?? null,
+    channel: portal ? "portal" : draft ? "email" : null,
+    subject: portal ? null : draft?.subject || null,
+    body: portal?.body ?? draft?.body ?? (r.content ? r.content.slice(0, 2000) : r.body?.slice(0, 600) ?? null),
+    sends,
+    note: sends ? null : plan.outcome === "failed" ? plan.error : draft || portal ? (plan as { reason: string }).reason : null,
+    href: r.lead_slug ? `/leads/${r.lead_slug}` : r.project_slug ? `/projects/${r.project_slug}` : "/today",
+  };
+}
+
 export async function workItemDraftPreviews(opts: { ids?: string[]; limit?: number } = {}): Promise<WorkItemDraftPreview[]> {
-  const { rows } = await query<Row>(
-    `SELECT w.id, w.title, w.body,
+  // Content, recipient and binding must come from ONE statement/MVCC view.
+  // Keep the column reads available to notification workers; the full source
+  // function used by owner approval is deliberately owner-only.
+  const { rows } = await query<DraftSource & { id: string; created_at: string }>(
+    `SELECT w.id, w.title, w.body, phone_push_draft_binding(w.id) AS binding,
             to_char(w.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS created_at,
             l.slug AS lead_slug, l.email AS lead_email, p.slug AS project_slug,
             NULLIF(COALESCE(NULLIF(p.client_email, ''), pl.email), '') AS project_email,
@@ -57,7 +85,7 @@ export async function workItemDraftPreviews(opts: { ids?: string[]; limit?: numb
        LEFT JOIN LATERAL (
          SELECT uri FROM agent_receipts
           WHERE work_item_id = w.id AND receipt_kind = 'draft' AND uri LIKE 'knowledge_items/%'
-          ORDER BY created_at DESC LIMIT 1
+          ORDER BY created_at DESC,id DESC LIMIT 1
        ) r ON true
        LEFT JOIN knowledge_items k ON 'knowledge_items/' || k.id::text = r.uri
        LEFT JOIN LATERAL (
@@ -74,27 +102,5 @@ export async function workItemDraftPreviews(opts: { ids?: string[]; limit?: numb
       LIMIT $2`,
     [opts.ids?.length ? opts.ids : null, opts.limit ?? 20],
   );
-  return rows.map((r) => {
-    const draft = r.content ? parseEmailDraft(r.content) : null;
-    const portal = r.content ? parsePortalDraft(r.content) : null;
-    const record = r.lead_slug
-      ? { kind: "lead" as const, email: r.lead_email, portal: r.portal_login }
-      : r.project_slug
-        ? { kind: "project" as const, email: r.project_email, portal: r.portal_login }
-        : null;
-    const plan = planApprovedSend({ record, draft: r.content });
-    const sends = plan.outcome === "send" || plan.outcome === "portal";
-    return {
-      id: r.id,
-      title: r.title,
-      createdAt: r.created_at,
-      to: portal ? `${r.portal_client || "Client"} (client portal)` : draft?.to ?? null,
-      channel: portal ? "portal" : draft ? "email" : null,
-      subject: portal ? null : draft?.subject || null,
-      body: portal?.body ?? draft?.body ?? (r.content ? r.content.slice(0, 2000) : r.body?.slice(0, 600) ?? null),
-      sends,
-      note: sends ? null : plan.outcome === "failed" ? plan.error : draft || portal ? (plan as { reason: string }).reason : null,
-      href: r.lead_slug ? `/leads/${r.lead_slug}` : r.project_slug ? `/projects/${r.project_slug}` : "/today",
-    };
-  });
+  return rows.map(r => draftPreview(r.id, r.created_at, r));
 }

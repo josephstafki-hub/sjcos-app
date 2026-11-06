@@ -56,12 +56,17 @@ export function CallsClient({
   calls,
   configured,
   openId,
+  lines,
 }: {
   calls: CallRow[];
   configured: boolean;
   problems: string[];
   openId: string | null;
+  /** Our numbers (Settings › Phone lines): what this login calls from, and line names. */
+  lines?: { sendingFrom: { formatted: string; label: string } | null; names: Record<string, string> };
 }) {
+  const lineName = (n: string | null | undefined) => (n ? lines?.names[n] ?? formatUsPhone(n) : null);
+  const manyLines = Object.keys(lines?.names ?? {}).length > 1;
   const initialId = openId ?? calls[0]?.id ?? null;
   const [selectedId, setSelectedId] = useState<string | null>(initialId);
   const [detail, setDetail] = useState<CallDetail | null>(null);
@@ -127,7 +132,7 @@ export function CallsClient({
   const c = current?.call ?? calls.find((x) => x.id === selectedId) ?? null;
 
   return (
-    <div className="flex h-full min-h-0 flex-col [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-focus [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-focus"><div className="border-b border-rule-soft px-4 py-5 @2xl/page:px-5"><PageHeader title="Calls" meta="Call history, recordings and notes for your business number." /></div><div className="flex min-h-0 flex-1">
+    <div className="flex h-full min-h-0 flex-col [&_button]:focus-visible:outline-2 [&_button]:focus-visible:outline-focus [&_a]:focus-visible:outline-2 [&_a]:focus-visible:outline-focus"><div className="border-b border-rule-soft px-4 py-5 @2xl/page:px-5"><PageHeader title="Calls" meta={lines?.sendingFrom ? `Call history, recordings and notes. Clients see your calls come from ${lines.sendingFrom.formatted}${lines.sendingFrom.label ? ` (${lines.sendingFrom.label})` : ""}.` : "Call history, recordings and notes for your business number."} /></div><div className="flex min-h-0 flex-1">
       <aside className={`w-full flex-none flex-col border-r border-rule bg-paper-2 @3xl/page:w-[280px] ${mobileDetail ? "hidden @3xl/page:flex" : "flex"}`}>
         <div className="flex items-center gap-2 border-b border-rule px-4 py-3">
           <PhoneCall className="size-4 text-ink-3" strokeWidth={1.5} />
@@ -170,6 +175,7 @@ export function CallsClient({
                     <OutcomeChip c={x} />
                     {x.notes_status === "done" && <FileText className="size-3 text-accent" strokeWidth={1.5} />}
                   </div>
+                  {manyLines && <div className="mt-0.5 truncate text-meta text-ink-4">{x.direction === "inbound" ? "To" : "From"} {lineName(x.business_number)}</div>}
                 </div>
               </button>
             ))
@@ -187,6 +193,7 @@ export function CallsClient({
               <DirIcon c={c} />
               <span className="text-subheading font-semibold text-ink">{name(c)}</span>
               <span className="text-meta text-ink-3">{formatUsPhone(c.counterparty_number)}</span>
+              <span className="text-meta text-ink-3">· {c.direction === "inbound" ? "to" : "from"} {lineName(c.business_number)}</span>
               <OutcomeChip c={c} />
               <div className="ml-auto flex items-center gap-2">
                 {c.link_type && c.link_slug && LINK_ROUTE[c.link_type] && (

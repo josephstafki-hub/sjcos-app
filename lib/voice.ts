@@ -46,6 +46,8 @@ import type { Principal } from "./commands/principal";
 import { dispatchIntentsNow } from "./dispatch/db";
 import { appUrl, fileCommsWorkItem, linkHref, matchPhoneToRecord, type CommsLinkType } from "./comms-shared";
 import { reportCommsFailure } from "./comms-health";
+import { companyLineNumber, lineVisibilityClause, outboundNumberFor, routeForNumber, type LineRoute, type Viewer } from "./phone-lines";
+import { emit } from "./notify";
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
@@ -62,15 +64,24 @@ export function voiceStatus(): { configured: boolean; enabled: boolean; problems
   return { configured: r.voice.ok, enabled: r.voice.enabled, problems: r.problems.filter((p) => p.startsWith("Voice")) };
 }
 
-function flowConfig(cfg: VoiceConfig, counterpartyName?: string | null): FlowConfig {
+/** Per-call numbers (phone lines, 0110): the call goes out from / came in on
+ *  call.business_number, and an inbound call rings call.owner_number (the
+ *  line's person, else Joe). Falls back to the env numbers. */
+function flowConfig(
+  cfg: VoiceConfig,
+  counterpartyName?: string | null,
+  call?: Pick<CallRow, "direction" | "business_number" | "owner_number"> | null,
+  route?: LineRoute | null,
+): FlowConfig {
+  const e164 = (n: string | null | undefined) => (n && /^\+1[2-9]\d{9}$/.test(n) ? n : null);
   return {
-    fromNumber: cfg.fromNumber,
-    forwardTo: cfg.forwardTo,
+    fromNumber: e164(call?.business_number) ?? cfg.fromNumber,
+    forwardTo: (call?.direction === "inbound" ? e164(call.owner_number) : null) ?? cfg.forwardTo,
     recording: cfg.recording,
     announcement: cfg.announcement,
     ringSeconds: Math.max(10, Math.min(60, Number(process.env.VOICE_RING_SECONDS ?? 25) || 25)),
     recordingNotice: (process.env.VOICE_RECORDING_NOTICE ?? "").trim() || DEFAULT_RECORDING_NOTICE,
-    voicemailGreeting: (process.env.VOICE_VOICEMAIL_GREETING ?? "").trim() || DEFAULT_VOICEMAIL_GREETING,
+    voicemailGreeting: route?.voicemailGreeting?.trim() || (process.env.VOICE_VOICEMAIL_GREETING ?? "").trim() || DEFAULT_VOICEMAIL_GREETING,
     counterpartyName: counterpartyName ?? null,
   };
 }
@@ -131,14 +142,18 @@ const CALL_COLS = `id, direction, call_session_id, counterparty_leg_id, owner_le
   recording_status, recording_file_id, transcript, transcript_status, notes, notes_text, notes_status, notes_error,
   work_item_id, knowledge_item_id, placed_by, error`;
 
-export async function getCall(id: string): Promise<CallRow | null> {
+export async function getCall(id: string, viewer?: Viewer | null): Promise<CallRow | null> {
   if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
-  const call = await queryOne<CallRow>(`SELECT ${CALL_COLS} FROM calls WHERE id = $1`, [id]);
+  const vis = viewer ? lineVisibilityClause(viewer, "business_number", 2) : { sql: "true", params: [] };
+  const call = await queryOne<CallRow>(`SELECT ${CALL_COLS} FROM calls WHERE id = $1 AND ${vis.sql}`, [id, ...vis.params]);
   return call ? resolveCallIdentity(call, matchPhoneToRecord) : null;
 }
 
-export async function listCalls(limit = 100): Promise<CallRow[]> {
-  const { rows } = await query<CallRow>(`SELECT ${CALL_COLS} FROM calls ORDER BY started_at DESC LIMIT $1`, [limit]);
+/** Calls the viewer may open in full: the owner sees every line; a team
+ *  member the company lines and their own (lib/phone-lines.ts). */
+export async function listCalls(limit = 100, viewer?: Viewer | null): Promise<CallRow[]> {
+  const vis = viewer ? lineVisibilityClause(viewer, "business_number", 2) : { sql: "true", params: [] };
+  const { rows } = await query<CallRow>(`SELECT ${CALL_COLS} FROM calls WHERE ${vis.sql} ORDER BY started_at DESC LIMIT $1`, [limit, ...vis.params]);
   const matches = new Map<string, ReturnType<typeof matchPhoneToRecord>>();
   const lookup = (phone: string) => {
     let result = matches.get(phone);
@@ -329,6 +344,11 @@ export async function handleVoiceEvent(ev: VoiceEvent, opts: { phase?: VoicePhas
     const norm = normalizeE164(from);
     const counterparty = norm.ok ? norm.e164 : from || "unknown";
     const match = norm.ok ? await matchPhoneToRecord(counterparty) : null;
+    // Which line rang: a team member's own line rings their cell (Joe's if
+    // they have none set); the company lines ring Joe.
+    const line = ev.to ?? (await companyLineNumber()) ?? cfg.fromNumber;
+    const route = await routeForNumber(line);
+    const ringCell = route?.forwardTo ?? cfg.forwardTo;
     newCallId = randomUUID();
     await query(
       `INSERT INTO calls (id, direction, call_session_id, counterparty_leg_id, counterparty_number, business_number, owner_number,
@@ -339,8 +359,8 @@ export async function handleVoiceEvent(ev: VoiceEvent, opts: { phase?: VoicePhas
         ev.callSessionId,
         ev.callControlId,
         counterparty,
-        ev.to ?? cfg.fromNumber,
-        cfg.forwardTo,
+        line,
+        ringCell,
         match?.contactName ?? null,
         match?.linkType ?? null,
         match?.linkSlug ?? null,
@@ -351,7 +371,8 @@ export async function handleVoiceEvent(ev: VoiceEvent, opts: { phase?: VoicePhas
     call = await getCall(newCallId);
   }
 
-  const plan = planVoiceEvent(ev, call ? toState(call) : null, flowConfig(cfg, call?.contact_name), newCallId);
+  const route = call ? await routeForNumber(call.business_number) : null;
+  const plan = planVoiceEvent(ev, call ? toState(call) : null, flowConfig(cfg, call?.contact_name, call, route), newCallId);
   const fresh = await recordEvent(call?.id ?? null, ev, plan.note);
   if (!fresh) return { handled: false, note: "duplicate event" };
   if (!call) return { handled: false, note: plan.note };
@@ -454,6 +475,16 @@ async function onCallEnded(call: CallRow, plan: { outcome?: CallOutcome; fileVoi
   const name = callDisplayName(call);
   const href = linkHref(call.link_type, call.link_slug) ?? "/calls";
   const who = `${name}${call.link_type ? ` (${call.link_type})` : ""}`;
+  // A team member's own line: their callback, their bell.
+  const route = call.direction === "inbound" ? await routeForNumber(call.business_number) : null;
+  const lineOwner = route?.assignedUserId ?? null;
+  const tell = async (title: string, body: string) => {
+    if (lineOwner) {
+      await emit({ kind: "mention", tag: "Call", icon: "chat", accent: "flag", title: `${title} on your line`, subline: body, href: `/calls?open=${call.id}`, audienceUserId: lineOwner, ref: `call:${call.id}` });
+    } else {
+      await notifyOwner({ kind: "voice_call", title, body, href });
+    }
+  };
   if (plan.fileVoicemail) {
     const workItemId = await fileCommsWorkItem({
       title: `Call back ${name} — voicemail`,
@@ -470,9 +501,14 @@ async function onCallEnded(call: CallRow, plan: { outcome?: CallOutcome; fileVoi
       expectedSkillSlug: "client-followup-draft",
     });
     if (workItemId) await query(`UPDATE calls SET work_item_id = $2, updated_at = now() WHERE id = $1`, [call.id, workItemId]);
-    await notifyOwner({ kind: "voice_call", title: `Voicemail from ${who}`, body: "Callback filed in Today. Transcript + notes to follow.", href });
+    if (workItemId && lineOwner) {
+      await query(`INSERT INTO work_item_assignees (work_item_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [workItemId, lineOwner]).catch((err) =>
+        console.error("[voice] callback assignment failed:", (err as Error).message),
+      );
+    }
+    await tell(`Voicemail from ${who}`, "Callback filed in Today. Transcript + notes to follow.");
   } else if (plan.outcome === "missed") {
-    await notifyOwner({ kind: "voice_call", title: `Missed call from ${who}`, body: "No voicemail left.", href });
+    await tell(`Missed call from ${who}`, "No voicemail left.");
   }
   // No recording will come (recording off, or nothing recorded): close the notes loop.
   if (!call.recording) {
@@ -544,6 +580,9 @@ export interface PlaceCallInput {
   /** Ring the caller's browser tab (lib/voice-browser.ts) instead of their
    *  cell. Needs `caller`; the tab must already be logged in to the SDK. */
   ringBrowser?: boolean;
+  /** Our number the client sees (lib/phone-lines.ts). Omitted = the caller's
+   *  own line, else the company's main line. */
+  from?: string | null;
 }
 
 export type PlaceCallResult =
@@ -589,6 +628,20 @@ export async function placeCall(input: PlaceCallInput): Promise<PlaceCallResult>
   const covers = await checkGrantCovers(input.grantId, "place_call", { kind: "phone", id: to, to });
   if (!covers.ok) return { ok: false, error: covers.error, blocked: "grant" };
 
+  // The line the client sees: asked-for (must be ours and allow calls), else
+  // the caller's own line, else the company's.
+  let fromNumber: string;
+  if (input.from) {
+    const asked = normalizeE164(input.from);
+    if (!asked.ok) return { ok: false, error: `Calling line: ${asked.error}`, blocked: "invalid_number" };
+    const r = await routeForNumber(asked.e164);
+    const ok = asked.e164 === (await companyLineNumber()) || (r && (await queryOne<{ ok: boolean }>(`SELECT voice_enabled AS ok FROM phone_lines WHERE id = $1`, [r.lineId]))?.ok);
+    if (!ok) return { ok: false, error: `${asked.e164} is not a business line that can make calls (Settings › Phone lines).`, blocked: "invalid_number" };
+    fromNumber = asked.e164;
+  } else {
+    fromNumber = (await outboundNumberFor(input.caller?.id ?? null, "voice")) ?? cfg.fromNumber;
+  }
+
   const match = await matchPhoneToRecord(to);
   const id = randomUUID();
   await query(
@@ -598,7 +651,7 @@ export async function placeCall(input: PlaceCallInput): Promise<PlaceCallResult>
     [
       id,
       to,
-      cfg.fromNumber,
+      fromNumber,
       callerPhone,
       input.contactName?.trim() || match?.contactName || null,
       match?.linkType ?? null,
@@ -622,7 +675,7 @@ export async function placeCall(input: PlaceCallInput): Promise<PlaceCallResult>
       recipient: to,
       leadId: match?.leadId ?? null,
       projectId: match?.projectId ?? null,
-      payload: { callId: id, to: callerPhone, from: cfg.fromNumber, timeoutSecs: flowConfig(cfg).ringSeconds, counterparty: to, _auth: { action: "place_call", target_kind: "phone", target_id: to, to } },
+      payload: { callId: id, to: callerPhone, from: fromNumber, timeoutSecs: flowConfig(cfg).ringSeconds, counterparty: to, _auth: { action: "place_call", target_kind: "phone", target_id: to, to } },
       grantId: input.grantId,
       principal,
       maxAttempts: 1,

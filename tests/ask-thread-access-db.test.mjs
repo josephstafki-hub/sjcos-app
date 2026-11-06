@@ -1,3 +1,4 @@
+import ts from "typescript";
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { withTestDb, withSessionIdentity } from './_harness/testdb.mjs';
@@ -43,7 +44,7 @@ test('0105 ownership, retained identity and narrow-role adversarial matrix', asy
 });
 
 test('shared helper: current verified identity, quarantine, revocation, folders, context and journal gate',async t=>{
- const {readFileSync}=await import('node:fs');const {createRequire}=await import('node:module');const {runInNewContext}=await import('node:vm');const ts=await import('typescript');const require=createRequire(import.meta.url);
+ const {readFileSync}=await import('node:fs');const {createRequire}=await import('node:module');const {runInNewContext}=await import('node:vm');const require=createRequire(import.meta.url);
  await withTestDb(async(url,db)=>{
   const people=[];for(const role of ['owner','staff','staff','client','sub'])people.push((await db.query(`INSERT INTO users(email,name,role,permissions,password_hash,initials) VALUES($1,'Shared access',$2,ARRAY['ai'],'x','SA') RETURNING id`,[`${crypto.randomUUID()}@example.test`,role])).rows[0].id);
   const ids=[];for(const id of [...people,null])ids.push((await db.query(`INSERT INTO ai_conversations(agent,title,owner_user_id) VALUES('claude','private',$1) RETURNING id`,[id])).rows[0].id);
@@ -51,8 +52,8 @@ test('shared helper: current verified identity, quarantine, revocation, folders,
    await c.query('UPDATE ask_canvas_maintenance SET recovery_ready=true');
    let session={userId:people[1],authAt:Math.floor(Date.now()/1000)},blocked=false;
    const exports={},pool={query:(...a)=>c.query(...a),connect:async()=>({query:(...a)=>c.query(...a),release(){}})};
-   const code=ts.default.transpileModule(readFileSync(new URL('../lib/thread-access.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.default.ModuleKind.CommonJS,esModuleInterop:true}}).outputText;
-   const pure={};runInNewContext(ts.default.transpileModule(readFileSync(new URL('../lib/ask-result-codes.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.default.ModuleKind.CommonJS}}).outputText,{exports:pure,URL});
+   const code=ts.transpileModule(readFileSync(new URL('../lib/thread-access.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText;
+   const pure={};runInNewContext(ts.transpileModule(readFileSync(new URL('../lib/ask-result-codes.ts',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS}}).outputText,{exports:pure,URL});
    const stubs={'@/lib/ask-result-codes':pure,'server-only':{},'@/lib/db':{pool},'@/lib/session':{readSession:async()=>session},'@/lib/ask-thread-journal.mjs':{withAskJournal:async(_pool,fn)=>{if(blocked)throw Error('RECOVERY_REQUIRED');return fn();}}};
    runInNewContext(code,{exports,Buffer,process,require:s=>s in stubs?stubs[s]:require(s)});
    for(const [who,label] of [[0,'Joe'],[1,'staff A'],[2,'staff B']])await t.test(`${label}: self only for load/context and forged principal`,async()=>{
@@ -103,7 +104,7 @@ test('shared helper: current verified identity, quarantine, revocation, folders,
 });
 
 test('owner reply delivery fences the title before routing or relaying another person’s thread (§8.1)',async()=>{
- const {readFileSync}=await import('node:fs');const {runInNewContext}=await import('node:vm');const {createRequire}=await import('node:module');const ts=(await import('typescript')).default;const require=createRequire(import.meta.url);
+ const {readFileSync}=await import('node:fs');const {runInNewContext}=await import('node:vm');const {createRequire}=await import('node:module');const require=createRequire(import.meta.url);
  let denied=0,routed=0,privateReads=0;
  const query=async(sql)=>{if(/ai_conversations|dev_agent_runs/.test(sql))privateReads++;return {rows:[]};};
  const run=async()=>[];

@@ -74,15 +74,15 @@ export async function setRecordWorkItemStatus(
 
 /** Approve from a lead/project page. Same contract as approveWorkItem: the
  *  result says whether the staged draft was emailed (`sent`) or not (`notice`). */
-export async function approveRecordWorkItem(id: string, kind: RecordKind, slug: string): Promise<ApproveResult> {
+export async function approveRecordWorkItem(id: string, kind: RecordKind, slug: string, draftBinding?: string | null): Promise<ApproveResult> {
   await requireAccess("today");
   // Same guard as every other Approve: a stale tap on a rejected or handled
   // draft changes nothing and sends nothing.
-  const claim = await claimApproval(id);
+  const claim = await claimApproval(id, draftBinding);
   if (!claim.ok) return claim;
   const { title, body, assignee_key } = claim;
   await writeReceipt("approval", `Approved: ${title}`, id);
-  const result = await finishApproval({ id, assigneeKey: assignee_key, title, body, context: `${kind} ${slug}` });
+  const result = await finishApproval({ id, approvedDraftId: claim.approvedDraftId, assigneeKey: assignee_key, title, body, context: `${kind} ${slug}` });
   revalidateRecord(kind, slug);
   return result;
 }

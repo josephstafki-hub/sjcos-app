@@ -20,7 +20,7 @@ import * as health from '../lib/ask-health.mjs';
 import {bootstrapDeployment} from '../lib/ask-deployment-state.mjs';
 import {validateChain} from '../lib/canvas-deletion-ledger.mjs';
 const require=createRequire(import.meta.url),sentinel='R4_PRIVATE_PUSH_91c2';
-function load(file,deps={}){const exports={};runInNewContext(ts.transpileModule(readFileSync(new URL('../'+file,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText,{exports,process,Buffer,console,URL,Response,Request,Headers,require:s=>Object.hasOwn(deps,s)?deps[s]:s.startsWith('node:')?require(s):{}});return exports;}
+function load(file,deps={}){const exports={};runInNewContext(ts.transpileModule(readFileSync(new URL('../'+file,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText,{exports,process,Buffer,console,URL,Response,Request,Headers,crypto,require:s=>Object.hasOwn(deps,s)?deps[s]:s.startsWith('node:')?require(s):{}});return exports;}
 const poolFor=c=>({query:(...a)=>c.query(...a),connect:async()=>({query:(...a)=>c.query(...a),release(){}})});
 async function environment(fn){
  const root=await mkdtemp(path.join(os.tmpdir(),'p0r4-files-')),dir=path.join(root,'journal'),deploymentDir=path.join(root,'deployment');
@@ -44,12 +44,16 @@ test('historical pushes, real narrow logins, tombstone/replay and stale queued r
   if(stale&&sql.includes('FROM push_outbox')&&sql.includes('WHERE sent_at IS NULL')){const rows=stale;stale=null;return {rows};}
   return db.query(sql,args);
  };
+ const dbDeps={query,queryOne:async(sql,args)=>(await query(sql,args)).rows[0]};
+ const apns={...load('lib/providers/apns.ts'),apnsConfigured:()=>false};
+ const phone=load('lib/phone-push.ts',{'./db':dbDeps,'./providers/apns':apns,'./decisions/telegram':{parseCallbackData:()=>null,parseWorkItemCallback:()=>null}});
  const push=load('lib/notify-owner.ts',{
+  './phone-push':phone,'./providers/apns':apns,
   './db':{query,queryOne:async(sql,args)=>!migrated&&sql.includes('ask_push_is_private')?{private:false}:(await query(sql,args)).rows[0]},
   './commands/decisions':{recordDelivery:async()=>{}},'./commands/db':{runDirect:async(sql,args)=>(await db.query(sql,args)).rows},
   './providers/telegram':{makeTelegramProvider:()=>({send:async input=>{if(fail)throw Error('controlled failure');sent.push(input.text);return {responseClass:'accepted',providerRef:'42'};}})},
  });
- const notify=load('lib/decisions/notify.ts',{'@/lib/commands/db':{runDirect:async()=>[{external_ref:'fixture:42'}]},'./cards':cards,'@/lib/notify-owner':{notifyOwner:input=>push.notifyOwner(input,now)}});
+ const notify=load('lib/decisions/notify.ts',{'@/lib/commands/db':{runDirect:async()=>[{external_ref:'fixture:42'}]},'./cards':cards,'../phone-push':phone,'@/lib/notify-owner':{notifyOwner:input=>push.notifyOwner(input,now)}});
  await notify.refreshTelegramCard(decision);fail=true;await notify.refreshTelegramCard(decision);fail=false;
  assert.equal(sent.length,1);assert.ok(sent[0].includes(sentinel));
  assert.equal((await db.query('SELECT count(*)::int n FROM push_outbox WHERE body LIKE $1',['%'+sentinel+'%'])).rows[0].n,2);

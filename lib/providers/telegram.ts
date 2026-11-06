@@ -50,6 +50,7 @@ export function makeTelegramProvider(transport: TelegramTransport = defaultTrans
         chat_id: owner,
         text: payload.text,
         disable_web_page_preview: true,
+        ...(payload.forceReply ? {reply_markup:{force_reply:true,input_field_placeholder:String(payload.forceReply).slice(0,64)}} : {}),
         ...(payload.buttons?.length ? { reply_markup: { inline_keyboard: payload.buttons } } : {}),
       };
       const editing = payload.editMessageId != null && payload.editMessageId !== "";

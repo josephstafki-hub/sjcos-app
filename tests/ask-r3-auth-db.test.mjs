@@ -14,7 +14,7 @@ import {NextRequest,NextResponse} from 'next/server.js';
 import {getRedirectError} from 'next/dist/client/components/redirect.js';
 import {withMigrationSubset,withSessionIdentity} from './_harness/testdb.mjs';
 const require=createRequire(import.meta.url),plain=x=>JSON.parse(JSON.stringify(x));
-function load(file,deps={}){const exports={};runInNewContext(ts.transpileModule(readFileSync(new URL('../'+file,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText,{exports,process,Buffer,console,TextEncoder,Headers,URL,Request,Response,FormData,setTimeout,clearTimeout,require:s=>Object.hasOwn(deps,s)?deps[s]:s==='server-only'?{}:s.startsWith('@/')?{}:require(s)});return exports;}
+function load(file,deps={}){const exports={};runInNewContext(ts.transpileModule(readFileSync(new URL('../'+file,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText,{exports,process,Buffer,console,TextEncoder,Headers,URL,Request,Response,FormData,setTimeout,clearTimeout,require:s=>Object.hasOwn(deps,s)?deps[s]:s==='server-only'?{}:s.startsWith('@/components/')?load(s.slice(2)+'.ts'):s.startsWith('@/')?{}:s.startsWith('.')?load(new URL(s+'.ts',new URL('../'+file,import.meta.url)).pathname.slice(new URL('../',import.meta.url).pathname.length)):require(s)});return exports;}
 const contract=load('lib/ask-result-codes.ts');
 const contractDeps={'@/lib/ask-result-codes':contract,'./ask-result-codes':contract,'../ask-result-codes.ts':contract};
 

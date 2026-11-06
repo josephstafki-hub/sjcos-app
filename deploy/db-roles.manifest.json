@@ -1798,6 +1798,18 @@
         "SELECT"
       ]
     },
+    "phone_lines": {
+      "note": "business phone numbers; written only from Settings › Phone lines (website). Inbound routing for narrow logins goes through phone_line_route()",
+      "sjcos_agent": [
+        "SELECT"
+      ],
+      "sjcos_worker": [
+        "SELECT"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
     "plan_cost_rules": {
       "sjcos_agent": [
         "SELECT"
@@ -2155,12 +2167,19 @@
       ]
     },
     "push_devices": {
-      "note": "phone push tokens; push-drain runs inside the website (cron route)"
+      "note": "Secret device registry: website-only enrollment; senders may only read delivery columns and invalidate devices.",
+      "sjcos_agent": [
+        "SELECT(id,user_id,platform,token,environment,disabled_at,revoked_at,session_auth_at,session_expires_at)"
+      ],
+      "sjcos_worker": [
+        "SELECT(id,user_id,platform,token,environment,disabled_at,revoked_at,session_auth_at,session_expires_at)"
+      ]
     },
     "push_outbox": {
       "sjcos_agent": [
         "SELECT",
-        "INSERT"
+        "INSERT",
+        "UPDATE"
       ],
       "sjcos_worker": [
         "SELECT",
@@ -2992,7 +3011,8 @@
         "DELETE"
       ],
       "sjcos_worker": [
-        "SELECT"
+        "SELECT",
+        "INSERT"
       ],
       "sjcos_readonly": [
         "SELECT"
@@ -3123,6 +3143,49 @@
     },
     "ask_canvas_attempts": {
       "note": "0106 source-free latest refusal per admitted run; website-only commands/terminal trigger. No narrow grants."
+    },
+    "owner_push_messages": {
+      "note": "0112: private Ask associations are irreversibly status-only, including historical rows and descendants; source registry remains website-only.",
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "push_actions": {
+      "note": "Owner mobile API only; narrow logins cannot approve."
+    },
+    "push_device_deliveries": {
+      "sjcos_agent": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_worker": [
+        "SELECT",
+        "INSERT",
+        "UPDATE"
+      ],
+      "sjcos_readonly": [
+        "SELECT"
+      ]
+    },
+    "approved_draft_dispatches": {
+      "note": "Only an owner approval transaction creates pending work. Worker consumes existing checkpoints after commit.",
+      "sjcos_worker": ["SELECT", "UPDATE(phase,lease_until,result)"]
+    },
+    "approved_work_item_drafts": {
+      "note": "Frozen approval evidence; worker reads for dispatch recovery but narrow logins may neither create nor alter a snapshot.",
+      "sjcos_worker": ["SELECT"]
+
     }
   }
 }

@@ -1,18 +1,18 @@
 {
   "version": 1,
-  "note": "Manually reviewed privacy inventory. Query and full source hashes require explicit review on changes. No file-wide query wildcard. not-private entries explain business metadata/aggregate/conservative non-SQL matches. R3 includes shared reply fan-out/status columns, runtime execution/trigger/receipt carriers and all browser_* schema carriers. Removed storage is distinct from per-person private storage; a green scanner is only a reviewed-source change detector. R4 explicitly inventories push_outbox producers/persistence/drain and immutable erasure; private_ask_push_sources stores only opaque associations.",
+  "note": "Manually reviewed privacy inventory. Query and full source hashes require explicit review on changes. No file-wide query wildcard. not-private entries explain business metadata/aggregate/conservative non-SQL matches. R3 includes shared reply fan-out/status columns, runtime execution/trigger/receipt carriers and all browser_* schema carriers. Removed storage is distinct from per-person private storage; a green scanner is only a reviewed-source change detector. R4 explicitly inventories push_outbox producers/persistence/drain and immutable erasure; private_ask_push_sources stores only opaque associations. Merge audit: phone messages/actions/devices, SMS/phone lines and non-SQL APNs/phone serializers are explicitly inventoried; private Ask phone copies are fixed status under 0112, business-line summaries are explicit communications.",
   "sources": {
     "lib/accounting/qbo/https.ts": "afb9c1021ccce50aa049de389b602e14d114283ef9748cde733d7d49374725e1",
     "lib/actions/ai-chat.ts": "3fc8090bfa56e326ddd0a99b9b282a9288a94599b00d7f5883450a329c439778",
-    "lib/actions/approvals.ts": "ab3fc636f391d3d882bc3909bf6f595c3c7be06b3ef292ee1ede8da381d4ea4e",
+    "lib/actions/approvals.ts": "4df9305e26663a63bfdd8b4e98bb1b54a1d1c3c114c0703c12fa9507f2df1403",
     "lib/actions/compliance.ts": "b884662189000a24481eb7590d123ec9a03b9a55c04d2e69cbe24bee83e871f8",
     "lib/actions/dev-agents.ts": "8c521f338936cd94abc7dbc7170fa43caf78ed8251b7c8fea8fe0e913e34eb06",
-    "lib/actions/engine.ts": "0ad6a0242d760c500d0710349bef0a3f75fefe7bec1ba81648d33e9d52a9037d",
+    "lib/actions/engine.ts": "3203e69b70e2df7d15476a83f414862ab181eb1987f4b6e57cd6c4e804c5670e",
     "lib/actions/inbox-reminders.ts": "cb73fe15ba49e4a44e1f56b5c830bde79da7890c4c1187769f044f54b9a6de2c",
     "lib/actions/inbox.ts": "3368ff5320dbaea6ed6e8f3f2ce19a74be2c4667d1ce62f5bf15c4b46f0ae78e",
     "lib/actions/notifications.ts": "f9698f6d52646004c16e5ca29a7542499a1d28db2edc5914211c3044cd7015f9",
     "lib/actions/panel-review.ts": "2a69b85f6dc7655ef5e7e3dc54fed3d4b2548711625a612066a33d98d926b499",
-    "lib/actions/record-ops.ts": "60156782345952f7b34300ff5ec267d69a32acf78077704d380f64a0acf06dff",
+    "lib/actions/record-ops.ts": "eaa82cf38b9e651671e2d64c568343dbfa3d398e10f2bc3a740b28b568809128",
     "lib/actions/schedule.ts": "ef288bac42e2bae1fbaf7e58b94fcbe5e9ef9ba6cea81f8788b710fa2e254203",
     "lib/actions/selections.ts": "b83e2be933f031d62af3996712cd1e6db57b49623566fd461d893209d39e541e",
     "lib/actions/today.ts": "f97f79324b361fc7345e3118bfced1400c8942d575795c1994818d4f574f701e",
@@ -27,9 +27,9 @@
     "lib/agent-sends.ts": "0b4246843f2148177f5df5e6498ee66379415c4147d05b4cd915e75e561feb7f",
     "lib/ai-chat.ts": "3ce216a36019763bfdedd24f1d808a233c9b59abf050d565416cc457252374a8",
     "lib/ai.ts": "93e2504983bb20641cbe3c3b3c9c828f14f711757bd7366a38fe8cdb16a4c62c",
-    "lib/approvals.ts": "03630df90df52f4117fa3108714abe5d18121551586d021b14c4014a6a8fcbb5",
-    "lib/approve-work-item.ts": "d52e94eea8805e7e2221ef3b9bcca4df1e1a2c155c879c3582ea8cf2551175cb",
-    "lib/approved-draft-send.ts": "5fe3f3ae5521d28d0566c8dd5b97ef3fe6b4e28e5594986a820d35175916ccb5",
+    "lib/approvals.ts": "ea377225832b65b7102c411c91f68eeb04bf3ce48ef9b340c2b32d94c53c60e9",
+    "lib/approve-work-item.ts": "6c97b8ff17b744fe8d3fabb7352ac8f48446372eaa8b219057dc7ae5265189dc",
+    "lib/approved-draft-send.ts": "872f908d555c47f21896979442a2a67db5ffaeedf0600f7025e2cf5a23daa146",
     "lib/ask-private-bridge.mjs": "586fb7ecd55b01a8a002b36967e99572f8535607dd3ea91b93a868555d46d5aa",
     "lib/ask-private-transport.mjs": "526f608724370f95444e33c5612c0e74433d58c43a161bda8d2a0bde820caab5",
     "lib/ask-run-admission.ts": "f07318d9ee3666da83dd659a20c257cbf30b12a5b0f3fd51a1e0b359019188a4",
@@ -49,20 +49,20 @@
     "lib/completion/call-followups.ts": "b06484e0c32328d19028ea0f58bb262eb90ce3b478a01f2028bf9ff9e5c472c1",
     "lib/completion/complete.ts": "17b9788d50e3609f135061ca0422152c1a516c2970b9c09e6f45a6257a0f5c1f",
     "lib/completion/runbook-core.ts": "78e336b7471f2814eb8192dd9179704221fc73945e4950ccf45459a3cf759169",
-    "lib/decisions/actions.ts": "ccc9d9bbea3760da31cc26e4627f6ed569c9814f8507cd845cb17f355010ef7d",
+    "lib/decisions/actions.ts": "af4e7110d6ed27ddb423afebd45e5703f1d7cffd533880077a458e643300fc35",
     "lib/decisions/grants.ts": "167df99eb9fd8f072c5a840eda9c8303132e76bf0dd992b52b91856340249d02",
-    "lib/decisions/notify.ts": "bdfdd3f6f4d7e11e9d11e3ef1f8177b55dafb4ce76be861241e10d6a694a3c17",
-    "lib/decisions/owner-replies.ts": "2385c796b1361006efab9ac0022f717c2e281201ce928d366b37b89585ef0bb7",
+    "lib/decisions/notify.ts": "8af499acabe4802d3b4de2f3dd85bd66687d1f6af95c58eb1edf029c378756d0",
+    "lib/decisions/owner-replies.ts": "cf2bf121875c7d2dac2b6f2d6e1ce5324bbf4338b5634fec32b56d09db385197",
     "lib/decisions/resolve.ts": "e83ebbdd5fbe3e96318060c9de363352be24210a854769eaf13819f7522d3fef",
-    "lib/decisions/routine.ts": "155056c60a119aba914774c87a1e5b91ac06a4428f397c26030fd11944235904",
-    "lib/decisions/telegram.ts": "ee5b0671953f1bcfe4e9a4c147981bdf2db27b17ef4bc07bf907de19844efce5",
+    "lib/decisions/routine.ts": "41d6f16e76308c6fd816d7af362cb9cd9fa568d2d3fa8104bed86b60d56fd29f",
+    "lib/decisions/telegram.ts": "f3704776f8f707e977b35a8663eb3d5c055b7d8aa3c1a6d0f7c3fface790873e",
     "lib/detectors.ts": "597959f022544a1c9b3e40ad9cb3258b28f98b37f8fb2f34601e319efac397e0",
     "lib/dev-agents-meta.ts": "eababf3bfdf6ed4b0f5bc09bd9c85276538428148529580d9ac13ba3b45e5d28",
     "lib/dev-agents.ts": "04919b77226d1759e20af95a580b507410547f6b8fc62de839e1d95001e6e061",
     "lib/dispatch/authority.ts": "5ff3b250e52717c56ff8ddd4d563ae9c41c1412b885df5a759e316feb1c82284",
-    "lib/dispatch/core.ts": "008a264434d646859ed47f28567c6cbce485ebf75a904891b30e9d92057340a2",
+    "lib/dispatch/core.ts": "801bfcf565e5add8833eb40203381c8d14b15f36ae60dc394ec6298361d818be",
     "lib/dispatch/effects.ts": "83635e3c42d1a98d919f64ea75da48dfb35b5071398b1a41b8f22424b83b7385",
-    "lib/engine.ts": "e7a8c7d6dae1878fc4d854ede1ebee88a82ced489ee8abf62da65f36e851a5f9",
+    "lib/engine.ts": "d80b27f35a4f86ed33ef52affb71cc7aa3d1d728e47e2388ab04320e90feedcc",
     "lib/estimating/assembly.ts": "9e33083e7cc2dc3244d31224dadea41bec77ea37dc88af346d1f0d007da1f918",
     "lib/estimating/learning.ts": "bea25472b4636fe2c71ff1f855815de241b6619f81de44944e379ff36643c22f",
     "lib/estimating/setup.ts": "24acd9401f871c702dd1cefb432488c685b0bd259c04356beb57e861e900e83a",
@@ -72,7 +72,7 @@
     "lib/funding/index.ts": "017427710afb4a28dd2183765aab39d0b6f8f5daea3de3964c3010e925f849d9",
     "lib/grant-execution.ts": "00b28bac59ffb40c2184ef780ce7874d657cc94b92545058fcaf8b575361d0fd",
     "lib/inbox-context.ts": "552270b9ad6a4b60f8ba069062c16e7b94bc23a6cd868b3f1836f8246689b6ef",
-    "lib/inbox.ts": "4dac6b92cfe691a35245929ed6f9a9428ca54b2b89aede08bd453a34d97d78f4",
+    "lib/inbox.ts": "625adfa7979b31d5d7881f84fad35c9db66174c1c18c8fcf42842b2ad57f5ca1",
     "lib/lead-first-response.ts": "93e4d6ad70f45fe5cdb4bd03767f99f447dd1cc1bb69745ea0eb2ad24ced4733",
     "lib/leads/facts.ts": "8ff7752c19ac2debaa8bc901771ea3ff2c14ae9088011d0bd40ead18d8c98a3e",
     "lib/list-row-summary.ts": "f1eed97e599c517642e2f14b2afb5381968395f086919776def4820fc6c5bd36",
@@ -80,7 +80,7 @@
     "lib/measure/capability-checks.ts": "e97dacfbbdf447d96595269a692c3aaddbae534e39a532f05895f027907c3754",
     "lib/measure/cases.ts": "130d79c27bf30cbe5923238736c19bed4901884a33a344cbb206e718d75aa36f",
     "lib/notifications.ts": "ae57dcd88908d8e3ae7ad762bd30bdd96d2ccf37b92fc0f1ee57216aaaafa2de",
-    "lib/notify-owner.ts": "c3683293bceeb0447a1c4127e43425ddcba6cdac647fd488edd4b95b4910ea6b",
+    "lib/notify-owner.ts": "66f1034485949d03e023426d71ea7642e448740bc7eb624014931dabea0da758",
     "lib/notify.ts": "caec10b29bad5e8574db0c871b4599b79fd45aa241b2c5da1a4e707cb42e8797",
     "lib/obligations/email.ts": "c385e70f46ee5ff3491b87d11a641c3bac066e7caa2afcb5fa2c26e4e0a64315",
     "lib/obligations/work-items.ts": "e65efccee104093a1c7fc767663306369814ee9947b7913f8db7c0ec5941926f",
@@ -93,8 +93,8 @@
     "lib/orchestrator/thread.ts": "5ba641e41aa357edebc089f398e98ff67be9ae4cd3b83c00680f8dfb6b4109ab",
     "lib/orchestrator/voice.ts": "21d93168dd348caaee551a4538394e110e2055fd15a08ee00012867ba81e9d90",
     "lib/overhead/overhead.ts": "d0f5010300b77a7f5b9bb714bd5971dac437d43538a5bcf11371c055916b01ac",
-    "lib/owner-grants.ts": "6b32a1e63c61cb24a113594946cc988db0ec33c02c989e23d6c864e77e0e0a44",
-    "lib/owner-reply-delivery.ts": "cc77defa3513260105ba096f4f8af2c19f7542e66fceea45a151410bedca9c57",
+    "lib/owner-grants.ts": "0785fde731cfa63dbcd51e56f474b1bc9c8d4154fc91fb7498d6c71ad6b10928",
+    "lib/owner-reply-delivery.ts": "551868d12059fbe57e5c883a84cbfb5beeb7ad0d5e8c1fd2171a51e50a584aab",
     "lib/panel-search.ts": "9c447bd0320be9f9b0e19c2dc4fc98dd5115bece914d83c19db42bd6bd6f4600",
     "lib/payments/owner-alert.ts": "f78d97b97e9a340d6eaa83c7ea1e67f8ddec97f4e5575e48a8ae9f770cb174b2",
     "lib/payments/service.ts": "f935b1ec344595026eed95402f47d5e0caf02cb835b7f7676b04af8cc9541726",
@@ -102,7 +102,7 @@
     "lib/procurement/commitments.ts": "893bad03f819927cf014fd7328bfabf8443d2d2b974af2f620083ed2cb538375",
     "lib/procurement/packages.ts": "c059b0731e51172b5b1a21debd6987299f229dccceedaaea3164a2a863c821f5",
     "lib/queue-scope.ts": "2a11f0a14cb9f56016ed6da56bdee8f8e9c305ab6bd5814d1dfb915c2a2e26cc",
-    "lib/record-ops.ts": "17694eb415dc2c823c9bb5d4bb0c31c7cfad31b70d89595e88cdd87a4617abdb",
+    "lib/record-ops.ts": "f33459fd5368192ac8290945c2488ef96413fe766ad7da7278055a5ae88a67ba",
     "lib/reminders.ts": "12ba6a8a9e8f96b14e60b36eef0a0836c17b807f9cf31b8593d329eb107f4fa3",
     "lib/run-focus.ts": "653f2d48e2ff665d26b5da1a1675ad98c4f16c611440677c529d725c8a16d4cc",
     "lib/run-steers.ts": "2aa61011144ea0e82e8367a0fc0227d1323c8e00794fdaa536804f5460f9a2ba",
@@ -117,7 +117,7 @@
     "lib/unsorted-docs-core.ts": "abcb0ec9e38794c199c1591dc5ef06a1febbab4d25cdbec7ab7848045a579fbd",
     "lib/unsorted-docs.ts": "751f7081fdb2c801b0eeeaf99b57d96953c35a3b2bcc0c94743fd00b3c24fff1",
     "lib/work-item-assignees.mjs": "9d5b0b033f88e791164809e0f863ffae8ad620f3aefa0efa9cf7ea33dbbb2886",
-    "lib/work-item-draft.ts": "c6c7713c46dc5118aab5402cee157a4ea253440b91c4003dd404df0ea5dedc63",
+    "lib/work-item-draft.ts": "be8c8eda7252a91c3cffb077acb68622d4ca04a038b47f8133f8b712a3ab4a4d",
     "lib/work-item-edit.ts": "a79d9a015becccf3cdf70f0bf3c9b146cc72fa85a2d1450d7ad7c71154868635",
     "lib/workbench.ts": "79261a9e02271e460cb273088c81a7d8a58380b13d23f3f4e359c15be030067d",
     "lib/worker/health.ts": "46ff491f4191887da0101042bd0d345f45f59084e0280b0f537eebcf61bdd8bb",
@@ -135,11 +135,10 @@
     "app/api/internal/runbooks/route.ts": "bfaca6e6354525f15fc5fe8ae57843cf7e49e53225efa2a6923ca1a2c5d6ac73",
     "app/api/mobile/notifications/route.ts": "b1124dbd71c5e7c036c2b46c0e9064976f71a1b17f76e2e5091fcb91d5085481",
     "app/api/mobile/today/queue/route.ts": "5aa9e0fe9fd84e190b346b45105e671befb85a5c82504ed7795c670aac57c36a",
-    "app/api/telegram/webhook/route.ts": "945016ad2c8182e679e90dac3360ef523e3838e3aef8e4bfe41d81f03d3746f9",
     "mcp/chatgpt-tools.mjs": "582dd530abd140cdd1c8821c417b5579cd7e08b05fc5784374847e50e1e62218",
     "mcp/estimating-tools.mjs": "cb42d668a3134716b2eec6b8daa0059eaa049a95e6b4dc77548f8f9a54883f73",
     "mcp/filing-tools.mjs": "68ed40273aae6d2b04fe8591352ee6119095fe34f7d161576e5a1fde7b8dfd7f",
-    "mcp/grants-tools.mjs": "f32b984ccb917d004a4fdcebf10fcb44c7d8bedd68c86dddf9f1c5f541870734",
+    "mcp/grants-tools.mjs": "ce4c58c25034945aeb62399711dc64bc1e1e0840538cd73fa5b6d247b1de44eb",
     "mcp/obligation-tools.mjs": "409b9fe090590051e392bb5ae45abf4abc8cdc37ccd62430737d2794d504e1e9",
     "mcp/project-tools.mjs": "9cb8deacdc68efd39d657c9960910b5b71e4100b4738bd15972af53b27788f43",
     "mcp/runbook-tools.mjs": "e2988e12c1cbd4e8a6a71cf0c04661a487b12fed4f8806f83f885e926d972123",
@@ -228,7 +227,28 @@
     "app/api/internal/canvas-files/route.ts": "133f5fd6aea6328e21816ea17430ddeed8d46adc4394039dcc13614433bcd236",
     "mcp/canvas-file-call.mjs": "b907399c91f7347715966af7bc6b6d41b906451a062d5122e498282dfb3b7183",
     "scripts/qa-seed-canvas.mjs": "28ceb73b9e8ceca6a4c3c5bd9edf75c57f41143e2611e9b8a1512a0582083146",
-    "db/migrations/0109_canvas_control_envelopes.sql": "5af24530f4b16596e0e6d44028d73570a8c4fdda31e24a90ec77af155f4ff26f"
+    "db/migrations/0109_canvas_control_envelopes.sql": "5af24530f4b16596e0e6d44028d73570a8c4fdda31e24a90ec77af155f4ff26f",
+    "lib/actions/phone-lines.ts": "9b5201b0acff6995b2a55119773cec04ef16e3d4ba52fdb6ce432959b98e1e80",
+    "lib/actions/sms.ts": "19c74923cd72eed644ae87373cc9ae4570cdd3f022c11206b086a8c4999240da",
+    "lib/comms-summaries.ts": "a8e1f234c2395529babca456ece055eba80fc4d817c33c84740faf55e1301ed9",
+    "lib/leads/match.ts": "1f72927560c1e6103e5964bed82736769365c4c9165785bd7f89865e1c96a4e8",
+    "lib/owner-actions.ts": "c3737b9f34990d316f17353539656ea8e613c8ecc3f3c9308009515b770b2cff",
+    "lib/phone-lines.ts": "ab6fbcd156c37b4322f7b900a92a587ba54896ff9d6007560f185d7b2ab00d49",
+    "lib/phone-push.ts": "14eb6ccd7a817d8cc01e7409fa5980d962e18ef5f775dec6e615e51123e22509",
+    "lib/providers/apns.ts": "8efd5cea9e113f147807a76690ff03a6aae494a7f7b54ea4507a8f4a9f58ede5",
+    "lib/receipt-scan.ts": "439cb018211e6e5585321213634d0550ae31e993bd4777e8b859bca0c6dc79e0",
+    "lib/sms.ts": "a2a935d6ef730bf2aacddcb435905efed265a5d8d48027b18ebac06d4c61968f",
+    "lib/voice.ts": "0e2e4a89b7dd5aee299524a4790ad92329a4b2fd062c4a4e457129947e11324b",
+    "app/api/mobile/push/[...path]/route.ts": "655b0d6c88ca1dec4aad370825843cd63d38f805b36fe0e337d6fb50fc8f556b",
+    "app/api/mobile/sms/route.ts": "e244630e21d3e0bd0ec4fed46d68bb53c2f141ffa27b1a77b61c2b75792a81df",
+    "mcp/comms-tools.mjs": "218336d0eb33586e57b1f1f73b4a0a3cbd7750f02d7b8e17dfc4c63c968355d3",
+    "scripts/qa-seed-phone-push.mjs": "fb6c5a439f91929cd954b6f4e7ba4974c53f84ce73c0697883c973b84d3be2ee",
+    "db/migrations/0029_sms_blocked.sql": "ecab7f67e2dc35608763a7759e2647683ec56d2e22f43f63266dae1a82b58dbd",
+    "db/migrations/0071_inbox_sources_and_retries.sql": "5931dae36c8d1a68e3a78703e8847627738853927619752da84cf4d6d45d6516",
+    "db/migrations/0092_phone_push.sql": "f011992ec8a54d3ac074fc6e5b6f1c9855eb161f3f3b82a68d18f23b52cf262a",
+    "db/migrations/0110_phone_lines.sql": "1322ea39adada8c03752dfabac0e30d1cac538df6b04b744ab43de128144b914",
+    "db/migrations/0111_sms_threads_per_line.sql": "35b409a9b3d2e0d1ea6bb4eda63d4d03dbb657b81200a112ebb0b46802b40e75",
+    "db/migrations/0112_ask_phone_copy_privacy.sql": "cdee3d80aac8ddf06b81ebef7214e6f7a61a360f295525622e0c8d21ba799103"
   },
   "entries": [
     {
@@ -1078,24 +1098,12 @@
     },
     {
       "file": "lib/approve-work-item.ts",
-      "function": "claimApproval",
-      "classification": "not-private",
-      "reason": "fenced-by-helper",
-      "explanation": "Business work-item/card/intent/receipt/payment projection or conservative composed-SQL fragment. No automatic chat prompt/reply/attachment text producer here: session reply bodies are retained only in fenced owner_replies; shared blocked_reason/decision_note/event detail/intent error carry fixed status. Explicitly submitted business artifacts keep their existing business permission policy. Runtime-derived private copies are fenced separately by source person and RLS.",
-      "queries": [
-        "281e47510ba58729defe1dc86c92d0fa83c27cee5308d5c63843ade399e46713",
-        "aa8bd8f51b1545ac463bf1d7b6c2d330474eb4eaf86a536d65b0cd2fa23e604c"
-      ]
-    },
-    {
-      "file": "lib/approve-work-item.ts",
       "function": "claimRejection",
       "classification": "not-private",
       "reason": "fenced-by-helper",
       "explanation": "Business work-item/card/intent/receipt/payment projection or conservative composed-SQL fragment. No automatic chat prompt/reply/attachment text producer here: session reply bodies are retained only in fenced owner_replies; shared blocked_reason/decision_note/event detail/intent error carry fixed status. Explicitly submitted business artifacts keep their existing business permission policy. Runtime-derived private copies are fenced separately by source person and RLS.",
       "queries": [
-        "c770588bd4a146255efbea362b5e939f93ad8251df0ae079e5c26133b9190e53",
-        "aa8bd8f51b1545ac463bf1d7b6c2d330474eb4eaf86a536d65b0cd2fa23e604c"
+        "94d8338c84221a19655d815a7017328fcaff0e325a3aa16b2e75fef211084bac"
       ]
     },
     {
@@ -1125,7 +1133,6 @@
       "reason": "fenced-by-helper",
       "explanation": "Business work-item/card/intent/receipt/payment projection or conservative composed-SQL fragment. No automatic chat prompt/reply/attachment text producer here: session reply bodies are retained only in fenced owner_replies; shared blocked_reason/decision_note/event detail/intent error carry fixed status. Explicitly submitted business artifacts keep their existing business permission policy. Runtime-derived private copies are fenced separately by source person and RLS.",
       "queries": [
-        "2b0075682e862dd377e31e155de179a99ad1a727a56eac1eae5b1e27ed8795eb",
         "88aae38a01a2067c5f925882b37ea802e0c6df3c43f719d2fb7c3c76a714fd32",
         "6cf97bb26c458ab1da3dca3bbcd357b59d15de596debb9be8b7b95eaf15293d3",
         "b8e891f607b0e2740167a43e4509b89d902d62236d593db7d509c6f7cb0df234"
@@ -1138,7 +1145,6 @@
       "reason": "fenced-by-helper",
       "explanation": "Business work-item/card/intent/receipt/payment projection or conservative composed-SQL fragment. No automatic chat prompt/reply/attachment text producer here: session reply bodies are retained only in fenced owner_replies; shared blocked_reason/decision_note/event detail/intent error carry fixed status. Explicitly submitted business artifacts keep their existing business permission policy. Runtime-derived private copies are fenced separately by source person and RLS.",
       "queries": [
-        "885c5c44ad72b55d188cdd92bb720281e791390fb0695701c4c901c1f47976a0",
         "b8e891f607b0e2740167a43e4509b89d902d62236d593db7d509c6f7cb0df234"
       ]
     },
@@ -1683,6 +1689,7 @@
         "14fb6d4a29146fec9a2c748dee962c8fb58b018e77b9f0e81c39aa5fd2922cd8",
         "ee179bf67ecb91436fbb331f1b97316040394e4b47b724a82334dc798f879b02",
         "e0dbbf05f0fa522a251e2299f029b5c5f9cdf6ed1e655649b2b105552bfd7e45",
+        "db6332a604a5f016d94ecd11e65bfad608ef11110f02610f765d74f5ba531518",
         "c0262e517e54cd0f810a2283551684e1d8699bc2401a4a723de843aef0c4ede7",
         "b61d8d1a1e60bf513e03761e1522ede35b82de305f4ae0e2d25dab6becdf3708",
         "ad88b1c6f79f245795de3a2ed6ee8c23b5eb238caa2770f412cbcb064ae08f2b",
@@ -1700,6 +1707,7 @@
         "159aa7d7fa4ce5c1b536a0f507ddf747ed18871b2fac591757929e992d4da981",
         "ee179bf67ecb91436fbb331f1b97316040394e4b47b724a82334dc798f879b02",
         "40b1913a632e979efc3fa3848793ee0a360c788668daa7db4dd4be262321fde1",
+        "db6332a604a5f016d94ecd11e65bfad608ef11110f02610f765d74f5ba531518",
         "f91e37624bdeefc85719f0da5e05c88f52cd05919f8798b8f8c5ba15790e6180",
         "939a8ab27c69944f3f2890130b5c8f5a9bd3bd1de142d3bf2586d42f98830b3f",
         "ad88b1c6f79f245795de3a2ed6ee8c23b5eb238caa2770f412cbcb064ae08f2b",
@@ -1723,7 +1731,7 @@
       "reason": "fenced-by-helper",
       "explanation": "Recording private replies checks authenticated human owner, active self live thread and recovery-ready before mutations; DB guard serializes tombstones. Draft closure is business-only; grant closure constrains same live conversation. Target IDs/explicit business card content are not automatic transcript excerpts. R3: session body is never passed to shared resolution or blocked_reason; only fixed status crosses that boundary.",
       "queries": [
-        "9e554cdcb19a03c912e13467db79fa1ca6575dfed99df50e87fe64cc6d982d08"
+        "87329d60d80641ef78f7c1a3ea1f572e33ad93ba230c7f77a0d5b28b23dc7159"
       ]
     },
     {
@@ -1733,7 +1741,7 @@
       "reason": "fenced-by-helper",
       "explanation": "Recording private replies checks authenticated human owner, active self live thread and recovery-ready before mutations; DB guard serializes tombstones. Draft closure is business-only; grant closure constrains same live conversation. Target IDs/explicit business card content are not automatic transcript excerpts. R3: session body is never passed to shared resolution or blocked_reason; only fixed status crosses that boundary.",
       "queries": [
-        "e71b782ada9ef1275cca235a036d8704b7d1985a44f4f31861e5b8fa722cbe55"
+        "e5746f2ff28264bf2c413ee8fef88382d89e634939e5dd5e4f9fa34f21b66156"
       ]
     },
     {
@@ -1801,8 +1809,10 @@
       "reason": "fenced-by-helper",
       "explanation": "Shared business decision/intent status and approval semantics, not permission to copy a private Ask reply. Session recordOwnerReply passes fixed status only to resolution, events, errors and hooks; the full text stays in owner_replies under person/live-thread/journal and FORCE RLS checks. Historical downstream copies are scrubbed in 0105 and again on deletion/replay.",
       "queries": [
+        "a29c9681de64f06e05fc985ed589413681831883851a75cb36eaa790bdeb50cd",
         "e176b62dba74618f2e8c6935f5a5cdcc206e7eeed13894eb0702847e8232d3dc",
         "ea22a11c7e3d972d20286b552e5d08ac2b1e351be13021a816563091a168c158",
+        "12c9c8e6b1a33e3ac2b66d4e91e6d5b6f8ac5272d7b0d143e5c10854bcb66f98",
         "1d3307ff94fb3b093afe2389c52792bdab609c9a39ab58c794c1c3224313fe81"
       ]
     },
@@ -1813,6 +1823,9 @@
       "reason": "fenced-by-helper",
       "explanation": "Shared business decision/intent status and approval semantics, not permission to copy a private Ask reply. Session recordOwnerReply passes fixed status only to resolution, events, errors and hooks; the full text stays in owner_replies under person/live-thread/journal and FORCE RLS checks. Historical downstream copies are scrubbed in 0105 and again on deletion/replay.",
       "queries": [
+        "94d8338c84221a19655d815a7017328fcaff0e325a3aa16b2e75fef211084bac",
+        "2143566c987372da3197b248661bc2b105301a32224eac7c8ed6aa563d423366",
+        "32ec1651c605762cd9ddf97f6bc3861f45b1acb812a6467c927071d4fa0efe73",
         "3423e26c024f706d76a8532678e78e4891d484c92506d78330405086437f5952"
       ]
     },
@@ -1824,7 +1837,8 @@
       "explanation": "Business work-item/card/intent/receipt/payment projection or conservative composed-SQL fragment. No automatic chat prompt/reply/attachment text producer here: session reply bodies are retained only in fenced owner_replies; shared blocked_reason/decision_note/event detail/intent error carry fixed status. Explicitly submitted business artifacts keep their existing business permission policy. Runtime-derived private copies are fenced separately by source person and RLS.",
       "queries": [
         "f7b47f6e733bbdd58c80e43590e6920b65806ef4f02d3e93c830d08b77fcbd2f",
-        "2d64b40b96d435426bdefcba37748afc20c7959fed9e89abd21fea8b6a5039ef"
+        "2d64b40b96d435426bdefcba37748afc20c7959fed9e89abd21fea8b6a5039ef",
+        "80d15174aab0006aa5bdd7d718b141098f842291ba13c3218531e47739ab010b"
       ]
     },
     {
@@ -2099,7 +2113,7 @@
       "reason": "fenced-by-helper",
       "explanation": "Business work-item/card/intent/receipt/payment projection or conservative composed-SQL fragment. No automatic chat prompt/reply/attachment text producer here: session reply bodies are retained only in fenced owner_replies; shared blocked_reason/decision_note/event detail/intent error carry fixed status. Explicitly submitted business artifacts keep their existing business permission policy. Runtime-derived private copies are fenced separately by source person and RLS.",
       "queries": [
-        "d9b21c1db09c2092f86de742faae69f3ff249910d965f6f5cc11a60e56f6ca27"
+        "5ce5e71bd9ed38299728c67be0e69d8c80bebcd9295a39e3da9047e07227722e"
       ]
     },
     {
@@ -2295,6 +2309,7 @@
       "reason": "fenced-by-helper",
       "explanation": "Business work-item/card/intent/receipt/payment projection or conservative composed-SQL fragment. No automatic chat prompt/reply/attachment text producer here: session reply bodies are retained only in fenced owner_replies; shared blocked_reason/decision_note/event detail/intent error carry fixed status. Explicitly submitted business artifacts keep their existing business permission policy. Runtime-derived private copies are fenced separately by source person and RLS.",
       "queries": [
+        "e8db1a84dcebbaee713d7cde432b171ab00cb4527874fc3c6e37920bcccb39dd",
         "6cab63bfe05286e6d2aea76abc53996ccbae0fd705d91dee93feb70933cde713"
       ]
     },
@@ -2428,11 +2443,10 @@
       "function": "sendOwnerPushesNow",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Push persistence/drain reviewed: safePush fixed status for private associations before immediate/queued/stale-snapshot sends; per-write immutable erasure and 0105/replay historical cleanup. Boolean-only opaque registry survives source purge. No private text stored as business status.",
+      "explanation": "Every immediate/leased/retry channel delivery re-sanitizes input and outbox marker; emit overrides also replaced. Phone history has SQL sanitation; folded summaries recheck stale snapshots. Explicit business drafts/portal alerts keep leases and per-channel receipts. Conversational dedup hashing happens after sanitization; historical private text digests are cleared.",
       "queries": [
-        "30d706515a9721eb2ba5903849531696c14316b4c1bf37111f89ce91839a8062",
-        "74c67b225cae404c43967b08006cef13f5d002156b574756838db63c1f28904d",
-        "21db4463e30e860f8206eca11781ef68952131abcc90f9814ec4149db5a4195a"
+        "b13c4eceb067c09cc89d3c3c0be8972c9aa39d8154756584b816237d70ad5e99",
+        "69abef9bf1a7094036c47f7ac7e71e245330413799ac12dbc8fcd375e873f681"
       ]
     },
     {
@@ -2440,11 +2454,17 @@
       "function": "runPushDrain",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Push persistence/drain reviewed: safePush fixed status for private associations before immediate/queued/stale-snapshot sends; per-write immutable erasure and 0105/replay historical cleanup. Boolean-only opaque registry survives source purge. No private text stored as business status.",
+      "explanation": "Every immediate/leased/retry channel delivery re-sanitizes input and outbox marker; emit overrides also replaced. Phone history has SQL sanitation; folded summaries recheck stale snapshots. Explicit business drafts/portal alerts keep leases and per-channel receipts. Conversational dedup hashing happens after sanitization; historical private text digests are cleared.",
       "queries": [
-        "e40ca70e35cfed925415ba6f1fb33a3b0d8d2d06f06499e4cec0d87647b834f2",
-        "d678357d3c4e2d78fa649cd96ed6eed54ca6881492de669a391bc2cc0e91a4e0",
-        "f246b51d960ace37318c2e095a1d2a961d26064c28a5aee2bfd15c364faaba95",
+        "cb26caf8d3bc27d03502c37579ebe3a27d5096d573ca71fb0a16cb41e16a14a2",
+        "beea54e126e157f8416c89518606ac59a1c760ef2f0d08704c40805901ac9417",
+        "5a165544467fd483775d11182be80d50e34a8dd89fdf36c623f3917a482881df",
+        "69abef9bf1a7094036c47f7ac7e71e245330413799ac12dbc8fcd375e873f681",
+        "34e4433ab4d7b12e46d2ed1b2d9b88b590a40983dbbfdbc20cf09ab0b8fa1e59",
+        "df8d3f1760f4823474fd2208975fba78f52fd310cc6d0ae0349d2f10c2d342a8",
+        "f7aad0092a46c1e214bfb43175d4740a7d73e6459e9bfc28d37d540390ca0d27",
+        "6394d1c4eb78ffb6f7a539e0889f35ea9f6492940fae58189986f1d7ee01e4c7",
+        "b89b9164ffd72d98b49c79d56f942fd637d7b891905d0cece9ee7ef58ff66c88",
         "7666983731c7bfa4d9812d91c589bd0e014a0426bba169567924019df017ad81"
       ]
     },
@@ -2453,9 +2473,9 @@
       "function": "unclaim",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Push persistence/drain reviewed: safePush fixed status for private associations before immediate/queued/stale-snapshot sends; per-write immutable erasure and 0105/replay historical cleanup. Boolean-only opaque registry survives source purge. No private text stored as business status.",
+      "explanation": "Every immediate/leased/retry channel delivery re-sanitizes input and outbox marker; emit overrides also replaced. Phone history has SQL sanitation; folded summaries recheck stale snapshots. Explicit business drafts/portal alerts keep leases and per-channel receipts. Conversational dedup hashing happens after sanitization; historical private text digests are cleared.",
       "queries": [
-        "c251cf2c32adf9452b3957ff3a432bade6e60e5bd75afc2980d50c2093cf4d4a"
+        "f1a53cecf61cd03d458e36f65730663bd905ba572090c614ba9f5e0b7df05511"
       ]
     },
     {
@@ -2845,7 +2865,7 @@
       "function": "markDraftCardPulled",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Private delivery requires owner=self live thread under journal; reply command uses captured person predicates before lookup/update/Telegram, no missing-private fallback. Sweep explicitly selects conversation_id IS NULL and never copies private run answers. Shared business reply/target helpers carry intentional business data only.",
+      "explanation": "Exact person/live-thread journal guards remain before private reply lookup/mutation/delivery. Shared transport reads only conversation-unbound reply routing metadata; phone/outbox association registry redacts private automatic mirrors, answers and acks. No private fallback to a shared runner. Legacy transport fallback reclassifies opaque source/mapping references and fails closed for private/unavailable classification.",
       "queries": [
         "cf2cab30397752613e3ac5d24f8ae4aaa762226ac7769650e099f004cc8bdc7b",
         "6b38026658323019c31db4165590471d9d331279855d67a3cc4c81620c05d4e3"
@@ -2856,7 +2876,7 @@
       "function": "promptFor",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Private delivery requires owner=self live thread under journal; reply command uses captured person predicates before lookup/update/Telegram, no missing-private fallback. Sweep explicitly selects conversation_id IS NULL and never copies private run answers. Shared business reply/target helpers carry intentional business data only.",
+      "explanation": "Exact person/live-thread journal guards remain before private reply lookup/mutation/delivery. Shared transport reads only conversation-unbound reply routing metadata; phone/outbox association registry redacts private automatic mirrors, answers and acks. No private fallback to a shared runner. Legacy transport fallback reclassifies opaque source/mapping references and fails closed for private/unavailable classification.",
       "queries": [
         "b95c731d84f82c64ce22c9ef84d58a3ad9d732c7c9e665a85b950930960cf19d"
       ]
@@ -2866,7 +2886,7 @@
       "function": "deliverOwnerReplyImpl",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Private delivery requires owner=self live thread under journal; reply command uses captured person predicates before lookup/update/Telegram, no missing-private fallback. Sweep explicitly selects conversation_id IS NULL and never copies private run answers. Shared business reply/target helpers carry intentional business data only.",
+      "explanation": "Exact person/live-thread journal guards remain before private reply lookup/mutation/delivery. Shared transport reads only conversation-unbound reply routing metadata; phone/outbox association registry redacts private automatic mirrors, answers and acks. No private fallback to a shared runner. Legacy transport fallback reclassifies opaque source/mapping references and fails closed for private/unavailable classification.",
       "queries": [
         "b87cce364a7b06ee00bb337a2e9e8cc192b594f991dbf78821d111ef92b64ef7",
         "97819ae128bc3ffb06e7aae06dcc59ac1d25fb1ca0a9349fb0c4ae6ce02a55b5",
@@ -2883,7 +2903,7 @@
       "function": "replyToOwner",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Private delivery requires owner=self live thread under journal; reply command uses captured person predicates before lookup/update/Telegram, no missing-private fallback. Sweep explicitly selects conversation_id IS NULL and never copies private run answers. Shared business reply/target helpers carry intentional business data only.",
+      "explanation": "Exact person/live-thread journal guards remain before private reply lookup/mutation/delivery. Shared transport reads only conversation-unbound reply routing metadata; phone/outbox association registry redacts private automatic mirrors, answers and acks. No private fallback to a shared runner. Legacy transport fallback reclassifies opaque source/mapping references and fails closed for private/unavailable classification.",
       "queries": [
         "60ad015a14bb1cbb4899310161e252077e2691a2b3a72aa43d4b2e221079224a",
         "23a2ac434fee4ae4425b0ade85140d58556baad3733dbe0745b214338ac9cd03",
@@ -2898,13 +2918,14 @@
       "function": "sweepUnansweredReplies",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Private delivery requires owner=self live thread under journal; reply command uses captured person predicates before lookup/update/Telegram, no missing-private fallback. Sweep explicitly selects conversation_id IS NULL and never copies private run answers. Shared business reply/target helpers carry intentional business data only.",
+      "explanation": "Exact person/live-thread journal guards remain before private reply lookup/mutation/delivery. Shared transport reads only conversation-unbound reply routing metadata; phone/outbox association registry redacts private automatic mirrors, answers and acks. No private fallback to a shared runner. Legacy transport fallback reclassifies opaque source/mapping references and fails closed for private/unavailable classification.",
       "queries": [
         "f047f98d332c09d6b4f8483833a962c8d09126938b9a2b108949b653f45035eb",
         "6620b9723ee8071c1d6c9062ee8d708bac0be4360c994db495c34f8b24adce53",
         "be1a66b21b6bfd9e30e6f83fcbd56c9204d199a7c19fedc990d76ab65bd3d3bc",
         "2632571b1acca628d376152fca58707d7705ffb9d2658a1c8d95a0503d5e4ea8",
-        "3b60e52aeab2fa26f42e9947e7a7ac6007c2950b231243906fa4c420c5f6b03c"
+        "a479eb1e107f5a2e55d2c335afe0b2f386312069eec635b5b3cd4224187278d1",
+        "328e3e60e353c78cb16a9b5c69d55cbbe43d231535b309d62209a8c54bf1c309"
       ]
     },
     {
@@ -3190,7 +3211,7 @@
       "reason": "fenced-by-helper",
       "explanation": "Business work-item/card/intent/receipt/payment projection or conservative composed-SQL fragment. No automatic chat prompt/reply/attachment text producer here: session reply bodies are retained only in fenced owner_replies; shared blocked_reason/decision_note/event detail/intent error carry fixed status. Explicitly submitted business artifacts keep their existing business permission policy. Runtime-derived private copies are fenced separately by source person and RLS.",
       "queries": [
-        "815ad40899d96fb0ff725aeed08e94ff7edd7b7642f1b7138deedc1a142ce18f",
+        "9c449a5ca6ebd445bd2eeb56f7250b11721661de2117ad134b8bb6a8ed160f56",
         "68091cd8d28c7578b3c39421851b83df67d1497a912bb13ab3a4c73cd1b13385"
       ]
     },
@@ -3840,7 +3861,7 @@
       "reason": "fenced-by-helper",
       "explanation": "Business work-item/card/intent/receipt/payment projection or conservative composed-SQL fragment. No automatic chat prompt/reply/attachment text producer here: session reply bodies are retained only in fenced owner_replies; shared blocked_reason/decision_note/event detail/intent error carry fixed status. Explicitly submitted business artifacts keep their existing business permission policy. Runtime-derived private copies are fenced separately by source person and RLS.",
       "queries": [
-        "6e02a1832ab756bd3e6fd19d6d30dc21b4b7cf78ea80a610a372c000776808da"
+        "d83a83f6e49468e09a6d9a1fdf25a79764ede88d7fb1d546091b1eb2d2bb7cae"
       ]
     },
     {
@@ -4036,16 +4057,6 @@
       "explanation": "Business work-item/card/intent/receipt/payment projection or conservative composed-SQL fragment. No automatic chat prompt/reply/attachment text producer here: session reply bodies are retained only in fenced owner_replies; shared blocked_reason/decision_note/event detail/intent error carry fixed status. Explicitly submitted business artifacts keep their existing business permission policy. Runtime-derived private copies are fenced separately by source person and RLS.",
       "queries": [
         "1862081471536f11349b3bc0909718a3b88d2f92eeafeed5bd729318a2f7ef54"
-      ]
-    },
-    {
-      "file": "app/api/telegram/webhook/route.ts",
-      "function": "POST",
-      "classification": "not-private",
-      "reason": "fenced-by-helper",
-      "explanation": "Business work-item/card/intent/receipt/payment projection or conservative composed-SQL fragment. No automatic chat prompt/reply/attachment text producer here: session reply bodies are retained only in fenced owner_replies; shared blocked_reason/decision_note/event detail/intent error carry fixed status. Explicitly submitted business artifacts keep their existing business permission policy. Runtime-derived private copies are fenced separately by source person and RLS.",
-      "queries": [
-        "fa38b0e4693fa4f75425956119767c9a9dc650f079772bd9167749ce2bc55155"
       ]
     },
     {
@@ -4471,6 +4482,24 @@
       "reason": "trusted-background",
       "explanation": "Owner-invoked schema/import/repair/report CLI, not a request reader. Migration 0105 removes automatic private reply fan-out, scopes runtime derivatives with FORCE RLS and restricts repair execution to the website session identity. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
+        "d9487344427c1ae8f3fc778e4f30e4c9bf30e60ca27a4d55c64953fe115a7a44",
+        "ad81bd96332eeb1b45690c3f670a6e6fbf60d8415d2a042e360a641a19d38f61",
+        "479de00a08e1ab6ddfc734d4da06c698618b5882f29aeb5bd2b802009e82dae0",
+        "019e9a7bec7298f66605e42ab586e73a598d4842858c72d1b6f9f9a80ac57545",
+        "9ec215b697741afaaea51b4e6735fadafccf49d1c333c9568dc6eb463a206e26",
+        "28fc5ff8a0cbb883ca858f6b7c27a15dbf77bfe0350f4922653b9604224f82ee",
+        "2cea58c886585c2e5d7ca70aed9b3712e9ddbaddd5bf2d2ebc03c94f0897fb1f",
+        "b0166e1612c742015b92e92314f15f1b30224ffd0cea3bd4dbcb165c576f1614",
+        "e252adf8172687f354d5a73fd42845e78c68ae1a84a362721100ac7811379ff0",
+        "df17ff6373fca14686c9def09f6cd8e79ec1909076316e80684ad75164ec3fa5",
+        "40ee8cc8c04082fd62ef185905216f5f8e33f9295c4a873e7cae8607530025ba",
+        "818d53784454b558e9bcc28026e97bde3d3efc1735ee159df05fff94f5f235a5",
+        "36c39b2399e6eaa8b92343d25c6d107bbae62f90eff3c96f6c153e4cda57e766",
+        "bacf925664bc90ae0267993c980bd4f1f115b59a4cac7a3c678f9eb9a9426224",
+        "90745dd50108a16d7985da6e26cb8ff2aec116793700724396c4a79ad046c7f8",
+        "3a3ff23c4ca99128e19a71d3953104cbbaa971126e4bc9f7e909a20592607223",
+        "502b81988583d636504742bc3456f4ed5132e9c1aab7a4a645feb46b9dfd8b05",
+        "73be818b43e459bd72957348770712fa1ca7f2ddca712cc167fb5dbc002b6358",
         "dc43644a23c46fa34a53e483fe77be3701f7509ac2a39e7defe7b713fd0dfae3",
         "c2e80277440672093f239d43f00ec2e0b9207fe9fa036cba11ae3caa70a3d352",
         "92861585ddf4db2ec036b42af93a6a39b5613b0961f825b7a80e8c0abf0be26c"
@@ -5063,29 +5092,29 @@
       ]
     },
     {
-      "classification": "not-private",
-      "reason": "owner-health-opaque-ids",
-      "explanation": "Only push count/quiet-hour timing, no stored text returned.",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Every immediate/leased/retry channel delivery re-sanitizes input and outbox marker; emit overrides also replaced. Phone history has SQL sanitation; folded summaries recheck stale snapshots. Explicit business drafts/portal alerts keep leases and per-channel receipts. Conversational dedup hashing happens after sanitization; historical private text digests are cleared.",
       "file": "lib/notify-owner.ts",
       "function": "gate",
       "queries": [
-        "96b48dc16472ad8528fc4df0f68c13bec80d648112b79c6e81569d2ab2abb714"
+        "15bc06fadbe402af5fa24755cb1f8a0ef65c679ea3aa38e3293d3557d80f17bc"
       ]
     },
     {
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Push persistence/drain reviewed: safePush fixed status for private associations before immediate/queued/stale-snapshot sends; per-write immutable erasure and 0105/replay historical cleanup. Boolean-only opaque registry survives source purge. No private text stored as business status.",
+      "explanation": "Every immediate/leased/retry channel delivery re-sanitizes input and outbox marker; emit overrides also replaced. Phone history has SQL sanitation; folded summaries recheck stale snapshots. Explicit business drafts/portal alerts keep leases and per-channel receipts. Conversational dedup hashing happens after sanitization; historical private text digests are cleared.",
       "file": "lib/notify-owner.ts",
       "function": "parkRow",
       "queries": [
-        "75561e5c829af9bddb85b598c2e20782b958a9e5b4a2cc4fc2207affd2e183b3"
+        "01bfba8cac9198b833e597d48e26d573d26c2f0ccfc3cd6e39f23141a775ceb3"
       ]
     },
     {
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Push persistence/drain reviewed: safePush fixed status for private associations before immediate/queued/stale-snapshot sends; per-write immutable erasure and 0105/replay historical cleanup. Boolean-only opaque registry survives source purge. No private text stored as business status.",
+      "explanation": "Every immediate/leased/retry channel delivery re-sanitizes input and outbox marker; emit overrides also replaced. Phone history has SQL sanitation; folded summaries recheck stale snapshots. Explicit business drafts/portal alerts keep leases and per-channel receipts. Conversational dedup hashing happens after sanitization; historical private text digests are cleared.",
       "file": "lib/notify-owner.ts",
       "function": "safePush",
       "queries": [
@@ -5095,11 +5124,13 @@
     {
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Push persistence/drain reviewed: safePush fixed status for private associations before immediate/queued/stale-snapshot sends; per-write immutable erasure and 0105/replay historical cleanup. Boolean-only opaque registry survives source purge. No private text stored as business status.",
+      "explanation": "Every immediate/leased/retry channel delivery re-sanitizes input and outbox marker; emit overrides also replaced. Phone history has SQL sanitation; folded summaries recheck stale snapshots. Explicit business drafts/portal alerts keep leases and per-channel receipts. Conversational dedup hashing happens after sanitization; historical private text digests are cleared.",
       "file": "lib/notify-owner.ts",
       "function": "transmit",
       "queries": [
-        "e8be1a7a330ab2b538a588a991569761d5f9f2ee2fdd852bc8ddf7c5c8cb55d6"
+        "61975109e04f97d667e4b64a0cf773ad6a040eaa815c2ce06c8df3933fcda313",
+        "cb254b84ea6c776cf04da9164fb7370b92af85f5a01af95a0e494419a760c60e",
+        "f46e08c6057768b10ea65c5b2a588ee760445182291cc6c5ca58dc3aeec7b718"
       ]
     },
     {
@@ -5992,6 +6023,994 @@
       "explanation": "R2 additive replacement of the website-only exact control helper: current UI bounded diagnostics and trimmed Change are matched against live same-thread versions, preserving baseline union, original prompt byte hash, legacy fixed controls, SECURITY DEFINER fixed search_path and PUBLIC revoke. Arbitrary suffixes/diagnostics, foreign threads and unknown versions remain unclassified; no table or privilege changes.",
       "queries": [
         "5af24530f4b16596e0e6d44028d73570a8c4fdda31e24a90ec77af155f4ff26f"
+      ]
+    },
+    {
+      "file": "lib/actions/inbox.ts",
+      "function": "sendChannelReplyAction",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "dc131f958fbfba2a9d3291aa3687ce134323549b72530afa56caf40d078261ab"
+      ]
+    },
+    {
+      "file": "lib/actions/phone-lines.ts",
+      "function": "addPhoneLine",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "950828f25280c472c576bc43b882f34fdd98da21b90bd2d0d2433cf03809d591",
+        "867347952b6c09437520e4356468a90f573cfe459d7c7cc6c74a159a1d52271c",
+        "b2484f9911fa7e90a0f689e7b32ebfe574a71fd060ba8a52c8e6d975a7414541"
+      ]
+    },
+    {
+      "file": "lib/actions/phone-lines.ts",
+      "function": "updatePhoneLine",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "127ee81c815ace244584483d3a226d081bcc594a77302e1077cd04cab510bf41",
+        "2041a0ae5dd2feeb96116230513c1eff5304ca526d7d439476aaaaa69254c8f8"
+      ]
+    },
+    {
+      "file": "lib/actions/phone-lines.ts",
+      "function": "makeMainLine",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "68d985feb750a958cffb77514c23a40f2d5648c8437efb1b0875eb14674c9b65",
+        "92d6d03f99f90aa5f8ea049b07e1062ce7fe4c975cf307003843e5196baedf76",
+        "8742bb4dbe85d59d62c5875f2b9748f850c09b0ac3f7377c2a090556a9155366"
+      ]
+    },
+    {
+      "file": "lib/actions/phone-lines.ts",
+      "function": "deletePhoneLine",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "d0e4c2406a53b528d4640b955be73c2be0b5f6a2ba896dd4a96c5622a799f7fb",
+        "0e7e57920755db8422b9a47fe84dd6be95c306220e30b41af4b689dcca77e1e7",
+        "5c86b60a557ec4828c5b170d41a64e6f8aec71b2bb7de144e2375a5e02825917"
+      ]
+    },
+    {
+      "file": "lib/actions/phone-lines.ts",
+      "function": "checkPhoneLine",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "591423ff149233632afabf07ab03f22f518c64d05fa9d767e7f366cfe81e405c"
+      ]
+    },
+    {
+      "file": "lib/actions/sms.ts",
+      "function": "loadSmsThread",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "e8acb8104bd169f03cf91ae7e3db59fe461aeefd93a9f392f04d66c08a86ffac"
+      ]
+    },
+    {
+      "file": "lib/actions/sms.ts",
+      "function": "linkSmsThread",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "23d50408d5b3e4aa861ffd9bcfd02e4e3a93d76d3ba538179728ea17e567384d"
+      ]
+    },
+    {
+      "file": "lib/actions/sms.ts",
+      "function": "unlinkSmsThread",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "d5eab225ee7d7532bb5c80a502b4785f3475917ac2ae09f26251491bca9ea97a"
+      ]
+    },
+    {
+      "file": "lib/actions/sms.ts",
+      "function": "markSmsThreadRead",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "e8acb8104bd169f03cf91ae7e3db59fe461aeefd93a9f392f04d66c08a86ffac"
+      ]
+    },
+    {
+      "file": "lib/actions/sms.ts",
+      "function": "setSmsOptOut",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "d6caee5c03f8f107275892ab0309e9583fbfa3156f5e65b14de56a5fad81ec91",
+        "cdefbedbfe835a06acd0dd60c5f92f180ec854db83107a4920023df0ea30a4e3"
+      ]
+    },
+    {
+      "file": "lib/actions/sms.ts",
+      "function": "setSmsBlocked",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "96507298aaa4c9ae36fa55fcad544cc8f3ad11102e24051414499c2378c4acf8",
+        "00b270de9128d43a469f9e692104a73ac3ab4cf7f5e18b7ad302e345c2cd129b"
+      ]
+    },
+    {
+      "file": "lib/approve-work-item.ts",
+      "function": "finishApproval",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "44a388a38153b8a92496b8944040682ca6c58ed4187b1ca95acfd395a5adc6f1"
+      ]
+    },
+    {
+      "file": "lib/approve-work-item.ts",
+      "function": "sweepApprovedDrafts",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "cd32af304b15ab05195307b0dc19867764ff530b268fefb186540fa0f749348c",
+        "8449dc64993c381986614aa39164175429f64c447889d59ecb74ae3885e6bfa7",
+        "b1c92c95afd3e973de2d70aae61cb5b234cdac5d0a0c55d8c6e78059c484a671"
+      ]
+    },
+    {
+      "file": "lib/approve-work-item.ts",
+      "function": "claimApprovalInTransaction",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "7623f7a9633b0fd42b5e8a5d1cba3d6561c4a793931230accbb17a4c933464cb",
+        "88de30fb25246875ab1746dfb38286b12b3f6571c2ad1b6c6a7d5df99229def5"
+      ]
+    },
+    {
+      "file": "lib/approve-work-item.ts",
+      "function": "claimRejectionWithRun",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "c770588bd4a146255efbea362b5e939f93ad8251df0ae079e5c26133b9190e53",
+        "aa8bd8f51b1545ac463bf1d7b6c2d330474eb4eaf86a536d65b0cd2fa23e604c"
+      ]
+    },
+    {
+      "file": "lib/comms-summaries.ts",
+      "function": "getRecordConversations",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "23721d244220cc0dadf7192b5b6f39ea8475b2afadc7e3e5c09bf6d3fc656c1d"
+      ]
+    },
+    {
+      "file": "lib/comms-summaries.ts",
+      "function": "refreshTextSummaries",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "588e119c8d3bb3152d6acb24e4d53edf52a143d0f4e4ea24c8736a99f9851a93",
+        "e33de79ae19ce11581a760a0bb09e8155de5dbbfe8a79d5425b68939f4c1fe60",
+        "ebb33b91ae188f972aac2c1c33a0471545309cc2bf2e6562dda4f1705d3d6c37"
+      ]
+    },
+    {
+      "file": "lib/decisions/telegram.ts",
+      "function": "finish",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Verified owner channel and target/account transaction locks; recordOwnerReply retains exact live-thread ownership and fixed shared status for private replies, post-commit effects propagate typed refusal.",
+      "queries": [
+        "d1295eba91aef7b7ed4cacd0de8e466dcfb5dda01ade2d8f2b3c5ff8da6d079e"
+      ]
+    },
+    {
+      "file": "lib/detectors.ts",
+      "function": "find",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "02512a131cf33820f130e9c5770eb656c9e845dde7db72e3b48f229cace922c5"
+      ]
+    },
+    {
+      "file": "lib/dispatch/core.ts",
+      "function": "optedOut",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "b8a8132f45fa97e4dae53219de0864bd90759f702ae5a14e59dbab3ff848f220"
+      ]
+    },
+    {
+      "file": "lib/dispatch/effects.ts",
+      "function": "send_sms",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "8d716981c4a4bda8a06979a87dccf46c65e15059cd15044a5f4dbb1611e523ca",
+        "964c3dec357f2d6e65b831dcd279d98cb2c29f13f20f16c07e04eb5fc013e334",
+        "878465c202074a4cf3bf1cf88149b58f5a45100655c69d623c3a154b1a5f1233",
+        "69c9ff3b323c1e8989da37b12d689cc7fec2248ea288939efc1b68bcefe8150c"
+      ]
+    },
+    {
+      "file": "lib/inbox.ts",
+      "function": "loadSmsThreads",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "beb7ce155a2236cfa401858fa94b37f328531c09bb0f9d26fc7c8500c0b8ae8b",
+        "b6cf9a87c78faa0860585dce3be01c9dd5e902843ca2571f3f792ad4fb47317b"
+      ]
+    },
+    {
+      "file": "lib/leads/match.ts",
+      "function": "matchIntake",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "b834e68823313b181fffca73874db9f3ea10a6742436a280482eb3185d94921d"
+      ]
+    },
+    {
+      "file": "lib/notify-owner.ts",
+      "function": "boundDraft",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Every immediate/leased/retry channel delivery re-sanitizes input and outbox marker; emit overrides also replaced. Phone history has SQL sanitation; folded summaries recheck stale snapshots. Explicit business drafts/portal alerts keep leases and per-channel receipts. Conversational dedup hashing happens after sanitization; historical private text digests are cleared.",
+      "queries": [
+        "b8862b6a0f05e1d376189e73081c17d153d25e9ea8b6860a3daba826a6412c3a"
+      ]
+    },
+    {
+      "file": "lib/notify-owner.ts",
+      "function": "deliverChannels",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Every immediate/leased/retry channel delivery re-sanitizes input and outbox marker; emit overrides also replaced. Phone history has SQL sanitation; folded summaries recheck stale snapshots. Explicit business drafts/portal alerts keep leases and per-channel receipts. Conversational dedup hashing happens after sanitization; historical private text digests are cleared.",
+      "queries": [
+        "328f0970646dc03a8e75df5ab3413972aa98a332f06a64f54a99e1a2bd41373d",
+        "1b584a4d31564e72b7508fa9f218765e0caa387de09fe93ab36dab8bd9d97e0e",
+        "d1097520014d8075eecd3b397ee04c83b7737a111d87fbb49a64ad4e2f9ebce8",
+        "5a2118d9f0c30b6cc58d6247f4d411cd7b4a298596e93cb8026eb36fc3bb499b"
+      ]
+    },
+    {
+      "file": "lib/notify-owner.ts",
+      "function": "notifyOwner",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Every immediate/leased/retry channel delivery re-sanitizes input and outbox marker; emit overrides also replaced. Phone history has SQL sanitation; folded summaries recheck stale snapshots. Explicit business drafts/portal alerts keep leases and per-channel receipts. Conversational dedup hashing happens after sanitization; historical private text digests are cleared.",
+      "queries": [
+        "b8862b6a0f05e1d376189e73081c17d153d25e9ea8b6860a3daba826a6412c3a"
+      ]
+    },
+    {
+      "file": "lib/notify-owner.ts",
+      "function": "deliverClaimed",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Every immediate/leased/retry channel delivery re-sanitizes input and outbox marker; emit overrides also replaced. Phone history has SQL sanitation; folded summaries recheck stale snapshots. Explicit business drafts/portal alerts keep leases and per-channel receipts. Conversational dedup hashing happens after sanitization; historical private text digests are cleared.",
+      "queries": [
+        "cb254b84ea6c776cf04da9164fb7370b92af85f5a01af95a0e494419a760c60e",
+        "6e5e6511763306cc260dbe87723c24c8926c0f962c7be685ebd42bc54a23d17e"
+      ]
+    },
+    {
+      "file": "lib/notify-owner.ts",
+      "function": "enqueueOwnerConversation",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Every immediate/leased/retry channel delivery re-sanitizes input and outbox marker; emit overrides also replaced. Phone history has SQL sanitation; folded summaries recheck stale snapshots. Explicit business drafts/portal alerts keep leases and per-channel receipts. Conversational dedup hashing happens after sanitization; historical private text digests are cleared.",
+      "queries": [
+        "8eba78052129a8b85edc03c50a9d4d5829296d25f83af2984856e83aacb786ba",
+        "5f73d6e49e609bf712171c6e1ea1108cbf948ea8c10c1cb667bf3e4011c606ea",
+        "c1119a18a64496a1e56efe5592a541fd0b1bf662d634fd70229d29364570a91c"
+      ]
+    },
+    {
+      "file": "lib/owner-actions.ts",
+      "function": "<phone-transport>",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Owner/target locks and recorded-reply ownership checks precede domain changes; private phone cards refuse actions; installed 0112 triggers remove reply/mirror/action copies and typed delivery failures propagate. Portal and explicit business replies retain their own policy.",
+      "queries": [
+        "c3737b9f34990d316f17353539656ea8e613c8ecc3f3c9308009515b770b2cff"
+      ]
+    },
+    {
+      "file": "lib/owner-actions.ts",
+      "function": "finishOwnerAction",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Owner/target locks and recorded-reply ownership checks precede domain changes; private phone cards refuse actions; installed 0112 triggers remove reply/mirror/action copies and typed delivery failures propagate. Portal and explicit business replies retain their own policy.",
+      "queries": [
+        "88e34a52774ef20007149146fb86735a4687816f8f37a33f108741936c44dd6f",
+        "a7100611f382527eb773bf076da067377fa21746927167d2333ebd1f6a7928a9",
+        "ce72bce7bd281445095758ade090d240162164549341cb5814ca2e776ba18cb6",
+        "94adfd48816bd8f47ec1ee02610a349f724f18b07d3f37c0d35ebadd3ef79f8c",
+        "0cfe9edce47719101267fe755071d90cbafa0492b8cf311c721cc168aa31eefb",
+        "6f99c4f59cd7d3b408616b186787f4f33d77f06ada889815cf4359d8e4d988e1",
+        "d5b9be59b5befc0a8d58de37b155d5b4a12d0eef0ab94e5ac1b9df5dc83ee65e"
+      ]
+    },
+    {
+      "file": "lib/owner-actions.ts",
+      "function": "resolvePhoneActionMutation",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Owner/target locks and recorded-reply ownership checks precede domain changes; private phone cards refuse actions; installed 0112 triggers remove reply/mirror/action copies and typed delivery failures propagate. Portal and explicit business replies retain their own policy.",
+      "queries": [
+        "1b584a4d31564e72b7508fa9f218765e0caa387de09fe93ab36dab8bd9d97e0e",
+        "b8862b6a0f05e1d376189e73081c17d153d25e9ea8b6860a3daba826a6412c3a",
+        "ee45a83f85e45e9c726ee792b26e155a65677007e585ee750c6f1aaca9d86b8c",
+        "ce72bce7bd281445095758ade090d240162164549341cb5814ca2e776ba18cb6",
+        "343e3ba9040db5c0e73b08ce5d39f7858f4625d04723bdf2b82b789b317022ba",
+        "e054f583a6341fdea688bd01c4c590a655d0b9a9310d9115f4906ca7511118fd"
+      ]
+    },
+    {
+      "file": "lib/owner-actions.ts",
+      "function": "checkpoint",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Owner/target locks and recorded-reply ownership checks precede domain changes; private phone cards refuse actions; installed 0112 triggers remove reply/mirror/action copies and typed delivery failures propagate. Portal and explicit business replies retain their own policy.",
+      "queries": [
+        "4bd26034df552173b46ffc622edaad760329be7a704f1b41bd7c7feb19049167"
+      ]
+    },
+    {
+      "file": "lib/owner-actions.ts",
+      "function": "locked",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Owner/target locks and recorded-reply ownership checks precede domain changes; private phone cards refuse actions; installed 0112 triggers remove reply/mirror/action copies and typed delivery failures propagate. Portal and explicit business replies retain their own policy.",
+      "queries": [
+        "7066327150e1115570a497ed47260739f90875e0be71fbc22b52e7ded2d56258",
+        "94d8338c84221a19655d815a7017328fcaff0e325a3aa16b2e75fef211084bac",
+        "b8862b6a0f05e1d376189e73081c17d153d25e9ea8b6860a3daba826a6412c3a",
+        "e6fe8443a1277f7f4f5f69fe50fec8f431d401990c6ade0c4d61d105a1ca88c9"
+      ]
+    },
+    {
+      "file": "lib/owner-actions.ts",
+      "function": "resolveWorkItemAction",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Owner/target locks and recorded-reply ownership checks precede domain changes; private phone cards refuse actions; installed 0112 triggers remove reply/mirror/action copies and typed delivery failures propagate. Portal and explicit business replies retain their own policy.",
+      "queries": [
+        "9f41671520c9689a2bfbb6b7940f1defa9aabf8b00b7ee4cb18d1ed1304aca31"
+      ]
+    },
+    {
+      "file": "lib/owner-actions.ts",
+      "function": "mirrorPhoneText",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Owner/target locks and recorded-reply ownership checks precede domain changes; private phone cards refuse actions; installed 0112 triggers remove reply/mirror/action copies and typed delivery failures propagate. Portal and explicit business replies retain their own policy.",
+      "queries": [
+        "1b584a4d31564e72b7508fa9f218765e0caa387de09fe93ab36dab8bd9d97e0e"
+      ]
+    },
+    {
+      "file": "lib/owner-actions.ts",
+      "function": "resumePhoneEffects",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Owner/target locks and recorded-reply ownership checks precede domain changes; private phone cards refuse actions; installed 0112 triggers remove reply/mirror/action copies and typed delivery failures propagate. Portal and explicit business replies retain their own policy.",
+      "queries": [
+        "e054f583a6341fdea688bd01c4c590a655d0b9a9310d9115f4906ca7511118fd"
+      ]
+    },
+    {
+      "file": "lib/owner-reply-delivery.ts",
+      "function": "sendOwnerTelegram",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Exact person/live-thread journal guards remain before private reply lookup/mutation/delivery. Shared transport reads only conversation-unbound reply routing metadata; phone/outbox association registry redacts private automatic mirrors, answers and acks. No private fallback to a shared runner. Legacy transport fallback reclassifies opaque source/mapping references and fails closed for private/unavailable classification.",
+      "queries": [
+        "d7dd8d5ab8dca4b935cc05881e491627ca3d8cf638795be1f823aecde99e9d22",
+        "3346f1f5baf20964f3d355d67c2d3d01ae5a6b5f852f47ee4a6fdeece9176896",
+        "b753c65f174cd2e5a46a22085fd1adafc0728d13b38f2d350b68f04e32ed1855",
+        "60452eb365321d49657a4a656ef7f947a5909fe5288e2fe8d1171a4da52a6b30"
+      ]
+    },
+    {
+      "file": "lib/phone-lines.ts",
+      "function": "ensurePhoneLinesSeeded",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "c5e79931804b1579a5690709e47df900af6946179c41ef9a94c64bc0e2c99405"
+      ]
+    },
+    {
+      "file": "lib/phone-lines.ts",
+      "function": "<module>",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "f2745fdd5152264b3d9ba587c5642f8cd59d59a5b8603c89d1f0054e5046781d"
+      ]
+    },
+    {
+      "file": "lib/phone-lines.ts",
+      "function": "listPhoneLines",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "b52a20f195022c0431d6d2915da1e815305170834155e29e0ec16e17c66af86d"
+      ]
+    },
+    {
+      "file": "lib/phone-lines.ts",
+      "function": "companyLineNumber",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "dc17dd4eb67c6991008783051ca0395ddc44f1ab243abf08f66c694137119dfa"
+      ]
+    },
+    {
+      "file": "lib/phone-lines.ts",
+      "function": "outboundNumberFor",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "86e02fcc5918fab2e4b3a6dfe5066e3094a471dc22fdbabe015dd31da73f319d"
+      ]
+    },
+    {
+      "file": "lib/phone-lines.ts",
+      "function": "personalLineOwners",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "b2731c2ec2ec0b234254157cd3a190a5e7bb7eed0304684dd26b9bf04805b4a1"
+      ]
+    },
+    {
+      "file": "lib/phone-lines.ts",
+      "function": "lineVisibilityClause",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "ddec2da54293957ed3c8be513bb6f60acc41d5cca2e5ff0fe37bc556d9d87c0d"
+      ]
+    },
+    {
+      "file": "lib/phone-lines.ts",
+      "function": "lineBadgesFor",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "2795d18660af590ed0bc59d18b855fd7a174ad944ad3144b3449e7947717b9e9"
+      ]
+    },
+    {
+      "file": "lib/phone-push.ts",
+      "function": "<phone-transport>",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "0112 phone history trigger irreversibly replaces private source/parent/outbox-associated title/body/outcome with fixed status; APNs reloads persisted sanitized content, devices are active owner logins only; shape refuses private reply actions. Delivery receipts contain opaque IDs.",
+      "queries": [
+        "14eb6ccd7a817d8cc01e7409fa5980d962e18ef5f775dec6e615e51123e22509"
+      ]
+    },
+    {
+      "file": "lib/phone-push.ts",
+      "function": "pushSettings",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "0112 phone history trigger irreversibly replaces private source/parent/outbox-associated title/body/outcome with fixed status; APNs reloads persisted sanitized content, devices are active owner logins only; shape refuses private reply actions. Delivery receipts contain opaque IDs.",
+      "queries": [
+        "039001a263a5f999c7e2b280974af462c2e4d952466d7dadda49b462bc56e4d8"
+      ]
+    },
+    {
+      "file": "lib/phone-push.ts",
+      "function": "savePushSettings",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "0112 phone history trigger irreversibly replaces private source/parent/outbox-associated title/body/outcome with fixed status; APNs reloads persisted sanitized content, devices are active owner logins only; shape refuses private reply actions. Delivery receipts contain opaque IDs.",
+      "queries": [
+        "1674a889444e65c58a3f1cb89c389af5884d1b78d7fa3bd903e25bab71212bc4"
+      ]
+    },
+    {
+      "file": "lib/phone-push.ts",
+      "function": "pushBadge",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "0112 phone history trigger irreversibly replaces private source/parent/outbox-associated title/body/outcome with fixed status; APNs reloads persisted sanitized content, devices are active owner logins only; shape refuses private reply actions. Delivery receipts contain opaque IDs.",
+      "queries": [
+        "093e77f4baf4d5a122716d22ffdda3e9acb947ed68bfc6775eee1f25b596ba5e"
+      ]
+    },
+    {
+      "file": "lib/phone-push.ts",
+      "function": "sendAppPayload",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "0112 phone history trigger irreversibly replaces private source/parent/outbox-associated title/body/outcome with fixed status; APNs reloads persisted sanitized content, devices are active owner logins only; shape refuses private reply actions. Delivery receipts contain opaque IDs.",
+      "queries": [
+        "73ff260f53b3a390aa4386608dd85048e15fd9ae2ce7f3e295d51e1d67d46955",
+        "c27020c849b657034e3b554200330a01aed7d9fdd4330134e04f29b6059ff398",
+        "58cf18a78484be0f9c3f830694d3283871727cbee5ec53e772557aec6f1d80bb"
+      ]
+    },
+    {
+      "file": "lib/phone-push.ts",
+      "function": "recordAppMessage",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "0112 phone history trigger irreversibly replaces private source/parent/outbox-associated title/body/outcome with fixed status; APNs reloads persisted sanitized content, devices are active owner logins only; shape refuses private reply actions. Delivery receipts contain opaque IDs.",
+      "queries": [
+        "6cdf220e78efb9cfac5a63c5850ed8ff92f17cf0480ea9b3b6c65a15c5d6e442",
+        "e67a34e5e8b36758194e5dc539f30462ee0948a4670be78ab6bd257be360021e",
+        "c31fc8314b167f694426cb03a3905e15c655f42d44839811bedabfa0280c53e3",
+        "118f977dfb7a8206f14b07e6e6551a58a28da244db1eb21ebc2dcedeee1cbcf8",
+        "1b584a4d31564e72b7508fa9f218765e0caa387de09fe93ab36dab8bd9d97e0e",
+        "a8af77e64a2c0e5bdb70210eb90b598b65f6d5aaef3f333a0a2cf08505cd6c76",
+        "720789e420eaa2469de4b308ed126225dd6044471f3bd3d73087e2b6c6f2d3ff",
+        "cbc8e79405e850258b42e4b8ab630d1a7a9e09194595d5ab09774eaae4b098ca",
+        "a792f3225cc5d02e95d7745f1217f1775ea33d053552f09ae9ce47d5a9567209"
+      ]
+    },
+    {
+      "file": "lib/phone-push.ts",
+      "function": "deliverAppMessage",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "0112 phone history trigger irreversibly replaces private source/parent/outbox-associated title/body/outcome with fixed status; APNs reloads persisted sanitized content, devices are active owner logins only; shape refuses private reply actions. Delivery receipts contain opaque IDs.",
+      "queries": [
+        "1b584a4d31564e72b7508fa9f218765e0caa387de09fe93ab36dab8bd9d97e0e",
+        "c990cbba595dc9d7a153a07e6b97b61355e12aadaf23379d48fbb9cf51aa30c1",
+        "aee674b4e9795f8bfc55a8bb3487a173ce3f3838f63fa4dfce68698558e899d2"
+      ]
+    },
+    {
+      "file": "lib/phone-push.ts",
+      "function": "cleanupAppAlerts",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "0112 phone history trigger irreversibly replaces private source/parent/outbox-associated title/body/outcome with fixed status; APNs reloads persisted sanitized content, devices are active owner logins only; shape refuses private reply actions. Delivery receipts contain opaque IDs.",
+      "queries": [
+        "9c342fe1249068fff3c1163782a947b8f7ba4f49117b3b5b476a67ef401b0436",
+        "df9275c64a30c54e7d6a93640859dc7f2c83b9c6efbaee4a98bf35887616f31c",
+        "e3e68f98b8615649f456c64eb100d4016387f9daa51a1b67968e16a17a39edce"
+      ]
+    },
+    {
+      "file": "lib/providers/apns.ts",
+      "function": "<phone-transport>",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Pure payload builder and APNs transport consume persisted sanitized AppAlert through deliverAppMessage; no private Ask reader. Owner delivery device checks remain in sendAppPayload; application/provider credentials are unchanged.",
+      "queries": [
+        "8efd5cea9e113f147807a76690ff03a6aae494a7f7b54ea4507a8f4a9f58ede5"
+      ]
+    },
+    {
+      "file": "lib/receipt-scan.ts",
+      "function": "threadLinkFor",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "04eb954992315d491c10ea5aba51b6e659fd418a18f95d4475171161fcfb8dad"
+      ]
+    },
+    {
+      "file": "lib/sms.ts",
+      "function": "getSmsThreads",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "75e7878c4c31194845fcb0381f86b1dcbe60bba4ddf99a0f09fb5af5bbad238d"
+      ]
+    },
+    {
+      "file": "lib/sms.ts",
+      "function": "smsThreadVisibleTo",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "6739b305fb08195e9cb269dc6b95b225068a44b2d9668fab8ba01bd7f1336dd1"
+      ]
+    },
+    {
+      "file": "lib/sms.ts",
+      "function": "getSmsThread",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "a942307834a294d5d7097b0a106ac9207247cb9baf8a7df8d8bfb82a07c4653e",
+        "62efa8f5a1035aad18a2551b64e096bfb0f1a3ce1a66aac3bb5f4335ca25e43f"
+      ]
+    },
+    {
+      "file": "lib/sms.ts",
+      "function": "getUnreadSmsCount",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "b81f80884dec6fbc303af3e847947ea111521b8a2139dd0446ddb6eba6285b39"
+      ]
+    },
+    {
+      "file": "lib/sms.ts",
+      "function": "getSmsLinkOptions",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "a8bd4c7dbe0c9a8030412114357cede1ec9601a1832421acf9dd0b295a1ee0b5",
+        "695796ca8369a6e3fe5694c01f3a82e3b669316d7e0884fae99a5a339dcb37f0",
+        "019f18a254798170e138571d29a0c1dcf186c19a82422f0b0e3334809708413a",
+        "6f0220a86f8e0e2b3cad65a2d3734b631e4e58351af14a68bfe3685441bbadb7"
+      ]
+    },
+    {
+      "file": "lib/sms.ts",
+      "function": "autoLinkThread",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "04f1e8fd69d467b377424ce6f282c448250fd4985cc071583b8f4e3ff7ea5a81"
+      ]
+    },
+    {
+      "file": "lib/sms.ts",
+      "function": "upsertSmsThread",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "6495308ea7e21ffc55652f13e72625657359fe2d11a5664df8be0435cfbb86b6"
+      ]
+    },
+    {
+      "file": "lib/sms.ts",
+      "function": "threadLinkIds",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "8a480f8d5f5234540fda837e6b6f14b8ece67d3b4ec5b0169a12d4fa2f6f5f97"
+      ]
+    },
+    {
+      "file": "lib/sms.ts",
+      "function": "recordInboundSms",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "1b8603cfea143dd54de26b518bae900f78142f348130818170e8009c33916e28",
+        "6124ee89df720a8cfb41e74451a22993174d5d462f45fa5cd40640378871469b",
+        "81b6c1d8d8637712625fb57f747f334139322ad92b596efd67726db2e0d498c1",
+        "d6caee5c03f8f107275892ab0309e9583fbfa3156f5e65b14de56a5fad81ec91",
+        "cdefbedbfe835a06acd0dd60c5f92f180ec854db83107a4920023df0ea30a4e3",
+        "0e787d683eb1d9eb00e09d8e4507274eb683ca382bbe08feceda0765562ee0db",
+        "a4713df1abc332d51aaa5e77dc4bea8415d18cee166b058ca841c8db0eeb427b"
+      ]
+    },
+    {
+      "file": "lib/sms.ts",
+      "function": "applyDeliveryReceipt",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "873ea266a8329df22ca7ab27e96524c3e4706ac4fff3a3b36c842671de6cb82d",
+        "33da8bc3d2fb973077f4fd5d669e558704a5999a1834bb15191afa772a16e433"
+      ]
+    },
+    {
+      "file": "lib/sms.ts",
+      "function": "resolveSendingLine",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "92d5549fd27d05691883c7f7d36b913c417a13ca73c88984f7b73b2ac07aa9df"
+      ]
+    },
+    {
+      "file": "lib/sms.ts",
+      "function": "sendSms",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "25503a6a3e17163c96889bc7c03299624fd3d9cd8ccaaa87729b611cf1ded868",
+        "0bc5eb1234ec09fa877e0fd47feae7b2bbf8eb609685b2df7bac7b3c888b25f8",
+        "e240c641edb06ce0a4a5686adc384864656be0734e9a97a3276b8345fece6a6a"
+      ]
+    },
+    {
+      "file": "lib/sms.ts",
+      "function": "sendHelpReply",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "b7f81753cac50048f4c4309fd0a1e48fca130634ffc4acc3d381b7f996cfa06d",
+        "12aace6187f56cd698a405884d0876c908f9b89df519f08d9f9b829d560d1850",
+        "08db71e490a0d30f1f6b6f797bba013c95be318f4d6b1cd62c3a84877c06b69a",
+        "0eb59607d949e7bbba83f07f0945b31dc478fb04f778f663cc1f6e4857f3d727",
+        "ec6a3405d7e5a04d8984ae742d3dd533bde8694ab8d4b882518da8f69a627468"
+      ]
+    },
+    {
+      "file": "lib/sms.ts",
+      "function": "sendOptInConfirmation",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "400f6a382d6055baeca79e2eefb38caf8674a735a549c28a80aa88941241309a",
+        "75c43f60ffb63cbabee0e20939e15032a68a845909c19ece360365c71bbb3812",
+        "08db71e490a0d30f1f6b6f797bba013c95be318f4d6b1cd62c3a84877c06b69a",
+        "0eb59607d949e7bbba83f07f0945b31dc478fb04f778f663cc1f6e4857f3d727",
+        "ec6a3405d7e5a04d8984ae742d3dd533bde8694ab8d4b882518da8f69a627468"
+      ]
+    },
+    {
+      "file": "lib/voice.ts",
+      "function": "onCallEnded",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "45f91f0afc7efb95167c87d3ebc36f85fcbc61cf92855881bdfbd7b50c43f6b9",
+        "5c0a4c3b484a9c3cddcc166f00403a110896f50dcfc797960c83a96293926563",
+        "4ebab78dfd1825516aea5084c470d35ec02546a54da6b6ff5a927b8af18b0abe",
+        "772f99b7deb1c28bdabeb81ae59b92037bb98f09cfdc72bf9d600541fd57a31e"
+      ]
+    },
+    {
+      "file": "lib/voice.ts",
+      "function": "placeCall",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "2d90b2672af06a8a11bda6d4ce2894a2598d571b9bb0814634d34b89ba23aad1",
+        "46a92e604c3951a894cd0154f11f09cde580439e137bafcfa7b7da3332b065f7",
+        "a5a47b522ae06776660030510a165fef24da0c06a902bd301b29f6e06ac55529",
+        "fcd517251a328b802feffd5942082f22e3eab4938ce207f9664677d528049db9"
+      ]
+    },
+    {
+      "file": "app/api/mobile/push/[...path]/route.ts",
+      "function": "<phone-transport>",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Authenticated owner API; private Ask phone actions refused before text persistence, history contains only 0112 sanitized private status shells; shared business approvals retain target locks/generation leases and checkpoint recovery. Devices bind verified login identity.",
+      "queries": [
+        "655b0d6c88ca1dec4aad370825843cd63d38f805b36fe0e337d6fb50fc8f556b"
+      ]
+    },
+    {
+      "file": "app/api/mobile/push/[...path]/route.ts",
+      "function": "handle",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Authenticated owner API; private Ask phone actions refused before text persistence, history contains only 0112 sanitized private status shells; shared business approvals retain target locks/generation leases and checkpoint recovery. Devices bind verified login identity.",
+      "queries": [
+        "d07df746fde3c4fc3883b315a555d2ea6bfbfed2d31c26f80b75f5a5ace6228d",
+        "3ae2bb7968ab13631654efe6957c7baf745cafa0fdfb9578cd6a2b01fe3b2516",
+        "3b470feaf0d726029b87f4ccd2d0cdaaf75e7918b7dbdf59fa7f23c59d26e127",
+        "c58ac95c6b5c4f923e801dbc123cd6d8c09f735c045a9471a12bb4da33d59962",
+        "1d30a809b9ac10eababafb3fc48e9cb7545bb433bdafd382cfb968626463cfa8",
+        "21cf70a251bdb7939de30e18a416bb2c67698d185e2bf40ac820a8a2e3cdf9d9",
+        "68fe7b57d78b566233ffe390c5294705c71ccdb9992d2eb70d2b6d216511f9e0",
+        "6dc13dadc4ed4df44ee0ddadd3d3e04182ebccc89161b40b336254dbb862efe9",
+        "51eb3fd3ab2ef3745328b18ed2034680e117bd3aea4d16839f334953585c9db0",
+        "e0bf1ef60d334da9f13941b2193398abf93525cecd5bdb2e2e91d3476db04125",
+        "72e37ade57d14cdf5f9d305072fffee5e7db073b8648f947cfa827370dba1900",
+        "1b584a4d31564e72b7508fa9f218765e0caa387de09fe93ab36dab8bd9d97e0e",
+        "d91a95fee6ae171a18226c7674514dce3bdae9e2c1d49200ada492f2429ec332",
+        "169185e97235f72174f36caab64e729d85b367ec73ae3f3238971b564e9e5162",
+        "671a5ed6286bcc56b34ac00a4bc2ba044a2575e66bc0738f79eae41a29f14d65"
+      ]
+    },
+    {
+      "file": "app/api/mobile/push/[...path]/route.ts",
+      "function": "finish",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Authenticated owner API; private Ask phone actions refused before text persistence, history contains only 0112 sanitized private status shells; shared business approvals retain target locks/generation leases and checkpoint recovery. Devices bind verified login identity.",
+      "queries": [
+        "46853e109f49abc7a804366269782b4051b3d17cfc0390ab3cf6d5970935a528",
+        "45767dff027eadfa29c9c82f9d461f654f9d4369fadbf6bb738ba068c65888a7"
+      ]
+    },
+    {
+      "file": "app/api/mobile/sms/route.ts",
+      "function": "GET",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "f426974af7f9b5d012ccf7c04ba3314f113c2906f9380a67745f244931cbd93e"
+      ]
+    },
+    {
+      "file": "mcp/comms-tools.mjs",
+      "function": "registerCommsTools",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed business communications carrier: explicit SMS/call/phone-line data, provider metadata or approved business artifact; no automatic Ask prompt, reply, title or attachment-name producer. Existing line, session, area and owner-grant checks apply.",
+      "queries": [
+        "3429fb89d1c42a8ef3219d2d043a592fbea8a1a00c3d438954295c686eaf6ab2",
+        "b20ea903eba0c5b1fbeb8ece660439699625df0d6666ae04ee40756ed7f8b42f",
+        "6cdd87999148d19b00418b521faa2bb19a9c5c2dcf5d9e683cda15bcedb159ec"
+      ]
+    },
+    {
+      "file": "scripts/qa-seed-phone-push.mjs",
+      "function": "<phone-transport>",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Non-SQL phone transport source pinned; 0112 SQL sanitation and notify-owner delivery rechecks protect private Ask sources. Explicit business text retains existing approval/audience policy.",
+      "queries": [
+        "fb6c5a439f91929cd954b6f4e7ba4974c53f84ce73c0697883c973b84d3be2ee"
+      ]
+    },
+    {
+      "file": "scripts/qa-seed-phone-push.mjs",
+      "function": "<module>",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Explicit QA seeding script creates synthetic business/provider fixtures only; not run by this merge. All DB connections inherit guarded-pg; no automatic private Ask transcript inputs.",
+      "queries": [
+        "9e5ee02592033e1ea1271e5e2b61c7a155d67162cf63f8212322a58faca9336b",
+        "720f80ab1b0b43b34005cfb338d478523f539cd540454865911529926cb951f7",
+        "8e22d8f0f9f9082acd5549c78208aafd933a8560d2771ac6ff596e194f0a0555",
+        "362b3d23081a797848a0c8f8b668ef0322506613f1fff291f42c7defbf5df9f9",
+        "e33cd57f74d0dd46ab4d87502ade706741960830c344b4ca54ddec686a9152c7",
+        "1b584a4d31564e72b7508fa9f218765e0caa387de09fe93ab36dab8bd9d97e0e"
+      ]
+    },
+    {
+      "file": "scripts/qa-seed-phone-push.mjs",
+      "function": "seed",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Explicit QA seeding script creates synthetic business/provider fixtures only; not run by this merge. All DB connections inherit guarded-pg; no automatic private Ask transcript inputs.",
+      "queries": [
+        "b021c35c97953fbb089a60789d8bb6cad1ac6f840050e4450c2860f64c180f14",
+        "1fb1256f9b1ed0606b31598e88b78bf0a6b57d9516201a58fca54f5d37c06f41",
+        "493e66b883ccc565dd5e1a5541aa47e6e547b1ca4b4fed3976bbdd8a4d24b2ef"
+      ]
+    },
+    {
+      "file": "scripts/qa-seed-phone-push.mjs",
+      "function": "draft",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Explicit QA seeding script creates synthetic business/provider fixtures only; not run by this merge. All DB connections inherit guarded-pg; no automatic private Ask transcript inputs.",
+      "queries": [
+        "e714fc39ba0352cfdbc7058d47a057b41df8466288702ddf93d56621cc41ef0b",
+        "4ab4bd770c8bc834238f3a55c859c534f6eec51f987ab6675b8843bb0ebed754"
+      ]
+    },
+    {
+      "file": "scripts/qa-seed-phone-push.mjs",
+      "function": "history",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Explicit QA seeding script creates synthetic business/provider fixtures only; not run by this merge. All DB connections inherit guarded-pg; no automatic private Ask transcript inputs.",
+      "queries": [
+        "1b584a4d31564e72b7508fa9f218765e0caa387de09fe93ab36dab8bd9d97e0e"
+      ]
+    },
+    {
+      "file": "db/migrations/0029_sms_blocked.sql",
+      "function": "<sql>",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-installed schema/maintenance only: phone business communications and explicit approval snapshots, no automatic Ask transcripts. 0112 subsequently removes private phone copies; narrow grants remain manifest-governed.",
+      "queries": [
+        "ecab7f67e2dc35608763a7759e2647683ec56d2e22f43f63266dae1a82b58dbd"
+      ]
+    },
+    {
+      "file": "db/migrations/0071_inbox_sources_and_retries.sql",
+      "function": "<sql>",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-installed schema/maintenance only: phone business communications and explicit approval snapshots, no automatic Ask transcripts. 0112 subsequently removes private phone copies; narrow grants remain manifest-governed.",
+      "queries": [
+        "5931dae36c8d1a68e3a78703e8847627738853927619752da84cf4d6d45d6516"
+      ]
+    },
+    {
+      "file": "db/migrations/0092_phone_push.sql",
+      "function": "<sql>",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-installed schema/maintenance only: phone business communications and explicit approval snapshots, no automatic Ask transcripts. 0112 subsequently removes private phone copies; narrow grants remain manifest-governed.",
+      "queries": [
+        "f011992ec8a54d3ac074fc6e5b6f1c9855eb161f3f3b82a68d18f23b52cf262a"
+      ]
+    },
+    {
+      "file": "db/migrations/0110_phone_lines.sql",
+      "function": "<sql>",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-installed schema/maintenance only: phone business communications and explicit approval snapshots, no automatic Ask transcripts. 0112 subsequently removes private phone copies; narrow grants remain manifest-governed.",
+      "queries": [
+        "1322ea39adada8c03752dfabac0e30d1cac538df6b04b744ab43de128144b914"
+      ]
+    },
+    {
+      "file": "db/migrations/0111_sms_threads_per_line.sql",
+      "function": "<sql>",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-installed schema/maintenance only: phone business communications and explicit approval snapshots, no automatic Ask transcripts. 0112 subsequently removes private phone copies; narrow grants remain manifest-governed.",
+      "queries": [
+        "35b409a9b3d2e0d1ea6bb4eda63d4d03dbb657b81200a112ebb0b46802b40e75"
+      ]
+    },
+    {
+      "file": "db/migrations/0112_ask_phone_copy_privacy.sql",
+      "function": "<sql>",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Website-only erasure wrapper, immutable private phone/outbox/action sanitation, historical descendant/summary fixed point and opaque registry source links retained after purge; new definer functions pin search_path and revoke PUBLIC trigger/repair execution. Conversational dedup hashing happens after sanitization; historical private text digests are cleared.",
+      "queries": [
+        "cdee3d80aac8ddf06b81ebef7214e6f7a61a360f295525622e0c8d21ba799103"
       ]
     }
   ]

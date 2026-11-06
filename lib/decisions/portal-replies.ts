@@ -16,6 +16,7 @@
 
 import type { Run } from "../commands/core.ts";
 import type { Principal } from "../commands/principal.ts";
+import { INACTIVE_OWNER, lockActiveOwner } from "../commands/owner-authorization.ts";
 
 export interface PortalReply {
   /** The chat_messages row Joe's reply became. */
@@ -44,7 +45,7 @@ export function portalScopeOfChannel(channelKey: string): { kind: "project" | "l
  *  Pure over run — the webhook calls it inside its transaction. */
 export async function recordPortalReply(
   run: Run,
-  input: { channelKey: string; text: string; principal: Principal },
+  input: { channelKey: string; text: string; principal: Principal; channel?:"app"|"telegram" },
 ): Promise<PortalReply> {
   let channelKey = input.channelKey;
   let scope = portalScopeOfChannel(channelKey);
@@ -62,6 +63,11 @@ export async function recordPortalReply(
       }
     }
   }
+  // Project/lead/DM portal channels have no universal parent row. Serialize
+  // replies to the effective channel (including moved lead threads), then
+  // recheck and hold the same owner's account through this mutation.
+  await run(`SELECT pg_advisory_xact_lock(hashtextextended($1,0))`, [`owner-portal-reply:${channelKey}`]);
+  if (!await lockActiveOwner(run, input.principal)) throw new Error(INACTIVE_OWNER);
   const userId = input.principal.kind === "user" ? input.principal.userId : null;
   const [me] = userId ? await run<{ name: string; initials: string }>(`SELECT name, initials FROM users WHERE id = $1`, [userId]) : [];
   const [row] = await run<{ id: string }>(
@@ -81,7 +87,7 @@ export async function recordPortalReply(
     // reply itself is what matters).
     await run(
       `INSERT INTO client_activity (lead_id, project_id, kind, summary, detail, entity_kind, entity_id, actor_name, href)
-       SELECT ${scope.kind === "lead" ? "id" : "NULL"}, ${scope.kind === "project" ? "id" : "NULL"}, 'message', 'Joe replied in the portal (from Telegram)', $2, 'message', $3, $4, $5
+       SELECT ${scope.kind === "lead" ? "id" : "NULL"}, ${scope.kind === "project" ? "id" : "NULL"}, 'message', 'Joe replied in the portal (from ${input.channel === "app" ? "the app" : "Telegram"})', $2, 'message', $3, $4, $5
          FROM ${scope.kind === "project" ? "projects" : "leads"} WHERE slug = $1`,
       [scope.slug, input.text.slice(0, 500), row.id, me?.name || "Joe", href],
     );

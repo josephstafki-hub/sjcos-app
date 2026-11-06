@@ -267,7 +267,7 @@ test('call bridge selects caller cell, preserves owner fallback and refuses miss
   ['staff','+16125552222','6125552222',null],
  ]) {
   let payload,insert,grantChecks=0;
-  const deps={voiceConfig:()=>({forwardTo:'+16125550000',fromNumber:'+16125553333'}),normalizeE164,
+  const deps={outboundNumberFor:async()=>'+16125553333',voiceConfig:()=>({forwardTo:'+16125550000',fromNumber:'+16125553333'}),normalizeE164,
    queryOne:async()=>({phone,role}),checkGrantCovers:async()=>{grantChecks++;return {ok:true};},
    matchPhoneToRecord:async()=>null,randomUUID:()=> 'call',query:async(sql,values)=>{insert=values;},
    withTransaction:async run=>run(()=>{}),enqueueIntent:async(run,input)=>{payload=input;return {intent:{id:'intent'}};},

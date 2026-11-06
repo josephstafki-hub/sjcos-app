@@ -14,6 +14,7 @@ import { getCurrentUser } from "./dal";
 import { gmailConfigured } from "./gmail";
 import { getClipToken } from "./clip";
 import { getIntakeToken } from "./lead-intake-token";
+import { ensurePhoneLinesSeeded, listPhoneLines, type PhoneLine } from "./phone-lines";
 import { BILLING_RATE_ROWS, MARKUP_KEY, MARKUP_DEFAULT, PRECON_FEE_PCT_KEY, PRECON_FEE_PCT_DEFAULT } from "./billing-rates";
 
 export interface SettingsCategory {
@@ -66,6 +67,11 @@ const NOTIFY_TOGGLES: { key: string; label: string; default: boolean }[] = [
 export interface SettingsData {
   /** Floor-plan designer defaults (designer.* keys), see lib/plan-doc DEFAULTS. */
   designerDefaults: DesignerDefaults;
+  /** Settings › Phone lines (0110): the business numbers and who can hold one. */
+  phoneLines: {
+    lines: PhoneLine[];
+    people: { id: string; name: string; role: string; hasCell: boolean }[];
+  };
   categories: SettingsCategory[];
   profile: {
     name: string;
@@ -137,9 +143,14 @@ export interface SettingsData {
 }
 
 export async function getSettingsData(): Promise<SettingsData> {
-  const [{ rows }, designerDefaults] = await Promise.all([
+  await ensurePhoneLinesSeeded().catch(() => {});
+  const [{ rows }, designerDefaults, lines, people] = await Promise.all([
     query<{ key: string; value: string }>(`SELECT key, value FROM app_settings`),
     getDesignerDefaults(),
+    listPhoneLines(),
+    query<{ id: string; name: string; role: string; has_cell: boolean }>(
+      `SELECT id, name, role, phone IS NOT NULL AS has_cell FROM users WHERE active AND role IN ('owner','staff') ORDER BY (role = 'owner') DESC, name`,
+    ).then((r) => r.rows),
   ]);
   const settings = new Map(rows.map((r) => [r.key, r.value]));
   const get = (key: string, fallback = "") => settings.get(key) ?? fallback;
@@ -217,6 +228,7 @@ export async function getSettingsData(): Promise<SettingsData> {
 
   return {
     designerDefaults,
+    phoneLines: { lines, people: people.map((p) => ({ id: p.id, name: p.name, role: p.role, hasCell: p.has_cell })) },
     // Only categories with a real function. Workspace/Subscription/Data were
     // read-only fiction (no subscription on a self-hosted tool, duplicated
     // identity, placeholder backup status) — removed in S6.
@@ -224,6 +236,7 @@ export async function getSettingsData(): Promise<SettingsData> {
       { id: "profile", title: "Profile" },
       { id: "company", title: "Company & documents" },
       { id: "team", title: "Team & roles" },
+      { id: "phones", title: "Phone lines" },
       { id: "integrations", title: "Integrations" },
       { id: "ai", title: "AI" },
       { id: "notifications", title: "Notifications" },

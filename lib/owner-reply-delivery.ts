@@ -39,27 +39,40 @@ const ownerChat = () => (process.env.TELEGRAM_OWNER_CHAT_ID ?? "").trim();
 
 /** Send one plain-text message to Joe's chat, threaded under `replyTo`.
  *  Returns the new message id (null when Telegram is off or refused). */
-export async function sendOwnerTelegram(text: string, opts: { replyTo?: number | string | null; forceReply?: string | null } = {}): Promise<number | null> {
-  const chat = ownerChat();
-  if (!chat || !text.trim()) return null;
-  if (outboundDisabled() || !defaultTransport.configured()) {
-    console.log(`[owner-reply] telegram off — would send: ${text.slice(0, 200)}`);
-    return null;
-  }
-  const body: Record<string, unknown> = { chat_id: chat, text: text.slice(0, 4000), disable_web_page_preview: true };
-  if (opts.replyTo != null) body.reply_parameters = { message_id: Number(opts.replyTo), allow_sending_without_reply: true };
-  if (opts.forceReply) body.reply_markup = { force_reply: true, input_field_placeholder: opts.forceReply.slice(0, 64) };
+export async function sendOwnerTelegram(text: string, opts: { replyTo?: number | string | null; forceReply?: string | null; ownerReplyId?:string|null; pushReplyToId?:string|null; existingMessageId?:string; legacyFallback?:boolean; appText?:{title:string;body:string;from?:'owner'|'agent'|'system';agentName?:string}; onDelivery?:(r:{sent:boolean;queued:boolean})=>void } = {}): Promise<number | null> {
+  if(!text.trim())return null;
+  const {recordAppMessage}=await import('./phone-push');
+  const {enqueueOwnerConversation}=await import('./notify-owner');
+  let parentId:string|null|undefined,mirror:{id:string},target:{telegram_message_id:string|null}|null;
+  let parent:{push_message_id:string|null;message_id:string|null}|null;
+  let attempted=false;
   try {
-    const res = await defaultTransport.call("sendMessage", body);
-    if (!res.ok) {
-      console.error("[owner-reply] sendMessage refused:", res.status, res.description);
-      return null;
-    }
-    const id = (res.result as { message_id?: number } | undefined)?.message_id;
-    return typeof id === "number" ? id : null;
-  } catch (err) {
-    console.error("[owner-reply] sendMessage failed:", (err as Error).message);
-    return null;
+   parent=opts.ownerReplyId ? await queryOne<{push_message_id:string|null;message_id:string|null}>(`SELECT push_message_id,message_id::text FROM owner_replies WHERE id=$1 AND conversation_id IS NULL`,[opts.ownerReplyId]) : null;
+  if(!parent?.push_message_id && opts.replyTo!=null)parent=await queryOne<{push_message_id:string;message_id:string}>(`SELECT id AS push_message_id,telegram_message_id AS message_id FROM owner_push_messages WHERE telegram_message_id=$1 ORDER BY created_at DESC LIMIT 1`,[String(opts.replyTo)]);
+   parentId=opts.pushReplyToId??parent?.push_message_id;
+   mirror=opts.existingMessageId ? {id:opts.existingMessageId} : await recordAppMessage({kind:opts.forceReply?'reply':'ack',title:opts.appText?.title??'SJC OS',body:opts.appText?.body??text,from:opts.appText?.from??'system',agentName:opts.appText?.agentName,replyToId:parentId,ownerReplyId:opts.ownerReplyId});
+   target=parentId?await queryOne<{telegram_message_id:string|null}>(`SELECT telegram_message_id FROM owner_push_messages WHERE id=$1`,[parentId]):null;
+  // Persistence failure propagates: callers must never report an unsaved answer as sent.
+  const result=await enqueueOwnerConversation({kind:opts.forceReply?'reply':'ack',title:'SJC OS',body:text.slice(0,4000),phoneOnly:true,telegram:{conversation:true,appText:opts.appText,existingMessageId:mirror.id,ownerReplyId:opts.ownerReplyId,forceReply:opts.forceReply,replyToMessageId:String(opts.replyTo??target?.telegram_message_id??parent?.message_id??'')||null}},{onAttempt:()=>{attempted=true;}});
+  opts.onDelivery?.(result);
+  return Number.isFinite(result.telegramId)?result.telegramId:null;
+  }catch(err){
+   // A new history dependency must not stop the established Telegram path.
+   // This fallback is allowed only before any transport has been attempted.
+   if(!opts.legacyFallback||attempted)throw err;
+   // A failed phone-history write must never reopen a raw Telegram path for
+   // private Ask content. If source classification is unavailable, fail closed.
+   const source=await queryOne<{private:boolean}>(`SELECT ask_push_is_private($1::jsonb,NULL)
+    OR EXISTS(SELECT 1 FROM owner_push_messages WHERE telegram_message_id=$2 AND ask_reply_erased)
+    OR EXISTS(SELECT 1 FROM telegram_reply_targets t WHERE t.message_id::text=$2 AND ask_push_is_private(to_jsonb(t),NULL)) AS private`,[JSON.stringify(opts),String(opts.replyTo??'')]);
+   if(!source || source.private)return null;
+   if(!ownerChat()||outboundDisabled()||!defaultTransport.configured())return null;
+   const body:Record<string,unknown>={chat_id:ownerChat(),text:text.slice(0,4000),disable_web_page_preview:true};
+   if(opts.replyTo!=null)body.reply_parameters={message_id:Number(opts.replyTo),allow_sending_without_reply:true};
+   if(opts.forceReply)body.reply_markup={force_reply:true,input_field_placeholder:opts.forceReply.slice(0,64)};
+   const response=await defaultTransport.call('sendMessage',body).catch(()=>null);
+   const id=(response?.result as {message_id?:number})?.message_id;
+   return response?.ok&&typeof id==='number'?id:null;
   }
 }
 
@@ -67,10 +80,12 @@ const AGENT_NAME: Record<string, string> = { claude: "Claude", hermes: "Hermes",
 const agentLabel = (requestedBy: string | null | undefined) =>
   !requestedBy ? "The agent" : /claude/i.test(requestedBy) ? "Claude" : /hermes|call-tool/i.test(requestedBy) ? "Hermes" : requestedBy;
 
+const appAgentLabel = (agent:string) => /claude/i.test(agent)?'Claude':/hermes|call-tool/i.test(agent)?'Hermes':/qwen/i.test(agent)?'Qwen':'The agent';
+
 /** "Request changes" was tapped on a card. */
 export async function askWhatShouldChange(p: { decisionId: string; title: string; chatId: string; cardMessageId: number | null }): Promise<void> {
   const id = await sendOwnerTelegram(`What should change on "${p.title}"?\nReply to this message. That pulls the request and sends your note to the agent that filed it.`, {
-    replyTo: p.cardMessageId,
+    legacyFallback:true, replyTo: p.cardMessageId,
     forceReply: "What should change?",
   });
   if (id != null) await rememberReplyTarget(runDirect, { chatId: p.chatId, messageId: id, decisionId: p.decisionId, kind: "prompt" }).catch(() => undefined);
@@ -79,6 +94,7 @@ export async function askWhatShouldChange(p: { decisionId: string; title: string
 /** A staged draft Joe replied about: take the Approve button off its card(s)
  *  on his phone and say where his note went. */
 export async function markDraftCardPulled(workItemId: string, line: string): Promise<void> {
+  const {cleanupAppAlerts}=await import("./phone-push");await cleanupAppAlerts().catch(()=>undefined);
   const chat = ownerChat();
   if (!chat || outboundDisabled() || !defaultTransport.configured()) return;
   const { rows } = await query<{ message_id: string }>(
@@ -102,12 +118,12 @@ function draftPromptFor(r: RecordedReply, text: string): string {
       ? `The draft was already ${r.priorStatus === "approved" ? "approved (and sent, if it was an email)" : r.priorStatus} when he replied.`
       : "";
   return (
-    `Joe replied on Telegram to your draft "${r.title}" (work item ${r.workItemId}):\n\n` +
+    `Joe replied to your draft "${r.title}" (work item ${r.workItemId}):\n\n` +
     `"${text}"\n\n` +
     `${state}\n` +
     `Do ONE of these:\n` +
     `• Make the change and call submit_draft_for_approval on work item ${r.workItemId} again with the revised draft (Joe gets the new card on Telegram, threaded under his note).\n` +
-    `• If you won't change it, or need to ask him something, call reply_to_owner with owner_reply_id "${r.id}" and a short reason — it goes to his Telegram.\n` +
+    `• If you won't change it, or need to ask him something, call reply_to_owner with owner_reply_id "${r.id}" and a short reason — it goes to his alerts.\n` +
     `Keep anything you send him short.`
   );
 }
@@ -125,12 +141,12 @@ async function promptFor(r: RecordedReply, text: string): Promise<string> {
       ? `That request was already ${r.priorStatus} when he replied.`
       : "";
   return (
-    `Joe replied on Telegram to your permission request "${what}"${g ? ` (grant ${g.id})` : ""}:\n\n` +
+    `Joe replied to your permission request "${what}"${g ? ` (grant ${g.id})` : ""}:\n\n` +
     `"${text}"\n\n` +
     `${state}\n` +
     `Do ONE of these:\n` +
     `• Make the change and file a new request_owner_permission (it replaces the old one and Joe gets the new card).\n` +
-    `• If you won't change it, or need to ask him something, call reply_to_owner with owner_reply_id "${r.id}" and a short reason — it goes to his Telegram.\n` +
+    `• If you won't change it, or need to ask him something, call reply_to_owner with owner_reply_id "${r.id}" and a short reason — it goes to his alerts.\n` +
     `Keep anything you send him short.`
   );
 }
@@ -145,6 +161,7 @@ export async function deliverOwnerReply(r: RecordedReply & { chatId: string; mes
 async function deliverOwnerReplyImpl(r: RecordedReply & {chatId:string;messageId:number},text:string):Promise<void | AskFailure>{
   const pulledLine = r.pulled ? `Pulled "${r.title}".` : r.priorStatus ? `"${r.title}" was already ${r.priorStatus}.` : "";
   let ack: string;
+  let delivered=true;
   try {
     if (r.conversationId) {
       const target=await threadPrincipal();
@@ -207,11 +224,12 @@ async function deliverOwnerReplyImpl(r: RecordedReply & {chatId:string;messageId
       ack = `Got it. ${pulledLine} The chat that filed it couldn't take your note (${msg.slice(0, 120)}), so the operating agent has it instead. Its answer comes here.`;
     } catch (err2) {
       await query(`UPDATE owner_replies SET state = 'failed', error = $2 WHERE id = $1`, [r.id, (err2 as Error).message.slice(0, 500)]).catch(() => undefined);
+      delivered=false;
       ack = `${pulledLine} But I couldn't hand your note to an agent: ${(err2 as Error).message.slice(0, 160)}. Open SJC OS to follow up.`;
     }
   }
-  const id = await sendOwnerTelegram(ack.replace(/\s+/g, " ").trim(), { replyTo: r.messageId });
-  if (id != null) await rememberReplyTarget(runDirect, { chatId: r.chatId, messageId: id, decisionId: r.decisionId, workItemId: r.workItemId, ownerReplyId: r.id, kind: "ack" }).catch(() => undefined);
+  const id = await sendOwnerTelegram(ack.replace(/\s+/g, " ").trim(), { legacyFallback:r.chatId!=="app",replyTo: r.chatId === "app" ? null : r.messageId, ownerReplyId:r.id,appText:{title:'Your note was received',body:!delivered?'Your note was saved, but an agent could not receive it. Open the record to follow up.':r.pulled?`Got it. I pulled "${r.title}" back. An agent will pick up your note in a few minutes, and its answer will show up here.`:'Got it. An agent will pick up your note, and its answer will show up here.',from:'system'} });
+  if (id != null) await rememberReplyTarget(runDirect, { chatId: ownerChat(), messageId: id, decisionId: r.decisionId, workItemId: r.workItemId, ownerReplyId: r.id, kind: "ack" }).catch(() => undefined);
 }
 
 export type ReplyOutcome = "no_change" | "question" | "done";
@@ -226,8 +244,9 @@ export async function replyToOwner(input: {
   text: string;
   outcome: ReplyOutcome;
   agent: string;
-}): Promise<{ ok: true; sent: boolean; owner_reply_id: string | null } | { ok: false; error: string } | AskFailure> {
+}): Promise<{ ok: true; sent: boolean; queued?: boolean; owner_reply_id: string | null } | { ok: false; error: string } | AskFailure> {
   try{return await withAskJournal(pool,async()=>{
+
   const text = input.text.trim();
   if (!text) return { ok: false, error: "Say something — the message is sent to Joe as written." };
   const isUuid = (v: string | null | undefined) => !!v && /^[0-9a-f-]{36}$/i.test(v);
@@ -262,7 +281,8 @@ export async function replyToOwner(input: {
       : null;
   const lead = input.outcome === "no_change" ? "No change" : input.outcome === "question" ? "Question" : "Done";
   const msg = `[SJC OS] ${agentLabel(input.agent)}${d ? ` on "${d.title}"` : ""}\n${lead}: ${text}`;
-  const id = await sendOwnerTelegram(msg, { replyTo: reply?.message_id ?? null });
+  let actual:{sent:boolean;queued:boolean}={sent:false,queued:false};
+  const id = await sendOwnerTelegram(msg, { replyTo: reply?.message_id ?? null, ownerReplyId:reply?.id,appText:{title:`${appAgentLabel(input.agent)} ${lead==='Question'?'has a question':lead==='No change'?'made no change':'is done'}`,body:text,from:'agent',agentName:appAgentLabel(input.agent)},onDelivery:r=>{actual=r;} });
   if (id != null) await rememberReplyTarget(runDirect, { chatId: ownerChat(), messageId: id, decisionId, workItemId, ownerReplyId: reply?.id ?? null, kind: "agent_answer" }).catch(() => undefined);
   if (reply) {
     await query(
@@ -270,8 +290,9 @@ export async function replyToOwner(input: {
       [reply.id, input.outcome, text.slice(0, 4000),privatePerson()],
     );
   }
-  return { ok: true as const, sent: id != null, owner_reply_id: reply?.id ?? null };
+  return { ok: true as const, sent: actual.sent, queued: actual.queued, owner_reply_id: reply?.id ?? null };
   });}catch(error){return askFailure(error);}
+
 }
 
 /** Safety net (dispatch cron): a delivered reply whose turn ended without a
@@ -325,16 +346,15 @@ export async function sweepUnansweredReplies(): Promise<{ relayed: number; faile
     } else if (!r.old) continue;
 
     if (answer == null) {
+      await sendOwnerTelegram("[SJC OS] Nobody answered this note within a day. Open SJC OS to follow up.", { replyTo: r.message_id, ownerReplyId:r.id,appText:{title:'Your note needs a follow-up',body:'Nobody answered this note within a day. Open the record to follow up.',from:'system'} });
       await query(`UPDATE owner_replies SET state = 'failed', error = 'no answer within 24h' WHERE id = $1 AND state = 'delivered'`, [r.id]);
-      await sendOwnerTelegram("[SJC OS] Nobody answered this note within a day. Open SJC OS to follow up.", { replyTo: r.message_id });
       failed++;
       continue;
     }
-    const claimed = await query(`UPDATE owner_replies SET state = 'answered', answer_kind = 'run_reply', answer = $2, answered_at = now() WHERE id = $1 AND state = 'delivered' RETURNING id`, [r.id, answer.slice(0, 4000)]);
-    if (!claimed.rows.length) continue;
     const clipped = answer.length > 1500 ? `${answer.slice(0, 1500)}…` : answer;
-    const id = await sendOwnerTelegram(`[SJC OS] ${who} didn't file a new request or answer you directly. Its last message:\n\n${clipped}`, { replyTo: r.message_id });
+    let id:number|null;try {id = await sendOwnerTelegram(`[SJC OS] ${who} didn't file a new request or answer you directly. Its last message:\n\n${clipped}`, { replyTo: r.message_id, ownerReplyId:r.id,appText:{title:`${who} replied`,body:clipped,from:'agent',agentName:who} });}catch(err){await query(`UPDATE owner_replies SET state='delivered',answered_at=NULL WHERE id=$1 AND answer_kind='run_reply'`,[r.id]);throw err;}
     if (id != null) await rememberReplyTarget(runDirect, { chatId: ownerChat(), messageId: id, decisionId: r.decision_id, workItemId: r.work_item_id, ownerReplyId: r.id, kind: "run_reply" }).catch(() => undefined);
+    await query(`UPDATE owner_replies SET state='answered',answer_kind='run_reply',answer=$2,answered_at=now() WHERE id=$1 AND state='delivered'`,[r.id,answer.slice(0,4000)]);
     relayed++;
   }
   return { relayed, failed };

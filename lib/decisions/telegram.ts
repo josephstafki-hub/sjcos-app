@@ -1,6 +1,7 @@
 // Telegram decision buttons (A10). Pure: secret check, callback data
 // encoding, and the update handler with an injected API so tests drive it
-// with fake payloads and no network.
+// with fake payloads and no network. Replies are returned as data for the
+// caller to send only after its transaction commits.
 //
 // Callback data (≤ 64 bytes, Telegram's limit):
 //     d|<decision uuid>|<12 hex of content_hash>|<a|c|h>
@@ -14,6 +15,7 @@ import { timingSafeEqual } from "node:crypto";
 import type { Run } from "../commands/core.ts";
 import { getDecision } from "../commands/decisions.ts";
 import type { Principal } from "../commands/principal.ts";
+import { INACTIVE_OWNER, lockActiveOwner } from "../commands/owner-authorization.ts";
 import { recordSourceEvent } from "../commands/source-events.ts";
 import { cardText } from "./cards.ts";
 import { holdDecision, resolveFromChannel, type ResolveFromChannelResult } from "./resolve.ts";
@@ -72,16 +74,13 @@ export interface TelegramHandlerDeps {
   ownerChatId: string;
   /** Resolve the owner principal from the users table (never from the update). */
   ownerPrincipal(): Promise<Principal | null>;
-  /** answerCallbackQuery(id, text) — best-effort toast. */
-  answer(callbackId: string, text: string): Promise<void>;
-  /** Edit the card message to show its new state. Best-effort. */
-  edit?(chatId: string, messageId: number, text: string): Promise<void>;
   appUrl?: string;
-  /** When true, an Approve tap is NOT answered here: the caller answers after
-   *  the post-commit effects ran, so the phone's toast says what happened
-   *  ("Sent ✓ …") instead of just "Approved". */
-  deferApproveAnswer?: boolean;
 }
+
+/** Ordered cosmetic replies; never execute these inside the mutation transaction. */
+export type TelegramReply =
+  | { kind: "answer"; callbackId: string; text: string }
+  | { kind: "edit"; chatId: string; messageId: number; text: string };
 
 export interface TelegramHandleResult {
   handled: boolean;
@@ -89,10 +88,14 @@ export interface TelegramHandleResult {
   outcome: string;
   decisionId: string | null;
   resolution?: ResolveFromChannelResult;
-  /** A deferred answer the caller must send (see deferApproveAnswer). */
+  /** Toasts/card edits to send after commit, in order. */
+  replies?: TelegramReply[];
+  /** First approval: answer/edit only after the post-commit effects finish. */
   pendingAnswer?: { callbackId: string; text: string; chatId: string; messageId: number | null };
   /** A work-item approval tap the caller performs after commit. */
-  workItem?: { id: string; verb: WorkItemVerb; callbackId: string; chatId: string; messageId: number | null };
+  workItem?: { principal: Principal; id: string; verb: WorkItemVerb; callbackId: string; chatId: string; messageId: number | null };
+  /** Approval and its recoverable effects checkpoint committed with this callback. */
+  approvedWorkItem?: { id: string; claim: import("../approve-work-item").ClaimedApproval };
   /** "Request changes" tapped: the caller asks "what should change?" as a
    *  reply-prompt under the card (the reply to it pulls the request). */
   changesPrompt?: { decisionId: string; title: string; callbackId: string; chatId: string; cardMessageId: number | null };
@@ -113,6 +116,9 @@ export async function handleTelegramUpdate(run: Run, update: TelegramUpdate, dep
   if (!Number.isFinite(updateId)) return { handled: false, duplicate: false, outcome: "malformed update", decisionId: null };
   const cq = update.callback_query;
   const chatId = String(cq?.message?.chat?.id ?? update.message?.chat?.id ?? "");
+  const replies: TelegramReply[] = [];
+  const answer = (text: string) => { if (cq) replies.push({ kind: "answer", callbackId: cq.id, text }); };
+  const edit = (text: string) => { if (cq?.message) replies.push({ kind: "edit", chatId, messageId: cq.message.message_id, text }); };
   const kind = cq ? "callback_query" : update.message ? "message" : "other";
 
   // 1. persist before acting
@@ -131,17 +137,17 @@ export async function handleTelegramUpdate(run: Run, update: TelegramUpdate, dep
   );
   if (!dedupe.length) {
     const [prev] = await run<{ outcome: string | null; decision_id: string | null }>(`SELECT outcome, decision_id FROM telegram_updates WHERE update_id = $1`, [updateId]);
-    if (cq) await deps.answer(cq.id, prev?.outcome ? `Already handled: ${prev.outcome}` : "Already handled.");
-    return { handled: true, duplicate: true, outcome: prev?.outcome ?? "duplicate", decisionId: prev?.decision_id ?? null };
+    if (cq) answer(prev?.outcome ? `Already handled: ${prev.outcome}` : "Already handled.");
+    return { handled: true, duplicate: true, outcome: prev?.outcome ?? "duplicate", decisionId: prev?.decision_id ?? null, replies };
   }
 
   const finish = async (outcome: string, decisionId: string | null, resolution?: ResolveFromChannelResult): Promise<TelegramHandleResult> => {
-    await run(`UPDATE telegram_updates SET outcome = $2, decision_id = $3 WHERE update_id = $1`, [updateId, outcome.slice(0, 300), decisionId]);
+    await run(`UPDATE telegram_updates SET outcome = $2, decision_id = (SELECT id FROM decisions WHERE id=$3 FOR KEY SHARE) WHERE update_id = $1`, [updateId, outcome.slice(0, 300), decisionId]);
     // This handler IS the processing for a Telegram update: no worker claims
     // provider "telegram". Close the audit row here, or it sits 'pending'
     // forever and the monitor reports a stuck queue (15 piled up 10-10..10-29).
     if (event?.id) await run(`UPDATE source_events SET state = 'done', processed_at = now() WHERE id = $1 AND state = 'pending'`, [event.id]);
-    return { handled: true, duplicate: false, outcome, decisionId, resolution };
+    return { handled: true, duplicate: false, outcome, decisionId, resolution, replies };
   };
 
   if (!cq) {
@@ -152,42 +158,70 @@ export async function handleTelegramUpdate(run: Run, update: TelegramUpdate, dep
   // 2. only the owner chat, only a human tap on an unforwarded, unedited card
   const fromId = String(cq.from?.id ?? "");
   if (!deps.ownerChatId || chatId !== deps.ownerChatId || fromId !== deps.ownerChatId) {
-    await deps.answer(cq.id, "Not allowed.");
+    answer("Not allowed.");
     return finish(`refused: chat ${chatId || "?"} / from ${fromId || "?"} is not the owner chat`, null);
   }
   if (cq.from?.is_bot) {
-    await deps.answer(cq.id, "Not allowed.");
+    answer("Not allowed.");
     return finish("refused: bot sender", null);
   }
   if (cq.message?.forward_date || cq.message?.forward_from) {
-    await deps.answer(cq.id, "Forwarded cards cannot be used. Open the original.");
+    answer("Forwarded cards cannot be used. Open the original.");
     return finish("refused: forwarded message", null);
   }
   const wi = parseWorkItemCallback(cq.data);
-  if (wi) {
-    // Performed by the caller after this transaction commits (it sends email
-    // through the dispatcher on its own connections).
-    const res = await finish(`work item ${wi.verb}: dispatched`, null);
-    return { ...res, workItem: { id: wi.workItemId, verb: wi.verb, callbackId: cq.id, chatId, messageId: cq.message?.message_id ?? null } };
-  }
-  const parsed = parseCallbackData(cq.data);
-  if (!parsed) {
-    await deps.answer(cq.id, "This button is not recognised.");
+  const parsed = wi ? null : parseCallbackData(cq.data);
+  if (!wi && !parsed) {
+    answer("This button is not recognised.");
     return finish("refused: unrecognised callback data", null);
   }
+  // Telegram identity alone is insufficient: resolve the active database owner
+  // on every callback, including drafts dispatched after this transaction.
   const owner = await deps.ownerPrincipal();
   if (!owner) {
-    await deps.answer(cq.id, "No active owner account.");
+    answer(INACTIVE_OWNER);
+    return finish("refused: no owner principal", parsed?.decisionId ?? null);
+  }
+  if (wi) {
+    let approvedWorkItem: TelegramHandleResult["approvedWorkItem"];
+    if (wi.verb === "approve") {
+      // Close BOTH crash windows: approve, freeze, checkpoint and callback
+      // dedupe in this transaction; only the actual effects run after commit.
+      await run(`SELECT id FROM work_items WHERE id=$1 FOR UPDATE`, [wi.workItemId]);
+      if (!await lockActiveOwner(run, owner)) {
+        answer(INACTIVE_OWNER);
+        return finish(INACTIVE_OWNER, null);
+      }
+      const [card] = await run<{ draft_binding: string | null }>(
+        `SELECT draft_binding FROM owner_push_messages WHERE telegram_message_id=$1 AND work_item_id=$2 AND category IN ('SJC_DRAFT','SJC_DRAFT_SEND')`,
+        [String(cq.message?.message_id), wi.workItemId]);
+      if (card) {
+        const { claimApprovalInTransaction } = await import("../approve-work-item");
+        const claim = await claimApprovalInTransaction(run, wi.workItemId, card.draft_binding);
+        if (!claim.ok) { answer(claim.error); return finish(`refused: ${claim.error}`, null); }
+        approvedWorkItem = { id: wi.workItemId, claim };
+      }
+    }
+    const res = await finish(`work item ${wi.verb}: ${approvedWorkItem ? "dispatch pending" : "dispatched"}`, null);
+    return { ...res, approvedWorkItem, workItem: { principal: owner, id: wi.workItemId, verb: wi.verb, callbackId: cq.id, chatId, messageId: cq.message?.message_id ?? null } };
+  }
+  if (!parsed) return finish("refused: unrecognised callback data", null);
+  // The initial lookup is only identity discovery. Lock the target first so
+  // deactivation/demotion committed during its lock wait wins, then hold the
+  // same owner's account stable through Approve, Hold or Changes handling.
+  await run(`SELECT id FROM decisions WHERE id = $1 FOR UPDATE`, [parsed.decisionId]);
+  if (!await lockActiveOwner(run, owner)) {
+    answer(INACTIVE_OWNER);
     return finish("refused: no owner principal", parsed.decisionId);
   }
   const decision = await getDecision(run, parsed.decisionId);
   if (!decision) {
-    await deps.answer(cq.id, "That decision no longer exists.");
+    answer("That decision no longer exists.");
     return finish("refused: unknown decision", parsed.decisionId);
   }
   const hashOk = !parsed.hashPrefix || !decision.content_hash || decision.content_hash.startsWith(parsed.hashPrefix);
   if (!hashOk) {
-    await deps.answer(cq.id, "This card is out of date — the package changed. Open the current card in SJC OS.");
+    answer("This card is out of date — the package changed. Open the current card in SJC OS.");
     await run(`INSERT INTO decision_events (decision_id, kind, actor, channel, detail) VALUES ($1, 'replay_ignored', 'telegram', 'telegram', '{"reason":"stale button hash"}'::jsonb)`, [decision.id]);
     return finish("refused: stale card hash", decision.id);
   }
@@ -198,18 +232,18 @@ export async function handleTelegramUpdate(run: Run, update: TelegramUpdate, dep
     // (to that prompt or the card) pulls it with his words attached — the
     // agent gets an instruction, not a bare "changes requested".
     if (decision.status !== "pending") {
-      await deps.answer(cq.id, `Already ${decision.status}.`);
+      answer(`Already ${decision.status}.`);
       return finish(`changes refused: ${decision.status}`, decision.id);
     }
-    await deps.answer(cq.id, "Reply with what should change.");
+    answer("Reply with what should change.");
     const res = await finish("changes: asked what should change", decision.id);
     return { ...res, changesPrompt: { decisionId: decision.id, title: decision.title, callbackId: cq.id, chatId, cardMessageId: cq.message?.message_id ?? null } };
   }
   if (parsed.verb === "hold") {
     const held = await holdDecision(run, decision.id, 4, owner, "Held from Telegram");
     const text = held ? "Held for 4 hours." : `Cannot hold — already ${decision.status}.`;
-    await deps.answer(cq.id, text);
-    if (held && deps.edit && cq.message) await deps.edit(chatId, cq.message.message_id, cardText({ ...held, status: "pending" }, { appUrl: deps.appUrl }) + "\n(held 4h)");
+    answer(text);
+    if (held) edit(cardText({ ...held, status: "pending" }, { appUrl: deps.appUrl }) + "\n(held 4h)");
     return finish(held ? "held 4h" : `hold refused: ${decision.status}`, decision.id);
   }
   const r = await resolveFromChannel(run, {
@@ -221,12 +255,12 @@ export async function handleTelegramUpdate(run: Run, update: TelegramUpdate, dep
     note: null,
   });
   const shown = r.decision ?? decision;
-  if (deps.deferApproveAnswer && r.ok && r.code === "approved") {
+  if (r.ok && r.code === "approved") {
     const res = await finish(r.reply, decision.id, r);
     return { ...res, pendingAnswer: { callbackId: cq.id, text: r.reply, chatId, messageId: cq.message?.message_id ?? null } };
   }
-  await deps.answer(cq.id, r.reply);
-  if (deps.edit && cq.message) await deps.edit(chatId, cq.message.message_id, cardText(shown, { appUrl: deps.appUrl }));
+  answer(r.reply);
+  edit(cardText(shown, { appUrl: deps.appUrl }));
   return finish(r.reply, decision.id, r);
 }
 
@@ -264,9 +298,13 @@ async function handleOwnerMessage(run: Run, m: NonNullable<TelegramUpdate["messa
     );
   }
   const owner = await deps.ownerPrincipal();
-  if (!owner) return help("message: no owner principal", "No active owner account — nothing was changed.");
+  if (!owner) return help("message: no owner principal", INACTIVE_OWNER);
   if (target.portal) {
-    const posted = await recordPortalReply(run, { channelKey: target.portal.channelKey, text, principal: owner });
+    const posted = await recordPortalReply(run, { channelKey: target.portal.channelKey, text, principal: owner }).catch(error => {
+      if (error instanceof Error && error.message === INACTIVE_OWNER) return null;
+      throw error;
+    });
+    if (!posted) return help("message: no owner principal", INACTIVE_OWNER);
     // A reply to his own message continues the same conversation.
     await rememberReplyTarget(run, { chatId, messageId: m.message_id, portalChannelKey: posted.channelKey, portalMessageId: posted.messageId, kind: "portal_reply" });
     const res = await finish(`portal reply: posted message ${posted.messageId} in ${posted.channelKey}`, null);

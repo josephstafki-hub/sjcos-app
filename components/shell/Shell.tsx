@@ -8,6 +8,7 @@ import { PageAiContext } from "@/components/panel/PageAiContext";
 import { canOpen, getCurrentUser, homeFor } from "@/lib/dal";
 import { getUnreadCount } from "@/lib/notifications";
 import { PATH_HEADER } from "@/lib/session-window";
+import { lineBadgesFor } from "@/lib/phone-lines";
 
 const ROLE_LABEL: Record<string, string> = {
   owner: "Owner · all roles",
@@ -36,7 +37,11 @@ export async function Shell({ children, breadcrumb, aiContext }: ShellProps) {
   const [user, hdrs] = await Promise.all([getCurrentUser(), headers()]);
   // The bell counts THIS account's unread — the owner's company feed, or a team
   // member's own hand-offs and messages (lib/notifications.ts).
-  const unread = user ? await getUnreadCount(user) : 0;
+  const [unread, lines] = await Promise.all([
+    user ? getUnreadCount(user) : Promise.resolve(0),
+    // The business number(s), shown on the rail for owner + team logins.
+    user && (user.role === "owner" || user.role === "staff") ? lineBadgesFor(user) : Promise.resolve(undefined),
+  ]);
 
   // Staff area enforcement, against the DB row (not the cookie): proxy.ts
   // already filtered on the token's copy, but a revoked area must bite on the
@@ -54,6 +59,7 @@ export async function Shell({ children, breadcrumb, aiContext }: ShellProps) {
     // Owner sees every rail item (null = no filter); staff only the areas
     // they hold — Sidebar filters with lib/permissions, which is client-safe.
     staffPerms: user?.role === "staff" ? user.permissions : null,
+    lines,
   };
 
   return (

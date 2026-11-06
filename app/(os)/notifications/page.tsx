@@ -2,6 +2,7 @@ import { Shell } from "@/components/shell/Shell";
 import { NotificationsClient } from "@/components/notifications/NotificationsClient";
 import { getNotificationsData } from "@/lib/notifications";
 import { requireAccess } from "@/lib/dal";
+import { userPrincipal } from "@/lib/commands/db";
 import { listPendingApprovals } from "@/lib/approvals";
 
 export default async function NotificationsPage() {
@@ -9,8 +10,8 @@ export default async function NotificationsPage() {
   // only what's addressed to them (lib/notifications.ts).
   const user = await requireAccess("today");
   const data = await getNotificationsData(user);
-  // Open asks are answered right on their card (owner only).
-  const approvals = user.role === "owner" ? await listPendingApprovals({ limit: 40 }).catch(() => []) : [];
+  // Show only asks this person can answer; the actions recheck authority.
+  const approvals = await listPendingApprovals({ limit: 40, principal: userPrincipal(user) }).catch(() => []);
 
   return (
     <Shell breadcrumb="NOTIFICATIONS">

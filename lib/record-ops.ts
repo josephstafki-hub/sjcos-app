@@ -6,12 +6,14 @@ import "server-only";
 // lib/actions/record-ops.ts.
 
 import { query } from "./db";
+import { draftPreview, type DraftSource, type WorkItemDraftPreview } from "./work-item-draft";
 import type { WorkItemStatus, WorkItemPriority, KnowledgeKind } from "./types";
 import { detailBucketFor, type DetailBucket } from "./record-ops-buckets";
 
 export type RecordKind = "lead" | "project";
 
 export interface RecordWorkItem {
+  draft: WorkItemDraftPreview | null;
   id: string;
   title: string;
   body: string;
@@ -73,6 +75,8 @@ export interface RecordOps {
 }
 
 interface WorkRow {
+  draft_source: DraftSource | null;
+  created_at: string;
   id: string;
   title: string;
   body: string;
@@ -142,7 +146,9 @@ export async function getRecordOps(kind: RecordKind, slug: string): Promise<Reco
   const [{ rows: work }, { rows: know }, { rows: rcpt }, stageGate] = await Promise.all([
     query<WorkRow>(
       `SELECT id, title, body, status, priority, due_at::text AS due_at, requires_approval, approval_status,
-              blocked_reason, expected_skill_slug, expected_runbook_slug
+              blocked_reason, expected_skill_slug, expected_runbook_slug, created_at::text AS created_at,
+              CASE WHEN approval_status = 'requested' OR status = 'approval_needed'
+                THEN phone_push_draft_source(id) END AS draft_source
          FROM work_items
         WHERE ${col} = $1
         ORDER BY array_position(ARRAY['urgent','high','normal','low']::text[], priority),
@@ -176,6 +182,7 @@ export async function getRecordOps(kind: RecordKind, slug: string): Promise<Reco
   const items: RecordWorkItem[] = work.map((r) => {
     const approvalRequested = r.approval_status === "requested";
     return {
+      draft: r.draft_source ? draftPreview(r.id, r.created_at, r.draft_source) : null,
       id: r.id,
       title: r.title,
       body: r.body,

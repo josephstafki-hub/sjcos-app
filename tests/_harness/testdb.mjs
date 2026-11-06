@@ -272,7 +272,7 @@ export async function withSessionIdentity(url, identity, callback) {
  * production SQL/checksums, one transaction + real ledger insertion per file.
  * Never edits the shared migration directory or fabricates applied rows. */
 export async function withMigrationSubset(name, featureIds, callback) {
- if(!/^[a-z0-9_]+$/.test(name)||!featureIds.every(n=>Number.isInteger(n)&&n>=100&&n<=109))throw Error('invalid subset fixture');
+ if(!/^[a-z0-9_]+$/.test(name)||!featureIds.every(n=>Number.isInteger(n)&&n>=100&&n<=112))throw Error('invalid subset fixture');
  const state=startCluster();ensureDbRoles(state);
  const db=`sjcos_subset_${name}`,url=dbUrl(state.url,db);assertNotProduction(url);
  const admin=new pg.Client({connectionString:state.admin});await admin.connect();

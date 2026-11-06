@@ -1,4 +1,5 @@
 import { formatUsPhone } from "@/lib/comms/phone";
+import { RecordConversations } from "@/components/comms/RecordConversations";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Shell } from "@/components/shell/Shell";
@@ -143,6 +144,7 @@ export default async function VendorDetailPage({
                 ))}
               </dl>
             </Card>
+            <RecordConversations kind="vendor" slug={slug} className="mt-4" />
           </aside>
         </div>
       </div>

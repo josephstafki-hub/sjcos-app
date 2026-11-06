@@ -519,3 +519,29 @@ Round-4 final scanner inventory: **475 entries, 921 conservative fragments,
 violations. Final round-4 validation is **266 passed / 0 failed / 0 skipped**
 across 15 single-file runs; exact per-file counts and scan/typecheck evidence
 are in the round-4 section of `phase0-B-HANDOFF.md`. No live migration applied.
+
+
+## Main merge phone-copy census (2026-11-06)
+
+Current extension: [merge-main-HANDOFF.md](merge-main-HANDOFF.md). Main adds
+`owner_push_messages` title/body/href/outcome/thread keys, APNs payloads,
+conversational `push_outbox.payload.appText`, phone action text/evidence/result,
+folded-summary and Telegram fallback paths. Additive 0112 irreversibly sanitizes
+private Ask associations and descendants to fixed status, including historical
+summaries/outbox-only associations. Opaque reply/phone source IDs persist in the
+website-only registry after purge; tombstone/replay calls both erasure helpers.
+Historical text-derived conversation dedup keys are cleared and new hashing
+happens after sanitization. Notification overrides and stale delivery snapshots are re-sanitized; private
+phone actions refuse before text persistence. Shared reply metadata queries
+exclude conversation-bound rows. Legacy direct Telegram fallback refuses private
+or unavailable classification. Ordinary business/portal phone behavior remains.
+
+Phone lines and SMS thread/message summaries consume explicit business
+communications, not automatic Ask prompts/replies/titles/attachment names; all
+are now inventoried alongside opaque device/session/delivery carriers.
+Non-SQL APNs/phone serializers are also source-hash pinned. See the merge
+handoff for migration order, narrow login/provider regressions and final counts.
+
+Final merge inventory: **611 entries / 1276 fragments / 247 source files**;
+195 fenced, 156 trusted-background, 260 not-private. Scanner passes; see the
+merge handoff for all 43 files and 661 passing assertions.

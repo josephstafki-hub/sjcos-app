@@ -61,3 +61,8 @@ test('R3 reply fan-out and browser carriers cannot escape the scanner',()=>{
  test('0107 hashes and manifests are private carriers too',()=>{for(const table of ['ask_context_provenance','ask_context_inputs'])assert.ok(scanSource('lib/new-provenance.ts',`query("SELECT * FROM ${table}")`).length,table);});
 
 test('0108 derivative hashes, replay and snapshot audience records require review',()=>{for(const table of ['ask_canvas_derivatives','ask_canvas_file_saves','ask_canvas_derivative_usage','ask_canvas_file_requests'])assert.ok(scanSource('lib/new-save.ts',`query("SELECT * FROM ${table}")`).length,table);});
+
+// Merge audit: phone history, retries and shared line summaries are reviewed carriers.
+test('phone push and shared-line carriers require explicit private-copy review',()=>{for(const table of ['owner_push_messages','push_actions','push_device_deliveries','push_devices','phone_lines','sms_threads','sms_messages'])assert.ok(scanSource('lib/new-phone-reader.ts',`query("SELECT * FROM ${table}")`).length,table);});
+
+test('non-SQL phone serializers and APNs payload builders are pinned',()=>{for(const name of ['buildPushPayload','shapePushMessage','sendAppPayload'])assert.ok(scanSource('lib/new-phone-transport.ts',`function ${name}(text){return {body:text}}`).length,name);});

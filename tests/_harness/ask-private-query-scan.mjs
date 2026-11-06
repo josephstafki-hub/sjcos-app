@@ -4,7 +4,7 @@ import path from 'node:path';
 import ts from 'typescript';
 // Include private derivatives, not just the five source tables. SQL fragments
 // and their interpolating callers are tracked; comments do not authorize SQL.
-const tables=/\b(?:ask_context_provenance|ask_context_inputs|ask_canvases|ask_canvas_[a-z0-9_]+|ai_conversations|ai_messages|dev_agent_runs|agent_interactions|owner_replies|owner_grants|decisions|decision_events|action_intents|action_attempts|work_items|agent_triggers|agent_executions|agent_receipts|agent_runs|owner_touches|browser_[a-z0-9_]+|push_outbox|notifications|telegram_reply_targets|private_[a-z0-9_]+|ai_folders|run_steers|run_effects|agent_pending_actions|orchestration_tasks|orchestration_events)\b/i;
+const tables=/\b(?:ask_context_provenance|ask_context_inputs|ask_canvases|ask_canvas_[a-z0-9_]+|ai_conversations|ai_messages|dev_agent_runs|agent_interactions|owner_replies|owner_grants|decisions|decision_events|action_intents|action_attempts|work_items|agent_triggers|agent_executions|agent_receipts|agent_runs|owner_touches|browser_[a-z0-9_]+|owner_push_messages|push_actions|push_device_deliveries|push_devices|phone_lines|sms_threads|sms_messages|push_outbox|notifications|telegram_reply_targets|private_[a-z0-9_]+|ai_folders|run_steers|run_effects|agent_pending_actions|orchestration_tasks|orchestration_events)\b/i;
 const sql=/\b(?:SELECT|INSERT|UPDATE|DELETE|FROM|JOIN|TRUNCATE|ALTER|COPY)\b/i;
 export const digest=text=>createHash('sha256').update(text).digest('hex');
 export function scanSource(file,source){
@@ -31,6 +31,8 @@ export function scanSource(file,source){
  // Filesystem readers have no private-table SQL. Pin their complete source
  // when they mention the Ask upload root or the reviewed reader/guard APIs.
  if(/readHandedFiles|withThreadAttachmentAccess|uploads[\s\S]{0,20}ai-chat|createPrivateBridgeContext/.test(source))hits.push({file,function:'<private-files>',line:1,sha256:digest(source)});
+ // Pin non-SQL serializers/transports as well as their SQL-producing callers.
+ if(/\b(?:buildPushPayload|shapePushMessage|sendAppPayload)\b/.test(source))hits.push({file,function:'<phone-transport>',line:1,sha256:digest(source)});
  function walk(n,fn='<module>'){
   if(ts.isFunctionLike(n))fn=n.name?.getText(sf)||(ts.isVariableDeclaration(n.parent)?n.parent.name.getText(sf):fn);
   if(ts.isStringLiteral(n)||ts.isNoSubstitutionTemplateLiteral(n)||ts.isTemplateExpression(n)){

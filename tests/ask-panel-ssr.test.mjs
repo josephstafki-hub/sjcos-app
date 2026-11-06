@@ -608,3 +608,21 @@ for (const page of ['/today','/panel']) test(`signed-out queue at ${page} explai
   assert.match(render(()=>normal),/Nothing else on the list/);healthy.dispose();
  }finally{delete globalThis.__queueState;}
 }));
+
+// Build R6 (design): signed-out pages must not show ordinary empty states — no
+// "Waiting on me" card and no queue narration ("You're all clear") in the panel.
+test('signed-out Today hides Waiting on me and the panel hides queue narration', async () => {
+  const {TodayWaitingSummary} = await import('../components/today/TodayWaitingSummary.tsx');
+  const prior = globalThis.__queueState;
+  try {
+    globalThis.__queueState = {priorities: [], waiting: [], signedOut: true, refresh: async () => {}};
+    assert.equal(render(TodayWaitingSummary), '');
+    const chat = render(() => React.createElement(PanelChat, {...chatProps, showNarration: true}));
+    assert.doesNotMatch(chat, /all clear/i);
+    globalThis.__queueState = {priorities: [], waiting: [], signedOut: false, refresh: async () => {}};
+    assert.match(render(TodayWaitingSummary), /Waiting on me/);
+    assert.match(render(() => React.createElement(PanelChat, {...chatProps, showNarration: true})), /all clear/i);
+  } finally {
+    if (prior === undefined) delete globalThis.__queueState; else globalThis.__queueState = prior;
+  }
+});

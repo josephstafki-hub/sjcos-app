@@ -113,7 +113,8 @@ export function PanelChat({
    *  the popout window — the to-do list doesn't belong in its chats. */
   showNarration?: boolean;
 }) {
-  const { priorities, waiting, refresh } = useTodayQueue();
+  const { priorities, waiting, refresh, signedOut } = useTodayQueue();
+  const narrate = showNarration && !signedOut;
   const [prompt, setPrompt] = useState("");
   const mentions = useRecordMentions(prompt, setPrompt);
   const [flash, setFlash] = useState("");
@@ -547,7 +548,7 @@ export function PanelChat({
 
       {/* Scroll area: narration → starters/cards → transcript */}
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-        {showNarration && !compact && (
+        {narrate && !compact && (
           <div className="whitespace-pre-wrap rounded-md bg-ai-soft px-3 py-2 text-[12.5px] leading-relaxed text-ai-2">
             {narration}
           </div>
@@ -567,7 +568,7 @@ export function PanelChat({
         )}
 
         {chat.messages.length === 0 && !compact && (
-          <div className={`flex flex-wrap gap-1.5 ${showNarration || showQueueCards ? "mt-3" : ""}`}>
+          <div className={`flex flex-wrap gap-1.5 ${narrate || showQueueCards ? "mt-3" : ""}`}>
             {starters.map((s) => (
               <button
                 key={s}
@@ -583,7 +584,7 @@ export function PanelChat({
         {(chat.messages.length > 0 || chat.notice) && (
           <div
             className={
-              compact || !(showNarration || showQueueCards)
+              compact || !(narrate || showQueueCards)
                 ? "flex flex-col gap-2.5"
                 : "mt-4 flex flex-col gap-2.5 border-t border-rule pt-3"
             }

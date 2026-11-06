@@ -192,3 +192,4 @@ Branch note: T3 renamed this branch to `t3/in-app-browser-agent-tools`.
   2. Provenance + native-reader removal + ask_owner gates follow (they share the db-roles manifest with the core backend).
   3. Project-file save/exports come after that.
 - **Build round 1 is blocked on the deferred pane-host captures:** landscape strip, 839/840/1000, 1100 popout pane, and 1280 expansion + Back to app.
+- **Migration note (2026-11-05):** `0109_canvas_control_envelopes.sql` uses 0109, because main already ships `0110_phone_lines.sql` and `0111_sms_threads_per_line.sql`. Floor refs (Phase 3) will take the next free number on main at build time.

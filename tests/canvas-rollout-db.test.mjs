@@ -44,3 +44,42 @@ test('Phase 0-only event endpoint stays schema-aware even with Canvas env enable
  process.env.SJC_CANVAS_ENABLED='1';process.env.SESSION_SECRET='rollout-cursor-key-at-least-32-characters';const token=await encrypt({userId:p.owner.id,role:'owner',authAt:Math.floor(Date.now()/1000)});globalThis.__phase0aCookies={get:()=>({value:token})};
  await withSessionIdentity(url,'sjcos_test_website',async c=>{globalThis.__phase0aDb=c;const page=await core.canvasEvents(p.thread,{});assert.deepEqual(page.events,[]);assert.equal(page.availability.master,false);await assert.rejects(core.canvasGet(crypto.randomUUID(),{}),/CANVAS_DISABLED/);});
 }));
+
+// Expectations: actual Phase-0-only staff runner/tool/question paths work with
+// Canvas off; capability changes only after additive production migrations.
+test('Phase 0 staff runner, MCP wrapper and question retain legacy operation before additive upgrade',()=>withMigrationSubset('server_legacy',[100,105],async({db,apply,url})=>{
+ await apply();
+ const {appHooks,seedPeople}=await import('./phase0a-fixtures.mjs');appHooks();const p=await seedPeople(db);
+ const {withSessionIdentity}=await import('./_harness/testdb.mjs');
+ const {mkdtemp,writeFile,rm}=await import('node:fs/promises');const path=await import('node:path');const {tmpdir}=await import('node:os');const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');
+ const {trackingAvailable,trackedInteractions,createContextAdapter}=await import('../lib/ask-context-inputs.mjs');
+ const {createInteractionAdapter}=await import('../lib/ask-thread-journal-transport.mjs');const {interactionCommand}=await import('../lib/ask-thread-journal-interactions.mjs');
+ const dir=await mkdtemp(path.join(tmpdir(),'c1-legacy-')),before={...process.env},fetch=globalThis.fetch;let server;
+ try{await withSessionIdentity(url,'sjcos_test_website',async c=>{
+  globalThis.__phase0aDb=c;assert.equal(await trackingAvailable(c),false);
+  const thread=(await c.query(`INSERT INTO ai_conversations(agent,owner_user_id) VALUES('claude',$1) RETURNING id`,[p.staff.id])).rows[0].id;
+  const run=(await c.query(`INSERT INTO dev_agent_runs(prompt,profile,principal_user_id,conversation_id,launch_source,with_mcp) VALUES('ordinary staff question','business',$1,$2,'panel_web',true) RETURNING id,extract(epoch FROM created_at)::bigint AS started`,[p.staff.id,thread])).rows[0];
+  Object.assign(process.env,{SJC_CANVAS_ENABLED:'0',DATABASE_URL_AGENT:url,SJC_RUN_ID:run.id,SJC_CONVERSATION_ID:thread,SJC_PRINCIPAL_USER_ID:p.staff.id,SJC_RUN_PROFILE:'business',SJC_RUN_STARTED_S:String(run.started),CRON_SECRET:'legacy-test',APP_INTERNAL_URL:'http://127.0.0.1:1'});
+  const {buildServer}=await import('../mcp/sjcos-mcp.mjs');server=buildServer({transportKind:'stdio'});
+  const result=await server._registeredTools.list_projects.handler({},{});assert.ok(!result.isError,JSON.stringify(result));
+  const slug='zz-phase0-files';await c.query("INSERT INTO projects(slug,name,status) VALUES($1,'Phase 0 files','floor_plan')",[slug]);
+  const files=await server._registeredTools.list_project_files.handler({project_slug:slug},{});assert.ok(!files.isError,JSON.stringify(files));
+  const {canvasFilePredicate,resolveCanvasFilePolicy}=await import('../lib/canvas-file-access.ts');
+  assert.equal(await canvasFilePredicate('f',p.staff),'true');assert.deepEqual(await resolveCanvasFilePolicy({principal:p.staff,fileId:'missing',operation:'read'}),{ordinary:true});
+  globalThis.fetch=async(u,opts)=>{assert.equal(new URL(u).pathname,'/api/internal/ask-interactions');const b=JSON.parse(opts.body);return Response.json(await interactionCommand({query:(...a)=>c.query(...a)},b.action,b.input,b.context));};
+  const adapter=trackedInteractions(createInteractionAdapter({transportKind:'stdio'}),createContextAdapter({transportKind:'stdio',trackingAvailable:()=>trackingAvailable(c),internalCall(){assert.fail('Phase 0 must never call provenance route');}}));
+  const id=await adapter.create('question',{questions:[{question:'Which finish?',options:[{label:'Oak'},{label:'Paint'}],multiSelect:false,allowOther:true}]});
+  await c.query(`UPDATE agent_interactions SET status='answered',response=$2 WHERE id=$1`,[id,{kind:'question',answers:[{question:'Which finish?',choices:['Oak']}]}]);
+  assert.match((await adapter.beforeDeliver(id)).answer,/Joe's answer: Oak/);
+  await db.query('ALTER ROLE sjcos_test_website LOGIN');const database=new URL(url);database.username='sjcos_test_website';
+  const fake=path.join(dir,'cli');await writeFile(fake,`#!/usr/bin/env node\nprocess.stdin.once('data',()=>{console.log(JSON.stringify({type:'user',isReplay:true}));console.log(JSON.stringify({type:'result',subtype:'success',result:'Ordinary Phase 0 answer',num_turns:1}));});process.stdin.on('end',()=>process.exit(0));\n`,{mode:0o700});
+  await promisify(execFile)(process.execPath,['scripts/run-claude-agent.mjs',run.id],{timeout:20000,env:{...process.env,DATABASE_URL:database.toString(),DATABASE_URL_AGENT:database.toString(),CLAUDE_BIN:fake,SJC_CANVAS_DELETION_LEDGER_DIR:path.join(dir,'journal')}});
+  const finished=(await c.query('SELECT status,answer FROM dev_agent_runs WHERE id=$1',[run.id])).rows[0];assert.equal(finished.status,'done',finished.answer);
+  assert.equal(await trackingAvailable(c),false);
+ });
+ await apply([106,107,108]);assert.equal(await trackingAvailable(db),true);
+ await db.query('BEGIN');try{await db.query('ALTER TABLE ask_context_provenance RENAME TO temporarily_missing_provenance');await assert.rejects(trackingAvailable(db),/CONTEXT_PROVENANCE_INCOMPLETE/);}finally{await db.query('ROLLBACK');}
+ let installed=true;const latched=createContextAdapter({transportKind:'stdio',trackingAvailable:async()=>installed,internalCall(){assert.fail('capability only');}});
+ assert.equal(await latched.enabled(),true);installed=false;await assert.rejects(latched.enabled(),/CONTEXT_PROVENANCE_INCOMPLETE/);
+ }finally{globalThis.fetch=fetch;await server?.close();for(const k of Object.keys(process.env))if(!(k in before))delete process.env[k];Object.assign(process.env,before);await rm(dir,{recursive:true,force:true});}
+}));

@@ -47,7 +47,7 @@ export async function loadScenarios(only = null) {
 
 function txOver(url) {
   return async (fn) => {
-    const pg = (await import("pg")).default;
+    const pg = (await import("../lib/guarded-pg.mjs")).default;
     const c = new pg.Client({ connectionString: url });
     await c.connect();
     const run = async (sql, params) => (await c.query(sql, params ?? [])).rows;

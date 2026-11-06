@@ -31,7 +31,7 @@
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
 
 export const STATEMENTS = [
   `ALTER TABLE dev_agent_runs ADD COLUMN IF NOT EXISTS steer_closed_at timestamptz`,

@@ -208,7 +208,7 @@ export function registerDirectoryTools(
       try {
         return json(
           await txOver(pool)(async (r) => {
-            const [f] = await r("SELECT project_key FROM files WHERE security_profile IS NULL AND id=$1", [
+            const [f] = await r("SELECT project_key FROM files WHERE to_jsonb(files)->>'security_profile' IS NULL AND id=$1", [
               file_id,
             ]);
             if (!f) return { ok: false, error: "File not found." };

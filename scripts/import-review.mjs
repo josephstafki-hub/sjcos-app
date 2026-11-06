@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {testDatabaseUrl} from '../lib/test-db-guard.mjs';
 // SJC OS — imported-data review report (read-only).
 //
 // Regenerates docs/import-review.md: a per-record review of everything the temp
@@ -16,12 +17,13 @@
 import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OUT = path.join(__dirname, "..", "docs", "import-review.md");
 
 function databaseUrl() {
+  const testUrl=testDatabaseUrl();if(testUrl)return testUrl;
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
   const env = readFileSync(path.join(__dirname, "..", ".env.local"), "utf8");
   const m = env.match(/^DATABASE_URL=(.+)$/m);

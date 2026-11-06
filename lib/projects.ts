@@ -495,7 +495,7 @@ export async function getLeadFiles(slug: string): Promise<ProjectFile[]> {
   const { rows } = await query<FileRow>(
     `SELECT ${FILE_ROW_SELECT}
        FROM files f
-      WHERE f.security_profile IS NULL AND f.lead_slug = $1 AND f.storage_path IS NOT NULL
+      WHERE to_jsonb(f)->>'security_profile' IS NULL AND f.lead_slug = $1 AND f.storage_path IS NOT NULL
       ORDER BY f.created_at DESC`,
     [slug],
   );

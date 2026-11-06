@@ -1,4 +1,5 @@
-import { Pool, type QueryResult, type QueryResultRow } from "pg";
+import type { Pool as PgPool, QueryResult, QueryResultRow } from "pg";
+import { Pool } from "./guarded-pg.mjs";
 
 import { assertTestDatabaseUrl, isNodeTest } from "./test-db-guard.mjs";
 
@@ -8,9 +9,9 @@ assertTestDatabaseUrl(connectionString);
 
 // Single shared connection pool. Stashed on globalThis so Next.js hot-reload in
 // dev doesn't leak a new pool on every recompile.
-const globalForDb = globalThis as unknown as { sjcosPool?: Pool };
+const globalForDb = globalThis as unknown as { sjcosPool?: PgPool };
 
-export const pool: Pool =
+export const pool: PgPool =
   (!isNodeTest() ? globalForDb.sjcosPool : undefined) ??
   new Pool({
     connectionString,

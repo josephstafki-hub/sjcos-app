@@ -90,6 +90,9 @@ test('tracked staff save derives only content areas, never held areas or owner c
  await db.query("INSERT INTO app_settings(key,value) VALUES('canvas.staff_enabled','true') ON CONFLICT(key) DO UPDATE SET value='true'");
  const run=(await db.query("INSERT INTO dev_agent_runs(prompt,profile,principal_user_id,conversation_id,launch_source,with_mcp) VALUES('Show permit steps.','business',$1,$2,'panel_web',true) RETURNING *,extract(epoch FROM created_at)::bigint AS started",[people.staff.id,thread])).rows[0];
  await admitEpoch({client:db,threadId:thread,runId:run.id,policyHash:hashBytes('policy'),valid:true,resumed:false});
+ const {beginInput,completeInput}=await import('../lib/ask-context-inputs.mjs');
+ const historical=await beginInput({client:db,threadId:thread,runId:run.id,kind:'tool',ref:'legacy_get_project'});
+ await completeInput({client:db,threadId:thread,runId:run.id,id:historical,bytes:'historical contact result',areas:[],complete:true});
  const ctx={run_id:run.id,principal_user_id:people.staff.id,run_profile:'business',run_started_s:Number(run.started),transport:'runner_stdio'};
  const id=(await core.canvasInternal('show',{request_id:uuid(),project_slug:project.slug,title:'Permit',summary:'Steps',required_areas:[],content:{kind:'diagram',source:'flowchart TD\n A-->B'}},ctx)).canvas.id;
  const token=await encrypt({userId:people.staff.id,role:'staff',authAt:Math.floor(Date.now()/1000)});globalThis.__phase0aCookies={get:()=>({value:token})};
@@ -102,5 +105,13 @@ test('tracked staff save derives only content areas, never held areas or owner c
  await db.query("UPDATE users SET permissions=ARRAY['projects'] WHERE id=$1",[people.noAi.id]);const {resolveCanvasFilePolicy,canvasFilePredicate}=await import('../lib/canvas-file-access.ts');
  assert.equal((await db.query(`SELECT id FROM files f WHERE id=$1 AND ${await canvasFilePredicate('f',people.owner)}`,[file])).rowCount,1);
  assert.equal((await resolveCanvasFilePolicy({principal:people.noAi,fileId:file,operation:'read'})).profile,'canvas_static_v1');
+ // Simulate the pre-fix stored classification, without changing immutable
+ // saved files/versions: the snapshot retains this input's stable hash/ref.
+ await db.query("UPDATE ask_context_inputs SET ref='get_project:historical' WHERE id=$1",[historical]);
+ assert.equal(await resolveCanvasFilePolicy({principal:people.noAi,fileId:file,operation:'read'}),null);
+ assert.equal((await db.query(`SELECT id FROM files f WHERE id=$1 AND ${await canvasFilePredicate('f',people.noAi)}`,[file])).rowCount,0);
+ assert.ok(await resolveCanvasFilePolicy({principal:people.owner,fileId:file,operation:'read'}));
+ const {conversationProvenance}=await import('../lib/ask-context-provenance.mjs');
+ const corrected=await conversationProvenance({client:db,threadId:thread});assert.ok(corrected.areas.includes('leads'));assert.ok(corrected.areas.includes('subs'));
  });}finally{if(file)await unlink(path.join(process.cwd(),'uploads',file+'.html')).catch(()=>{});}
 }));

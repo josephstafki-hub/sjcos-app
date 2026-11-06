@@ -14,7 +14,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const envFile = process.env.SJCOS_ENV ?? path.join(process.cwd(), ".env.local");

@@ -229,6 +229,7 @@ async function mutation(db: PoolClient, a: Actor, action: 'show' | 'update' | 'r
     c = (await db.query('UPDATE ask_canvases SET latest_version=$2,updated_at=clock_timestamp() WHERE id=$1 RETURNING *', [c!.id, n])).rows[0];
     await db.query(`INSERT INTO ask_canvas_requests(conversation_id,request_id,owner_user_id,actor_user_id,action,input_hash,effective_policy_hash,canvas_id,version,run_id) VALUES($1,$2,$3,$3,$4,$5,$6,$7,$8,$9)`, [threadId, input.request_id, a.person.id, action, inputHash, policy.baselineHash, c!.id, n, a.runId]);
     await db.query(`INSERT INTO ask_canvas_events(conversation_id,owner_user_id,canvas_id,version,run_id,actor_user_id,kind) VALUES($1,$2,$3,$4,$5,$2,$6)`, [threadId, a.person.id, c!.id, n, a.runId, action === 'show' ? 'created' : from ? 'restored' : 'updated']);
+    if(a.runId)await db.query('DELETE FROM ask_canvas_attempts WHERE run_id=$1',[a.runId]);
     // Reload aliases without placing slugs in immutable request metadata.
     c = await load(db, a, c!.id);
     return mutationResult(c, v, av);
@@ -372,6 +373,14 @@ export async function canvasInternal(action: string, input: unknown, context: un
         catch (e) {
             if (!entered)
                 fail('RUN_CONTEXT_REQUIRED');
+            if(entered&&['show','update'].includes(action)){
+                const code=canvasFailure(e).code;
+                const reason=code==='CONTENT_TOO_LARGE'||code==='QUOTA_EXCEEDED'?'too big':code==='UNSUPPORTED_KIND'?'not supported':'not allowed';
+                await tx({person:{id:ctx.principal_user_id,role:'owner',permissions:[],name:''},threadId:run.conversation_id,runId:ctx.run_id,internal:true},async(db,a)=>{
+                    await ownThread(db,a,run.conversation_id);
+                    await db.query('INSERT INTO ask_canvas_attempts(run_id,reason) VALUES($1,$2) ON CONFLICT(run_id) DO UPDATE SET reason=EXCLUDED.reason',[ctx.run_id,reason]);
+                });
+            }
             throw e;
         }
     });

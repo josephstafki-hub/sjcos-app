@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {testDatabaseUrl} from '../lib/test-db-guard.mjs';
 // SJC OS — import subcontractors + their W-9 / COI documents from the
 // 2026-06-18 subcontractor audit into the official `subs` + `sub_documents`
 // tables. The audit lives on disk (NOT in the DB); this brings the clean subset
@@ -16,7 +17,7 @@ import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
 
 // Mirror lib/upload-store.ts persistBlob — the app serves blobs from
 // process.cwd()/uploads and indexes them in `files`. Run this from the project
@@ -32,6 +33,7 @@ const DO_UNDO = args.includes("--undo");
 const CONFIRM = args.includes("--confirm");
 
 function databaseUrl() {
+  const testUrl=testDatabaseUrl();if(testUrl)return testUrl;
   const env = readFileSync(path.join(__dirname, "..", ".env.local"), "utf8");
   const m = env.match(/^DATABASE_URL=(.+)$/m);
   return m[1].trim().replace(/^["']|["']$/g, "");

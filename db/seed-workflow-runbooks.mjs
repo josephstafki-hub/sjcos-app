@@ -223,7 +223,7 @@ export async function seedWorkflowRunbooks({ run, tx, dryRun = false, by = "seed
 }
 
 async function main() {
-  const { default: pg } = await import("pg");
+  const { default: pg } = await import("../lib/guarded-pg.mjs");
   let url = process.env.DATABASE_URL;
   if (!url) {
     const env = readFileSync(path.join(REPO, ".env.local"), "utf8");

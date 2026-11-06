@@ -183,16 +183,17 @@ test('staff question round-trip uses authenticated closed stdio adapter; forged 
    await t.test('captured identity cannot change after server construction',async()=>{const captured=createInteractionAdapter({transportKind:'stdio',env:{...env}});env.SJC_CONVERSATION_ID=randomUUID();assert.ok(await captured.create('question',payload));env.SJC_CONVERSATION_ID=thread;});
    await t.test('another adapter cannot poll a question ID it did not create',()=>assert.rejects(createInteractionAdapter({transportKind:'stdio',env}).poll(id),/RUN_CONTEXT_REQUIRED/));
    await t.test('registered ask_owner delivers the staff question and typed answer end to end',async()=>{
-    const {registerAskOwner}=await import('../mcp/interact-tools.mjs');let ask;
+    const {registerAskOwner}=await import('../mcp/interact-tools.mjs');
+    const {trackedInteractions}=await import('../lib/ask-context-inputs.mjs');let ask;
     const baseFetch=globalThis.fetch;
     globalThis.fetch=async(url,request)=>{
      const result=await baseFetch(url,request),data=await result.clone().json();
-     if(JSON.parse(request.body).action==='create'&&data.ok)await c.query(`UPDATE agent_interactions SET status='answered',response=$2::jsonb WHERE id=$1`,[data.id,JSON.stringify({answers:[{question:'Which finish?',choices:['Oak'],other:'Keep it natural'}]})]);
+     if(JSON.parse(request.body).action==='create'&&data.ok)await c.query(`UPDATE agent_interactions SET status='answered',response=$2::jsonb WHERE id=$1`,[data.id,JSON.stringify({kind:'question',answers:[{question:'Which finish?',choices:['Oak'],other:'Keep it natural'}]})]);
      return result;
     };
     try{
      // A new closure captures this test fetch; no production timing overrides.
-     registerAskOwner({registerTool(name,_schema,fn){assert.equal(name,'ask_owner');ask=fn;}},{pool:{query(){assert.fail('raw narrow SQL bypass');}},json:data=>({content:[{type:'text',text:JSON.stringify(data)}]}),interactionAdapter:createInteractionAdapter({transportKind:'stdio',env})});
+     registerAskOwner({registerTool(name,_schema,fn){assert.equal(name,'ask_owner');ask=fn;}},{pool:{query(){assert.fail('raw narrow SQL bypass');}},json:data=>({content:[{type:'text',text:JSON.stringify(data)}]}),interactionAdapter:trackedInteractions(createInteractionAdapter({transportKind:'stdio',env}),{enabled:async()=>false})});
      const result=await ask({questions:[{question:'Which finish?',options:[{label:'Oak'},{label:'Paint'}]}],run_id:randomUUID(),conversation_id:randomUUID(),context:{principal_user_id:randomUUID()}});
      const answer=JSON.parse(result.content[0].text);assert.equal(answer.ok,true);assert.match(answer.answer,/Oak.*Keep it natural/);
     }finally{globalThis.fetch=baseFetch;}

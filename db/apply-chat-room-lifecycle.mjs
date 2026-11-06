@@ -43,7 +43,7 @@
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
 
 export const STATEMENTS = [
   `ALTER TABLE chat_rooms ADD COLUMN IF NOT EXISTS hold text`,

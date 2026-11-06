@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {trackingAvailable} from '../lib/ask-context-inputs.mjs';
 import {createCanvasFileCall} from './canvas-file-call.mjs';
 import {registerCanvasTools,createCanvasCall} from './canvas-tools.mjs';
 import {registerAskInputTools} from './ask-input-tools.mjs';
@@ -60,7 +61,7 @@ import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { createServer as createHttpServer } from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
 import { assertTestDatabaseUrl, isNodeTest } from "../lib/test-db-guard.mjs";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -449,7 +450,7 @@ const privateContext=createPrivateBridgeContext({transportKind,httpActive:()=>!!
 const boundFilingCall=(action,payload)=>filingCall(action,payload,privateContext());
 const boundGrantsCall=(action,payload)=>grantsCall(action,payload,privateContext());
 const forward=createContextForwarder(envValue);
-const contextAdapter=createContextAdapter({transportKind,httpActive:()=>!!principalStore.getStore(),internalCall:forward});
+const contextAdapter=createContextAdapter({trackingAvailable:()=>trackingAvailable(pool),transportKind,httpActive:()=>!!principalStore.getStore(),internalCall:forward});
 const baseInteractionAdapter=createInteractionAdapter({transportKind,config:envValue,httpActive:()=>!!principalStore.getStore()});
 const interactionAdapter=trackedInteractions(baseInteractionAdapter,contextAdapter);
 const canvasFileCall=createCanvasFileCall({transportKind,env:process.env,httpActive:()=>!!principalStore.getStore(),internalCall:forward});
@@ -466,7 +467,7 @@ server.registerTool = (name, spec, handler) => {
   return registerToolRaw(name, spec, async (...args) => {
     // Panel stdio MUST ingest before work and before result delivery. External
     // business tools retain their authority paths, never establish provenance.
-    const tracked=contextAdapter.active();
+    const tracked=await contextAdapter.enabled();
     let pending;
     try {
       if(tracked){

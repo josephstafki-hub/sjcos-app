@@ -20,7 +20,7 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import path from "node:path";
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
 import { cipherFromEnv, decryptFile, sha256File } from "../lib/backup/crypto.ts";
 import { markRestoreTested } from "../lib/backup/runs.ts";
 import { pauseLane } from "../lib/commands/policies.ts";

@@ -20,7 +20,7 @@
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
 
 export const STATEMENTS = [
   `ALTER TABLE work_items ADD COLUMN IF NOT EXISTS archived_at timestamptz`,

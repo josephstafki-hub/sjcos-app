@@ -37,12 +37,12 @@
     "lib/ask-thread-journal.mjs": "7e7f8ef038300ef4bfe3d1e6b0ca3ebcd5745d45a0c6cd13755a11697c3be22e",
     "lib/attachments.ts": "22837ed0d5a1e347a6b08dc1f45cb5670a042daeead7084d42e7db311471d5d5",
     "lib/authority/usage.ts": "0e86785e1c48d24d132c974f2f612985dccb225e5b2baeb947cac19d35252cf1",
-    "lib/bidding.ts": "88ca0ccf6e7b4d5c0af9e2704a5104e4062ee3a47ec417e4c04fa27a6f894b62",
+    "lib/bidding.ts": "d60e6105eaea1dd46e48738a3b2e7c4f5a3595b5ca9d1e36312d982573b29732",
     "lib/billing/commands.ts": "737c14293d1426ee1bd2c6fa8a512a063db95eca9c94335639c9191ab8f952c0",
     "lib/billing/invoice-email.ts": "177b543f539e1c5606f037475d923cd53551835a536b2543905974ca6c764945",
     "lib/budget-writes.ts": "24225a7a4b85020d74ce139762c54a8cf6ec8987f77a6a9114946333a07c9f24",
     "lib/client-activity.ts": "905a522ab52c677467520803d706263e04242be4813fa70243e5ea45e3644f8e",
-    "lib/client-portal.ts": "bf7263bdee370018d07d02d4ac4e5b114a362e5cdd263faf8591604831e7c9e2",
+    "lib/client-portal.ts": "010dfce3a7cdc9091782ceae623ea8b9b63e98172653859f0ce02836496f2a0b",
     "lib/commands/decisions.ts": "43153fe0a24ed87717123476597a85866587d747ad7a3b6eaec1f41f718c46c6",
     "lib/commands/intents.ts": "ceccb1c80b37269208653ccf9f1a34c798792431c0e8ad2058892035248f3a8b",
     "lib/commands/policies.ts": "7676323586b9c6c70c89275ebe0184a0427c467b8d13d5c4a64ad0b07dc587aa",
@@ -143,38 +143,38 @@
     "mcp/obligation-tools.mjs": "409b9fe090590051e392bb5ae45abf4abc8cdc37ccd62430737d2794d504e1e9",
     "mcp/project-tools.mjs": "9cb8deacdc68efd39d657c9960910b5b71e4100b4738bd15972af53b27788f43",
     "mcp/runbook-tools.mjs": "e2988e12c1cbd4e8a6a71cf0c04661a487b12fed4f8806f83f885e926d972123",
-    "mcp/sjcos-mcp.mjs": "7a1c50563aa378c362d7a1cb930c8f2c21d6bd9774169dc00ba8fedc9a052070",
+    "mcp/sjcos-mcp.mjs": "730c138b81253f1373c3c48bcce15acd50d6c4184b6f796c590f5c488cb108c8",
     "mcp/team-tools.mjs": "68e526938fc74c10646707c1ee1020f6a5b0336fb37186649c015caf7557fbcd",
     "mcp/workflow-tools.mjs": "8f643366b6c20fbf5dd13f41cf39f00ebf269b2a796efc809d9b1eea5a13aae7",
-    "scripts/backup.mjs": "48b8649b5b8e5c581d505341cdbc0d0e58d9718b72824ad3e4e02565892c5541",
-    "scripts/db-roles-apply.mjs": "7563d5d809540d7bcfffd21a319eb94ccd78a7103b74585db111a6bd70365222",
-    "scripts/import-brain-archives.mjs": "5e18f0b3c6c2bce35b0f4e47dc33893631c2dd7b8b7a2f443b875d48ccc7ed6c",
-    "scripts/import-review.mjs": "4877b5ccc6d7820a12f1be11008e1452c485f139fbaef340777c3663e154ffb0",
-    "scripts/import-subs-csv.mjs": "4f8d0998050f9be771fe63d33563c4c5b4d2c40d9f642623df585a22e4128977",
-    "scripts/import-temp-leads.mjs": "86eac3f8c6cb86deb77ccfbc43a3e4333af513e5b44bbd79db36f17fb7c07026",
-    "scripts/import-undo.mjs": "4b3b0a790c53840c877b3a6919ad4c9a3d14b9e7d77b0140f1f6b37fe8061869",
-    "scripts/report-work-item-collisions.mjs": "764e811e128c1e4ba08df78d6b835b125bcbc98ad98d8d0dc1aa69cdf4e0e8b9",
-    "scripts/restore.mjs": "be39086b2cf46749b8045724e6b83a837589cedc2cee2661d530070c5ad501d6",
-    "scripts/run-business-agent.mjs": "55cd003ff840812e54293ee87b020e7bc1a5f75b51563504e0b197f4d294f3b4",
-    "scripts/run-claude-agent.mjs": "ad2f054d18a25bcbf0e43ff5ded7ce8cb332e28f4cde73b4f6246e848b3eb771",
-    "scripts/upsert-inbox-work-items.mjs": "56911a0a95a56d5e5dd73eb5515d32d12975d2a2883babae33158fea36f15fd5",
-    "db/apply-comms-sms-voice.mjs": "c22f8f369ef20415e747fd9710d1514aec4f13cfe004710cb6c449f975059b1a",
-    "db/apply-detectors.mjs": "d0f94911f711c75fdff3df8c4d9ded89bc3fe1b167fc7ae6334ccf1537cd1f96",
-    "db/apply-multi-assignees.mjs": "227050003ccbf522b23fdd73366ca224ffddbf4168508bf338802c6c31995d62",
-    "db/apply-notifications-v2.mjs": "66531e20627ab485faf41d7f3bf5ac82e470bada32d4eba7722e265beabd7739",
-    "db/apply-orchestration-p1.mjs": "3f7b9a9fe555834d565985b7bccb66be4331513887f285f44219624e0597c224",
-    "db/apply-orchestration-p2.mjs": "72a87b0b3ea0eb48df3c88889e4f8d4f800788ec62ccceab72dfa3e19d7a5020",
-    "db/apply-orchestration-p3.mjs": "f9c197367c1bc523c442d07ac2e77e1750cdac5611b79b99680545773e8d1114",
-    "db/apply-orchestration-p4.mjs": "d3d35ea4339b2fc1c82dffd90a31baeaa8b09c059a467da23dd45f29f2edcb49",
-    "db/apply-orchestration-p5.mjs": "23022b8f3cd9cf4da4424cdc7bb6aa9045a18ca57c4491f2746d5ccacd17ad42",
-    "db/apply-owner-grants.mjs": "5622c26bc1cbbae12338b7639f8b8e7ae7557d9b1641953c45786d83a0e09023",
-    "db/apply-run-steers.mjs": "772bc7f024c21c8f64d1d28b027418920460800eca73d45fbcfdbc05ded2dab2",
-    "db/apply-runbook-instances.mjs": "76937dc93e638fbdbcf653a6a034395ad02181817b8e101b0c1416f0677e8a9e",
-    "db/apply-scheduled-snooze.mjs": "e3cb922a50eab46aca77141d272b3082cad1f386076df075adfc4c8e5eac97fe",
-    "db/apply-staff-separation.mjs": "0d981bd929e1f906a62833496ac08397a145191e7b81c259be3d33c08381653f",
-    "db/apply-thread-folders.mjs": "6f14e7279348f1663ca02fde3b52e00f13194fe8a32941dd75f2e5b0881eb68b",
-    "db/apply-unsorted-docs.mjs": "41a8ff71ddf0c121c1974e366b060cdcd1576fdca0a8610e7955e83a07e2cd33",
-    "db/apply-work-item-archive.mjs": "5ecf9ba16ba7da0631d0df73e83c9b1e708d77247e057eaa7bdc354919808f3b",
+    "scripts/backup.mjs": "765d1d8ee5cd91bb65cefba38f068f522662a9ca18f4384e324687132ff6a73f",
+    "scripts/db-roles-apply.mjs": "63e4ba2e9ea8b722672a0bf5ccc6f735a0fb27b289203e8f1115d609b44d9e6b",
+    "scripts/import-brain-archives.mjs": "42a6a14ce1ebcf60dd665643bd7261fdd29d460e81747bc52ed00589a72459d0",
+    "scripts/import-review.mjs": "7e1a96e2705fc8df3051591fda7cdcfd109a1557e7bd088ae293d61da9055814",
+    "scripts/import-subs-csv.mjs": "ce7b6fbe82e321c3d337603817161d4659fa63b391f4391ffc6b6c88f7319c87",
+    "scripts/import-temp-leads.mjs": "c8c69884bcc31ddd61727ecb3119d9548af862d99ad8f733f5616eb832f59255",
+    "scripts/import-undo.mjs": "16b20541b1eb2e54dc5ead3de60bf0f443d40ef84af5beffb7d3a1a6a33a14d1",
+    "scripts/report-work-item-collisions.mjs": "c9f3743600622e60cc6716759382a4886e7cb05e1f9a5f36121accfdaecad3a5",
+    "scripts/restore.mjs": "bc3cc17d8cd68f20ff6af49cefb94ecd8776971670fad8a969cd6ecb81dd0ba5",
+    "scripts/run-business-agent.mjs": "7e22d7108d49cb9a81aebee5af529ed65b26fc82a0071c807f76fcce9992b439",
+    "scripts/run-claude-agent.mjs": "fc470c03d6a7e52c4a408e5d0a4356209a4dfd1856fc1a7ccdf6d24a5d7280c1",
+    "scripts/upsert-inbox-work-items.mjs": "c0033789b9004fc6ffa27ff4e35921b794e6f2195de3fadac6fe46f30f6ff014",
+    "db/apply-comms-sms-voice.mjs": "8b17910a69dfd4e59764f9c869adca361c24ee59ceb44db3b42018f494be7cdb",
+    "db/apply-detectors.mjs": "8c41a34360277576b57bd2f51bf31a97d70cee730d71bcb8651b954cc6c09072",
+    "db/apply-multi-assignees.mjs": "ac51245395d5c62c746adb639c82b3098604c8b6fb5241fa01707dacf76e6186",
+    "db/apply-notifications-v2.mjs": "79706687b273161616f40f04f6bd9836058d3f573c7ee6cbac91b67f46d10581",
+    "db/apply-orchestration-p1.mjs": "e651077cc1de005d29cf0188e01da30bd85c63a25c0374dce56fcfef3f54bf4b",
+    "db/apply-orchestration-p2.mjs": "53fcf41e2136282998a946106213b778f4d157e421f009cabf1fdc233fff4abf",
+    "db/apply-orchestration-p3.mjs": "b8e8e434a843ae4290ac475b0a5cc1cb4fab4e0c7f7a027d4e23daa1a8934363",
+    "db/apply-orchestration-p4.mjs": "1600747b9c574d88e88e73aae8124318cf4787ef630e43864a34d91e02547911",
+    "db/apply-orchestration-p5.mjs": "37b0ab3355db8a9f1765b6fc86743dce3996be1875da2e45a8bfab0d332a8b2c",
+    "db/apply-owner-grants.mjs": "3601be6da91d4f51fa4e45bedbd135693605d08a485536caff4dbcd0b802f9e1",
+    "db/apply-run-steers.mjs": "86c761e1b777016067d2f2ed6f558d27b2a2437df31bb76a3434e861c44b2dff",
+    "db/apply-runbook-instances.mjs": "57afdf1811a1f7849108b6d3e5bf2365196bd2ae9d6be0c5d172fb69b903f6c2",
+    "db/apply-scheduled-snooze.mjs": "fd9c93a309fbb9f58aa5e393d4077c49258b727015b7aca02a802ee151099596",
+    "db/apply-staff-separation.mjs": "728c67931b5628cb168ee59ee3ab548288d3f846e7268ca0818bad7ba956d008",
+    "db/apply-thread-folders.mjs": "d30763e53ef40b92f1f522f172be59c95d23593c1a43ba7a1e9b17aaa0944034",
+    "db/apply-unsorted-docs.mjs": "c21fde753b2530df66c49a3f5a3e289d158431259087bc25581e1c60f8c74853",
+    "db/apply-work-item-archive.mjs": "5cccd13b84a3b1625a1b88df36348560401971f66f1e768863cf9295f76dcbb7",
     "db/migrations/0001_foundation_commands_decisions_actions.sql": "4c78318f2a170b244e5206f94f4a2752fa52aa4038525c389072e6b8c0cf220f",
     "db/migrations/0002_obligations.sql": "aebd8f55d75e0f7933b830835195ee5c03de86e83da573e08eaa3af9c78eb5e9",
     "db/migrations/0003_runbook_v2.sql": "b50441b7556f63b0ae08bef74d1678a77d9bab0bf6ace1381afaf1ad4b4c82c5",
@@ -209,24 +209,25 @@
     "db/migrations/0100_ask_launch_sessions_browser_core.sql": "dd0deca0d6bc5ec0ea573fe6214d62889d238027e5d91a69256d0b4aa2d99f04",
     "db/migrations/0105_ask_thread_ownership.sql": "3a105fc3041b26f3ef73d7796bf7cdf4aff6dae3bfa5df9d4d8e9bcf85311cf3",
     "db/schema.sql": "45f9c44b5137ee148c85cdab9a9335f69929514e9dc679693985b0fb4b31989d",
-    "db/seed-workflow-runbooks.mjs": "d7bc6de5467359b85364c72042184f34aed5baabf61093347b4dd8ff81ad5dad",
+    "db/seed-workflow-runbooks.mjs": "8f1b9e05bbb08312b1e81fd90aa1b852ce33b53367880dad4b4f3883281c0a29",
     "db/seed.sql": "fe0fa36f0ade311fe5d64ae7d878e249977ab3f653e29d9b24178dba87745400",
-    "db/apply-push-outbox.mjs": "d03f2a72e47ceae67df7a2d7d3416d96e65d992960eb89b6dc32b9f8d18d43c5",
+    "db/apply-push-outbox.mjs": "3466c5e4f0dbaecf175fd55c31de18a7a989a8972e399b86bdf05771c5739627",
     "db/migrations/0031_payment_push.sql": "a8966c4e6eefdc555fab618955c522910288b85122aa6fd9384140784df7892c",
     "db/migrations/0039_contract_signed_push.sql": "e4b4936b69c08a3876d0fd671f48083f9bacc449315c999b2b88708aedca6063",
-    "lib/ask-canvases.ts": "8296a9d877ba5117ead99d4efa1366c554e57c6056672c9c3958d4005af9491e",
+    "lib/ask-canvases.ts": "01c00e81c81287a6d53a4c0ee6bae509dfce8774ff78988f205fdafa39887774",
     "mcp/canvas-tools.mjs": "af488ec1f424bc8055d6b03f89211788fd55e1ecfdc61eefb0abfd9f1f8e2a10",
-    "db/migrations/0106_ask_canvases.sql": "1d0be83ed45a0662e078f96c93eafbcf36dc6fbf4593fdb1270d07c0e7876599",
+    "db/migrations/0106_ask_canvases.sql": "70f5bbb072ed8556de75f5f92e9a25f1dd25775b2e08236176dc1539ded4d5b2",
     "app/api/ai/status/route.ts": "3a0c97e55da2ce202efc8a8e99f9760a39b102a86d5a253e45131a62b6de7f40",
-    "lib/ask-context-inputs.mjs": "0c10b89980e347ec727e9b0bcec36eb3592a2447bd16aad7fe46cbf9b02e4d1b",
-    "lib/ask-context-provenance.mjs": "601700e01aad5ce2c6f5d91ca2dfd472081d93886967e848891b1d8140f31702",
-    "db/migrations/0107_ask_context_provenance.sql": "36fbd54753d637feff385c1eb90f8d01fd1fc4e282a2e0271a391b5d75d9f23c",
+    "lib/ask-context-inputs.mjs": "af65c037719681a63a75d98b6392928c57fb353d35747ff532f7a139c07d6323",
+    "lib/ask-context-provenance.mjs": "95c80e0ea80037091bb18f49b13f358aaf9c5f9431e97455f47cc04389e86bca",
+    "db/migrations/0107_ask_context_provenance.sql": "7bc8c79be39a9f22255a31cac6cfdfa901dcee56bde01af12ba2358f27bf4ddc",
     "lib/canvas-deletion-ledger.mjs": "3e6d36ac35edc8d5247979499249738d547c5ef36c2b7174fdada2a98614be9b",
     "lib/canvas-exports.ts": "ee22fbcd52d58ff2481ed97a23375f33b42fa5b99362b6c91a4b49d20f0d3419",
-    "lib/canvas-file-access.ts": "1634d44482aa3cda481e6eca9938ea29c8a3ab44bd350e8563f2afcac831aba8",
+    "lib/canvas-file-access.ts": "773cd733f86d645a4fe2cd84e26b92f26ecd9ea5a07c9ee2a23f505737a7491f",
     "db/migrations/0108_ask_canvas_files.sql": "7e9f4bd66bbdd24a1b3de3eb627610e5404dce19c202a4512b8f9f94d61b2bba",
     "app/api/internal/canvas-files/route.ts": "133f5fd6aea6328e21816ea17430ddeed8d46adc4394039dcc13614433bcd236",
-    "mcp/canvas-file-call.mjs": "b907399c91f7347715966af7bc6b6d41b906451a062d5122e498282dfb3b7183"
+    "mcp/canvas-file-call.mjs": "b907399c91f7347715966af7bc6b6d41b906451a062d5122e498282dfb3b7183",
+    "scripts/qa-seed-canvas.mjs": "28ceb73b9e8ceca6a4c3c5bd9edf75c57f41143e2611e9b8a1512a0582083146"
   },
   "entries": [
     {
@@ -4169,7 +4170,7 @@
       "function": "buildManifest",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Explicit operator-only import/backup/restore/role CLI, not a request-time arbitrary table reader; dynamic table names from reviewed catalog/snapshot or fixed business whitelist.",
+      "explanation": "Explicit operator-only import/backup/restore/role CLI, not a request-time arbitrary table reader; dynamic table names from reviewed catalog/snapshot or fixed business whitelist. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "8c06010dd54282aa460677db5a0cfee8d25f278697e082b5c8fc7a036948063c"
       ]
@@ -4179,7 +4180,7 @@
       "function": "<module>",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Owner-invoked schema/import/repair/report CLI, not a request reader. Migration 0105 removes automatic private reply fan-out, scopes runtime derivatives with FORCE RLS and restricts repair execution to the website session identity.",
+      "explanation": "Owner-invoked schema/import/repair/report CLI, not a request reader. Migration 0105 removes automatic private reply fan-out, scopes runtime derivatives with FORCE RLS and restricts repair execution to the website session identity. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "12c062e37b7e80f581220f122f7e36e72a3ba3304856531c00668b9c9569dc3b"
       ]
@@ -4189,7 +4190,7 @@
       "function": "uniqueSlug",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Explicit operator-only import/backup/restore/role CLI, not a request-time arbitrary table reader; dynamic table names from reviewed catalog/snapshot or fixed business whitelist.",
+      "explanation": "Explicit operator-only import/backup/restore/role CLI, not a request-time arbitrary table reader; dynamic table names from reviewed catalog/snapshot or fixed business whitelist. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "12369316fc1b3722fca39e32057227a177030be1b98ef9bb473c8d90ee987b22"
       ]
@@ -4199,7 +4200,7 @@
       "function": "main",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Explicit operator-only import/backup/restore/role CLI, not a request-time arbitrary table reader; dynamic table names from reviewed catalog/snapshot or fixed business whitelist.",
+      "explanation": "Explicit operator-only import/backup/restore/role CLI, not a request-time arbitrary table reader; dynamic table names from reviewed catalog/snapshot or fixed business whitelist. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "e3ac76fe527cdf8ceb659000908e1d7249cffaf35f046b94563f2376618d9161",
         "5a9293ca77e1f69ccf057fd05596d82a06076a70a9504c4c94dae49acc04017f",
@@ -4212,9 +4213,9 @@
       "function": "<private-files>",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Explicit owner CLI import of user-supplied source, outside HTTP/MCP request boundary; filesystem administrator/operator shell isolation is not claimed.",
+      "explanation": "Explicit owner CLI import of user-supplied source, outside HTTP/MCP request boundary; filesystem administrator/operator shell isolation is not claimed. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
-        "4f8d0998050f9be771fe63d33563c4c5b4d2c40d9f642623df585a22e4128977"
+        "ce7b6fbe82e321c3d337603817161d4659fa63b391f4391ffc6b6c88f7319c87"
       ]
     },
     {
@@ -4222,7 +4223,7 @@
       "function": "main",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Owner-invoked schema/import/repair/report CLI, not a request reader. Migration 0105 removes automatic private reply fan-out, scopes runtime derivatives with FORCE RLS and restricts repair execution to the website session identity.",
+      "explanation": "Owner-invoked schema/import/repair/report CLI, not a request reader. Migration 0105 removes automatic private reply fan-out, scopes runtime derivatives with FORCE RLS and restricts repair execution to the website session identity. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "a51e53f9a85dfae0480ac122d7d33f577c3aea8b0f7d74cbf272684da40aff5e"
       ]
@@ -4232,7 +4233,7 @@
       "function": "importOne",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Owner-invoked schema/import/repair/report CLI, not a request reader. Migration 0105 removes automatic private reply fan-out, scopes runtime derivatives with FORCE RLS and restricts repair execution to the website session identity.",
+      "explanation": "Owner-invoked schema/import/repair/report CLI, not a request reader. Migration 0105 removes automatic private reply fan-out, scopes runtime derivatives with FORCE RLS and restricts repair execution to the website session identity. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "adb887523b83cb8aa511f61c4585f2d515208f5de38d14bab2dade5c49312ebe"
       ]
@@ -4242,7 +4243,7 @@
       "function": "uniqueSlug",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Explicit operator-only import/backup/restore/role CLI, not a request-time arbitrary table reader; dynamic table names from reviewed catalog/snapshot or fixed business whitelist.",
+      "explanation": "Explicit operator-only import/backup/restore/role CLI, not a request-time arbitrary table reader; dynamic table names from reviewed catalog/snapshot or fixed business whitelist. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "12369316fc1b3722fca39e32057227a177030be1b98ef9bb473c8d90ee987b22"
       ]
@@ -4252,7 +4253,7 @@
       "function": "allIds",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Explicit operator-only import/backup/restore/role CLI, not a request-time arbitrary table reader; dynamic table names from reviewed catalog/snapshot or fixed business whitelist.",
+      "explanation": "Explicit operator-only import/backup/restore/role CLI, not a request-time arbitrary table reader; dynamic table names from reviewed catalog/snapshot or fixed business whitelist. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "7f84ec13cd0c1dc21d7a6555c70cff6d859dcbeca0d811b50a75ebf33d0acb3d"
       ]
@@ -4262,7 +4263,7 @@
       "function": "main",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Explicit operator-only import/backup/restore/role CLI, not a request-time arbitrary table reader; dynamic table names from reviewed catalog/snapshot or fixed business whitelist.",
+      "explanation": "Explicit operator-only import/backup/restore/role CLI, not a request-time arbitrary table reader; dynamic table names from reviewed catalog/snapshot or fixed business whitelist. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "f2c7629c718aa9bcd8c17cabf3ec7ea114a91807ee2ca6f579bffcf2d8ab23af"
       ]
@@ -4272,7 +4273,7 @@
       "function": "collisionReport",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Owner-invoked schema/import/repair/report CLI, not a request reader. Migration 0105 removes automatic private reply fan-out, scopes runtime derivatives with FORCE RLS and restricts repair execution to the website session identity.",
+      "explanation": "Owner-invoked schema/import/repair/report CLI, not a request reader. Migration 0105 removes automatic private reply fan-out, scopes runtime derivatives with FORCE RLS and restricts repair execution to the website session identity. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "17e4aad8f94cf02361a6ced49d8a779ac22a12445165f0421301b0c630027b5c",
         "4149ab38d61e212fda6e4215d8858aa8d2bd55f02e26a3fc4d1196e5444d1abd",
@@ -4284,7 +4285,7 @@
       "function": "<module>",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Explicit operator-only import/backup/restore/role CLI, not a request-time arbitrary table reader; dynamic table names from reviewed catalog/snapshot or fixed business whitelist.",
+      "explanation": "Explicit operator-only import/backup/restore/role CLI, not a request-time arbitrary table reader; dynamic table names from reviewed catalog/snapshot or fixed business whitelist. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "48d139fb72b2ef4945773ae2013ebe18c78d7e1592ff3388f358dbc34cb63c35",
         "d36194e673b728bca961de4988310e4311e3e94bbb269b9606538d1168990772",
@@ -4296,7 +4297,7 @@
       "function": "main",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Owner-invoked schema/import/repair/report CLI, not a request reader. Migration 0105 removes automatic private reply fan-out, scopes runtime derivatives with FORCE RLS and restricts repair execution to the website session identity.",
+      "explanation": "Owner-invoked schema/import/repair/report CLI, not a request reader. Migration 0105 removes automatic private reply fan-out, scopes runtime derivatives with FORCE RLS and restricts repair execution to the website session identity. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "0ee7946ec03291e551e544f7fe9d9dab5884afc99ca9648cc92216abb5c82f2a",
         "c7dd9ea60ed1635ef6a7e313dfe8f3ea34590379767c365c513ed865935e2a22",
@@ -4308,7 +4309,7 @@
       "function": "finish",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
         "8b1560c6e168c30b18795c952ebe3d55ec5c3ee09258ac0079f2de4ca6aedfb7"
       ]
@@ -4318,7 +4319,7 @@
       "function": "loadBusinessInstructions",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
         "83e87abc3140c7f9aa8116e2e9d31b8d4f94f1d9c179711f83345fa7c44ead17"
       ]
@@ -4328,7 +4329,7 @@
       "function": "withPrivateThread",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
         "93d74da8c9eb24d497fdefbb0fd22ca8d0b79a22e0da5955fd2efd88da8a456d"
       ]
@@ -4338,7 +4339,7 @@
       "function": "unseenTranscriptAllowed",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
         "59d12e8789ee21d5b8143a6ffdbc3d13c4ec12dfaa1351af896d917acbf9c98c",
         "88ebd7459751936276e24f654300874ccc2b0431fa6fbf3935d9dd7895b3b87e",
@@ -4351,7 +4352,7 @@
       "function": "flushActivity",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
         "774fe30d11c3b50c0c837c45c0cf4e359ea0154cb37ddd10843f1cd98142d5ce"
       ]
@@ -4361,7 +4362,7 @@
       "function": "recordEffect",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
         "dfa194b218f6dd80fc76c7950de629320e3acdfccb1a61029f86c636a4fb70a8"
       ]
@@ -4371,7 +4372,7 @@
       "function": "steerText",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
         "9279a9ca37f0534a1614678e4a41bb63fefab65a6d3602c4d1d6df16c3db9871"
       ]
@@ -4381,7 +4382,7 @@
       "function": "takeSteers",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
         "b45f19824a96ecc80a7f3676263b451fc05c0db722ddd64f28585fceb3d1be78"
       ]
@@ -4391,7 +4392,7 @@
       "function": "takeSteersAllowed",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
         "30f0ea9bc857d2472671122a0f35de79b5f157e797e2adbc7e62ca8fa56e9401"
       ]
@@ -4401,7 +4402,7 @@
       "function": "onResult",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
         "984bd9c89085de18d4500cabb58a6d3ac5c270653585ae73453838cbab89b435",
         "9ffb1462e668c9e896b46d01f5fc282506ccd7967370f8e2e678e60e945cc37d"
@@ -4412,7 +4413,7 @@
       "function": "runClaude",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
         "a19e42712b7ba67e916466a0ade96bb32d1fe7f23871e5d56cfc61460e88faa6",
         "4e0c26c09d9b576f717c7f5e328fd70b29c245e7a98e12f2f34aaea0089687b4"
@@ -4423,7 +4424,7 @@
       "function": "main",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
         "89343d8319760171f6d576c3b203d2163f4110db777f7e799347876c2bfdc1b8",
         "cdecc5e9352632e0c945e53fed5dccedf0f835c79fcdef8f4812d243875b0430",
@@ -4436,7 +4437,7 @@
       "function": "recordUsage",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
         "b0ed78c6cf5b9a2e00965c9ee4a646e5a598ada81509183fd9ed4dd1631894b8"
       ]
@@ -4446,7 +4447,7 @@
       "function": "persistToConversationAllowed",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
         "ee628970cbfd2e5421846752fddffefc5b1b1658ec2146ee9161a334c26d3a99",
         "2dea732b7c2df176ce9e3d81b69ed2b9291420f257f1a0ce2b558b36ab9ebee9"
@@ -4457,7 +4458,7 @@
       "function": "slugToId",
       "classification": "not-private",
       "reason": "owner-health-opaque-ids",
-      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review.",
+      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "b83e41480a4377ccd3d8f141076c66ef72afd1c01038b49464973e365784fd15"
       ]
@@ -4467,7 +4468,7 @@
       "function": "<module>",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Owner-invoked schema/import/repair/report CLI, not a request reader. Migration 0105 removes automatic private reply fan-out, scopes runtime derivatives with FORCE RLS and restricts repair execution to the website session identity.",
+      "explanation": "Owner-invoked schema/import/repair/report CLI, not a request reader. Migration 0105 removes automatic private reply fan-out, scopes runtime derivatives with FORCE RLS and restricts repair execution to the website session identity. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "dc43644a23c46fa34a53e483fe77be3701f7509ac2a39e7defe7b713fd0dfae3",
         "c2e80277440672093f239d43f00ec2e0b9207fe9fa036cba11ae3caa70a3d352",
@@ -4479,7 +4480,7 @@
       "function": "<module>",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Owner-invoked schema/import/repair/report CLI, not a request reader. Migration 0105 removes automatic private reply fan-out, scopes runtime derivatives with FORCE RLS and restricts repair execution to the website session identity.",
+      "explanation": "Owner-invoked schema/import/repair/report CLI, not a request reader. Migration 0105 removes automatic private reply fan-out, scopes runtime derivatives with FORCE RLS and restricts repair execution to the website session identity. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "a0a3c4aa6dabb7f59113234fd6029b9bc9b37d906d709ddbc22e6acb71cacb38",
         "b693421672ff0b7dd404b43d569770c3741e457c86825caa25ae5545166f4180"
@@ -4490,7 +4491,7 @@
       "function": "<module>",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Owner-invoked schema/import/repair/report CLI, not a request reader. Migration 0105 removes automatic private reply fan-out, scopes runtime derivatives with FORCE RLS and restricts repair execution to the website session identity.",
+      "explanation": "Owner-invoked schema/import/repair/report CLI, not a request reader. Migration 0105 removes automatic private reply fan-out, scopes runtime derivatives with FORCE RLS and restricts repair execution to the website session identity. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "642bb1c0def4dcf609209c2f15b7ec51460f78a4999b4f0f7d71cf8c319eb810",
         "e8c38a092197b4e973cd75d4f9659b54512c7c8ae4fd6804dece57518842a442"
@@ -4501,7 +4502,7 @@
       "function": "<module>",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers.",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "8174439ae6ebf776e23970fabdc80d517541e9e3a714621fdea1edc542300d79",
         "e540e0e17d5b914c096049f05d4d18478990851568043180517a6451aa8331e8",
@@ -4530,7 +4531,7 @@
       "function": "<module>",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers.",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "b175f35559b29288b170ded59f200e7d720ece8068207e73b07a3cb6033c7825",
         "359f24c919d26f936b3b71a71902a4309359d404f2904e679a17a90d24cbd27a"
@@ -4541,7 +4542,7 @@
       "function": "<module>",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers.",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "836115273e71403640aa5613d414868555eb9b9871b065a074eb980dbd4f4adc",
         "8af48171c21556a11aeab86a255ab345b99742935cf5acdcbf6fabf1ce99a66d",
@@ -4553,7 +4554,7 @@
       "function": "<module>",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers.",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "06db336b7ff91b83ef256ec9e8c802fb0a58a19bbd1351e3644414a58fcfea55"
       ]
@@ -4563,7 +4564,7 @@
       "function": "<module>",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers.",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "6e3b5e877b8dc312bacb06c22f39da0eb1852d53c21008fec2d9c4277c492862",
         "6e33e9c099cae255e481da392ed8cae76c9d44c9095db10736755c7b3173ca09",
@@ -4576,7 +4577,7 @@
       "function": "<module>",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers.",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "4815762ddc24a82009eef4df9f5f001d911843bec450b656f10690a80253d6d5",
         "30145911a878c7930e3d38e97146926549957ae7d50b56cf6fea8f60f02ec71c",
@@ -4590,7 +4591,7 @@
       "function": "<module>",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers.",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "2f12c9c7697fe8d8f60d39f15d03f9789c14a415a30b062a0dfe463ebd38286a"
       ]
@@ -4600,7 +4601,7 @@
       "function": "<module>",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers.",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "47e9475fa8d7e5b69d6842f6a5697cd70e97d9a4073cf9c3983ff875c15140c7",
         "c445b04b19c0f23c1226a2acc2b30d10b9218292e22c5761c4a83e5abcac227c",
@@ -4612,7 +4613,7 @@
       "function": "<module>",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Owner-invoked schema/import/repair/report CLI, not a request reader. Migration 0105 removes automatic private reply fan-out, scopes runtime derivatives with FORCE RLS and restricts repair execution to the website session identity.",
+      "explanation": "Owner-invoked schema/import/repair/report CLI, not a request reader. Migration 0105 removes automatic private reply fan-out, scopes runtime derivatives with FORCE RLS and restricts repair execution to the website session identity. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "b8781c9a4c24f7c2682bc7deb0b1c43b16f52fd992c7460b6b260366437ab568",
         "1f46148a64507122fb80b1dcc1daaa3a97e0cb08f8def37432ec5919279a08ed"
@@ -4623,7 +4624,7 @@
       "function": "<module>",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Owner-invoked schema/import/repair/report CLI, not a request reader. Migration 0105 removes automatic private reply fan-out, scopes runtime derivatives with FORCE RLS and restricts repair execution to the website session identity.",
+      "explanation": "Owner-invoked schema/import/repair/report CLI, not a request reader. Migration 0105 removes automatic private reply fan-out, scopes runtime derivatives with FORCE RLS and restricts repair execution to the website session identity. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "2ba3bcd63f1a6a558826eb171f8b0ad537f8b9a5756eb2696d6a1e3999dc3ae8",
         "32126d686e693866162ad25dfe2fabecdddf32cdce535b91edc1f2d0f45bed48"
@@ -4634,7 +4635,7 @@
       "function": "<module>",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers.",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "e41469081c062c1d1ca3171913ca2e81b87a2ab48e1d3a197d564bc0c0151e19",
         "29f833200b8f4e6f0cc937d3b00a4dd03bbaf64c9f85f07e9f2613d26762703d",
@@ -4647,7 +4648,7 @@
       "function": "<module>",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers.",
+      "explanation": "Owner-only schema/migration SQL: creates privacy guards/RLS or historical business tables; not a request-time reader. Never run by narrow callers. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "2b59b79dd6fda430c6f9edb07aeb87056d51936d09ffa12528611616073fe8a2",
         "0f39f7cc111bc574be95efe1272a8d5e2b476d31431a5ee053124b691524eb84",
@@ -4661,7 +4662,7 @@
       "function": "<module>",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Owner-invoked schema/import/repair/report CLI, not a request reader. Migration 0105 removes automatic private reply fan-out, scopes runtime derivatives with FORCE RLS and restricts repair execution to the website session identity.",
+      "explanation": "Owner-invoked schema/import/repair/report CLI, not a request reader. Migration 0105 removes automatic private reply fan-out, scopes runtime derivatives with FORCE RLS and restricts repair execution to the website session identity. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "fd65ddb5115c5ccb88299e9665251b97a75ebdd90a8c52349909d20edc4faec3",
         "8c24fab1f9c4bf58982cea91937ea8ba2bae88878392fd99c591188bab9e8c45"
@@ -4672,7 +4673,7 @@
       "function": "<module>",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Owner-invoked schema/import/repair/report CLI, not a request reader. Migration 0105 removes automatic private reply fan-out, scopes runtime derivatives with FORCE RLS and restricts repair execution to the website session identity.",
+      "explanation": "Owner-invoked schema/import/repair/report CLI, not a request reader. Migration 0105 removes automatic private reply fan-out, scopes runtime derivatives with FORCE RLS and restricts repair execution to the website session identity. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "988c99d5ba8f2860f3463bae48f66fd07d391e486d444f0db87c96cea40ca2e2",
         "7998a6bfb922a082dc09bc75a7b29e5e1ee5d093f5ae097294c003670c2dc39c",
@@ -5014,7 +5015,7 @@
       "function": "<module>",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Owner-invoked schema/import/repair/report CLI, not a request reader. Migration 0105 removes automatic private reply fan-out, scopes runtime derivatives with FORCE RLS and restricts repair execution to the website session identity.",
+      "explanation": "Owner-invoked schema/import/repair/report CLI, not a request reader. Migration 0105 removes automatic private reply fan-out, scopes runtime derivatives with FORCE RLS and restricts repair execution to the website session identity. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "b547e664f0d7b15398c3662787830c4f12b84143dc6d8a672e4c6dde1bb6f8e3"
       ]
@@ -5032,7 +5033,7 @@
     {
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Owner-invoked schema migration/installer, never a request reader. Push schema/kind/index changes only. 0105 removes historical private card text, fences replay/late writes and keeps private source registry website-only; existing narrow push grants unchanged.",
+      "explanation": "Owner-invoked schema migration/installer, never a request reader. Push schema/kind/index changes only. 0105 removes historical private card text, fences replay/late writes and keeps private source registry website-only; existing narrow push grants unchanged. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "file": "db/apply-push-outbox.mjs",
       "function": "<module>",
       "queries": [
@@ -5115,9 +5116,9 @@
       "function": "<sql>",
       "classification": "not-private",
       "reason": "owner-health-opaque-ids",
-      "explanation": "Owner-installed DDL for private canvas schema, immutable identities/snapshots, composite thread references, website session_user guards, quotas/rates and fenced retention/reconciliation. No narrow grants or public command EXECUTE. Stores hashes/opaque provenance references; no operational reader bypass.",
+      "explanation": "R1 reviewed unapplied DDL: website-only bounded source-free attempt state; terminal trigger reauthorizes active same-thread actor, globally/thread serializes rejected event allocation, deduplicates by run, appends fixed text, no source storage. SECURITY DEFINER fixed search_path; PUBLIC revoked; no narrow grants. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
-        "1d0be83ed45a0662e078f96c93eafbcf36dc6fbf4593fdb1270d07c0e7876599"
+        "70f5bbb072ed8556de75f5f92e9a25f1dd25775b2e08236176dc1539ded4d5b2"
       ]
     },
     {
@@ -5135,9 +5136,9 @@
       "function": "<sql>",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "0107 migration/schema: website-only hash manifests, no narrow grants; SECURITY DEFINER triggers take the conversation row lock.",
+      "explanation": "R1 reviewed unapplied DDL: exact server control envelope inherits immutable same-thread baseline and hashes full message. Arbitrary appended facts/foreign records remain unknown; trigger and helper have fixed search_path and PUBLIC revoked. Epoch and input tables remain website-only. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
-        "36fbd54753d637feff385c1eb90f8d01fd1fc4e282a2e0271a391b5d75d9f23c"
+        "7bc8c79be39a9f22255a31cac6cfdfa901dcee56bde01af12ba2358f27bf4ddc"
       ]
     },
     {
@@ -5145,9 +5146,9 @@
       "function": "<private-files>",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Secret-only closed stdio route revalidates live runner via withPrivateRunner and journal; helpers inherit owned conversation and thread serialization. Readers begin before bounded filesystem work and complete before delivery. Attachment IDs resolve same-thread pinned generations; no raw SQL grants.",
+      "explanation": "R1 server audit: epoch admission locks the owned thread, verifies each previous business policy/prompt/delivery and message hash, and never clears unknown. Canonical instruction envelopes use exact server templates and same-thread immutable Canvas metadata. Capability reads only to_regclass; no error downgrade. Closed stdio before-delivery gates and bounded readers retained. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
-        "0c10b89980e347ec727e9b0bcec36eb3592a2447bd16aad7fe46cbf9b02e4d1b"
+        "af65c037719681a63a75d98b6392928c57fb353d35747ff532f7a139c07d6323"
       ]
     },
     {
@@ -5155,10 +5156,13 @@
       "function": "admitEpoch",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Secret-only closed stdio route revalidates live runner via withPrivateRunner and journal; helpers inherit owned conversation and thread serialization. Readers begin before bounded filesystem work and complete before delivery. Attachment IDs resolve same-thread pinned generations; no raw SQL grants.",
+      "explanation": "R1 server audit: epoch admission locks the owned thread, verifies each previous business policy/prompt/delivery and message hash, and never clears unknown. Canonical instruction envelopes use exact server templates and same-thread immutable Canvas metadata. Capability reads only to_regclass; no error downgrade. Closed stdio before-delivery gates and bounded readers retained. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
-        "5b221f26c208c9bb06bc01591d4f4b8d24b9cd97c57f43de4f0b761c85b64d61",
-        "5003c25756fe988db94ba4c84f5772531d7e10c9fa04dd9c879c0ac4677cf62d"
+        "b5fe66c3b0827e76af283406c7e1434a4c02629d250138457c1225a95bdd25ea",
+        "0cbe237e0c916455970207cb1b3f38c1c75d9e06fb18412490b485252dfa1866",
+        "dea7baed53b1e9f95d9f2513493880603e38d9c251be112a1891ef1b8345cc1b",
+        "5003c25756fe988db94ba4c84f5772531d7e10c9fa04dd9c879c0ac4677cf62d",
+        "5ce90c43a8619858400d4823dbcad8de43b00ce67deab8e73cc2ab069b2b01bc"
       ]
     },
     {
@@ -5166,7 +5170,7 @@
       "function": "beginInput",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Secret-only closed stdio route revalidates live runner via withPrivateRunner and journal; helpers inherit owned conversation and thread serialization. Readers begin before bounded filesystem work and complete before delivery. Attachment IDs resolve same-thread pinned generations; no raw SQL grants.",
+      "explanation": "R1 server audit: epoch admission locks the owned thread, verifies each previous business policy/prompt/delivery and message hash, and never clears unknown. Canonical instruction envelopes use exact server templates and same-thread immutable Canvas metadata. Capability reads only to_regclass; no error downgrade. Closed stdio before-delivery gates and bounded readers retained. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
         "d7472189ba57ac6797b82633d7489515ad018fffb6c0383109e6a3ff0f1acb65",
         "742f20071b3c8555a94d36f2c40c23c18359661f526e68f237a022d4b9ef5314"
@@ -5177,7 +5181,7 @@
       "function": "completeInput",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Secret-only closed stdio route revalidates live runner via withPrivateRunner and journal; helpers inherit owned conversation and thread serialization. Readers begin before bounded filesystem work and complete before delivery. Attachment IDs resolve same-thread pinned generations; no raw SQL grants.",
+      "explanation": "R1 server audit: epoch admission locks the owned thread, verifies each previous business policy/prompt/delivery and message hash, and never clears unknown. Canonical instruction envelopes use exact server templates and same-thread immutable Canvas metadata. Capability reads only to_regclass; no error downgrade. Closed stdio before-delivery gates and bounded readers retained. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
         "ec3fcbe9ea0f82991ef6324e64bc0ec7b556d555fa25deb93e10a22ea506d515",
         "cb46cf49b4a5d0103881f7e80831613cb5ac3049b5959a60e61b327e5cbf43ba",
@@ -5189,7 +5193,7 @@
       "function": "contextCommand",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Secret-only closed stdio route revalidates live runner via withPrivateRunner and journal; helpers inherit owned conversation and thread serialization. Readers begin before bounded filesystem work and complete before delivery. Attachment IDs resolve same-thread pinned generations; no raw SQL grants.",
+      "explanation": "R1 server audit: epoch admission locks the owned thread, verifies each previous business policy/prompt/delivery and message hash, and never clears unknown. Canonical instruction envelopes use exact server templates and same-thread immutable Canvas metadata. Capability reads only to_regclass; no error downgrade. Closed stdio before-delivery gates and bounded readers retained. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
         "9672328079e8abb786cd1e3da04e5999c9d0e10e315afcb46d781c4fad337759",
         "41dfddc827f442458eec3d6c248e62d8940b749bd811645b7cc2b386e2e9f34c",
@@ -5202,7 +5206,7 @@
       "function": "formatQuestionResult",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Secret-only closed stdio route revalidates live runner via withPrivateRunner and journal; helpers inherit owned conversation and thread serialization. Readers begin before bounded filesystem work and complete before delivery. Attachment IDs resolve same-thread pinned generations; no raw SQL grants.",
+      "explanation": "R1 server audit: epoch admission locks the owned thread, verifies each previous business policy/prompt/delivery and message hash, and never clears unknown. Canonical instruction envelopes use exact server templates and same-thread immutable Canvas metadata. Capability reads only to_regclass; no error downgrade. Closed stdio before-delivery gates and bounded readers retained. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
         "4f922b9ff17871a5e3b7d81e2401dcda73aef08fe55a991a21900a55538d3ebd"
       ]
@@ -5212,7 +5216,7 @@
       "function": "lock",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Secret-only closed stdio route revalidates live runner via withPrivateRunner and journal; helpers inherit owned conversation and thread serialization. Readers begin before bounded filesystem work and complete before delivery. Attachment IDs resolve same-thread pinned generations; no raw SQL grants.",
+      "explanation": "R1 server audit: epoch admission locks the owned thread, verifies each previous business policy/prompt/delivery and message hash, and never clears unknown. Canonical instruction envelopes use exact server templates and same-thread immutable Canvas metadata. Capability reads only to_regclass; no error downgrade. Closed stdio before-delivery gates and bounded readers retained. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
         "ae2b7bbc512f6ff324a7181b17ba2762fc62a7ccc4077855eaa0983d591e0db8"
       ]
@@ -5222,7 +5226,7 @@
       "function": "readerCommand",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Secret-only closed stdio route revalidates live runner via withPrivateRunner and journal; helpers inherit owned conversation and thread serialization. Readers begin before bounded filesystem work and complete before delivery. Attachment IDs resolve same-thread pinned generations; no raw SQL grants.",
+      "explanation": "R1 server audit: epoch admission locks the owned thread, verifies each previous business policy/prompt/delivery and message hash, and never clears unknown. Canonical instruction envelopes use exact server templates and same-thread immutable Canvas metadata. Capability reads only to_regclass; no error downgrade. Closed stdio before-delivery gates and bounded readers retained. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
         "9672328079e8abb786cd1e3da04e5999c9d0e10e315afcb46d781c4fad337759"
       ]
@@ -5232,7 +5236,7 @@
       "function": "readPinnedAttachment",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Secret-only closed stdio route revalidates live runner via withPrivateRunner and journal; helpers inherit owned conversation and thread serialization. Readers begin before bounded filesystem work and complete before delivery. Attachment IDs resolve same-thread pinned generations; no raw SQL grants.",
+      "explanation": "R1 server audit: epoch admission locks the owned thread, verifies each previous business policy/prompt/delivery and message hash, and never clears unknown. Canonical instruction envelopes use exact server templates and same-thread immutable Canvas metadata. Capability reads only to_regclass; no error downgrade. Closed stdio before-delivery gates and bounded readers retained. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
         "d5fed2642f048813efa50e7aac9ea098bfba063d4bac87564f2361fc6503a9b0"
       ]
@@ -5242,7 +5246,7 @@
       "function": "conversationProvenance",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Canvas-owned serialized transaction reads only current owned thread hashes; unknown, absent epoch and pending data fail closed.",
+      "explanation": "Canvas-owned serialized transaction reads only current owned thread hashes; unknown, absent epoch and pending data fail closed. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
         "200d93fa43e62a58ad17a0b0769bef1fb55906f9420471f55be653ba346c44cb",
         "c989d624dd735b00cac3e764741729c7c0bb41d207b2a032ad676dc3d271b40a"
@@ -5398,7 +5402,7 @@
       "function": "sendBidPackageOp",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "Reviewed grant approval/dispatch/business context core; website command or narrow background role subject to 0105 derivative RLS. Explicit staged-send business data and action/target metadata; not private prompt excerpts or copied run answers. MCP private reads use separate person-bound bridge.",
+      "explanation": "Reviewed grant approval/dispatch/business context core; website command or narrow background role subject to 0105 derivative RLS. Explicit staged-send business data and action/target metadata; not private prompt excerpts or copied run answers. MCP private reads use separate person-bound bridge. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
         "53525f48f576d7acba98a3ef203192c52df523985cbb939193f0ba1e2f40ea9c"
       ]
@@ -5420,7 +5424,7 @@
       "function": "getPortalBadges",
       "classification": "not-private",
       "reason": "fenced-by-helper",
-      "explanation": "Business work-item/card/intent/receipt/payment projection or conservative composed-SQL fragment. No automatic chat prompt/reply/attachment text producer here: session reply bodies are retained only in fenced owner_replies; shared blocked_reason/decision_note/event detail/intent error carry fixed status. Explicitly submitted business artifacts keep their existing business permission policy. Runtime-derived private copies are fenced separately by source person and RLS.",
+      "explanation": "Business work-item/card/intent/receipt/payment projection or conservative composed-SQL fragment. No automatic chat prompt/reply/attachment text producer here: session reply bodies are retained only in fenced owner_replies; shared blocked_reason/decision_note/event detail/intent error carry fixed status. Explicitly submitted business artifacts keep their existing business permission policy. Runtime-derived private copies are fenced separately by source person and RLS. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
         "8cd30ba009a27437d8ed69cdb83dcf343051d23773fba0bde9e2593f885d212b"
       ]
@@ -5440,9 +5444,9 @@
       "function": "<private-files>",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
-        "7a1c50563aa378c362d7a1cb930c8f2c21d6bd9774169dc00ba8fedc9a052070"
+        "730c138b81253f1373c3c48bcce15acd50d6c4184b6f796c590f5c488cb108c8"
       ]
     },
     {
@@ -5450,7 +5454,7 @@
       "function": "currentPrincipal",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "c7cc4a4ce070fe43997ec977ffa69e77c694047517cd6fb2f517d8dab09f6876",
         "b5009f50e35a4d028e63c87eb7c129630b1ce7e014012f43f387af5dc0e501d7"
@@ -5461,7 +5465,7 @@
       "function": "<module>",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "ca09fe96d9c7383d08d0cd47a0877fdc66e89e553e90fd0c96cbca4518af6d34",
         "991c635edae1d55af18c53766f9e63f46ee3e5a9ff2f23e1bd0e777361f8c7d2"
@@ -5472,7 +5476,7 @@
       "function": "buildServer",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "43c7aafdda6303de0f93195f82b057fed639bf6da9dc75c13d182ebd3f10938b",
         "dbad29046256a4bf9f587f72902e94b8b7054c5523bf24348e7c350ccb6aaa7e",
@@ -5574,7 +5578,7 @@
       "function": "slugToId",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "b83e41480a4377ccd3d8f141076c66ef72afd1c01038b49464973e365784fd15"
       ]
@@ -5584,7 +5588,7 @@
       "function": "resolveInternalUser",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "7b889e9c1198e64a578cdb12d4879e56529559004c063a4840a431192c43e420"
       ]
@@ -5594,7 +5598,7 @@
       "function": "writeAssignees",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "e10111ffbf969841b4c78365c0ba846f29f36ff5dca74e91f118983f78ec1eba"
       ]
@@ -5604,7 +5608,7 @@
       "function": "approveWouldEmail",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "c5f4eec8981050ef66c7b3be36ad54baf8b436759d5e1638f517e45a06e1899a",
         "59427563ed964b573020576066ecffefa5fef7dc4d5ea190001922e23193744b",
@@ -5616,7 +5620,7 @@
       "function": "upsertSection",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "658e3ef3be21960351143700d600d273fcba40b8120c7f76bc830b13a64cc6a6",
         "9a0770890c2df4f89b6ac4a62eac5d71b4b00b8e3d94a1445194bc113ee47168",
@@ -5628,7 +5632,7 @@
       "function": "addItems",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "55f224c631bb0fe445e86e667269c250e87d285ddcf1280545828c436d88bc74",
         "9401e9d536faf5b2255631d317536156a3ecf9de59362f4aae0d45e4064fcc73",
@@ -5640,7 +5644,7 @@
       "function": "resolveSectionParent",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "1004b94fd939fe4acc0727ae27a6f6430542e2452bde58a6b3e496a4892a3110"
       ]
@@ -5650,7 +5654,7 @@
       "function": "scopedSectionId",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
       "queries": [
         "bfc6c8fdf7af709aae87b5da8d215171999f880835b0b5215048d16cba916929"
       ]
@@ -5660,7 +5664,7 @@
       "function": "canvasFailure",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Bounded Canvas-owned orphan sweep runs only inside original 0105 maintenance lease and 106 advisory lock, durable files/trash/save reference census before unlink; no private content returned.",
+      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain.",
       "queries": [
         "30a561403dad5cc997738eb898ad8015add525d8d43dc3ff63cceb8f2a5bcd66"
       ]
@@ -5670,7 +5674,7 @@
       "function": "ownThread",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain.",
       "queries": [
         "c89f0465013225cab89a8b439597bd2aa2689aa7a1820da59dc425e7612405fe"
       ]
@@ -5680,7 +5684,7 @@
       "function": "tx",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain.",
       "queries": [
         "50a7448a52de6cfb646e7e1fab3d90e583ea0fa97762e7033556623156b5bacb",
         "8b223b94221428414877bcb156d7fcaa1efc9818ada9076d8596f604dd916bec"
@@ -5691,7 +5695,7 @@
       "function": "load",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain.",
       "queries": [
         "20148ea3e10e8612480fc712ec52808f09a921f0b31321a9da69efb357598f3e"
       ]
@@ -5701,7 +5705,7 @@
       "function": "version",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain.",
       "queries": [
         "51ec119f5e99c7faec3246cfd6bf83f450c06d0fd9e6b5911827fa8032b997b7"
       ]
@@ -5711,7 +5715,7 @@
       "function": "mutation",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain.",
       "queries": [
         "652106ad89a8c5e2f0ca781f1bcf86820ee9d38a7df6bb3a0ba1d9ca29ec5c01",
         "5c04a88b8e946e5795b2ee7a0eaf00e03ffcd7e7118a01169714d1716ae1a3d7",
@@ -5719,7 +5723,8 @@
         "8bcf25501319e55f0301b66c0afd003b78dcc7ad158aafe3d828f3689061ea1a",
         "83cd1449ccaa7b48cb19c8476f0d49812137a6c58d406cd8af188605071b58eb",
         "ac37a1a45212f3b7d71d4f16794fd9da0fcb887569040101a51fa1c83aaadd83",
-        "eff89f48f84066f02b861d9c66a1df9bfb10ea693c0100fd377acdaeaf698613"
+        "eff89f48f84066f02b861d9c66a1df9bfb10ea693c0100fd377acdaeaf698613",
+        "79d2add796a85db359375a3042ba4b8d960d678ac20442a40da181e12e953107"
       ]
     },
     {
@@ -5727,7 +5732,7 @@
       "function": "listIn",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain.",
       "queries": [
         "9f56a6536f93fa07eb7eeb9e1c895bbbe4317cc5033abcea7e3cf9d70c0ab0e9"
       ]
@@ -5737,7 +5742,7 @@
       "function": "canvasVersions",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain.",
       "queries": [
         "d8ab7ad5c22eb9e4b94997198b86660065e235170ace25c906b2945aff354696"
       ]
@@ -5747,7 +5752,7 @@
       "function": "eventsIn",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain.",
       "queries": [
         "0819bfce4fadfa90a7b3880c6aa000a10165d9ad2eee79159fbbe617f24229ed",
         "e8f49036b2859f15036d2e0fa5111376187f1f190d6bf667d6308c76022bf08d",
@@ -5759,9 +5764,10 @@
       "function": "canvasInternal",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain.",
       "queries": [
-        "9d890fca1f5ac95675c387d90e506d1e217f6775c85c60ae1a7541846a035ecd"
+        "9d890fca1f5ac95675c387d90e506d1e217f6775c85c60ae1a7541846a035ecd",
+        "13d315b3d371a7856a633a8806d793b4cf3403d7fc05194db47adf619f62b59e"
       ]
     },
     {
@@ -5769,7 +5775,7 @@
       "function": "canvasDelete",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain.",
       "queries": [
         "e9188e749d6bbd3e07202ac13bceee89d2ae32f4f678917785486d4490493741"
       ]
@@ -5872,7 +5878,7 @@
       "function": "canvasFilePredicate",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Named human or admitted runner caller supplies authenticated principal; active DB person and saved audience/project policy checked before names/bytes. SQL lists partition before metadata/counts. Lifecycle holds the global lock, retains reserved-file policy and relinks exact hash on restore without source-thread access.",
+      "explanation": "Named human or admitted runner caller supplies authenticated principal; active DB person and saved audience/project policy checked before names/bytes. SQL lists partition before metadata/counts. Lifecycle holds the global lock, retains reserved-file policy and relinks exact hash on restore without source-thread access. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
         "bc9b240da08b2419516f6c6e634b54d635083fa7423b38659c361d5a9ce0d579"
       ]
@@ -5882,7 +5888,7 @@
       "function": "canvasFileLifecycle",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Named human or admitted runner caller supplies authenticated principal; active DB person and saved audience/project policy checked before names/bytes. SQL lists partition before metadata/counts. Lifecycle holds the global lock, retains reserved-file policy and relinks exact hash on restore without source-thread access.",
+      "explanation": "Named human or admitted runner caller supplies authenticated principal; active DB person and saved audience/project policy checked before names/bytes. SQL lists partition before metadata/counts. Lifecycle holds the global lock, retains reserved-file policy and relinks exact hash on restore without source-thread access. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
         "9606c56c5fbb6de6f35845f256e3af156b48d7af66e5fbdfcc14eed6d5a08fe4",
         "9a60dc9730bb75d6f9d2bb1d48a4021053e483ae7a748255a682992bcb3fb1bd",
@@ -5895,7 +5901,7 @@
       "function": "canvasSnapshotResponse",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Named human or admitted runner caller supplies authenticated principal; active DB person and saved audience/project policy checked before names/bytes. SQL lists partition before metadata/counts. Lifecycle holds the global lock, retains reserved-file policy and relinks exact hash on restore without source-thread access.",
+      "explanation": "Named human or admitted runner caller supplies authenticated principal; active DB person and saved audience/project policy checked before names/bytes. SQL lists partition before metadata/counts. Lifecycle holds the global lock, retains reserved-file policy and relinks exact hash on restore without source-thread access. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
       "queries": [
         "b862c4ec78e919c5ec15b3e1e802a9f3025c6b537f86c98fbf0d40e94b936c42"
       ]
@@ -5919,6 +5925,62 @@
       "queries": [
         "e3bd6037e6d5d0d3309bdf29c3e89f51aa347eba9c57bce81f668d151dddeb32",
         "8581a03edde823bf4c69b428f7acff298ec04cfcee8486b67e1b86b7674d2df2"
+      ]
+    },
+    {
+      "file": "lib/ask-context-inputs.mjs",
+      "function": "trackingAvailable",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "R1 server audit: epoch admission locks the owned thread, verifies each previous business policy/prompt/delivery and message hash, and never clears unknown. Canonical instruction envelopes use exact server templates and same-thread immutable Canvas metadata. Capability reads only to_regclass; no error downgrade. Closed stdio before-delivery gates and bounded readers retained. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
+      "queries": [
+        "1bdc775b18fc921504561f15c1e70769c9c861d66dc581d1e23371003fed7521"
+      ]
+    },
+    {
+      "file": "lib/ask-context-inputs.mjs",
+      "function": "instructionEnvelope",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "R1 server audit: epoch admission locks the owned thread, verifies each previous business policy/prompt/delivery and message hash, and never clears unknown. Canonical instruction envelopes use exact server templates and same-thread immutable Canvas metadata. Capability reads only to_regclass; no error downgrade. Closed stdio before-delivery gates and bounded readers retained. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
+      "queries": [
+        "69eeac0525d15db72de955078a4e85fa64bda20ad81d33f21837b5248d74e555"
+      ]
+    },
+    {
+      "file": "scripts/qa-seed-canvas.mjs",
+      "function": "<module>",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "R1 reviewed QA-only fixture: explicit positional sjcos_qa_* target validated before imports/construction; no runtime env target; guarded pg additionally requires the running harness socket under Node tests. Website session identity and exact owned fixture threads/runs; no real model or outbound send; returned metadata is QA-only. Not an HTTP/MCP entrypoint.",
+      "queries": [
+        "4485bf677434ae970a59bfd6bae5cb7106b416736948b0cc5f09092d12f8b46b",
+        "2d7dd895a7a6ac022eba7c9fed7f72c6ccc7bac2fc5ebd4539abed0d7788333e",
+        "52d0d13d26ea0deece7950a34bdd5122808ac1381685759c69bf264c9d6b0775",
+        "c6fefbea34049cc9229331f311a3acc3978b5a966180a173a8711c4ac9b2fb98",
+        "061d971842e4c0ad742cdf997b148f9320274543547af5eca0f6d848adcd4213",
+        "3d039ed8bfac46b815c48baca6dd2ff8eb6b49a192b68c8a8b8cb4ce653f5bb9",
+        "ca04d6ea541dc928997cb0d9f66d96bd3663aca61b739449cd49580efa355edc"
+      ]
+    },
+    {
+      "file": "lib/canvas-file-access.ts",
+      "function": "legacyContactSnapshot",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "R1 reviewed website-only saved-copy correction: exact snapshot/input ID join checks old get_project lineage and absent contact fences; staff reads/list metadata withheld until regenerated. No private source returned. Existing authenticated principal/current file policy retained. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
+      "queries": [
+        "de4f813c0341b969d495aa5101671cf3345a8ea52ff9cda2bd919babf24f7ec1"
+      ]
+    },
+    {
+      "file": "lib/canvas-file-access.ts",
+      "function": "filesInstalled",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "R1 reviewed website-only saved-copy correction: exact snapshot/input ID join checks old get_project lineage and absent contact fences; staff reads/list metadata withheld until regenerated. No private source returned. Existing authenticated principal/current file policy retained. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
+      "queries": [
+        "ffeb5bf0836a25f8c0842cb1803b2b301234339c67f10740f013b4d193437100"
       ]
     }
   ]

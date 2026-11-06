@@ -136,3 +136,23 @@ names, 800×360 shared-host layout, wide Save control, Files chips/lock and actu
 SVG/download/CSP behavior in the deployed Next environment. Existing Phase 0
 journal-authority/deployment acceptance and other builders' release gates remain
 required; passing these focused tests is not acceptance of the whole release.
+
+
+## Round-1 server corrections (2026-11-05)
+
+Security R1: get_project includes Leads and Subs as well as its four financial
+areas. The actual handler → tracked wrapper → immutable version → Save → another
+reader test refuses independently missing Leads and Subs. Existing get_project
+input classifications are conservatively corrected on manifest reads. Historical
+saved snapshots whose stable input lineage contains get_project but whose
+baseline lacks the contact fences are withheld from staff in BOTH file reads and
+list predicates until regenerated. Owner access and legitimately acknowledged
+new-version declassification remain governed by the existing policy. Immutable
+policy/file bytes are never rewritten. A historical fixture verifies the
+restriction and manifest correction without editing saved bytes. No live/QA
+records were inspected or changed; 0106–0108 are unapplied on live.
+
+Ordinary file profile predicates use to_jsonb(row), preserving profile exclusion
+when installed while avoiding missing-column errors on Phase 0. The central
+resolver/predicate/trash helpers recognize pre-0108 via trusted schema capability.
+0108 itself is unchanged. No narrow-role privileges were added.

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {trackingAvailable} from '../lib/ask-context-inputs.mjs';
 // SJC OS — interact MCP server (the Claude runner's in-app prompt bridge).
 //
 // Spawned by the `claude` CLI alongside the sjcos server (the runner passes
@@ -25,7 +26,7 @@ import {BUSINESS_DISALLOWED_TOOLS} from "../lib/authority/run-profile.mjs";
 import {createContextAdapter,createContextForwarder,trackedInteractions} from "../lib/ask-context-inputs.mjs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
 import { assertTestDatabaseUrl, isNodeTest } from "../lib/test-db-guard.mjs";
 import { z } from "zod";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
@@ -103,7 +104,7 @@ const baseInteractionAdapter=createInteractionAdapter({transportKind:'stdio',con
  if(process.env[key])return process.env[key];
  try{return readFileSync(path.join(__dirname,'..','.env.local'),'utf8').split('\n').find(l=>l.startsWith(key+'='))?.slice(key.length+1).replace(/^['"]|['"]$/g,'');}catch{return undefined;}
 }});
-const contextAdapter=createContextAdapter({transportKind:'stdio',internalCall:createContextForwarder(key=>{
+const contextAdapter=createContextAdapter({trackingAvailable:()=>trackingAvailable(pool),transportKind:'stdio',internalCall:createContextForwarder(key=>{
  if(process.env[key])return process.env[key];
  try{return readFileSync(path.join(__dirname,'..','.env.local'),'utf8').split('\n').find(l=>l.startsWith(key+'='))?.slice(key.length+1).replace(/^['"]|['"]$/g,'');}catch{return undefined;}
 })});

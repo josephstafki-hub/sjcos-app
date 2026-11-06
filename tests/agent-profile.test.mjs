@@ -1,3 +1,4 @@
+import {startCluster} from './_harness/testdb.mjs';
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
@@ -155,7 +156,7 @@ test('real unattended runner constructs a reader-free argv for a fake CLI, inclu
 
 test('every actual sjcos registration is classified, including canvas and server readers',async()=>{
  // Building a server registers schemas only. Dead URL prevents any live DB access.
- process.env.DATABASE_URL_AGENT='postgresql://invalid/unused';process.env.SJC_DB_LOGIN='agent';
+ process.env.DATABASE_URL_AGENT=startCluster().url;process.env.SJC_DB_LOGIN='agent';
  const {buildServer}=await import('../mcp/sjcos-mcp.mjs');
  const {CLASSIFICATION_REGISTRY,assertEveryToolClassified}=await import('../lib/canvas-classification.mjs');
  const server=buildServer({transportKind:'http'}),names=Object.keys(server._registeredTools);

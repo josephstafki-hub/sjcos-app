@@ -171,3 +171,114 @@ because an imported maintenance helper appeared reachable to the static scanner.
 - No deployed authority/backup-aging/ops provisioning, visual acceptance, deploy,
   merge or PR was performed. Owner pilot/staff release still need the full plan's
   prerequisite and coordinator acceptance matrix.
+
+
+## Round-1 server corrections (2026-11-05)
+
+Engineering R4/R6/R7 and security R2: every runtime pg import now routes through
+`lib/guarded-pg.mjs`. Construction, connect and query check the explicit test URL
+against the harness state file, live socket, postmaster port/socket identity and
+owned disposable directory. Empty databases, PG fallback, TCP/duplicate/query
+redirects and configuration overrides fail before constructing pg. Test tags
+retain the interlock in detached children. Environment/file URL builders select
+the guarded test URL first; production resolution is unchanged.
+
+0106 and 0107 were edited in place with authorization: **unapplied on live**.
+0108 was not changed. No live/QA DB was read, migrated or repaired. The new
+`ask_canvas_attempts` table is website-only in the role manifest. Exact command
+`node scripts/db-roles-sql.mjs ask_canvas_attempts` prints one newline (no narrow
+grants), pasted into 0106. Both new trigger functions are SECURITY DEFINER with
+fixed search_path and revoked PUBLIC execution.
+
+Failed admitted mutations retain only the latest fixed reason, under renewed
+run/person/thread authorization. Successful content writes clear it. The trusted
+website terminal-run command appends one deduplicated, source-free rejected event
+and fixed text fallback, even with no assistant output or a recovered failed run.
+A statement trigger takes global serialization before run-row locks; the row
+trigger then takes the thread before allocating an event ID. Runner instructions
+require plain-text explanations on refusal. Mobile/history recover the durable
+event independently of assistant persistence.
+
+Flags-off Phase 0 uses trusted schema capability to select ordinary runner/tool/
+question paths. Once 0107 is recorded, a missing table/errors refuse delivery;
+there is no error-based downgrade. File readers use equivalent row-JSON profile
+exclusions so absence of the 0108 column does not break ordinary files. Canvas
+file policy/list/trash helpers explicitly recognize the pre-0108 schema.
+
+Exhaustive guarded pg import paths (72; the constructor census rejects raw pg
+runtime imports anywhere under lib/mcp/scripts/db, including dynamic imports):
+
+```text
+db/apply-agent-memory.mjs
+db/apply-bid-follow-ups.mjs
+db/apply-bidding.mjs
+db/apply-chat-room-lifecycle.mjs
+db/apply-client-activity.mjs
+db/apply-client-portal-invites.mjs
+db/apply-comms-sms-voice.mjs
+db/apply-detectors.mjs
+db/apply-estimate-kinds.mjs
+db/apply-estimate-pdf-link.mjs
+db/apply-floor-designer.mjs
+db/apply-in-person-signing.mjs
+db/apply-lead-first-response.mjs
+db/apply-lead-nurture.mjs
+db/apply-lead-portal-publish.mjs
+db/apply-live-changes.mjs
+db/apply-mood-crop.mjs
+db/apply-mood-editor.mjs
+db/apply-multi-assignees.mjs
+db/apply-newsletter-p7n.mjs
+db/apply-notifications-v2.mjs
+db/apply-orchestration-p1.mjs
+db/apply-orchestration-p2.mjs
+db/apply-orchestration-p3.mjs
+db/apply-orchestration-p4.mjs
+db/apply-orchestration-p5.mjs
+db/apply-owner-grants.mjs
+db/apply-portal-approvals.mjs
+db/apply-portal-link-window.mjs
+db/apply-project-financials.mjs
+db/apply-push-outbox.mjs
+db/apply-run-steers.mjs
+db/apply-runbook-instances.mjs
+db/apply-scheduled-snooze.mjs
+db/apply-selection-budget.mjs
+db/apply-selection-options.mjs
+db/apply-staff-separation.mjs
+db/apply-staff-users.mjs
+db/apply-thread-folders.mjs
+db/apply-unsorted-docs.mjs
+db/apply-work-item-archive.mjs
+db/migrate.mjs
+db/seed-portal-demo.mjs
+db/seed-workflow-runbooks.mjs
+lib/db.ts
+mcp/interact-mcp.mjs
+mcp/sjcos-mcp.mjs
+scripts/backup.mjs
+scripts/db-roles-apply.mjs
+scripts/enqueue-trigger.mjs
+scripts/houzz-export-inventory.mjs
+scripts/import-brain-archives.mjs
+scripts/import-review.mjs
+scripts/import-subs-audit.mjs
+scripts/import-subs-csv.mjs
+scripts/import-temp-leads.mjs
+scripts/import-undo.mjs
+scripts/invoice-collision-report.mjs
+scripts/migrate-cents.mjs
+scripts/newsletter-write-test.mjs
+scripts/propose-financials-skill.mjs
+scripts/qa-seed-canvas.mjs
+scripts/record-capability-evidence.mjs
+scripts/refresh-capabilities.mjs
+scripts/report-work-item-collisions.mjs
+scripts/restore.mjs
+scripts/run-business-agent.mjs
+scripts/run-claude-agent.mjs
+scripts/run-evals.mjs
+scripts/seed-egan-financials.mjs
+scripts/sjcos-worker.mjs
+scripts/upsert-inbox-work-items.mjs
+```

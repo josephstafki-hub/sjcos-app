@@ -19,7 +19,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
 
 export const SKILL_V2 = `# File invoice / receipt / rebate (v2 — SJC OS is the filing cabinet)
 

@@ -141,7 +141,7 @@ Source anchors identify the returned expression, then the delegated result helpe
 | get_operating_context | C | `mcp/context-tools.mjs:26` return json({ ok: true, prompt: out.prompt, versions: out.versions, context: out.context });; `lib/agent-runtime/instructions.ts:110` return { ...standing, context, prompt };; Unrestricted cross-area content; see full-C rationale above. |
 | get_plan_design | leads | `mcp/floor-tools.mjs:296` return json(out);; `lib/plan-doc.ts:830` return filled as unknown as PlanDoc;; `lib/plan-measures.ts:508` return acc.list();; `lib/plan-measures.ts:547` return list;; Project/lead scope and drawing names; no pricing in the plan schema. |
 | get_plan_measures | none | `mcp/floor-tools.mjs:521` return json({ ok: true, id: Number(r.id), summary: summarizeMeasures(measures), measures: measures.map((m) => ({ key: m.key, label: m.label, unit: m.unit, qty: m.qty, phase: m.phas; `lib/plan-doc.ts:830` return filled as unknown as PlanDoc;; `lib/plan-measures.ts:508` return acc.list();; `lib/plan-measures.ts:534` return [...lines.values()];; Project drawing geometry, counts, measures and version/comment IDs; projects is an access gate outside C. |
-| get_project | estimates, invoices, change_orders, money | `mcp/sjcos-mcp.mjs:679` return json({ project: p, job_money, invoices, subs, money: { paid, outstanding }, floor_plans, pricing_and_paperwork: pricing });; `mcp/estimate-tools.mjs:97` return { rule: PRICING_RULE, status: ctx?.status ?? null, has_signed_contract: ctx?.hasSignedContract ?? false, scope_change_path: path, formal_estimate_id: formal ? Number(formal.; Project row includes budget settings; invoices, job_money and pricingAndPaperwork include estimate, change-order and collection amounts. |
+| get_project | estimates, invoices, change_orders, money, leads, subs | `mcp/sjcos-mcp.mjs:679` return json({ project: p, job_money, invoices, subs, money: { paid, outstanding }, floor_plans, pricing_and_paperwork: pricing });; `mcp/estimate-tools.mjs:97` return { rule: PRICING_RULE, status: ctx?.status ?? null, has_signed_contract: ctx?.hasSignedContract ?? false, scope_change_path: path, formal_estimate_id: formal ? Number(formal.; Project row includes budget settings; invoices, job_money and pricingAndPaperwork include estimate, change-order and collection amounts. |
 | get_project_file | C | `mcp/bidding-tools.mjs:470` return json({ ...meta, url: `${base}/api/files/${encodeURIComponent(f.id)}?exp=${exp}&sig=${sig}`, expires_at: new Date(exp * 1000).toISOString(), });; `mcp/pdf-read.mjs:30` return /^application\/pdf\b/i.test(String(f?.mime_type &#124;&#124; "")) &#124;&#124; /\.pdf$/i.test(String(f?.name &#124;&#124; ""));; `mcp/pdf-read.mjs:94` return { images: out, pages, from: r.from, to: r.to };; `mcp/pdf-read.mjs:71` return { text: body.slice(0, PDF_TEXT_MAX), truncated: body.length > PDF_TEXT_MAX, pages, from: r.from, to: r.to, scanned: looksScanned(body, r.to - r.from + 1), };; Unclassified arbitrary file bytes/images/PDF pages can contain any area; no trusted file envelope reaches this classifier. |
 | get_project_financials | money, invoices, change_orders, purchase_orders, estimates | `mcp/financials-tools.mjs:230` return json({ ...projectPayload(assembleBudgetView(money, { asOf: todayCentral() })), owner_hours: ownerHours });; `mcp/financials-tools.mjs:45` return { project: view.project, as_of: view.asOfLabel, units: "every *_cents field is integer cents; *_pct is a percentage", summary: describeFinancials(view, t), completeness: { p; projectPayload includes budget/profit, invoice balances, COs, PO costs and jobMoney estimate breakdown. |
 | get_project_funding | money, invoices | `mcp/procurement-tools.mjs:33` return json(forecast ? await projectFundingForecast(run, id) : await projectFunding(run, id));; `lib/funding/index.ts:127` return { projectId, status: "known", collectedSource, collectedCents, spentCents, reservedCents, companyFundingCents, availableCents: collectedCents - spentCents - reservedCents + ; `lib/funding/index.ts:171` return { ...base, expected, forecastCents: base.availableCents + expected.reduce((s, e) => s + e.amountCents, 0) };; Funding collected/outstanding plus spent/reserved; buyout PO outflows. |
@@ -354,3 +354,24 @@ canvasRender/canvasSavePolicy/canvasSave and resolveCanvasFilePolicy APIs; those
 files are read-only for this slice. Earlier failed runs exposed missing Node test
 seams (Next module suffix, DB helper exports, relative DB alias); the test now
 covers those seams and routes DB access to its harness. No live SQL succeeded.
+
+
+## Round-1 returned-field re-audit (2026-11-05)
+
+Security R1: get_project's whole projects row includes client_email and its subs
+array includes sub_slug/role_label. Its conservative union is now estimates,
+invoices, change_orders, money, leads and subs. Reviewed the complete narrow
+contract inventory above; no other missing fence was found. Automated scanning
+now expands SELECT * from checked-in schema definitions, follows local return
+aliases/object spreads/maps/Promise.all, and scans returned financial keys, client
+contact, subcontractor and vendor keys plus record-scoped generic email/phone.
+Every narrow registration is included; input/write-only fields do not classify
+results. The 285-tool inventory and all evidence rows are still checked against
+the actual server, and unknown tools/variants fail closed. Helper-generated and
+dynamic contracts still require the documented manual review; a field scan is
+not proof of arbitrary semantic prose classification.
+
+Manifest reads correct historical get_project tool areas. Existing snapshots
+missing the old contact fences are withheld from staff in read and list policy
+until regenerated, without changing immutable bytes. The real handler/provenance/
+Save/resolver test independently removes Leads and Subs from another reader.

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {testDatabaseUrl} from '../lib/test-db-guard.mjs';
 // Inbox scan batch → work items (A01 shape). Every item goes through
 // lib/obligations/work-items.ts refreshSourcedWorkItem, which enforces:
 //   • identity = Gmail THREAD id (source_id) + Gmail MESSAGE id (message_id),
@@ -20,12 +21,13 @@
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
 import { refreshSourcedWorkItem } from "../lib/obligations/work-items.ts";
 
 const __dirname = path.dirname(new URL(import.meta.url).pathname);
 
 function databaseUrl() {
+  const testUrl=testDatabaseUrl();if(testUrl)return testUrl;
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
   const env = readFileSync(path.join(__dirname, "..", ".env.local"), "utf8");
   const m = env.match(/^DATABASE_URL=(.+)$/m);

@@ -22,7 +22,7 @@ export async function GET(
     storage_path: string | null;
     mime_type: string | null;
     name: string;
-  }>(`SELECT storage_path, mime_type, name FROM files WHERE security_profile IS NULL AND id = $1`, [id]);
+  }>(`SELECT storage_path, mime_type, name FROM files WHERE to_jsonb(files)->>'security_profile' IS NULL AND id = $1`, [id]);
   if (!file?.storage_path) return new Response("Not found", { status: 404 });
 
   // The file must be part of the bidding system at all — this route never

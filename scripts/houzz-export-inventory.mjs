@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {testDatabaseUrl} from '../lib/test-db-guard.mjs';
 // Houzz exit inventory — READ-ONLY. Prints the same checklist/evidence the
 // /engine/houzz-exit page shows, as JSON (default) or a short text report.
 //
@@ -11,11 +12,12 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
 import { houzzExitInventory } from "../lib/houzz-exit.ts";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 function databaseUrl() {
+  const testUrl=testDatabaseUrl();if(testUrl)return testUrl;
   if (process.env.DATABASE_URL) return process.env.DATABASE_URL;
   const env = readFileSync(path.join(REPO, ".env.local"), "utf8");
   const m = env.match(/^DATABASE_URL=(.+)$/m);

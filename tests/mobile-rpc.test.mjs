@@ -81,10 +81,11 @@ async function isolatedModule(file,names,deps) {
  return Function(...Object.keys(deps),stripTypeScriptTypes(source)+`;return {${names.join(',')}};`)(...Object.values(deps));
 }
 test('mobile file route: inherited job, lead-only, unrelated, restricted and anonymous',async()=>{
- const check=async(user,file,inherited=false,restricted=false)=>{
+ const check=async(user,file,inherited=false,restricted=false,canvasAccess={ordinary:true})=>{
   const {GET}=await isolatedModule('../app/api/mobile/files/[id]/route.ts',['GET'],{
    getUserFromRequest:async()=>user,hasAccess:(u,area)=>u.permissions.includes(area),
    queryOne:async sql=>sql.includes('sub_documents')?(restricted?{}:null):sql.includes('JOIN leads')?(inherited?{}:null):file,
+   resolveCanvasFilePolicy:async()=>canvasAccess,canvasSnapshotResponse:async()=>new Response('snapshot'),
    serveFile:async()=>new Response('file')});
   return (await GET(new Request('http://local/file'),{params:Promise.resolve({id:'photo'})})).status;
  };
@@ -94,6 +95,8 @@ test('mobile file route: inherited job, lead-only, unrelated, restricted and ano
  assert.equal(await check({permissions:['projects']},file),403);
  assert.equal(await check({permissions:['projects']},file,true,true),403);
  assert.equal(await check(null,file),401);
+ assert.equal(await check({permissions:['projects']},file,false,false,{ordinary:false}),200);
+ assert.equal(await check({permissions:['projects']},file,false,false,null),404);
 });
 test('failed PDF storage rejects mobile report before incident INSERT; web behavior preserved',async()=>{
  let inserts=0;

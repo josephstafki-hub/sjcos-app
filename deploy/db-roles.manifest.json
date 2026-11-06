@@ -3120,6 +3120,9 @@
     },
     "ask_canvas_file_requests": {
       "note": "0108 private actor-bound Save replay identities; website only. No narrow grants."
+    },
+    "ask_canvas_attempts": {
+      "note": "0106 source-free latest refusal per admitted run; website-only commands/terminal trigger. No narrow grants."
     }
   }
 }

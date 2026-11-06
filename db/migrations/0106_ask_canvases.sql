@@ -76,7 +76,7 @@ DECLARE c ask_canvases; t ai_conversations; r dev_agent_runs; areas text[]; BEGI
   IF NEW.actor_user_id IS DISTINCT FROM NEW.owner_user_id THEN RAISE EXCEPTION 'canvas actor mismatch' USING ERRCODE='42501'; END IF;
   IF NEW.run_id IS NOT NULL THEN
    SELECT * INTO r FROM dev_agent_runs WHERE id=NEW.run_id;
-   IF r.conversation_id IS DISTINCT FROM t.id OR r.principal_user_id IS DISTINCT FROM NEW.owner_user_id OR r.status NOT IN ('pending','running') OR r.cancellation_requested OR r.launch_source NOT IN ('panel_web','panel_mobile','panel_voice') THEN RAISE EXCEPTION 'canvas run mismatch' USING ERRCODE='42501'; END IF;
+   IF r.conversation_id IS DISTINCT FROM t.id OR r.principal_user_id IS DISTINCT FROM NEW.owner_user_id OR r.status NOT IN ('pending','running') OR (r.cancellation_requested AND NOT (TG_TABLE_NAME='ask_canvas_events' AND to_jsonb(NEW)->>'kind'='rejected')) OR r.launch_source NOT IN ('panel_web','panel_mobile','panel_voice') THEN RAISE EXCEPTION 'canvas run mismatch' USING ERRCODE='42501'; END IF;
   END IF;
   IF TG_TABLE_NAME='ask_canvas_versions' THEN
    SELECT * INTO c FROM ask_canvases WHERE id=NEW.canvas_id FOR UPDATE;
@@ -189,3 +189,41 @@ DECLARE delta int; k text; sid text; BEGIN
 END $$;
 REVOKE ALL ON FUNCTION account_ask_canvas_parent() FROM PUBLIC;
 CREATE TRIGGER account_ask_canvas_parent AFTER INSERT OR UPDATE OF purged_at ON ask_canvases FOR EACH ROW EXECUTE FUNCTION account_ask_canvas_parent();
+-- One bounded source-free refusal per admitted run; successful writes clear it.
+CREATE TABLE ask_canvas_attempts (
+ run_id uuid PRIMARY KEY REFERENCES dev_agent_runs(id) ON DELETE RESTRICT,
+ reason text NOT NULL CHECK(reason IN ('too big','not supported','not allowed'))
+);
+REVOKE ALL ON ask_canvas_attempts FROM PUBLIC;
+CREATE UNIQUE INDEX ask_canvas_rejected_once ON ask_canvas_events(run_id) WHERE kind='rejected';
+CREATE FUNCTION finalize_ask_canvas_rejection() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+DECLARE why text; fallback text; t ai_conversations; u users; BEGIN
+ IF NEW.status NOT IN ('done','error') OR OLD.status NOT IN ('pending','running') THEN RETURN NEW; END IF;
+ SELECT reason INTO why FROM ask_canvas_attempts WHERE run_id=NEW.id;
+ IF why IS NULL THEN RETURN NEW; END IF;
+ IF session_user<>ask_website_login() THEN RAISE EXCEPTION 'canvas rejection denied' USING ERRCODE='42501'; END IF;
+ PERFORM pg_advisory_xact_lock(106,1);
+ SELECT * INTO t FROM ai_conversations WHERE id=NEW.conversation_id FOR UPDATE;
+ SELECT * INTO u FROM users WHERE id=NEW.principal_user_id;
+ IF t.deleted_at IS NOT NULL OR t.owner_user_id IS DISTINCT FROM u.id OR NOT u.active OR
+ NOT (u.role='owner' OR (u.role='staff' AND 'ai'=ANY(u.permissions))) OR NEW.launch_source NOT IN ('panel_web','panel_mobile','panel_voice') OR
+ EXISTS(SELECT 1 FROM session_revocations WHERE user_id=u.id AND revoked_before>NEW.created_at) THEN RETURN NEW; END IF;
+ PERFORM set_config('sjcos.ask_actor',u.id::text,true);
+ INSERT INTO ask_canvas_events(conversation_id,owner_user_id,run_id,actor_user_id,kind,reason)
+ VALUES(t.id,u.id,NEW.id,u.id,'rejected',why) ON CONFLICT(run_id) WHERE kind='rejected' DO NOTHING;
+ fallback='Canvas could not be created ('||why||'). Continue with a plain-text explanation in this chat.';
+ NEW.answer=concat_ws(E'\n\n',nullif(NEW.answer,''),fallback);
+ DELETE FROM ask_canvas_attempts WHERE run_id=NEW.id;
+ RETURN NEW;
+END $$;
+REVOKE ALL ON FUNCTION finalize_ask_canvas_rejection() FROM PUBLIC;
+CREATE TRIGGER finalize_ask_canvas_rejection BEFORE UPDATE OF status ON dev_agent_runs FOR EACH ROW EXECUTE FUNCTION finalize_ask_canvas_rejection();
+-- node scripts/db-roles-sql.mjs ask_canvas_attempts
+-- No narrow grants generated; website-only admitted command and terminal trigger.
+
+-- Acquire event/quota serialization BEFORE UPDATE takes any run row lock.
+-- The row trigger then takes the owned thread and allocates the event ID.
+CREATE FUNCTION lock_ask_canvas_terminal() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+BEGIN PERFORM pg_advisory_xact_lock(106,1); RETURN NULL; END $$;
+REVOKE ALL ON FUNCTION lock_ask_canvas_terminal() FROM PUBLIC;
+CREATE TRIGGER lock_ask_canvas_terminal BEFORE UPDATE OF status ON dev_agent_runs FOR EACH STATEMENT EXECUTE FUNCTION lock_ask_canvas_terminal();

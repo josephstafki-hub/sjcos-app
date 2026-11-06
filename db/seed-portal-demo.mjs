@@ -16,7 +16,7 @@
 
 import { readFileSync, mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
 import PDFDocument from "pdfkit";
 
 const envFile = process.env.SJCOS_ENV ?? path.join(process.cwd(), ".env.local");

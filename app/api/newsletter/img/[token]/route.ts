@@ -23,7 +23,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ token: 
   const row = await queryOne<{ storage_path: string | null; mime_type: string | null }>(
     `SELECT f.storage_path, f.mime_type
        FROM newsletter_assets a
-       JOIN files f ON f.security_profile IS NULL AND f.id = a.file_id
+       JOIN files f ON to_jsonb(f)->>'security_profile' IS NULL AND f.id = a.file_id
       WHERE a.token = $1`,
     [token.slice(0, 80)],
   );

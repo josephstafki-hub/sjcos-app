@@ -23,7 +23,7 @@ export async function subRead(u: CurrentUser, slug: string) {
     query<{slug:string; name:string; start:string|null; end:string|null; active:boolean}>(`SELECT p.slug,p.name,ps.start_date::text AS start,ps.end_date::text AS end,p.status <> 'warranty' AS active FROM project_subs ps JOIN projects p ON p.id=ps.project_id WHERE ps.sub_slug=$1 ORDER BY ps.assigned_at DESC`,[slug]),
   ]);
   const fileIds=documents.documents.flatMap(d=>d.fileId ? [d.fileId] : []);
-  const fileRows=fileIds.length ? (await query<{id:string;name:string;mime_type:string|null}>("SELECT id,name,mime_type FROM files WHERE security_profile IS NULL AND id=ANY($1::text[])",[fileIds])).rows : [];
+  const fileRows=fileIds.length ? (await query<{id:string;name:string;mime_type:string|null}>("SELECT id,name,mime_type FROM files WHERE to_jsonb(files)->>'security_profile' IS NULL AND id=ANY($1::text[])",[fileIds])).rows : [];
   const canAssign = hasAccess(u,"projects");
   return {sub: {slug, name:sub.name, initials:sub.initials, trade:sub.rawTrade, archived:sub.archived,
     tradeLine:sub.tradeLine, working:sub.working, coiStatus:sub.coiStatus, coiLabel:sub.coiLabel,

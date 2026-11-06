@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {testDatabaseUrl} from '../lib/test-db-guard.mjs';
 // Phase 5.0 — migrate transactional money from integer DOLLARS to integer CENTS.
 // Scope (locked with Joe 2026-07-05): invoices.amount + each line_items[].amount,
 // retainers.collected/applied, sub_invoices.amount. Everything else (projects
@@ -19,13 +20,14 @@
 import { readFileSync, writeFileSync, existsSync, rmSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
 const SNAPSHOT = join(ROOT, "db", ".cents-snapshot.json");
 
 function databaseUrl() {
+  const testUrl=testDatabaseUrl();if(testUrl)return testUrl;
   const env = readFileSync(join(ROOT, ".env.local"), "utf8");
   const m = env.match(/^DATABASE_URL=(.*)$/m);
   if (!m) throw new Error("DATABASE_URL not found in .env.local");

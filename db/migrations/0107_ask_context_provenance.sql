@@ -30,12 +30,30 @@ INSERT INTO ask_context_provenance(conversation_id,unknown) SELECT id,true FROM 
 CREATE FUNCTION track_ask_conversation() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
 BEGIN INSERT INTO ask_context_provenance(conversation_id) VALUES(NEW.id); RETURN NEW; END $$;
 CREATE TRIGGER track_ask_conversation AFTER INSERT ON ai_conversations FOR EACH ROW EXECUTE FUNCTION track_ask_conversation();
+-- Only the website mints these envelopes, from canonical controls + actual records.
+CREATE FUNCTION ask_canvas_instruction(tid uuid, prompt text) RETURNS TABLE(known boolean,areas text[],envelope jsonb) LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+DECLARE v record; inherited text[]:='{}'; refs jsonb:='[]'; BEGIN
+ IF prompt IN ('Show permit steps.','Draw a permit process diagram.','Show a simple workflow.','Draw the permit steps for this job as a diagram.') THEN
+  RETURN QUERY SELECT true,'{}'::text[],jsonb_build_object('control','create','hash',encode(sha256(convert_to(prompt,'UTF8')),'hex')); RETURN;
+ END IF;
+ FOR v IN SELECT x.* FROM ask_canvas_versions x JOIN ask_canvases c ON c.id=x.canvas_id WHERE c.conversation_id=tid AND c.deleted_at IS NULL AND x.purged_at IS NULL LOOP
+  IF prompt IN (format('Simplify the "%s" diagram (version %s) so it can be shown here.',v.title,v.version),format('Fix the "%s" diagram (version %s). The error was: The diagram could not be drawn.',v.title,v.version),format('Change the "%s" diagram (version %s): ',v.title,v.version)) THEN
+   inherited=ARRAY(SELECT DISTINCT x FROM unnest(inherited||v.baseline_areas) x ORDER BY x);
+   refs=refs||jsonb_build_array(jsonb_build_object('canvas_id',v.canvas_id,'version',v.version));
+  END IF;
+ END LOOP;
+ IF jsonb_array_length(refs)>0 THEN RETURN QUERY SELECT true,inherited,jsonb_build_object('control','change','records',refs,'hash',encode(sha256(convert_to(prompt,'UTF8')),'hex')); RETURN; END IF;
+ RETURN QUERY SELECT false,'{}'::text[],'{}'::jsonb;
+END $$;
+REVOKE ALL ON FUNCTION ask_canvas_instruction(uuid,text) FROM PUBLIC;
 CREATE FUNCTION track_ask_context_row() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
-DECLARE tid uuid; safe boolean:=false; rid uuid; bytes text; BEGIN
+DECLARE tid uuid; safe boolean:=false; rid uuid; bytes text; instruction record; BEGIN
+ SELECT false AS known,'{}'::text[] AS areas,'{}'::jsonb AS envelope INTO instruction;
  IF TG_TABLE_NAME='ai_messages' THEN
   tid=NEW.conversation_id; bytes=to_jsonb(NEW)::text;
   -- Only fixed instruction templates have positively established empty sensitivity.
-  safe=TG_OP='INSERT' AND NEW.role='user' AND NEW.body IN ('Show permit steps.','Draw a permit process diagram.','Show a simple workflow.')
+  SELECT * INTO instruction FROM ask_canvas_instruction(tid,NEW.body);
+  safe=TG_OP='INSERT' AND NEW.role='user' AND instruction.known
     AND coalesce(NEW.attachments,'[]'::jsonb)='[]'::jsonb AND coalesce(NEW.page_context,'')='';
   IF NEW.role='assistant' AND NEW.agent='claude' AND TG_OP='INSERT' THEN
    SELECT epoch_run_id INTO rid FROM ask_context_provenance WHERE conversation_id=tid;
@@ -47,8 +65,8 @@ DECLARE tid uuid; safe boolean:=false; rid uuid; bytes text; BEGIN
  END IF;
  IF tid IS NULL THEN RETURN NEW; END IF;
  PERFORM 1 FROM ai_conversations WHERE id=tid FOR UPDATE;
- INSERT INTO ask_context_inputs(conversation_id,run_id,kind,ref,state,complete,output_hash)
- VALUES(tid,rid,TG_TABLE_NAME,NEW.id::text,'resolved',safe,encode(sha256(convert_to(bytes,'UTF8')),'hex'))
+ INSERT INTO ask_context_inputs(conversation_id,run_id,kind,ref,state,complete,output_hash,areas,facts)
+ VALUES(tid,rid,TG_TABLE_NAME,NEW.id::text,'resolved',safe,encode(sha256(convert_to(bytes,'UTF8')),'hex'),coalesce(instruction.areas,'{}'),coalesce(instruction.envelope,'{}'))
  ON CONFLICT(conversation_id,kind,ref) DO UPDATE SET complete=false,output_hash=EXCLUDED.output_hash;
  UPDATE ask_context_provenance SET revision=revision+1,unknown=unknown OR NOT safe,updated_at=now() WHERE conversation_id=tid;
  RETURN NEW;

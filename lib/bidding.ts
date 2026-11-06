@@ -172,7 +172,7 @@ async function latestSubmissions(inviteIds: number[]): Promise<Map<number, BidSu
     ),
     query<{ submission_id: string; file_id: string; name: string }>(
       `SELECT sf.submission_id, sf.file_id, f.name
-         FROM bid_submission_files sf JOIN files f ON f.security_profile IS NULL AND f.id = sf.file_id
+         FROM bid_submission_files sf JOIN files f ON to_jsonb(f)->>'security_profile' IS NULL AND f.id = sf.file_id
         WHERE sf.submission_id = ANY($1::bigint[])
         ORDER BY sf.created_at`,
       [subIds],
@@ -241,7 +241,7 @@ export async function getProjectBidding(slug: string): Promise<BiddingView> {
       type: "doc" | "img";
     }>(
       `SELECT bf.id, bf.package_id, bf.file_id, bf.label, f.name, f.size_label, f.type
-         FROM bid_package_files bf JOIN files f ON f.security_profile IS NULL AND f.id = bf.file_id
+         FROM bid_package_files bf JOIN files f ON to_jsonb(f)->>'security_profile' IS NULL AND f.id = bf.file_id
         WHERE bf.package_id = ANY($1::bigint[])
         ORDER BY bf.package_id, bf.sort_order, bf.id`,
       [pkgIds],
@@ -445,7 +445,7 @@ export async function sendBidPackageOp(packageId: number, auth?: BidSendAuth): P
     mime_type: string | null;
   }>(
     `SELECT f.id AS file_id, f.name, bf.label, f.storage_path, f.mime_type
-       FROM bid_package_files bf JOIN files f ON f.security_profile IS NULL AND f.id = bf.file_id
+       FROM bid_package_files bf JOIN files f ON to_jsonb(f)->>'security_profile' IS NULL AND f.id = bf.file_id
       WHERE bf.package_id = $1
       ORDER BY bf.sort_order, bf.id`,
     [packageId],
@@ -589,7 +589,7 @@ export async function sendApprovedRelease(d: Decision): Promise<string> {
     const { rows } = await query<{ id: string; name: string; storage_path: string | null; mime_type: string | null; label: string | null }>(
       `SELECT f.id, f.name, f.storage_path, f.mime_type,
               (SELECT bf.label FROM bid_package_files bf WHERE bf.file_id = f.id AND bf.label <> '' LIMIT 1) AS label
-         FROM files f WHERE f.security_profile IS NULL AND f.id::text = ANY($1::text[])`,
+         FROM files f WHERE to_jsonb(f)->>'security_profile' IS NULL AND f.id::text = ANY($1::text[])`,
       [ids],
     );
     const byId = new Map(rows.map((r) => [r.id, r]));
@@ -708,7 +708,7 @@ export async function checkRecordBid(inviteId: number, input: RecordBidInput): P
   const fileIds = [...new Set((input.fileIds ?? []).map((id) => String(id ?? "").trim()))];
   if (fileIds.length > 0) {
     const { rows } = await query<{ id: string }>(
-      `SELECT id FROM files WHERE security_profile IS NULL AND id = ANY($1::text[]) AND storage_path IS NOT NULL AND project_key = $2`,
+      `SELECT id FROM files WHERE to_jsonb(files)->>'security_profile' IS NULL AND id = ANY($1::text[]) AND storage_path IS NOT NULL AND project_key = $2`,
       [fileIds, invite.slug],
     );
     const found = new Set(rows.map((r) => r.id));

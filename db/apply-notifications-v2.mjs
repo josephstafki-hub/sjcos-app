@@ -29,7 +29,7 @@
 
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
 
 const LEAD_LABEL = `CASE $1
   WHEN 'intake' THEN 'Intake'

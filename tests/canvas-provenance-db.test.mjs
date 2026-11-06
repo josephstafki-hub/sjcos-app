@@ -13,10 +13,10 @@ test('0107 provenance boundaries',()=>withTestDb(async(url,db)=>{
  const facts={client:db,threadId:id,runId:p.run};
  await admitEpoch({...facts,policyHash:hashBytes('policy'),valid:true,resumed:false});
  assert.equal((await conversationProvenance({client:db,threadId:id})).complete,true);
- const first=await beginInput({...facts,kind:'tool',ref:'get_project'});
+ const first=await beginInput({...facts,kind:'tool',ref:'delete_expense'});
  assert.equal((await conversationProvenance({client:db,threadId:id})).complete,false);
  await completeInput({...facts,id:first,bytes:'exact delivered bytes',areas:['money','invoices'],complete:true});
- const a=await conversationProvenance({client:db,threadId:id});assert.deepEqual(a.areas,['invoices','money']);assert.equal(a.inputs[0].hash,hashBytes('exact delivered bytes'));
+ const a=await conversationProvenance({client:db,threadId:id});assert.deepEqual(a.areas,['invoices','money']);assert.equal(a.inputs.find(i=>i.ref.startsWith('tool:')).hash,hashBytes('exact delivered bytes'));
  await completeInput({...facts,id:first,bytes:'exact delivered bytes',areas:['money','invoices'],complete:true});
  assert.equal((await conversationProvenance({client:db,threadId:id})).revision,a.revision);
  await assert.rejects(completeInput({...facts,id:first,bytes:'changed',areas:[],complete:true}),/INPUT_CONFLICT/);
@@ -66,6 +66,19 @@ test('real detached panel runner admits and hashes a fake CLI delivery under web
    const args=JSON.parse(await readFile(argv,'utf8'));assert.equal(args[args.indexOf('--tools')+1],'ToolSearch');assert.equal(args.includes('--add-dir'),false);
    const provenance=await conversationProvenance({client:db,threadId:thread});assert.equal(provenance.complete,true);assert.ok(provenance.inputs.some(i=>i.ref.startsWith('delivery:')));
    const epoch=(await db.query('SELECT policy_hash FROM ask_context_provenance WHERE conversation_id=$1',[thread])).rows[0];assert.equal(epoch.policy_hash.length,64);
+   // A normal second UI turn uses a fresh CLI, verified complete lineage and
+   // the empty-state control envelope. It must keep staff Save available.
+   await db.query(`INSERT INTO ai_messages(conversation_id,role,body) VALUES($1,'user','Draw the permit steps for this job as a diagram.')`,[thread]);
+   const second=(await db.query(`INSERT INTO dev_agent_runs(prompt,profile,principal_user_id,conversation_id,launch_source,with_mcp) VALUES('Draw the permit steps for this job as a diagram.','business',$1,$2,'panel_web',true) RETURNING id`,[p.staff.id,thread])).rows[0].id;
+   await promisify(execFile)(process.execPath,['scripts/run-claude-agent.mjs',second],{cwd:process.cwd(),timeout:20000,env:{...process.env,DATABASE_URL:database.toString(),DATABASE_URL_AGENT:database.toString(),CLAUDE_BIN:fake,SJC_CANVAS_DELETION_LEDGER_DIR:path.join(dir,'journal'),CRON_SECRET:'test-only',APP_INTERNAL_URL:'http://127.0.0.1:1'}});
+   const secondResult=(await db.query('SELECT status,answer FROM dev_agent_runs WHERE id=$1',[second])).rows[0];assert.equal(secondResult.status,'done',secondResult.answer);
+   assert.equal((await conversationProvenance({client:db,threadId:thread})).complete,true);
+   assert.equal(JSON.parse(await readFile(argv,'utf8')).includes('--resume'),false);
+   await db.query("DELETE FROM ask_context_inputs WHERE run_id=$1 AND kind='delivery'",[run]);
+   const missing=(await db.query("INSERT INTO dev_agent_runs(prompt,profile,principal_user_id,conversation_id,launch_source,with_mcp) VALUES('Show permit steps.','business',$1,$2,'panel_web',true) RETURNING id",[p.staff.id,thread])).rows[0].id;
+   await admitEpoch({client:db,threadId:thread,runId:missing,policyHash:hashBytes('verified-new-policy'),valid:true,resumed:false});
+   assert.equal((await conversationProvenance({client:db,threadId:thread})).complete,false,'missing prior delivery fails closed');
+
   });
  }finally{await rm(dir,{recursive:true,force:true});}
 }));
@@ -150,5 +163,65 @@ test('staff project geometry and schedule results create and save with only cont
   assert.ok(await resolveCanvasFilePolicy({principal:{id:p.noAi.id},fileId:saved.file.id,operation:'read'}));
   await db.query("UPDATE users SET permissions=ARRAY['projects'] WHERE id=$1",[p.noAi.id]);
   assert.equal(await resolveCanvasFilePolicy({principal:{id:p.noAi.id},fileId:saved.file.id,operation:'read'}),null);
+  // Security R1: the ACTUAL broad handler -> tracked result -> version -> Save
+  // must carry both contact and subcontractor restrictions to another reader.
+  const broad=['estimates','invoices','change_orders','money','leads','subs'];
+  await db.query('UPDATE users SET permissions=$2 WHERE id=$1',[p.staff.id,['ai','projects',...broad]]);
+  await db.query("UPDATE projects SET client_email='private@example.test' WHERE slug=$1",[slug]);
+  const projectResult=await call('get_project',{slug});assert.equal(projectResult.project.client_email,'private@example.test');
+  assert.equal((await conversationProvenance({client:db,threadId:thread})).complete,true);
+  const copy=await call('show_canvas',{request_id:crypto.randomUUID(),title:'Contacts',summary:'Project contacts',required_areas:[],project_slug:slug,content:{kind:'diagram',source:'flowchart TD\n A-->B'}});
+  await canvasRender(copy.canvas.id,1,{svg:'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><text x="10" y="20">Contact</text></svg>'});
+  const cp=await canvasSavePolicy(copy.canvas.id,1,slug);assert.deepEqual([...cp.baseline_areas].sort(),[...broad].sort());
+  const savedContact=await canvasSave(copy.canvas.id,1,{project_slug:slug,expected_policy_revision:cp.policy_revision,request_id:crypto.randomUUID()});
+  for(const missing of ['leads','subs']){
+   await db.query('UPDATE users SET permissions=$2 WHERE id=$1',[p.noAi.id,['projects',...broad.filter(a=>a!==missing)]]);
+   assert.equal(await resolveCanvasFilePolicy({principal:{id:p.noAi.id},fileId:savedContact.file.id,operation:'read'}),null,missing);
+  }
+  await db.query('UPDATE users SET permissions=$2 WHERE id=$1',[p.noAi.id,['projects',...broad]]);
+  assert.ok(await resolveCanvasFilePolicy({principal:{id:p.noAi.id},fileId:savedContact.file.id,operation:'read'}));
+  const fixPrompt='Fix the "Contacts" diagram (version 1). The error was: The diagram could not be drawn.';
+  await db.query("INSERT INTO ai_messages(conversation_id,role,body) VALUES($1,'user',$2)",[thread,fixPrompt]);
+  assert.equal((await conversationProvenance({client:db,threadId:thread})).complete,true);
+  const updated=await call('update_canvas',{request_id:crypto.randomUUID(),canvas_id:copy.canvas.id,base_version:1,change_note:'Fixed contacts',summary:'Fixed contacts',content:{kind:'diagram',source:'flowchart TD\n A-->C'}});
+  assert.equal(updated.selected.version,2);
+  await canvasRender(copy.canvas.id,2,{svg:'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 50"><text x="10" y="20">Fixed</text></svg>'});
+  const changedPolicy=await canvasSavePolicy(copy.canvas.id,2,slug);
+  assert.equal((await canvasSave(copy.canvas.id,2,{project_slug:slug,expected_policy_revision:changedPolicy.policy_revision,request_id:crypto.randomUUID()})).ok,true);
+  // A rejected tool stores ONLY a fixed reason. Successful retry clears it.
+  const unsafe={request_id:crypto.randomUUID(),title:'Refused',summary:'Refused',required_areas:[],content:{kind:'diagram',source:'flowchart TD\n A[<script>bad</script>]'}};
+  let refusal=await server._registeredTools.show_canvas.handler(unsafe,{});assert.equal(refusal.isError,true);
+  assert.equal((await db.query('SELECT reason FROM ask_canvas_attempts WHERE run_id=$1',[run.id])).rows.length,1);
+  assert.equal((await db.query("SELECT count(*)::int n FROM ask_canvas_events WHERE run_id=$1 AND kind='rejected'",[run.id])).rows[0].n,0);
+  await call('show_canvas',{request_id:crypto.randomUUID(),title:'Retry',summary:'Safe retry',required_areas:[],content:{kind:'diagram',source:'flowchart TD\n A-->B'}});
+  assert.equal((await db.query('SELECT reason FROM ask_canvas_attempts WHERE run_id=$1',[run.id])).rows.length,0);
+  refusal=await server._registeredTools.show_canvas.handler({...unsafe,request_id:crypto.randomUUID()},{});assert.equal(refusal.isError,true);
+  const {instructionEnvelope}=await import('../lib/ask-context-inputs.mjs');
+  for(const prompt of ['Fix the "Contacts" diagram (version 1). The error was: The diagram could not be drawn.','Simplify the "Contacts" diagram (version 1) so it can be shown here.','Change the "Contacts" diagram (version 1): ']){
+   const envelope=await instructionEnvelope(db,thread,prompt);assert.equal(envelope.complete,true);assert.deepEqual([...envelope.areas].sort(),[...broad].sort());
+  }
+  for(const prompt of ['Change the "Contacts" diagram (version 1): private arbitrary facts','Fix the "Foreign" diagram (version 1). The error was: The diagram could not be drawn.'])assert.equal((await instructionEnvelope(db,thread,prompt)).complete,false);
+  // Terminal recovery, including no-assistant/crash, is an atomic website command
+  // trigger; it survives runner restarts and deduplicates terminal retries.
+  const {writeFile}=await import('node:fs/promises');const {execFile}=await import('node:child_process');const {promisify}=await import('node:util');
+  await admin.query('ALTER ROLE sjcos_test_website LOGIN');const runnerDatabase=new URL(url);runnerDatabase.username='sjcos_test_website';
+  const terminalCli=path.join(dir,'terminal-cli');
+  await writeFile(terminalCli,`#!/usr/bin/env node\nif(process.argv.includes('--help')){console.log('--tools --restricted --strict-mcp-config --safe-mode --setting-sources --settings --disable-slash-commands');process.exit(0);}process.stdin.once('data',()=>{console.log(JSON.stringify({type:'user',isReplay:true}));console.log(JSON.stringify({type:'result',subtype:'success',result:'',num_turns:1}));});process.stdin.on('end',()=>process.exit(0));\n`,{mode:0o700});
+  await promisify(execFile)(process.execPath,['scripts/run-claude-agent.mjs',run.id],{timeout:20000,env:{...process.env,DATABASE_URL:runnerDatabase.toString(),DATABASE_URL_AGENT:runnerDatabase.toString(),CLAUDE_BIN:terminalCli,SJC_CANVAS_DELETION_LEDGER_DIR:path.join(dir,'terminal-journal'),APP_INTERNAL_URL:'http://127.0.0.1:1'}});
+
+  const terminal=(await db.query('SELECT answer FROM dev_agent_runs WHERE id=$1',[run.id])).rows[0];assert.match(terminal.answer,/Canvas could not be created \(not allowed\)/);
+  await db.query("UPDATE dev_agent_runs SET status='error' WHERE id=$1",[run.id]);
+  const {canvasEvents}=await import('../lib/ask-canvases.ts');const history=await canvasEvents(thread,{});
+  const rejects=history.events.filter(e=>e.kind==='rejected');assert.equal(rejects.length,1);assert.equal(rejects[0].canvas_id,null);assert.doesNotMatch(JSON.stringify(rejects),/script|Refused|source/);
+  const {mobileCanvasFallback,appendCanvasLines}=await import('../lib/mobile-rpc/canvas-fallback.ts');
+  const fallback=appendCanvasLines('',mobileCanvasFallback(history));assert.match(fallback,/Canvas could not be created/);assert.equal(appendCanvasLines(fallback,mobileCanvasFallback(history)),fallback);
+  const canceled=(await db.query("INSERT INTO dev_agent_runs(prompt,profile,principal_user_id,conversation_id,launch_source,with_mcp) VALUES('Show permit steps.','business',$1,$2,'panel_web',true) RETURNING id,extract(epoch FROM created_at)::bigint AS started",[p.staff.id,thread])).rows[0];
+  const {canvasInternal}=await import('../lib/ask-canvases.ts');
+  await assert.rejects(canvasInternal('show',{...unsafe,request_id:crypto.randomUUID()},{run_id:canceled.id,principal_user_id:p.staff.id,run_profile:'business',run_started_s:Number(canceled.started),transport:'runner_stdio'}));
+  await db.query("UPDATE dev_agent_runs SET cancellation_requested=true WHERE id=$1",[canceled.id]);
+  await db.query("UPDATE dev_agent_runs SET status='error' WHERE id=$1",[canceled.id]);
+  assert.equal((await db.query("SELECT count(*)::int n FROM ask_canvas_events WHERE run_id=$1 AND kind='rejected'",[canceled.id])).rows[0].n,1);
+
+
  });}finally{globalThis.fetch=realFetch;await server?.close();for(const k of Object.keys(process.env))if(!(k in beforeEnv))delete process.env[k];Object.assign(process.env,beforeEnv);delete globalThis.__c1clsUploadDir;await rm(dir,{recursive:true,force:true});}
 }));

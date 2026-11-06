@@ -34,7 +34,7 @@ export async function unsortedRead(tab: string) {
   if (!["needs", "filed"].includes(tab)) throw new ReadError("Choose needs or filed");
   const [docs, projects] = await Promise.all([tab === "filed" ? listResolvedDocs(runDirect, 60) : listOpenDocs(runDirect), projectChoices(runDirect)]);
   const ids = docs.flatMap(d => [...d.attachment_file_ids, ...(d.email_file_id ? [d.email_file_id] : [])]);
-  const files = ids.length ? (await query<{id:string; name:string; mime_type:string|null}>(`SELECT id,name,mime_type FROM files WHERE security_profile IS NULL AND id=ANY($1::text[])`, [ids])).rows : [];
+  const files = ids.length ? (await query<{id:string; name:string; mime_type:string|null}>(`SELECT id,name,mime_type FROM files WHERE to_jsonb(files)->>'security_profile' IS NULL AND id=ANY($1::text[])`, [ids])).rows : [];
   return {tab, projects, items: docs.map(d => ({
     id: d.id, title: d.subject, kind: label(d.doc_kind), summary: d.summary, vendor: d.vendor_label,
     amountCents: d.amount_cents, amountLabel: d.amount_cents == null ? "Not recorded" : money(d.amount_cents), date: d.doc_date,

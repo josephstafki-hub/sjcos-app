@@ -128,3 +128,28 @@ hashes; final inventory: 505 audit entries, 986 SQL fragments, 219 files, zero v
 - 0108 saved-file/export/render boundaries, 0109 floor integration, and the
   parallel UI/poll/mobile slice are separate work. No Phase 1 release acceptance
   is claimed by this handoff.
+
+
+## Round-1 server corrections (2026-11-05)
+
+Engineering R3/R7: a previous run no longer makes a fresh tracked business turn
+unknown by itself. Epoch admission verifies previous same-person business epochs,
+policy/prompt/delivery hashes and every persisted message hash under the thread
+lock. Unknown, pending, unmanaged/invalid, operator, arbitrary/free-text and
+uninstrumented lineage remain closed. Tracked business uses fresh CLI processes
+and replayed tracked transcript; delivery references now include run ID, avoiding
+second-turn collisions. Exact assembled delivery bytes are hashed every turn.
+
+The website mints hash-bound control envelopes from exact create/fix/simplify/
+change templates and actual same-thread Canvas version/title/baseline records.
+The message trigger and runner both consume them. Extra text, foreign titles or
+unclassified page/upload facts do not become safe through a keyword heuristic.
+The actual runner test performs two staff turns with the UI empty-state template;
+message-trigger → update → Save positives cover inherited controls, with foreign
+and arbitrary-suffix negatives. Saved source policy comes from the manifest.
+
+Capability selection is a trusted schema/ledger decision, never a transport
+error fallback. The adapter latches installed tracking; recorded 0107 with missing
+tables fails closed. Phase 0 questions still validate stored choices and return
+the formatted typed answer before delivery. 0107 is edited in place because it
+is unapplied on live; no deployment or runtime data repair was executed.

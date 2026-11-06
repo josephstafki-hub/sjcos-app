@@ -19,7 +19,7 @@ process.env.SJC_OUTBOUND_DISABLED = '1';
 process.env.SJC_CANVAS_ENABLED = '1';
 const {appHooks} = await import('../tests/phase0a-fixtures.mjs');
 appHooks(); // Same native TS + alias + DB seam as canvas-commands-db.test.mjs.
-const {default:pg} = await import('pg');
+const {default:pg} = await import('../lib/guarded-pg.mjs');
 const {randomUUID} = await import('node:crypto');
 const {beginInput,completeInput,admitEpoch,hashBytes} = await import('../lib/ask-context-inputs.mjs');
 const {classifyToolAreas,CLASSIFICATION_REGISTRY} = await import('../lib/canvas-classification.mjs');

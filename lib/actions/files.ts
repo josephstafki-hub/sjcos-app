@@ -176,7 +176,7 @@ export async function setFileClientVisibility(
     lead_slug: string | null;
     storage_path: string | null;
   }>(
-    `SELECT name, project_key, lead_slug, storage_path FROM files WHERE security_profile IS NULL AND id = $1`,
+    `SELECT name, project_key, lead_slug, storage_path FROM files WHERE to_jsonb(files)->>'security_profile' IS NULL AND id = $1`,
     [id],
   );
   if (!file) return { ok: false, error: "File not found." };
@@ -222,7 +222,7 @@ export async function trashBrowserFile(fileId: string): Promise<UploadResult> {
   const user = await requireAccess("projects");
   const canvas=await canvasFileLifecycle(user,fileId,'trash').catch(()=>({ok:false}));
   if(canvas){revalidatePath('/files');return canvas.ok?{ok:true}:{ok:false,error:'This file is no longer available.'};}
-  const f = await queryOne<{project_key:string}>(`SELECT project_key FROM files WHERE security_profile IS NULL AND id=$1`, [fileId]);
+  const f = await queryOne<{project_key:string}>(`SELECT project_key FROM files WHERE to_jsonb(files)->>'security_profile' IS NULL AND id=$1`, [fileId]);
   if (!f) return {ok:false,error:"This file is no longer available. Refresh the list."};
   const res = await withTransaction(run => trashProjectFile(run, {fileId, projectSlug:f.project_key, reason:"Removed from Files", deletedBy:`user:${user.name}`}));
   if (!res.ok) return {ok:false,error:"This file is linked to another record. Remove that attachment there before moving it to Trash."};
@@ -242,7 +242,7 @@ interface FileSummaryRow {
  *  blurb (or a fallback when the file is gone). */
 export async function summarizeFile(id: string): Promise<string> {
   const row = await queryOne<FileSummaryRow>(
-    `SELECT name, tag, subtitle, ai_tags FROM files WHERE security_profile IS NULL AND id = $1`,
+    `SELECT name, tag, subtitle, ai_tags FROM files WHERE to_jsonb(files)->>'security_profile' IS NULL AND id = $1`,
     [id],
   );
   if (!row) return "That file is no longer available.";

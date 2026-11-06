@@ -160,7 +160,7 @@ const defaultTransport: EmailTransport = {
     let storagePath = ref.storagePath ?? null;
     if (!storagePath && ref.fileId) {
       const { queryOne } = await import("../db");
-      const row = await queryOne<{ storage_path: string | null }>(`SELECT storage_path FROM files WHERE security_profile IS NULL AND id = $1`, [ref.fileId]);
+      const row = await queryOne<{ storage_path: string | null }>(`SELECT storage_path FROM files WHERE to_jsonb(files)->>'security_profile' IS NULL AND id = $1`, [ref.fileId]);
       storagePath = row?.storage_path ?? null;
     }
     if(storagePath&&path.basename(storagePath).startsWith('canvas-'))throw new NotTransmittedError('Canvas copies stay internal.',true);

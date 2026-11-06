@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {testDatabaseUrl} from '../lib/test-db-guard.mjs';
 // SJC OS — import the ARCHIVED Open-Brain rows into official records.
 //
 // The Phase-2 temp-CRM import (import-temp-leads.mjs) wrote only the 12 ACTIVE
@@ -22,7 +23,7 @@ import { readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const args = process.argv.slice(2);
@@ -33,6 +34,7 @@ const PROJECT_STAGES = new Set(["closed_out", "closed", "final_invoice_sent", "w
 const LEAD_LOST_STAGES = new Set(["lost", "pass", "archived"]);
 
 function databaseUrl() {
+  const testUrl=testDatabaseUrl();if(testUrl)return testUrl;
   const env = readFileSync(path.join(__dirname, "..", ".env.local"), "utf8");
   const m = env.match(/^DATABASE_URL=(.+)$/m);
   if (!m) throw new Error("DATABASE_URL not found");

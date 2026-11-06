@@ -14,7 +14,7 @@
 // Database: DATABASE_URL from the environment, else ~/sjcos-app/.env.local
 // (SJCOS_ENV to name another file). Must be the owner login (sjcos).
 
-import pg from "pg";
+import pg from "../lib/guarded-pg.mjs";
 import { resolveDatabaseUrl } from "../lib/db-login.mjs";
 import { grantLines, loadManifest, NARROW_ROLES } from "./db-roles-sql.mjs";
 

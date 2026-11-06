@@ -30,7 +30,7 @@ export async function GET(
   }
 
   const file = await queryOne<{ storage_path: string | null; mime_type: string | null; name: string }>(
-    `SELECT storage_path, mime_type, name FROM files WHERE id = $1`,
+    `SELECT storage_path, mime_type, name FROM files WHERE security_profile IS NULL AND id = $1`,
     [resolved.fileId],
   );
   if (!file?.storage_path) return new Response("Not found", { status: 404 });

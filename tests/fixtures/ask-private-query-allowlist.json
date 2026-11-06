@@ -34,15 +34,15 @@
     "lib/ask-private-transport.mjs": "526f608724370f95444e33c5612c0e74433d58c43a161bda8d2a0bde820caab5",
     "lib/ask-run-admission.ts": "f07318d9ee3666da83dd659a20c257cbf30b12a5b0f3fd51a1e0b359019188a4",
     "lib/ask-thread-journal-interactions.mjs": "bb7cc8fc617e99d1eea8131a590f4089fec6be00e065ec16624fb7dcba67be55",
-    "lib/ask-thread-journal.mjs": "a06413ab72a95062f2cc5674558acbb88993dbf62ddea9cb2b2e477859a84141",
+    "lib/ask-thread-journal.mjs": "7e7f8ef038300ef4bfe3d1e6b0ca3ebcd5745d45a0c6cd13755a11697c3be22e",
     "lib/attachments.ts": "22837ed0d5a1e347a6b08dc1f45cb5670a042daeead7084d42e7db311471d5d5",
     "lib/authority/usage.ts": "0e86785e1c48d24d132c974f2f612985dccb225e5b2baeb947cac19d35252cf1",
-    "lib/bidding.ts": "0de197af352cc857144caf150eb212c47fed701814236be194a5f63888c470af",
+    "lib/bidding.ts": "88ca0ccf6e7b4d5c0af9e2704a5104e4062ee3a47ec417e4c04fa27a6f894b62",
     "lib/billing/commands.ts": "737c14293d1426ee1bd2c6fa8a512a063db95eca9c94335639c9191ab8f952c0",
     "lib/billing/invoice-email.ts": "177b543f539e1c5606f037475d923cd53551835a536b2543905974ca6c764945",
     "lib/budget-writes.ts": "24225a7a4b85020d74ce139762c54a8cf6ec8987f77a6a9114946333a07c9f24",
     "lib/client-activity.ts": "905a522ab52c677467520803d706263e04242be4813fa70243e5ea45e3644f8e",
-    "lib/client-portal.ts": "ee27e345aec3e2c873f6f702876f426806a6743a00e4cb4f4303c0309ce4cd27",
+    "lib/client-portal.ts": "bf7263bdee370018d07d02d4ac4e5b114a362e5cdd263faf8591604831e7c9e2",
     "lib/commands/decisions.ts": "43153fe0a24ed87717123476597a85866587d747ad7a3b6eaec1f41f718c46c6",
     "lib/commands/intents.ts": "ceccb1c80b37269208653ccf9f1a34c798792431c0e8ad2058892035248f3a8b",
     "lib/commands/policies.ts": "7676323586b9c6c70c89275ebe0184a0427c467b8d13d5c4a64ad0b07dc587aa",
@@ -68,7 +68,7 @@
     "lib/estimating/setup.ts": "24acd9401f871c702dd1cefb432488c685b0bd259c04356beb57e861e900e83a",
     "lib/field/apply-decisions.ts": "9adb022a492fe42d6a70a57060e7530f30798386e4de18a1410b2cfa29df48f5",
     "lib/field/server.ts": "d509572f5be6e668852267235d37849cc0ddbdf2eea6cee7105a65f93397c04f",
-    "lib/file-trash.ts": "f511a3d0b5545330b425f1da8b41060ec4d4ec2325285922c1c61e4138110091",
+    "lib/file-trash.ts": "a98ee9a03c4b999f57a0ce0f61203443e9045a2cee043d61849c3f5bf27222f7",
     "lib/funding/index.ts": "017427710afb4a28dd2183765aab39d0b6f8f5daea3de3964c3010e925f849d9",
     "lib/grant-execution.ts": "00b28bac59ffb40c2184ef780ce7874d657cc94b92545058fcaf8b575361d0fd",
     "lib/inbox-context.ts": "552270b9ad6a4b60f8ba069062c16e7b94bc23a6cd868b3f1836f8246689b6ef",
@@ -128,7 +128,7 @@
     "app/(os)/workbench/page.tsx": "66aa0cb08b2e1746177bb01c1ea6592e8cf8e7d74ce016f5be633a9e10f523ef",
     "app/api/cron/_lib/guard.ts": "de6409edc6d2006f99049395c3ee5523c7f3cad663f210bee4e0aafaf8f3584a",
     "app/api/internal/bidding/route.ts": "da2268c32accf7fabeac498d118346238fff348f72d9c09ad9ee9f034aa44dc1",
-    "app/api/internal/canvas-maintenance/route.ts": "fdac3a6986f684977302e83b57bb8931dbdac46d083a9a4d5d1a89662bceab90",
+    "app/api/internal/canvas-maintenance/route.ts": "e539ebb996f0547f6dda44347c3eaa86e6a48efe93427914e1d7ce52cf7f4aa6",
     "app/api/internal/doc-drafts/route.ts": "521e4c33c46a0315a8e6d3e67845fb83ba139b8b17847d3483b20eb04713c5eb",
     "app/api/internal/newsletter/route.ts": "05063bda49fc713884bc9a5f0605ac7c6a27e48a4757d3df5f0d851986915a97",
     "app/api/internal/purchase-orders/route.ts": "5f84a4cc021872d2d7b7c5b39f753c2f7628653b99acd858cadc4d14a6f7131a",
@@ -143,7 +143,7 @@
     "mcp/obligation-tools.mjs": "409b9fe090590051e392bb5ae45abf4abc8cdc37ccd62430737d2794d504e1e9",
     "mcp/project-tools.mjs": "9cb8deacdc68efd39d657c9960910b5b71e4100b4738bd15972af53b27788f43",
     "mcp/runbook-tools.mjs": "e2988e12c1cbd4e8a6a71cf0c04661a487b12fed4f8806f83f885e926d972123",
-    "mcp/sjcos-mcp.mjs": "67a1d881f7888858947221548688542721c85fd93e0d3670af443e94c7788098",
+    "mcp/sjcos-mcp.mjs": "7a1c50563aa378c362d7a1cb930c8f2c21d6bd9774169dc00ba8fedc9a052070",
     "mcp/team-tools.mjs": "68e526938fc74c10646707c1ee1020f6a5b0336fb37186649c015caf7557fbcd",
     "mcp/workflow-tools.mjs": "8f643366b6c20fbf5dd13f41cf39f00ebf269b2a796efc809d9b1eea5a13aae7",
     "scripts/backup.mjs": "48b8649b5b8e5c581d505341cdbc0d0e58d9718b72824ad3e4e02565892c5541",
@@ -208,19 +208,25 @@
     "db/migrations/0062_portal_telegram.sql": "85878f8cf90c1ec4731c51ec5cd45ff1409ebc1ef3a5bf9e902394e90780155e",
     "db/migrations/0100_ask_launch_sessions_browser_core.sql": "dd0deca0d6bc5ec0ea573fe6214d62889d238027e5d91a69256d0b4aa2d99f04",
     "db/migrations/0105_ask_thread_ownership.sql": "3a105fc3041b26f3ef73d7796bf7cdf4aff6dae3bfa5df9d4d8e9bcf85311cf3",
-    "db/schema.sql": "7b884c026dc3868bc17d591088b37e30996ab5644d732082bf56dc203bd9cb23",
+    "db/schema.sql": "45f9c44b5137ee148c85cdab9a9335f69929514e9dc679693985b0fb4b31989d",
     "db/seed-workflow-runbooks.mjs": "d7bc6de5467359b85364c72042184f34aed5baabf61093347b4dd8ff81ad5dad",
     "db/seed.sql": "fe0fa36f0ade311fe5d64ae7d878e249977ab3f653e29d9b24178dba87745400",
     "db/apply-push-outbox.mjs": "d03f2a72e47ceae67df7a2d7d3416d96e65d992960eb89b6dc32b9f8d18d43c5",
     "db/migrations/0031_payment_push.sql": "a8966c4e6eefdc555fab618955c522910288b85122aa6fd9384140784df7892c",
     "db/migrations/0039_contract_signed_push.sql": "e4b4936b69c08a3876d0fd671f48083f9bacc449315c999b2b88708aedca6063",
-    "lib/ask-canvases.ts": "d2b6abb0e112425b2a5e839b31c9cf2a88097798b3f4ce6328ea324d5cd1615a",
+    "lib/ask-canvases.ts": "8296a9d877ba5117ead99d4efa1366c554e57c6056672c9c3958d4005af9491e",
     "mcp/canvas-tools.mjs": "af488ec1f424bc8055d6b03f89211788fd55e1ecfdc61eefb0abfd9f1f8e2a10",
     "db/migrations/0106_ask_canvases.sql": "1d0be83ed45a0662e078f96c93eafbcf36dc6fbf4593fdb1270d07c0e7876599",
     "app/api/ai/status/route.ts": "3a0c97e55da2ce202efc8a8e99f9760a39b102a86d5a253e45131a62b6de7f40",
     "lib/ask-context-inputs.mjs": "0c10b89980e347ec727e9b0bcec36eb3592a2447bd16aad7fe46cbf9b02e4d1b",
     "lib/ask-context-provenance.mjs": "601700e01aad5ce2c6f5d91ca2dfd472081d93886967e848891b1d8140f31702",
-    "db/migrations/0107_ask_context_provenance.sql": "36fbd54753d637feff385c1eb90f8d01fd1fc4e282a2e0271a391b5d75d9f23c"
+    "db/migrations/0107_ask_context_provenance.sql": "36fbd54753d637feff385c1eb90f8d01fd1fc4e282a2e0271a391b5d75d9f23c",
+    "lib/canvas-deletion-ledger.mjs": "3e6d36ac35edc8d5247979499249738d547c5ef36c2b7174fdada2a98614be9b",
+    "lib/canvas-exports.ts": "ee22fbcd52d58ff2481ed97a23375f33b42fa5b99362b6c91a4b49d20f0d3419",
+    "lib/canvas-file-access.ts": "1634d44482aa3cda481e6eca9938ea29c8a3ab44bd350e8563f2afcac831aba8",
+    "db/migrations/0108_ask_canvas_files.sql": "7e9f4bd66bbdd24a1b3de3eb627610e5404dce19c202a4512b8f9f94d61b2bba",
+    "app/api/internal/canvas-files/route.ts": "133f5fd6aea6328e21816ea17430ddeed8d46adc4394039dcc13614433bcd236",
+    "mcp/canvas-file-call.mjs": "b907399c91f7347715966af7bc6b6d41b906451a062d5122e498282dfb3b7183"
   },
   "entries": [
     {
@@ -1189,56 +1195,6 @@
       ]
     },
     {
-      "file": "lib/ask-thread-journal.mjs",
-      "function": "deletionState",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
-      "queries": [
-        "165ec0cc0f07ea306c78b0b5287f4d9274011351644088785b8aa75eac0cfc50"
-      ]
-    },
-    {
-      "file": "lib/ask-thread-journal.mjs",
-      "function": "replay",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
-      "queries": [
-        "0d27aca9a57c2314c31498003b3fdd8162836c89f8053a32fdb40ba063f88181",
-        "2f0c87530f836b52ab08c49ac954fd981096080ccf2b4076a9036df4648b7a49",
-        "0fa16a3cf5a8d1b7e61e6892926c19aed582c5c1229241ec36076994bb7eb084",
-        "2ef31d44345a41d03a481a10ac1287746d6d4e35d76c820c0ddda8d97c7f5a99",
-        "2b3e712f4d9fe780301567c5e1456695ce4c31f4b7cf055585ac9909754bb892",
-        "083d7c5e847c4147c11b7e4c23091412f6c7215f8cc5c80fe06cb7fc7d2885ba",
-        "1f3adf642c0a9d76574ff0bab3b149e73973002a787d8b56801dc773054b23c3"
-      ]
-    },
-    {
-      "file": "lib/ask-thread-journal.mjs",
-      "function": "maintainThreadsChecked",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
-      "queries": [
-        "c60e6ce83bb30513bad70b36ac448b892afea9bc9ee9a47c28cf8293979ac005",
-        "252e17dd00c92959c55e9f7cd7037d204afe354ef904c197d0c641282bf1c76f",
-        "0dc5b934bcd3cbbd9a7af6920a74473c02bb481b4dd464d71a40d26d6692d26e",
-        "b2d9305f9577c33d114039a935f79e65e3c264c1bdd4955633c90e2343e16761",
-        "480aef82fcda64a090ed48ebc963d2817d3685fb9a07a416ffbffdfa36cbaab1",
-        "19abe94c7c32fac19b11881eb1c1dc13c771196b5c63424ad673b1b3458746a6",
-        "c1aa4a1c5f066826cfeeafd608f36739515d4b0031f0da30e915122efea862c4",
-        "a167abcc3887c6aebb8f3225530c50edb54b676bafd53684ca7785a0e7cd226b",
-        "d51d54cc872468cf733224cd63fc3a0376f24cbbf4b80967d3ba3e6237aa3851",
-        "56f87f82de4732f825540bd1e54c69bb42b5cfb9f26a5ba41acfa005623b637b",
-        "b275f2f700ab10486ff51ab2456206be01c2a059ebea6e9afea406c0e44ed691",
-        "5fac8a783b5cab2ac0aed41a833cd308f81a47d097060e6ecc97f4521957580c",
-        "63ae0242574f4a586729e475ad870a9c0ec6ab8ab6240554affb30785eee3a58",
-        "95dd14e1f4bd128c2f1db033123a5354ec34ba2fae260f0200834a1d7eae0883",
-        "3a7dc1102683db0ffabf5b454ff6d28a0b948aaae5929174fb67aeb32236d872"
-      ]
-    },
-    {
       "file": "lib/attachments.ts",
       "function": "<private-files>",
       "classification": "fenced",
@@ -1256,16 +1212,6 @@
       "explanation": "Global operational quota aggregate only (run count/cap verdict), no title, text, person, thread ID, per-folder count or per-thread activity. Not a source-chat reader.",
       "queries": [
         "914b2ee6e42d9455bd9b9048b687ab6bd9ff789340f4679134734fc0af26c1fb"
-      ]
-    },
-    {
-      "file": "lib/bidding.ts",
-      "function": "sendBidPackageOp",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Reviewed grant approval/dispatch/business context core; website command or narrow background role subject to 0105 derivative RLS. Explicit staged-send business data and action/target metadata; not private prompt excerpts or copied run answers. MCP private reads use separate person-bound bridge.",
-      "queries": [
-        "53525f48f576d7acba98a3ef203192c52df523985cbb939193f0ba1e2f40ea9c"
       ]
     },
     {
@@ -1326,16 +1272,6 @@
       "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review.",
       "queries": [
         "b83e41480a4377ccd3d8f141076c66ef72afd1c01038b49464973e365784fd15"
-      ]
-    },
-    {
-      "file": "lib/client-portal.ts",
-      "function": "getPortalBadges",
-      "classification": "not-private",
-      "reason": "fenced-by-helper",
-      "explanation": "Business work-item/card/intent/receipt/payment projection or conservative composed-SQL fragment. No automatic chat prompt/reply/attachment text producer here: session reply bodies are retained only in fenced owner_replies; shared blocked_reason/decision_note/event detail/intent error carry fixed status. Explicitly submitted business artifacts keep their existing business permission policy. Runtime-derived private copies are fenced separately by source person and RLS.",
-      "queries": [
-        "8cd30ba009a27437d8ed69cdb83dcf343051d23773fba0bde9e2593f885d212b"
       ]
     },
     {
@@ -2257,16 +2193,6 @@
       "queries": [
         "623868b3e51f98521e657d043c40ad07e58fb994c93e32794a747ec68a88340d",
         "87f166d0539956bd9fc9e131262d2a7fa4639995110ced9ab65632245052612c"
-      ]
-    },
-    {
-      "file": "lib/file-trash.ts",
-      "function": "fileReferences",
-      "classification": "not-private",
-      "reason": "owner-health-opaque-ids",
-      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review.",
-      "queries": [
-        "dcc356103e8a69bdcb8a104442a18054471c1c1b4ef0da6cb753a694ec24e797"
       ]
     },
     {
@@ -4050,17 +3976,6 @@
       ]
     },
     {
-      "file": "app/api/internal/canvas-maintenance/route.ts",
-      "function": "reportHealth",
-      "classification": "not-private",
-      "reason": "owner-health-opaque-ids",
-      "explanation": "Secret-authenticated maintenance health reports only opaque UUID/count/ready state; no private chat text. Conservative SQL scan also tracks fixed private-table absence checks.",
-      "queries": [
-        "459b3552de1052c203e60d730abd562699c5cfe098e23f5419f9989ceb292178",
-        "34d487861ad15dff7dcddb9c2de9abef5f61eb70b0b453433d1fecf4449bc401"
-      ]
-    },
-    {
       "file": "app/api/internal/doc-drafts/route.ts",
       "function": "audit",
       "classification": "not-private",
@@ -4227,226 +4142,6 @@
       "explanation": "Narrow sjcos_agent business tool SQL. Business cards/work items/intents/receipts are deliberate shared artifacts; automatic private reply text is no longer stored in their status fields. Actual session_user FORCE RLS denies private source/reply/runtime rows even with a forged actor GUC. Captured private bridges are reviewed separately; this entry grants no private tool capability.",
       "queries": [
         "94c3d1a40fc4047d3b3ee9dbc8b4ad7837730ac3d180143900a4d6cd122ee651"
-      ]
-    },
-    {
-      "file": "mcp/sjcos-mcp.mjs",
-      "function": "<private-files>",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
-      "queries": [
-        "67a1d881f7888858947221548688542721c85fd93e0d3670af443e94c7788098"
-      ]
-    },
-    {
-      "file": "mcp/sjcos-mcp.mjs",
-      "function": "currentPrincipal",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
-      "queries": [
-        "c7cc4a4ce070fe43997ec977ffa69e77c694047517cd6fb2f517d8dab09f6876",
-        "b5009f50e35a4d028e63c87eb7c129630b1ce7e014012f43f387af5dc0e501d7"
-      ]
-    },
-    {
-      "file": "mcp/sjcos-mcp.mjs",
-      "function": "<module>",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
-      "queries": [
-        "ca09fe96d9c7383d08d0cd47a0877fdc66e89e553e90fd0c96cbca4518af6d34",
-        "991c635edae1d55af18c53766f9e63f46ee3e5a9ff2f23e1bd0e777361f8c7d2"
-      ]
-    },
-    {
-      "file": "mcp/sjcos-mcp.mjs",
-      "function": "buildServer",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
-      "queries": [
-        "43c7aafdda6303de0f93195f82b057fed639bf6da9dc75c13d182ebd3f10938b",
-        "dbad29046256a4bf9f587f72902e94b8b7054c5523bf24348e7c350ccb6aaa7e",
-        "e8d3caf0f6e30d8dfdfbe4d548b9c6185e6255ddc61de0c468abf88e8b386df3",
-        "4349722923778f4ee2155cca88a90075a0d2ec5bfee00abaebc81b7f02f12f16",
-        "aa6202fdf4fba563e6570281f7b98ad159d59ca90065b72e560ad992288b86d5",
-        "709e59ac47409c9826681bc7701f3e4f5d673765149630701308f494c70b99b6",
-        "c658764e2c5851be8c200f6ceb60e8f06012c7ce5809b8d8727d0dd847606ec4",
-        "b1c9fab257d624671b96dedc6406b164c27fdaf3ef98e5369ab89d26a021994d",
-        "f5c772227c174e685e0f24cc2ee6cba30e912c1b23ce349918c68e5d3848a24b",
-        "cbc7d054f1639105b13f3a1434c91fa394f8eb54ea9163e3d8b97ee32598536a",
-        "96d4c086c5d101058cc0ee7d95b58c09840aa3bf7cd1f59d24fd20b1ec674e4e",
-        "5dd76ba4fa650926f9145106f5050e7ff5f55340402dbb0a83f1f2252acf1708",
-        "67ca4f524cc082f5a13dd1dcd0222ced354b7e101ba80e470d4d486ed3132e2a",
-        "e12c60b1cd5dad0782284d195bae6d7864afb7e485b1c9346c89d76fc11ed24e",
-        "f983044dd8459186270e4212a47bbfd07e5c47cc53c109f69ff6744cd88597a4",
-        "ed00baadfef9ef61d9f6959b0cc972c2d0d83c90c0c54b5f4393496f192c195c",
-        "b0ad301cf0a77a618015a8a85866eb0e8387ca169d0a790599399eaa2e31c070",
-        "6c7a57af7f333961b50a04becfc227843772fae76eef490d328aff0b1f7405b2",
-        "0280f5be7a528040bac6ad320e88ec0accdb7baa1616a6878b81204c48e68ef2",
-        "1646caa2acf7931767e5a0adca237c0e4466c3a639f0f4d5585204233b9ce3ff",
-        "76b4a76d3f83a6fbb97b317501ae228781d3389b1f681ce8719ca06ab1a7f01a",
-        "bd2b1808e11af4d88420fbed5c3fe586982e9358800a59915667cfda6fa9bcff",
-        "b506ac29cb9bb242b554e6689f914dbd54a31bf2b82b9333c539514c3a686f16",
-        "62229583934eb6d91dfbea6647014c0eac67d384f35357a54c83a0cde29d0997",
-        "a8bbc82d0866ba238439ec07b04d62017c2b89f210d9134c764e9bcb8b7611eb",
-        "54f092f7c30d832e5f2742e9edf312987d40fb89006ca8a2e023a31bc7e3422d",
-        "ea77518a0640c9a40b4fe5cdad789ecc362fcd5b1e38b41f0809e4c1fc00c413",
-        "97e23bdcf108130b6033908141acd3408d4762ae24efd50e4dd7d1e3e38ef8bb",
-        "cfcb0601f52dcba3052199cd0c7f39538f292c8ac521613171f566eb1dfd820a",
-        "d95863e2069acb06e2c57c4f70606f652f265b68564e5b28a034fda734f97700",
-        "a5cfed58a0074a08868658d5bba989af544da71454a6e3535a98583fa6c22426",
-        "a57f84725162e94ded2c148c4175218fb61cf4f5e7115cad2b86db39c4586c78",
-        "08efac9f35a92ec23c354c52dcceb15635edd0d16665c09b2964be3683ac82b4",
-        "41af84f2fefaea8de767172c0417045f7d5106dfdcf42907e1a4a33515489c00",
-        "abe77a6db73332df719b1376d302e7c82b4fda066559e527ad72d0fd1fdb8470",
-        "39ebcd620dfd33120a9a17ef985ac85f3b506020b13b1d4939746804f17b7c4f",
-        "99692837fedfa3d00774ce630961a04efcd5cfba59420b096cce43665c280491",
-        "7b2ac24490edf6be63e1c34f7965a478cedc4c7e32813902c03aec2a1a77279e",
-        "8e8fa3d2f4447432428a49ae50d61db26209a67cb0436a09e28f9229b1205f72",
-        "1b0b93067ce381e589e5faed793f8c0907024346b0c722724ee496a4541e492d",
-        "8bdc759971e91e5a04878ac917c63045fc81e345e1ca16bd126f44f6b022d65d",
-        "4cfe874d21888d660524ce3df189ce1a42fbde7095bdccf666ee5fb4741450e4",
-        "5b52db10f96bcfbb93e0bb202e1f8ebd4347dfa30ce8453e48c250b0c3219d8b",
-        "24f73c94f70a89ec15313893416ed976bb9540a5c1cd2a153235206a0e2bdad4",
-        "d7204ee12f81cbb923fded8868d8cbe8780f27f00a4ea5b9ea217dab92bd32a4",
-        "761b02d45b65e1091bd570c5ecd3f36a4e72434e9c81aef2a956e9a0348f1026",
-        "20b4867c82048abd15983db02f9d45b51cb80cfd606d58df3c3c5b96b6159f6b",
-        "d7f8436e822cce28840ffd7e43f9332c96c1721b1f1dca95749b0a931caeeba1",
-        "b0bd204a728af359ac7d0bb59ca3db1ede31026d7400903d2c81b2dfcab5e0ed",
-        "52ff3a5e23c99a830c9dd5d5a146b87f4aafa180303038b9225b1a296e4c99c8",
-        "faeacd882cd02555b854535bd66b7e41f1505afae77b093306e7b7d915e141f3",
-        "7199488fc27966a3d4e28c7e3156ecb669c08baac555d98dffe44026e29db760",
-        "969e8a9edc3729a61631a1cffe65e31330ba4e2a49507317936f2929e6b18b29",
-        "609ebae74b5318f36dc8d77d31de15f4c3a2a557eafb1fffe18c22399f7fb78e",
-        "2f441aa96b0a047189a5a92b4afeacbe8cdc8dde24f5aedff577112aabd1488b",
-        "a5a0f6b3180349ada20f9f3cd1f1bac9909f8090500841816f9d7a8323e6c9d7",
-        "185d092251527e74ec5da903b620265ef71c5a56beb261efe1a567632e9a8929",
-        "748457582b9b5d128b4cd21bf624174622f18db78ed5fbd2c3f695c5d6347cdb",
-        "4c4019e016a6d63debb02afdab2927d847d1650bb4bad8f05a767351e02cf609",
-        "eb9c874ee96e0717266bff114d6f2394abc8605c934b683ebbe474cabffef8e2",
-        "5304d3b581711b8667837d9e8e5f1e32f4748738737d79678b3b7131fc3fcaed",
-        "6f4364ca186bcf062241b17f33dcac3f75a778fff4e0ce84b1ed9efd7896e34f",
-        "56c610b1dd419285208163720faedfba99a347b87eca7bd0d2b23f43e0bb6d21",
-        "345bf568675afbec2c6c7d51834950983c783f17ad48ffe8bb15d3e1c7783b5a",
-        "5dad6c4434d4d0dc6e1442e90218a0500f867418ab53cbc1fd57f678b91a84e4",
-        "d9eb41fd30b7e7e19689210b6a73967d5162d0d4e21cbb2007e7c2aa0e877ad7",
-        "cadc849cd29a9e52df81211d858178fe82a69ea41c5c2d920e895829e72fd69d",
-        "18a799b9ddcff18c640e1dddb0791e197abbfec486d8d51cc0db008cb286d752",
-        "c1002fecb9e69110c0b17560a1169a95c0fdd6be0ac412a8f08c3537abd6e6a4",
-        "e7ea93f2d63b99e91132cac9cbc4ed3cd40042670d2ce8db55450738fb103041",
-        "dfd6d8d64f5a27419b48301f93a1c1176fbcaaceb591dd22994533ab38d2ac3a",
-        "2c668170d620d4daa18cfcf9ff1172fbf2fefda661857793a47b70405a430fae",
-        "5a21af19b6578f819a8dd19615f4834d418d3e51b053f653d7aed2452f0d94e9",
-        "95aa97f472c3fc24c417a7a84b25edefad68faa105024f8ca3f77a5b9eea24f1",
-        "8bc4030f97d35af6bde58593c950aa63a039cdab15321120011b51d6c562ece0",
-        "cfc1fbbdf9bfafbbb44eefbd6b8760f7f99b6b657c8d09862375a416482d1711",
-        "c2cf3c5f07c8a210bde39767f7ae4f19819c5f4367e58161f1c730f603721239",
-        "2594e90ac5e9a0cea5b087dfcd1978a59b2012509807c1735d8db97ad3eef78c",
-        "c2024aa952d037d14f6d8bc70df328b731007baa36bb6ed4edf603bc85323ae4",
-        "b75209fd30cccf2c356d52220f5609273becbb01d239392695ce5e5156c495b7",
-        "1b4d1c3cc4058f5727f217f95df1425da5c1e9c01a2340e26b49ed0a33acf4bf",
-        "c4fc9a0cf0edbb89c20634c75ba245b5456bb1fd2c6901e62112dd7f42d94d03",
-        "2897abd205baea6093b93b63f9f4d776ae944f041e90e39e98794589032b80c9",
-        "ddf406505ed9bafbfb31eb3d6a0b057cb805b4f81ffac411a07c47c283bf0b30",
-        "abde2a15da0ef67028c2c1fecd5b72e3acace4b5b9d20be866ce26f99a9eb98d",
-        "737b59d9902abb938d5d3083f71f9e83371ea31ced13129ffa45cafd74033ef9",
-        "cde203e0f520807fefcd40df250c5dc5285b5f2967cebdf7505281701e7cc79d",
-        "10f230fdcff6a7628fccaac9daee8f8f8b0e8d14b4776799bb9560d85193e274",
-        "008e515842b5493c6679ec141c8d3163bc78a8e619a7553f0fc217002c03da0c",
-        "7bba5e7559b74e33f3f5c2707bb15b0910a0d8d4dc3a97f2a2e43bf6eb3bec84",
-        "4ad81916f281e92ac2612dfce435ffee2ff207de14470eb2b669bf48ef0e8e92",
-        "d29c00a68749f45dc4553b7edaa46e5226e6db672dc7a807c21fa9906e9abdfd",
-        "e9affe601823fa25fe0d0e171673916f5e501c6e1cf474fa90bf7d65039866a0"
-      ]
-    },
-    {
-      "file": "mcp/sjcos-mcp.mjs",
-      "function": "slugToId",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
-      "queries": [
-        "b83e41480a4377ccd3d8f141076c66ef72afd1c01038b49464973e365784fd15"
-      ]
-    },
-    {
-      "file": "mcp/sjcos-mcp.mjs",
-      "function": "resolveInternalUser",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
-      "queries": [
-        "7b889e9c1198e64a578cdb12d4879e56529559004c063a4840a431192c43e420"
-      ]
-    },
-    {
-      "file": "mcp/sjcos-mcp.mjs",
-      "function": "writeAssignees",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
-      "queries": [
-        "e10111ffbf969841b4c78365c0ba846f29f36ff5dca74e91f118983f78ec1eba"
-      ]
-    },
-    {
-      "file": "mcp/sjcos-mcp.mjs",
-      "function": "approveWouldEmail",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
-      "queries": [
-        "c5f4eec8981050ef66c7b3be36ad54baf8b436759d5e1638f517e45a06e1899a",
-        "59427563ed964b573020576066ecffefa5fef7dc4d5ea190001922e23193744b",
-        "e9f86f35947d5ad9ff1df0391fd875f0a27a0d6b2545c23617141aaa8086e55c"
-      ]
-    },
-    {
-      "file": "mcp/sjcos-mcp.mjs",
-      "function": "upsertSection",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
-      "queries": [
-        "658e3ef3be21960351143700d600d273fcba40b8120c7f76bc830b13a64cc6a6",
-        "9a0770890c2df4f89b6ac4a62eac5d71b4b00b8e3d94a1445194bc113ee47168",
-        "91f47d8e56985ef3f426cee954f2b55a527b3d71be6168df451962f4f5c7ae5c"
-      ]
-    },
-    {
-      "file": "mcp/sjcos-mcp.mjs",
-      "function": "addItems",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
-      "queries": [
-        "55f224c631bb0fe445e86e667269c250e87d285ddcf1280545828c436d88bc74",
-        "9401e9d536faf5b2255631d317536156a3ecf9de59362f4aae0d45e4064fcc73",
-        "c22ed35f3e9adce650e8d84f4123d03b708fbaa799447c9e5af587ae47373931"
-      ]
-    },
-    {
-      "file": "mcp/sjcos-mcp.mjs",
-      "function": "resolveSectionParent",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
-      "queries": [
-        "1004b94fd939fe4acc0727ae27a6f6430542e2452bde58a6b3e496a4892a3110"
-      ]
-    },
-    {
-      "file": "mcp/sjcos-mcp.mjs",
-      "function": "scopedSectionId",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
-      "queries": [
-        "bfc6c8fdf7af709aae87b5da8d215171999f880835b0b5215048d16cba916929"
       ]
     },
     {
@@ -5315,16 +5010,6 @@
       ]
     },
     {
-      "file": "db/schema.sql",
-      "function": "<sql>",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "0107 migration/schema: website-only hash manifests, no narrow grants; SECURITY DEFINER triggers take the conversation row lock.",
-      "queries": [
-        "7b884c026dc3868bc17d591088b37e30996ab5644d732082bf56dc203bd9cb23"
-      ]
-    },
-    {
       "file": "db/seed-workflow-runbooks.mjs",
       "function": "<module>",
       "classification": "trusted-background",
@@ -5433,189 +5118,6 @@
       "explanation": "Owner-installed DDL for private canvas schema, immutable identities/snapshots, composite thread references, website session_user guards, quotas/rates and fenced retention/reconciliation. No narrow grants or public command EXECUTE. Stores hashes/opaque provenance references; no operational reader bypass.",
       "queries": [
         "1d0be83ed45a0662e078f96c93eafbcf36dc6fbf4593fdb1270d07c0e7876599"
-      ]
-    },
-    {
-      "file": "lib/ask-canvases.ts",
-      "function": "canvasDelete",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
-      "queries": [
-        "e9188e749d6bbd3e07202ac13bceee89d2ae32f4f678917785486d4490493741"
-      ]
-    },
-    {
-      "file": "lib/ask-canvases.ts",
-      "function": "canvasInternal",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
-      "queries": [
-        "9d890fca1f5ac95675c387d90e506d1e217f6775c85c60ae1a7541846a035ecd"
-      ]
-    },
-    {
-      "file": "lib/ask-canvases.ts",
-      "function": "canvasVersions",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
-      "queries": [
-        "d8ab7ad5c22eb9e4b94997198b86660065e235170ace25c906b2945aff354696"
-      ]
-    },
-    {
-      "file": "lib/ask-canvases.ts",
-      "function": "eventsIn",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
-      "queries": [
-        "0819bfce4fadfa90a7b3880c6aa000a10165d9ad2eee79159fbbe617f24229ed",
-        "e8f49036b2859f15036d2e0fa5111376187f1f190d6bf667d6308c76022bf08d",
-        "fc317a3d0a8f9198f5cc4d9747165f14dda856e1c1edb4a800ecc3c11ea51301"
-      ]
-    },
-    {
-      "file": "lib/ask-canvases.ts",
-      "function": "listIn",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
-      "queries": [
-        "9f56a6536f93fa07eb7eeb9e1c895bbbe4317cc5033abcea7e3cf9d70c0ab0e9"
-      ]
-    },
-    {
-      "file": "lib/ask-canvases.ts",
-      "function": "load",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
-      "queries": [
-        "20148ea3e10e8612480fc712ec52808f09a921f0b31321a9da69efb357598f3e"
-      ]
-    },
-    {
-      "file": "lib/ask-canvases.ts",
-      "function": "mutation",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
-      "queries": [
-        "652106ad89a8c5e2f0ca781f1bcf86820ee9d38a7df6bb3a0ba1d9ca29ec5c01",
-        "5c04a88b8e946e5795b2ee7a0eaf00e03ffcd7e7118a01169714d1716ae1a3d7",
-        "12413c3203c786db0f41e9903abf4704a69425ecb610dfd650056911e8c609ef",
-        "8bcf25501319e55f0301b66c0afd003b78dcc7ad158aafe3d828f3689061ea1a",
-        "83cd1449ccaa7b48cb19c8476f0d49812137a6c58d406cd8af188605071b58eb",
-        "ac37a1a45212f3b7d71d4f16794fd9da0fcb887569040101a51fa1c83aaadd83",
-        "eff89f48f84066f02b861d9c66a1df9bfb10ea693c0100fd377acdaeaf698613"
-      ]
-    },
-    {
-      "file": "lib/ask-canvases.ts",
-      "function": "ownThread",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
-      "queries": [
-        "c89f0465013225cab89a8b439597bd2aa2689aa7a1820da59dc425e7612405fe"
-      ]
-    },
-    {
-      "file": "lib/ask-canvases.ts",
-      "function": "tx",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
-      "queries": [
-        "50a7448a52de6cfb646e7e1fab3d90e583ea0fa97762e7033556623156b5bacb",
-        "8b223b94221428414877bcb156d7fcaa1efc9818ada9076d8596f604dd916bec"
-      ]
-    },
-    {
-      "file": "lib/ask-canvases.ts",
-      "function": "version",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
-      "queries": [
-        "51ec119f5e99c7faec3246cfd6bf83f450c06d0fd9e6b5911827fa8032b997b7"
-      ]
-    },
-    {
-      "file": "lib/ask-thread-journal.mjs",
-      "function": "acquireLease",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
-      "queries": [
-        "9f8ac8bb2c6d0282fa1795e90bc3d57f8090bfac031d55621cc80d1a090bb99e"
-      ]
-    },
-    {
-      "file": "lib/ask-thread-journal.mjs",
-      "function": "checkLease",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
-      "queries": [
-        "52c69f72dd17e739ab99f5d3c8fa2e85241d67b896693b9b7fd52d9355a0f2be"
-      ]
-    },
-    {
-      "file": "lib/ask-thread-journal.mjs",
-      "function": "closeGate",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
-      "queries": [
-        "855decd52929361291a8b783b2990f39e1d2bfe51061416dd98f34ffa305211f"
-      ]
-    },
-    {
-      "file": "lib/ask-thread-journal.mjs",
-      "function": "deleteEntity",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
-      "queries": [
-        "883b080f993449c39ef05c408f97a0f37b2619790d58b7bf63072b3665e3975e",
-        "25bde215ab64274cc37d8f3f7e0df8a3c2afb24d152146a3ab3f33eac88e3daf"
-      ]
-    },
-    {
-      "file": "lib/ask-thread-journal.mjs",
-      "function": "latch",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
-      "queries": [
-        "90313cd8f8e10479ef4e1f3090415ce5f8b6f9cc3cc01d3cc103a460d46b7fc4"
-      ]
-    },
-    {
-      "file": "lib/ask-thread-journal.mjs",
-      "function": "recoverThreads",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
-      "queries": [
-        "f5e1f69cf1912c1f09b2bbea985f66cf86b561ea5275047e369523e9a1f14318",
-        "c2cac5a568385ee25d06d2a63226d1c603739a4a934b8619712a16df90dbb847",
-        "54ca347475618d1e121f27c15b3e9b0249ad497a912055d09be6b4bc3e8ae33d",
-        "3a7dc1102683db0ffabf5b454ff6d28a0b948aaae5929174fb67aeb32236d872"
-      ]
-    },
-    {
-      "file": "lib/ask-thread-journal.mjs",
-      "function": "withAskJournal",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
-      "queries": [
-        "ebbe1d1c7ade9ff5dedf4f777cf2d5052c0abfa139dc549a127a54a0645d9d78"
       ]
     },
     {
@@ -5744,6 +5246,679 @@
       "queries": [
         "200d93fa43e62a58ad17a0b0769bef1fb55906f9420471f55be653ba346c44cb",
         "c989d624dd735b00cac3e764741729c7c0bb41d207b2a032ad676dc3d271b40a"
+      ]
+    },
+    {
+      "file": "app/api/internal/canvas-maintenance/route.ts",
+      "function": "reportHealth",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Secret-authenticated maintenance health reports only opaque UUID/count/ready state; no private chat text. Conservative SQL scan also tracks fixed private-table absence checks.",
+      "queries": [
+        "459b3552de1052c203e60d730abd562699c5cfe098e23f5419f9989ceb292178",
+        "34d487861ad15dff7dcddb9c2de9abef5f61eb70b0b453433d1fecf4449bc401"
+      ]
+    },
+    {
+      "file": "db/schema.sql",
+      "function": "<sql>",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "0107 migration/schema: website-only hash manifests, no narrow grants; SECURITY DEFINER triggers take the conversation row lock.",
+      "queries": [
+        "45f9c44b5137ee148c85cdab9a9335f69929514e9dc679693985b0fb4b31989d"
+      ]
+    },
+    {
+      "file": "lib/ask-thread-journal.mjs",
+      "function": "latch",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
+      "queries": [
+        "90313cd8f8e10479ef4e1f3090415ce5f8b6f9cc3cc01d3cc103a460d46b7fc4"
+      ]
+    },
+    {
+      "file": "lib/ask-thread-journal.mjs",
+      "function": "deletionState",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
+      "queries": [
+        "165ec0cc0f07ea306c78b0b5287f4d9274011351644088785b8aa75eac0cfc50"
+      ]
+    },
+    {
+      "file": "lib/ask-thread-journal.mjs",
+      "function": "closeGate",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
+      "queries": [
+        "855decd52929361291a8b783b2990f39e1d2bfe51061416dd98f34ffa305211f"
+      ]
+    },
+    {
+      "file": "lib/ask-thread-journal.mjs",
+      "function": "acquireLease",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
+      "queries": [
+        "9f8ac8bb2c6d0282fa1795e90bc3d57f8090bfac031d55621cc80d1a090bb99e"
+      ]
+    },
+    {
+      "file": "lib/ask-thread-journal.mjs",
+      "function": "checkLease",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
+      "queries": [
+        "52c69f72dd17e739ab99f5d3c8fa2e85241d67b896693b9b7fd52d9355a0f2be"
+      ]
+    },
+    {
+      "file": "lib/ask-thread-journal.mjs",
+      "function": "replay",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
+      "queries": [
+        "0d27aca9a57c2314c31498003b3fdd8162836c89f8053a32fdb40ba063f88181",
+        "2f0c87530f836b52ab08c49ac954fd981096080ccf2b4076a9036df4648b7a49",
+        "0fa16a3cf5a8d1b7e61e6892926c19aed582c5c1229241ec36076994bb7eb084",
+        "2ef31d44345a41d03a481a10ac1287746d6d4e35d76c820c0ddda8d97c7f5a99",
+        "2b3e712f4d9fe780301567c5e1456695ce4c31f4b7cf055585ac9909754bb892",
+        "083d7c5e847c4147c11b7e4c23091412f6c7215f8cc5c80fe06cb7fc7d2885ba",
+        "1f3adf642c0a9d76574ff0bab3b149e73973002a787d8b56801dc773054b23c3"
+      ]
+    },
+    {
+      "file": "lib/ask-thread-journal.mjs",
+      "function": "recoverThreads",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
+      "queries": [
+        "f5e1f69cf1912c1f09b2bbea985f66cf86b561ea5275047e369523e9a1f14318",
+        "c2cac5a568385ee25d06d2a63226d1c603739a4a934b8619712a16df90dbb847",
+        "54ca347475618d1e121f27c15b3e9b0249ad497a912055d09be6b4bc3e8ae33d",
+        "3a7dc1102683db0ffabf5b454ff6d28a0b948aaae5929174fb67aeb32236d872"
+      ]
+    },
+    {
+      "file": "lib/ask-thread-journal.mjs",
+      "function": "withAskJournal",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
+      "queries": [
+        "ebbe1d1c7ade9ff5dedf4f777cf2d5052c0abfa139dc549a127a54a0645d9d78"
+      ]
+    },
+    {
+      "file": "lib/ask-thread-journal.mjs",
+      "function": "deleteEntity",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
+      "queries": [
+        "883b080f993449c39ef05c408f97a0f37b2619790d58b7bf63072b3665e3975e",
+        "25bde215ab64274cc37d8f3f7e0df8a3c2afb24d152146a3ab3f33eac88e3daf"
+      ]
+    },
+    {
+      "file": "lib/ask-thread-journal.mjs",
+      "function": "maintainThreadsChecked",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Website-only journal and maintenance commands, OS lock through fresh independent authority/replay, matching lease/fencing token and schema capabilities. Canvas intent requires matching opaque owner and app callback before durability; replay/purge redact under existing fenced maintenance. Frozen usage reconciliation returns no private content. Thread-only installs never query later tables.",
+      "queries": [
+        "c60e6ce83bb30513bad70b36ac448b892afea9bc9ee9a47c28cf8293979ac005",
+        "252e17dd00c92959c55e9f7cd7037d204afe354ef904c197d0c641282bf1c76f",
+        "0dc5b934bcd3cbbd9a7af6920a74473c02bb481b4dd464d71a40d26d6692d26e",
+        "b2d9305f9577c33d114039a935f79e65e3c264c1bdd4955633c90e2343e16761",
+        "480aef82fcda64a090ed48ebc963d2817d3685fb9a07a416ffbffdfa36cbaab1",
+        "19abe94c7c32fac19b11881eb1c1dc13c771196b5c63424ad673b1b3458746a6",
+        "c1aa4a1c5f066826cfeeafd608f36739515d4b0031f0da30e915122efea862c4",
+        "a167abcc3887c6aebb8f3225530c50edb54b676bafd53684ca7785a0e7cd226b",
+        "d51d54cc872468cf733224cd63fc3a0376f24cbbf4b80967d3ba3e6237aa3851",
+        "56f87f82de4732f825540bd1e54c69bb42b5cfb9f26a5ba41acfa005623b637b",
+        "b275f2f700ab10486ff51ab2456206be01c2a059ebea6e9afea406c0e44ed691",
+        "5fac8a783b5cab2ac0aed41a833cd308f81a47d097060e6ecc97f4521957580c",
+        "63ae0242574f4a586729e475ad870a9c0ec6ab8ab6240554affb30785eee3a58",
+        "95dd14e1f4bd128c2f1db033123a5354ec34ba2fae260f0200834a1d7eae0883",
+        "3a7dc1102683db0ffabf5b454ff6d28a0b948aaae5929174fb67aeb32236d872"
+      ]
+    },
+    {
+      "file": "lib/bidding.ts",
+      "function": "sendBidPackageOp",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Reviewed grant approval/dispatch/business context core; website command or narrow background role subject to 0105 derivative RLS. Explicit staged-send business data and action/target metadata; not private prompt excerpts or copied run answers. MCP private reads use separate person-bound bridge.",
+      "queries": [
+        "53525f48f576d7acba98a3ef203192c52df523985cbb939193f0ba1e2f40ea9c"
+      ]
+    },
+    {
+      "file": "lib/canvas-deletion-ledger.mjs",
+      "function": "cleanCanvasOrphans",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Bounded Canvas-owned orphan sweep runs only inside original 0105 maintenance lease and 106 advisory lock, durable files/trash/save reference census before unlink; no private content returned.",
+      "queries": [
+        "0eb8fb290c9d2c79813ee557a2bd7791626bdd46d3af6efae63e25af14436af5",
+        "18baf91755753954160da222dfacaf31d8115d1d35e9e093bf39582490893894",
+        "b32b51be235b3425c0cdc597ed98ad93ee7a97efb3864866ba6f5f85ac37e8cf"
+      ]
+    },
+    {
+      "file": "lib/client-portal.ts",
+      "function": "getPortalBadges",
+      "classification": "not-private",
+      "reason": "fenced-by-helper",
+      "explanation": "Business work-item/card/intent/receipt/payment projection or conservative composed-SQL fragment. No automatic chat prompt/reply/attachment text producer here: session reply bodies are retained only in fenced owner_replies; shared blocked_reason/decision_note/event detail/intent error carry fixed status. Explicitly submitted business artifacts keep their existing business permission policy. Runtime-derived private copies are fenced separately by source person and RLS.",
+      "queries": [
+        "8cd30ba009a27437d8ed69cdb83dcf343051d23773fba0bde9e2593f885d212b"
+      ]
+    },
+    {
+      "file": "lib/file-trash.ts",
+      "function": "fileReferences",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review.",
+      "queries": [
+        "dcc356103e8a69bdcb8a104442a18054471c1c1b4ef0da6cb753a694ec24e797"
+      ]
+    },
+    {
+      "file": "mcp/sjcos-mcp.mjs",
+      "function": "<private-files>",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "queries": [
+        "7a1c50563aa378c362d7a1cb930c8f2c21d6bd9774169dc00ba8fedc9a052070"
+      ]
+    },
+    {
+      "file": "mcp/sjcos-mcp.mjs",
+      "function": "currentPrincipal",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "queries": [
+        "c7cc4a4ce070fe43997ec977ffa69e77c694047517cd6fb2f517d8dab09f6876",
+        "b5009f50e35a4d028e63c87eb7c129630b1ce7e014012f43f387af5dc0e501d7"
+      ]
+    },
+    {
+      "file": "mcp/sjcos-mcp.mjs",
+      "function": "<module>",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "queries": [
+        "ca09fe96d9c7383d08d0cd47a0877fdc66e89e553e90fd0c96cbca4518af6d34",
+        "991c635edae1d55af18c53766f9e63f46ee3e5a9ff2f23e1bd0e777361f8c7d2"
+      ]
+    },
+    {
+      "file": "mcp/sjcos-mcp.mjs",
+      "function": "buildServer",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "queries": [
+        "43c7aafdda6303de0f93195f82b057fed639bf6da9dc75c13d182ebd3f10938b",
+        "dbad29046256a4bf9f587f72902e94b8b7054c5523bf24348e7c350ccb6aaa7e",
+        "e8d3caf0f6e30d8dfdfbe4d548b9c6185e6255ddc61de0c468abf88e8b386df3",
+        "4349722923778f4ee2155cca88a90075a0d2ec5bfee00abaebc81b7f02f12f16",
+        "aa6202fdf4fba563e6570281f7b98ad159d59ca90065b72e560ad992288b86d5",
+        "709e59ac47409c9826681bc7701f3e4f5d673765149630701308f494c70b99b6",
+        "c658764e2c5851be8c200f6ceb60e8f06012c7ce5809b8d8727d0dd847606ec4",
+        "b1c9fab257d624671b96dedc6406b164c27fdaf3ef98e5369ab89d26a021994d",
+        "f5c772227c174e685e0f24cc2ee6cba30e912c1b23ce349918c68e5d3848a24b",
+        "cbc7d054f1639105b13f3a1434c91fa394f8eb54ea9163e3d8b97ee32598536a",
+        "96d4c086c5d101058cc0ee7d95b58c09840aa3bf7cd1f59d24fd20b1ec674e4e",
+        "5dd76ba4fa650926f9145106f5050e7ff5f55340402dbb0a83f1f2252acf1708",
+        "67ca4f524cc082f5a13dd1dcd0222ced354b7e101ba80e470d4d486ed3132e2a",
+        "e12c60b1cd5dad0782284d195bae6d7864afb7e485b1c9346c89d76fc11ed24e",
+        "f983044dd8459186270e4212a47bbfd07e5c47cc53c109f69ff6744cd88597a4",
+        "ed00baadfef9ef61d9f6959b0cc972c2d0d83c90c0c54b5f4393496f192c195c",
+        "b0ad301cf0a77a618015a8a85866eb0e8387ca169d0a790599399eaa2e31c070",
+        "6c7a57af7f333961b50a04becfc227843772fae76eef490d328aff0b1f7405b2",
+        "0280f5be7a528040bac6ad320e88ec0accdb7baa1616a6878b81204c48e68ef2",
+        "1646caa2acf7931767e5a0adca237c0e4466c3a639f0f4d5585204233b9ce3ff",
+        "76b4a76d3f83a6fbb97b317501ae228781d3389b1f681ce8719ca06ab1a7f01a",
+        "bd2b1808e11af4d88420fbed5c3fe586982e9358800a59915667cfda6fa9bcff",
+        "b506ac29cb9bb242b554e6689f914dbd54a31bf2b82b9333c539514c3a686f16",
+        "62229583934eb6d91dfbea6647014c0eac67d384f35357a54c83a0cde29d0997",
+        "a8bbc82d0866ba238439ec07b04d62017c2b89f210d9134c764e9bcb8b7611eb",
+        "54f092f7c30d832e5f2742e9edf312987d40fb89006ca8a2e023a31bc7e3422d",
+        "ea77518a0640c9a40b4fe5cdad789ecc362fcd5b1e38b41f0809e4c1fc00c413",
+        "97e23bdcf108130b6033908141acd3408d4762ae24efd50e4dd7d1e3e38ef8bb",
+        "cfcb0601f52dcba3052199cd0c7f39538f292c8ac521613171f566eb1dfd820a",
+        "d95863e2069acb06e2c57c4f70606f652f265b68564e5b28a034fda734f97700",
+        "a5cfed58a0074a08868658d5bba989af544da71454a6e3535a98583fa6c22426",
+        "a57f84725162e94ded2c148c4175218fb61cf4f5e7115cad2b86db39c4586c78",
+        "08efac9f35a92ec23c354c52dcceb15635edd0d16665c09b2964be3683ac82b4",
+        "41af84f2fefaea8de767172c0417045f7d5106dfdcf42907e1a4a33515489c00",
+        "abe77a6db73332df719b1376d302e7c82b4fda066559e527ad72d0fd1fdb8470",
+        "39ebcd620dfd33120a9a17ef985ac85f3b506020b13b1d4939746804f17b7c4f",
+        "99692837fedfa3d00774ce630961a04efcd5cfba59420b096cce43665c280491",
+        "7b2ac24490edf6be63e1c34f7965a478cedc4c7e32813902c03aec2a1a77279e",
+        "8e8fa3d2f4447432428a49ae50d61db26209a67cb0436a09e28f9229b1205f72",
+        "1b0b93067ce381e589e5faed793f8c0907024346b0c722724ee496a4541e492d",
+        "8bdc759971e91e5a04878ac917c63045fc81e345e1ca16bd126f44f6b022d65d",
+        "4cfe874d21888d660524ce3df189ce1a42fbde7095bdccf666ee5fb4741450e4",
+        "5b52db10f96bcfbb93e0bb202e1f8ebd4347dfa30ce8453e48c250b0c3219d8b",
+        "24f73c94f70a89ec15313893416ed976bb9540a5c1cd2a153235206a0e2bdad4",
+        "d7204ee12f81cbb923fded8868d8cbe8780f27f00a4ea5b9ea217dab92bd32a4",
+        "761b02d45b65e1091bd570c5ecd3f36a4e72434e9c81aef2a956e9a0348f1026",
+        "20b4867c82048abd15983db02f9d45b51cb80cfd606d58df3c3c5b96b6159f6b",
+        "d7f8436e822cce28840ffd7e43f9332c96c1721b1f1dca95749b0a931caeeba1",
+        "b0bd204a728af359ac7d0bb59ca3db1ede31026d7400903d2c81b2dfcab5e0ed",
+        "52ff3a5e23c99a830c9dd5d5a146b87f4aafa180303038b9225b1a296e4c99c8",
+        "faeacd882cd02555b854535bd66b7e41f1505afae77b093306e7b7d915e141f3",
+        "7199488fc27966a3d4e28c7e3156ecb669c08baac555d98dffe44026e29db760",
+        "969e8a9edc3729a61631a1cffe65e31330ba4e2a49507317936f2929e6b18b29",
+        "609ebae74b5318f36dc8d77d31de15f4c3a2a557eafb1fffe18c22399f7fb78e",
+        "2f441aa96b0a047189a5a92b4afeacbe8cdc8dde24f5aedff577112aabd1488b",
+        "a5a0f6b3180349ada20f9f3cd1f1bac9909f8090500841816f9d7a8323e6c9d7",
+        "185d092251527e74ec5da903b620265ef71c5a56beb261efe1a567632e9a8929",
+        "748457582b9b5d128b4cd21bf624174622f18db78ed5fbd2c3f695c5d6347cdb",
+        "4c4019e016a6d63debb02afdab2927d847d1650bb4bad8f05a767351e02cf609",
+        "eb9c874ee96e0717266bff114d6f2394abc8605c934b683ebbe474cabffef8e2",
+        "5304d3b581711b8667837d9e8e5f1e32f4748738737d79678b3b7131fc3fcaed",
+        "6f4364ca186bcf062241b17f33dcac3f75a778fff4e0ce84b1ed9efd7896e34f",
+        "56c610b1dd419285208163720faedfba99a347b87eca7bd0d2b23f43e0bb6d21",
+        "345bf568675afbec2c6c7d51834950983c783f17ad48ffe8bb15d3e1c7783b5a",
+        "5dad6c4434d4d0dc6e1442e90218a0500f867418ab53cbc1fd57f678b91a84e4",
+        "d9eb41fd30b7e7e19689210b6a73967d5162d0d4e21cbb2007e7c2aa0e877ad7",
+        "cadc849cd29a9e52df81211d858178fe82a69ea41c5c2d920e895829e72fd69d",
+        "18a799b9ddcff18c640e1dddb0791e197abbfec486d8d51cc0db008cb286d752",
+        "c1002fecb9e69110c0b17560a1169a95c0fdd6be0ac412a8f08c3537abd6e6a4",
+        "e7ea93f2d63b99e91132cac9cbc4ed3cd40042670d2ce8db55450738fb103041",
+        "dfd6d8d64f5a27419b48301f93a1c1176fbcaaceb591dd22994533ab38d2ac3a",
+        "2c668170d620d4daa18cfcf9ff1172fbf2fefda661857793a47b70405a430fae",
+        "5a21af19b6578f819a8dd19615f4834d418d3e51b053f653d7aed2452f0d94e9",
+        "95aa97f472c3fc24c417a7a84b25edefad68faa105024f8ca3f77a5b9eea24f1",
+        "8bc4030f97d35af6bde58593c950aa63a039cdab15321120011b51d6c562ece0",
+        "cfc1fbbdf9bfafbbb44eefbd6b8760f7f99b6b657c8d09862375a416482d1711",
+        "c2cf3c5f07c8a210bde39767f7ae4f19819c5f4367e58161f1c730f603721239",
+        "2594e90ac5e9a0cea5b087dfcd1978a59b2012509807c1735d8db97ad3eef78c",
+        "c2024aa952d037d14f6d8bc70df328b731007baa36bb6ed4edf603bc85323ae4",
+        "b75209fd30cccf2c356d52220f5609273becbb01d239392695ce5e5156c495b7",
+        "1b4d1c3cc4058f5727f217f95df1425da5c1e9c01a2340e26b49ed0a33acf4bf",
+        "c4fc9a0cf0edbb89c20634c75ba245b5456bb1fd2c6901e62112dd7f42d94d03",
+        "2897abd205baea6093b93b63f9f4d776ae944f041e90e39e98794589032b80c9",
+        "ddf406505ed9bafbfb31eb3d6a0b057cb805b4f81ffac411a07c47c283bf0b30",
+        "abde2a15da0ef67028c2c1fecd5b72e3acace4b5b9d20be866ce26f99a9eb98d",
+        "737b59d9902abb938d5d3083f71f9e83371ea31ced13129ffa45cafd74033ef9",
+        "cde203e0f520807fefcd40df250c5dc5285b5f2967cebdf7505281701e7cc79d",
+        "10f230fdcff6a7628fccaac9daee8f8f8b0e8d14b4776799bb9560d85193e274",
+        "008e515842b5493c6679ec141c8d3163bc78a8e619a7553f0fc217002c03da0c",
+        "7bba5e7559b74e33f3f5c2707bb15b0910a0d8d4dc3a97f2a2e43bf6eb3bec84",
+        "4ad81916f281e92ac2612dfce435ffee2ff207de14470eb2b669bf48ef0e8e92",
+        "d29c00a68749f45dc4553b7edaa46e5226e6db672dc7a807c21fa9906e9abdfd",
+        "e9affe601823fa25fe0d0e171673916f5e501c6e1cf474fa90bf7d65039866a0"
+      ]
+    },
+    {
+      "file": "mcp/sjcos-mcp.mjs",
+      "function": "slugToId",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "queries": [
+        "b83e41480a4377ccd3d8f141076c66ef72afd1c01038b49464973e365784fd15"
+      ]
+    },
+    {
+      "file": "mcp/sjcos-mcp.mjs",
+      "function": "resolveInternalUser",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "queries": [
+        "7b889e9c1198e64a578cdb12d4879e56529559004c063a4840a431192c43e420"
+      ]
+    },
+    {
+      "file": "mcp/sjcos-mcp.mjs",
+      "function": "writeAssignees",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "queries": [
+        "e10111ffbf969841b4c78365c0ba846f29f36ff5dca74e91f118983f78ec1eba"
+      ]
+    },
+    {
+      "file": "mcp/sjcos-mcp.mjs",
+      "function": "approveWouldEmail",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "queries": [
+        "c5f4eec8981050ef66c7b3be36ad54baf8b436759d5e1638f517e45a06e1899a",
+        "59427563ed964b573020576066ecffefa5fef7dc4d5ea190001922e23193744b",
+        "e9f86f35947d5ad9ff1df0391fd875f0a27a0d6b2545c23617141aaa8086e55c"
+      ]
+    },
+    {
+      "file": "mcp/sjcos-mcp.mjs",
+      "function": "upsertSection",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "queries": [
+        "658e3ef3be21960351143700d600d273fcba40b8120c7f76bc830b13a64cc6a6",
+        "9a0770890c2df4f89b6ac4a62eac5d71b4b00b8e3d94a1445194bc113ee47168",
+        "91f47d8e56985ef3f426cee954f2b55a527b3d71be6168df451962f4f5c7ae5c"
+      ]
+    },
+    {
+      "file": "mcp/sjcos-mcp.mjs",
+      "function": "addItems",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "queries": [
+        "55f224c631bb0fe445e86e667269c250e87d285ddcf1280545828c436d88bc74",
+        "9401e9d536faf5b2255631d317536156a3ecf9de59362f4aae0d45e4064fcc73",
+        "c22ed35f3e9adce650e8d84f4123d03b708fbaa799447c9e5af587ae47373931"
+      ]
+    },
+    {
+      "file": "mcp/sjcos-mcp.mjs",
+      "function": "resolveSectionParent",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "queries": [
+        "1004b94fd939fe4acc0727ae27a6f6430542e2452bde58a6b3e496a4892a3110"
+      ]
+    },
+    {
+      "file": "mcp/sjcos-mcp.mjs",
+      "function": "scopedSectionId",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded.",
+      "queries": [
+        "bfc6c8fdf7af709aae87b5da8d215171999f880835b0b5215048d16cba916929"
+      ]
+    },
+    {
+      "file": "lib/ask-canvases.ts",
+      "function": "canvasFailure",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Bounded Canvas-owned orphan sweep runs only inside original 0105 maintenance lease and 106 advisory lock, durable files/trash/save reference census before unlink; no private content returned.",
+      "queries": [
+        "30a561403dad5cc997738eb898ad8015add525d8d43dc3ff63cceb8f2a5bcd66"
+      ]
+    },
+    {
+      "file": "lib/ask-canvases.ts",
+      "function": "ownThread",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "queries": [
+        "c89f0465013225cab89a8b439597bd2aa2689aa7a1820da59dc425e7612405fe"
+      ]
+    },
+    {
+      "file": "lib/ask-canvases.ts",
+      "function": "tx",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "queries": [
+        "50a7448a52de6cfb646e7e1fab3d90e583ea0fa97762e7033556623156b5bacb",
+        "8b223b94221428414877bcb156d7fcaa1efc9818ada9076d8596f604dd916bec"
+      ]
+    },
+    {
+      "file": "lib/ask-canvases.ts",
+      "function": "load",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "queries": [
+        "20148ea3e10e8612480fc712ec52808f09a921f0b31321a9da69efb357598f3e"
+      ]
+    },
+    {
+      "file": "lib/ask-canvases.ts",
+      "function": "version",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "queries": [
+        "51ec119f5e99c7faec3246cfd6bf83f450c06d0fd9e6b5911827fa8032b997b7"
+      ]
+    },
+    {
+      "file": "lib/ask-canvases.ts",
+      "function": "mutation",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "queries": [
+        "652106ad89a8c5e2f0ca781f1bcf86820ee9d38a7df6bb3a0ba1d9ca29ec5c01",
+        "5c04a88b8e946e5795b2ee7a0eaf00e03ffcd7e7118a01169714d1716ae1a3d7",
+        "12413c3203c786db0f41e9903abf4704a69425ecb610dfd650056911e8c609ef",
+        "8bcf25501319e55f0301b66c0afd003b78dcc7ad158aafe3d828f3689061ea1a",
+        "83cd1449ccaa7b48cb19c8476f0d49812137a6c58d406cd8af188605071b58eb",
+        "ac37a1a45212f3b7d71d4f16794fd9da0fcb887569040101a51fa1c83aaadd83",
+        "eff89f48f84066f02b861d9c66a1df9bfb10ea693c0100fd377acdaeaf698613"
+      ]
+    },
+    {
+      "file": "lib/ask-canvases.ts",
+      "function": "listIn",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "queries": [
+        "9f56a6536f93fa07eb7eeb9e1c895bbbe4317cc5033abcea7e3cf9d70c0ab0e9"
+      ]
+    },
+    {
+      "file": "lib/ask-canvases.ts",
+      "function": "canvasVersions",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "queries": [
+        "d8ab7ad5c22eb9e4b94997198b86660065e235170ace25c906b2945aff354696"
+      ]
+    },
+    {
+      "file": "lib/ask-canvases.ts",
+      "function": "eventsIn",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "queries": [
+        "0819bfce4fadfa90a7b3880c6aa000a10165d9ad2eee79159fbbe617f24229ed",
+        "e8f49036b2859f15036d2e0fa5111376187f1f190d6bf667d6308c76022bf08d",
+        "fc317a3d0a8f9198f5cc4d9747165f14dda856e1c1edb4a800ecc3c11ea51301"
+      ]
+    },
+    {
+      "file": "lib/ask-canvases.ts",
+      "function": "canvasInternal",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "queries": [
+        "9d890fca1f5ac95675c387d90e506d1e217f6775c85c60ae1a7541846a035ecd"
+      ]
+    },
+    {
+      "file": "lib/ask-canvases.ts",
+      "function": "canvasDelete",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "All commands hold withAskJournal through transaction commit; human reads use threadPrincipal + requireThreadAccess; authenticated internal stdio reloads run/person/profile/start/revocation and derives thread. Explicit own-thread/owner/area predicates precede canvas/version/event joins; owner has no staff override. Cursor MAC binds person/thread/direction. No metadata serializer includes source; source requires explicit request and flags.",
+      "queries": [
+        "e9188e749d6bbd3e07202ac13bceee89d2ae32f4f678917785486d4490493741"
+      ]
+    },
+    {
+      "file": "mcp/canvas-file-call.mjs",
+      "function": "<private-files>",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Closed construction-time runner stdio context plus HTTP ALS backstop; rejects HTTP/bare/unadmitted clients before forwarding. Separate secret admit verifies captured thread, then only constant /api/internal/canvas-files forwards. Website repeats live Claude MCP/run/person/revocation checks and saved snapshot policy; no source-thread access transfer.",
+      "queries": [
+        "b907399c91f7347715966af7bc6b6d41b906451a062d5122e498282dfb3b7183"
+      ]
+    },
+    {
+      "file": "lib/canvas-exports.ts",
+      "function": "policy",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Human commands hold canvasFileTransaction journal/session/own-thread locks; explicit source and current provenance policy checked before reservation and publication. Maintenance uses the original 0105 lease and checks current saver revocations, content policy, derivative hash and flags; no unattended audience downgrade.",
+      "queries": [
+        "c4ff2270ff548060e0bc1bfa14871907fbd9e96b52705b9174f715cbdae01071"
+      ]
+    },
+    {
+      "file": "lib/canvas-exports.ts",
+      "function": "canvasRender",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Human commands hold canvasFileTransaction journal/session/own-thread locks; explicit source and current provenance policy checked before reservation and publication. Maintenance uses the original 0105 lease and checks current saver revocations, content policy, derivative hash and flags; no unattended audience downgrade.",
+      "queries": [
+        "57182cca5195641e8ae040caa183e6ecd5e4365c9436d196580ac3e41e5f107d",
+        "615a1c6a5acc7b6951af71775d5dcaddd83ee7a35c238bfa57336098aa8546b8"
+      ]
+    },
+    {
+      "file": "lib/canvas-exports.ts",
+      "function": "drawing",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Human commands hold canvasFileTransaction journal/session/own-thread locks; explicit source and current provenance policy checked before reservation and publication. Maintenance uses the original 0105 lease and checks current saver revocations, content policy, derivative hash and flags; no unattended audience downgrade.",
+      "queries": [
+        "17475bfca953bf8a604891a983f54e39e10308d53b0dc02a6fcb6b1cf30e1e08"
+      ]
+    },
+    {
+      "file": "lib/canvas-exports.ts",
+      "function": "canvasSave",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Human commands hold canvasFileTransaction journal/session/own-thread locks; explicit source and current provenance policy checked before reservation and publication. Maintenance uses the original 0105 lease and checks current saver revocations, content policy, derivative hash and flags; no unattended audience downgrade.",
+      "queries": [
+        "fdb9d6bbe0a41ff147d55d71e2132eaa9438994c1173b068cab619a8d004f517",
+        "c25d215c31c60f93db87bb2fa9a4ab37683ac8462a64422edb3741ab9742c109",
+        "731ba81ac78e71039d6285862bc6d5c85b24b89611d5ba61e2dad494e100302c",
+        "c98a6d152ab9cd154b1a3a3084e14939eb9775d1a725946775a3990179c2cf7b",
+        "3400416d5fb80d4a409cf3abfcf017390dffb1bce5ff3dd6c816f0f7f43a5c59",
+        "2d71fbd6a3e81a930b5e149f81700c064a9430c19e5c3c3bc5fafb7586df92bd",
+        "9606c56c5fbb6de6f35845f256e3af156b48d7af66e5fbdfcc14eed6d5a08fe4",
+        "3a88d554dbe166fef56a5bb9f0773f525e0fd448ab02ac02e1c809a1a0dbd61b",
+        "432b87f077a858aa328cc796f43ee1482622ccb6f3d6d607f048720eb677e22e"
+      ]
+    },
+    {
+      "file": "lib/canvas-exports.ts",
+      "function": "canvasFileMaintenance",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Human commands hold canvasFileTransaction journal/session/own-thread locks; explicit source and current provenance policy checked before reservation and publication. Maintenance uses the original 0105 lease and checks current saver revocations, content policy, derivative hash and flags; no unattended audience downgrade.",
+      "queries": [
+        "7eb0fe773073706e55177125822993de36c7e174bda2446bab3a5c49aba92032",
+        "507ecb8ef59d5c2d371d5d2aa5585796344a78961372956aa3a34f1735994b6c",
+        "5b33ea1c46521775c1558b6749f2b1f8a3a6cd58e76711b30fd6f495a9b364a9",
+        "cff52c0042a158d33dab4897ea258627d004e199e2dc9b19765e3d1f3d1b9906",
+        "2067a213e1dfe868b67175e39bf41f625e12ed092de584951d4d9c615a808497",
+        "d771dbccf4974dcac5115b1772308e85cc08955f55ff2dfa93b20aae69c20148",
+        "49044d021d35320f732bf4f6ab256c2ebfe03f6df7c71a72cc91f1aa977bb359",
+        "3a88d554dbe166fef56a5bb9f0773f525e0fd448ab02ac02e1c809a1a0dbd61b",
+        "b6dcfc385d857dc8a8cd485c293a3c379b240165f76e1acd0008882af06befb0",
+        "0428a77d114310d635e457e66c50edc671dae949cc7cdf14570277166de63657",
+        "6f51856bbd3170b872ff49209c4d05592db8c4b05075e45257c2a898ac0f6d50",
+        "d0f5fbdbaefaf835cbe458355b0fa42dc71577716d207c3243650fda8c605548",
+        "731ba81ac78e71039d6285862bc6d5c85b24b89611d5ba61e2dad494e100302c",
+        "6c36b77fca1acaa127fa400cc8c48da087c50cbb7aca9541b990d606978b2d9e",
+        "4e3c986981414d445a060e7a82683aecd7cd8f9023a63f07dde29f80be9317e8"
+      ]
+    },
+    {
+      "file": "lib/canvas-exports.ts",
+      "function": "savedEvent",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Human commands hold canvasFileTransaction journal/session/own-thread locks; explicit source and current provenance policy checked before reservation and publication. Maintenance uses the original 0105 lease and checks current saver revocations, content policy, derivative hash and flags; no unattended audience downgrade.",
+      "queries": [
+        "96099e9fec4a7436ae6844fa9aa0aa6811cd1a5136ad36f7c103775425e311eb"
+      ]
+    },
+    {
+      "file": "lib/canvas-file-access.ts",
+      "function": "canvasFilePredicate",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Named human or admitted runner caller supplies authenticated principal; active DB person and saved audience/project policy checked before names/bytes. SQL lists partition before metadata/counts. Lifecycle holds the global lock, retains reserved-file policy and relinks exact hash on restore without source-thread access.",
+      "queries": [
+        "bc9b240da08b2419516f6c6e634b54d635083fa7423b38659c361d5a9ce0d579"
+      ]
+    },
+    {
+      "file": "lib/canvas-file-access.ts",
+      "function": "canvasFileLifecycle",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Named human or admitted runner caller supplies authenticated principal; active DB person and saved audience/project policy checked before names/bytes. SQL lists partition before metadata/counts. Lifecycle holds the global lock, retains reserved-file policy and relinks exact hash on restore without source-thread access.",
+      "queries": [
+        "9606c56c5fbb6de6f35845f256e3af156b48d7af66e5fbdfcc14eed6d5a08fe4",
+        "9a60dc9730bb75d6f9d2bb1d48a4021053e483ae7a748255a682992bcb3fb1bd",
+        "e13fe58583aaf9c06bd5e24e77cb95973f0cd428063b31c40d508df8278a5bdf",
+        "b6dcfc385d857dc8a8cd485c293a3c379b240165f76e1acd0008882af06befb0"
+      ]
+    },
+    {
+      "file": "lib/canvas-file-access.ts",
+      "function": "canvasSnapshotResponse",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Named human or admitted runner caller supplies authenticated principal; active DB person and saved audience/project policy checked before names/bytes. SQL lists partition before metadata/counts. Lifecycle holds the global lock, retains reserved-file policy and relinks exact hash on restore without source-thread access.",
+      "queries": [
+        "b862c4ec78e919c5ec15b3e1e802a9f3025c6b537f86c98fbf0d40e94b936c42"
+      ]
+    },
+    {
+      "file": "db/migrations/0108_ask_canvas_files.sql",
+      "function": "<sql>",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "0108 website-only immutable derivative/snapshot records, fixed-search-path SECURITY DEFINER guards, retained hashes and audit identities; narrow-role file RLS excludes canvas metadata before pagination.",
+      "queries": [
+        "7e9f4bd66bbdd24a1b3de3eb627610e5404dce19c202a4512b8f9f94d61b2bba"
+      ]
+    },
+    {
+      "file": "app/api/internal/canvas-files/route.ts",
+      "function": "POST",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Secret route requires exact captured runner context, DB-derived active Claude MCP run and withPrivateRunner revalidation; current saved-file resolver/SQL partition before names/bytes; no source-thread ownership transfer.",
+      "queries": [
+        "e3bd6037e6d5d0d3309bdf29c3e89f51aa347eba9c57bce81f668d151dddeb32",
+        "8581a03edde823bf4c69b428f7acff298ec04cfcee8486b67e1b86b7674d2df2"
       ]
     }
   ]

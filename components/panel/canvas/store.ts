@@ -2,7 +2,7 @@
 import type {Availability,CanvasCodeResponse,CanvasEvent,CanvasGetResponse,CanvasListResponse} from '@/lib/canvas-api-types';
 import {getAskPaneFeed,publishAskPaneSnapshots,recalledAskPane,selectAskPane,type AskPaneScope} from '../askPaneRegistry';
 import {canvasFetch,versionPath} from './state';
-export type CanvasView={data?:CanvasGetResponse;code?:CanvasCodeResponse;error?:string;renderError?:'RENDER_FAILED'|'RENDER_TIMEOUT'|'LOAD_TIMEOUT';ready?:boolean;exportReady?:boolean;loading?:boolean;tab?:'preview'|'code';sheet?:'menu'|'code'|'about'|'versions'|'picker'|'delete'|'restore';notice?:string};
+export type CanvasView={data?:CanvasGetResponse;code?:CanvasCodeResponse;error?:string;renderError?:'RENDER_FAILED'|'RENDER_TIMEOUT'|'LOAD_TIMEOUT';ready?:boolean;exportReady?:boolean;loading?:boolean;tab?:'preview'|'code';sheet?:'menu'|'code'|'about'|'versions'|'picker'|'delete'|'restore'|'save';notice?:string};
 export type CanvasState={scope:AskPaneScope|null;items:CanvasListResponse['canvases'];events:CanvasEvent[];availability?:Availability;views:Record<string,CanvasView>;selection:Record<string,{version:number;follow:boolean}>;openCanvas?:((id:string,version:number)=>void)|null;updating?:boolean;prefill:((text:string,id?:string,version?:number)=>void)|null};
 const listeners=new Set<()=>void>();
 const empty:CanvasState={scope:null,items:[],events:[],views:{},selection:{},prefill:null};

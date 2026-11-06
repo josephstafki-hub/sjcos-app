@@ -34,6 +34,7 @@ type Row =
   | { key: string; type: "unlink" };
 
 export function JobPicker({
+  projectOnly = false,
   title,
   placeholder = "Search jobs…",
   current = null,
@@ -46,6 +47,7 @@ export function JobPicker({
   onFailure,
 }: {
   /** Accessible name only; the placeholder carries the visible context. */
+  projectOnly?: boolean;
   title?: string;
   placeholder?: string;
   /** The job currently linked (shows a check, excluded from "in use" dimming). */
@@ -90,7 +92,7 @@ export function JobPicker({
   const rows: Row[] = [];
   if (allowUnlink && !term) rows.push({ key: "unlink", type: "unlink" });
   const grouped = new Map<FolderEntityKind, JobPick[]>();
-  for (const j of jobs ?? []) grouped.set(j.kind, [...(grouped.get(j.kind) ?? []), j]);
+  for (const j of (jobs ?? []).filter(j=>!projectOnly||j.kind==='project')) grouped.set(j.kind, [...(grouped.get(j.kind) ?? []), j]);
   for (const k of KIND_ORDER) for (const j of grouped.get(k) ?? []) rows.push({ key: `${j.kind}/${j.slug}`, type: "job", job: j });
   const exact = (jobs ?? []).some((j) => j.name.toLowerCase() === term.toLowerCase());
   if (allowCreate && term && !exact) rows.push({ key: "create", type: "create", name: term });

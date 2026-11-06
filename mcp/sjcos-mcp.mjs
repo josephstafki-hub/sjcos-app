@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {createCanvasFileCall} from './canvas-file-call.mjs';
 import {registerCanvasTools,createCanvasCall} from './canvas-tools.mjs';
 import {registerAskInputTools} from './ask-input-tools.mjs';
 import {createContextAdapter,createContextForwarder,trackedInteractions} from '../lib/ask-context-inputs.mjs';
@@ -446,6 +447,7 @@ const forward=createContextForwarder(envValue);
 const contextAdapter=createContextAdapter({transportKind,httpActive:()=>!!principalStore.getStore(),internalCall:forward});
 const baseInteractionAdapter=createInteractionAdapter({transportKind,config:envValue,httpActive:()=>!!principalStore.getStore()});
 const interactionAdapter=trackedInteractions(baseInteractionAdapter,contextAdapter);
+const canvasFileCall=createCanvasFileCall({transportKind,env:process.env,httpActive:()=>!!principalStore.getStore(),internalCall:forward});
 const canvasCall=createCanvasCall({transportKind,env:process.env,httpActive:()=>!!principalStore.getStore(),internalCall:forward});
 const registeredNames=[];
 const server = new McpServer({ name: "sjcos", version: "1.0.0" }, { instructions: SERVER_INSTRUCTIONS });
@@ -2965,7 +2967,7 @@ server.registerTool(
   // Bidding lives in its own module too: stage, record + award. Sending a package is
   // real email, so it is NOT here — it's a granted send (below).
   registerBiddingTools(server, {
-    rows, json, biddingCall, envValue, strippedDollarError,
+    rows, json, biddingCall, envValue, strippedDollarError, canvasFileCall,
     uploadDir: path.join(__dirname, "..", "uploads"),
   });
 
@@ -3029,7 +3031,7 @@ server.registerTool(
   // checked), plus delete/restore through a 30-day trash. No cost, no
   // Unsorted, never client-visible. See mcp/upload-tools.mjs.
   registerUploadTools(server, {
-    rows, json, pool, envValue, currentPrincipal,
+    rows, json, pool, envValue, currentPrincipal, canvasFileCall,
     uploadDir: path.join(__dirname, "..", "uploads"),
   });
 

@@ -6,7 +6,7 @@
 //
 //   import { registerBiddingTools } from "./bidding-tools.mjs";
 //   ...
-//   registerBiddingTools(server, { rows, json, biddingCall, uploadDir, envValue, strippedDollarError });
+//   registerBiddingTools(server, { rows, json, biddingCall, uploadDir, envValue, strippedDollarError, canvasFileCall });
 //
 // WHAT THIS EXPOSES: staging and reading the owner's Bidding-tab surface —
 // create a bid package for a category of work, attach the project's
@@ -36,7 +36,7 @@ import { isPdf, pdfPagePngs, pdfText, PDF_MAX_IMAGE_PAGES } from "./pdf-read.mjs
 
 const t = (v, max = 300) => String(v ?? "").trim().slice(0, max);
 
-export function registerBiddingTools(server, { rows, json, biddingCall, uploadDir, envValue, strippedDollarError }) {
+export function registerBiddingTools(server, { rows, json, biddingCall, uploadDir, envValue, strippedDollarError, canvasFileCall }) {
   const fail = (e) => ({ content: [{ type: "text", text: `Error: ${e.message}` }], isError: true });
 
   /** Downscaled jpeg image block for an original image buffer. `.rotate()`
@@ -113,7 +113,7 @@ export function registerBiddingTools(server, { rows, json, biddingCall, uploadDi
     const files = ids.length
       ? await rows(
           `SELECT sf.submission_id, sf.file_id, f.name FROM bid_submission_files sf
-             JOIN files f ON f.id = sf.file_id WHERE sf.submission_id = ANY($1::bigint[])`,
+             JOIN files f ON f.security_profile IS NULL AND f.id = sf.file_id WHERE sf.submission_id = ANY($1::bigint[])`,
           [ids],
         )
       : [];
@@ -210,7 +210,7 @@ export function registerBiddingTools(server, { rows, json, biddingCall, uploadDi
         const pkg = await packageById(package_id);
         const files = await rows(
           `SELECT bf.id, bf.file_id, bf.label, f.name, f.size_label
-             FROM bid_package_files bf JOIN files f ON f.id = bf.file_id
+             FROM bid_package_files bf JOIN files f ON f.security_profile IS NULL AND f.id = bf.file_id
             WHERE bf.package_id = $1 ORDER BY bf.sort_order, bf.id`,
           [pkg.id],
         );
@@ -306,8 +306,7 @@ export function registerBiddingTools(server, { rows, json, biddingCall, uploadDi
                                 WHEN ai_origin THEN 'app'
                                 ELSE 'user' END) AS created_by,
                   created_at, COALESCE(updated_at, created_at) AS updated_at
-             FROM files
-            WHERE project_key = $1 AND storage_path IS NOT NULL
+             FROM files WHERE security_profile IS NULL AND project_key = $1 AND storage_path IS NOT NULL
             ORDER BY created_at DESC`,
           [project.slug],
         );
@@ -322,7 +321,8 @@ export function registerBiddingTools(server, { rows, json, biddingCall, uploadDi
           f.sha256 = createHash("sha256").update(buf).digest("hex");
           await rows(`UPDATE files SET sha256 = $2 WHERE id = $1 AND sha256 IS NULL`, [f.id, f.sha256]);
         }
-        return json(list.map(({ storage_path: _s, ...f }) => f));
+        const saved=canvasFileCall?await canvasFileCall('list',{project_slug:project.slug}):null;
+        return json([...list.map(({ storage_path: _s, ...f }) => f),...(saved?.ok?saved.files:[])]);
       } catch (e) {
         return fail(e);
       }
@@ -349,8 +349,7 @@ export function registerBiddingTools(server, { rows, json, biddingCall, uploadDi
       try {
         const project = await projectBySlug(project_slug);
         const found = await rows(
-          `SELECT id, name, mime_type, storage_path FROM files
-            WHERE id = $1 AND project_key = $2 AND storage_path IS NOT NULL`,
+          `SELECT id, name, mime_type, storage_path FROM files WHERE security_profile IS NULL AND id = $1 AND project_key = $2 AND storage_path IS NOT NULL`,
           [t(file_id, 80), project.slug],
         );
         if (!found.length) throw new Error("That file doesn't belong to this project.");
@@ -403,12 +402,10 @@ export function registerBiddingTools(server, { rows, json, biddingCall, uploadDi
     async ({ file_id, format, expires_minutes, width, page_from, page_to }) => {
       try {
         const found = await rows(
-          `SELECT id, name, mime_type, size_label, project_key, storage_path FROM files
-            WHERE id = $1 AND storage_path IS NOT NULL`,
+          `SELECT id, name, mime_type, size_label, project_key, storage_path FROM files WHERE security_profile IS NULL AND id = $1 AND storage_path IS NOT NULL`,
           [t(file_id, 80)],
         );
-        if (!found.length)
-          throw new Error("No stored file with that id. Use list_project_files to find ids.");
+        if (!found.length){const saved=canvasFileCall?await canvasFileCall('read',{file_id:t(file_id,80)}):null;if(saved?.ok)return json(saved);throw new Error("No stored file with that id. Use list_project_files to find ids.");}
         const f = found[0];
         const isImage = String(f.mime_type || "").startsWith("image/");
         const isText = /^(text\/|application\/json)/.test(String(f.mime_type || "")) || /\.(md|txt|csv|json|html?)$/i.test(f.name || "");
@@ -527,7 +524,7 @@ export function registerBiddingTools(server, { rows, json, biddingCall, uploadDi
 
         await mkdir(uploadDir, { recursive: true });
         const existing = await rows(
-          `SELECT id, storage_path FROM files WHERE project_key = $1 AND name = $2 AND storage_path IS NOT NULL
+          `SELECT id, storage_path FROM files WHERE security_profile IS NULL AND project_key = $1 AND name = $2 AND storage_path IS NOT NULL
             ORDER BY created_at DESC LIMIT 1`,
           [project.slug, name],
         );
@@ -648,7 +645,7 @@ export function registerBiddingTools(server, { rows, json, biddingCall, uploadDi
       try {
         const pkg = await packageById(package_id);
         const ok = await rows(
-          `SELECT id FROM files WHERE id = $1 AND project_key = $2 AND storage_path IS NOT NULL`,
+          `SELECT id FROM files WHERE security_profile IS NULL AND id = $1 AND project_key = $2 AND storage_path IS NOT NULL`,
           [t(file_id, 80), pkg.project_slug],
         );
         if (!ok.length) throw new Error("That file doesn't belong to this package's project.");

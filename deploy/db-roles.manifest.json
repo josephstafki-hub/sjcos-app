@@ -3108,6 +3108,18 @@
     },
     "ask_context_inputs": {
       "note": "Private Ask provenance; website-only. No raw narrow-role grants."
+    },
+    "ask_canvas_derivatives": {
+      "note": "0108 private immutable canvas derivative/save policy records; website adapter only. No narrow grants."
+    },
+    "ask_canvas_file_saves": {
+      "note": "0108 private immutable canvas derivative/save policy records; website adapter only. No narrow grants."
+    },
+    "ask_canvas_derivative_usage": {
+      "note": "0108 private immutable canvas derivative/save policy records; website adapter only. No narrow grants."
+    },
+    "ask_canvas_file_requests": {
+      "note": "0108 private actor-bound Save replay identities; website only. No narrow grants."
     }
   }
 }

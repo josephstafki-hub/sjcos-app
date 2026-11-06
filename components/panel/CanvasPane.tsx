@@ -1,7 +1,8 @@
 'use client';
-import {useEffect,useRef,useSyncExternalStore} from 'react';
+import {useEffect,useRef,useSyncExternalStore,lazy,Suspense} from 'react';
 import type {CanvasMutationResponse} from '@/lib/canvas-api-types';
 import type {AskPaneRenderContext} from './askPaneRegistry';
+const CanvasSaveDialog=lazy(()=>import('./CanvasSaveDialog').then(m=>({default:m.CanvasSaveDialog})));
 import {CanvasVersions} from './CanvasVersions';
 import {CanvasOverlay} from './canvas/CanvasOverlay';
 import {DiagramStage} from './canvas/DiagramStage';
@@ -58,6 +59,7 @@ export function CanvasPane({context,slot}:{context:AskPaneRenderContext;slot:'ti
     <p id={`canvas-summary-${id}`} className="sr-only">{v.summary}</p>
     {!compact&&<div className="shrink-0 border-b border-rule px-3">
      <div className="flex gap-2" role="group" aria-label="Canvas view"><button className="min-h-11 px-2" aria-pressed={view.tab!=='code'} onClick={()=>patchCanvas(id,{tab:'preview'})}>Preview</button><button className="min-h-11 px-2" disabled={!data?.capabilities.code} aria-pressed={view.tab==='code'} onClick={()=>patchCanvas(id,{tab:'code'})}>Code</button></div>
+     {data?.capabilities.save&&<button className="min-h-11 px-2" disabled={!view.exportReady} onClick={()=>sheet('save')}>Save to project files</button>}
      <details><summary className="min-h-11 cursor-pointer py-2">About this diagram</summary><p className="pb-2 text-body">{v.summary}</p></details>
      {newer&&<p className="text-meta text-ink-3">{v.change_note}</p>}
     </div>}
@@ -67,13 +69,14 @@ export function CanvasPane({context,slot}:{context:AskPaneRenderContext;slot:'ti
       data?.capabilities.preview&&view.code?<DiagramStage key={`${id}:${number}`} id={id} version={v} code={view.code} context={context}/>:<div className="p-3"><p>Preview is turned off.</p>{data?.capabilities.code&&<button className="min-h-11" onClick={()=>sheet('code')}>Show code</button>}</div>}
     </div>
    </>}
+  {view.sheet==='save'&&data&&<Suspense fallback={<p role="status">Loading…</p>}><CanvasSaveDialog key={`${id}:${number}`} data={data} onClose={()=>sheet(undefined)}/></Suspense>}
   {view.sheet==='versions'&&<CanvasVersions id={id} selected={number} onSelect={n=>selectCanvasVersion(id,n)} onClose={()=>sheet(undefined)}/>}
   {view.sheet==='code'&&<CanvasOverlay title="Show code" onClose={()=>sheet(undefined)}>{codeBlock}</CanvasOverlay>}
   {view.sheet==='about'&&<CanvasOverlay title="About this diagram" onClose={()=>sheet(undefined)}><p className="py-3">{v?.summary}</p></CanvasOverlay>}
   {view.sheet==='picker'&&<CanvasOverlay title="Canvases in this chat" onClose={()=>sheet(undefined)}>{state.items.map(item=><button key={item.canvas.id} className="flex min-h-14 w-full items-center justify-between gap-2 border-b border-rule px-2 text-left" onClick={e=>chooseCanvas(item.canvas.id,item.canvas.latest_version,e.currentTarget)}><span className="truncate">{item.latest.title}</span><span className="shrink-0 text-meta">Version {item.canvas.latest_version} {id===item.canvas.id?'✓':''}</span></button>)}{!state.items.length&&<p>No canvas yet. Ask for a diagram.</p>}</CanvasOverlay>}
   {view.sheet==='menu'&&<CanvasOverlay title="Canvas actions" menu onClose={()=>sheet(undefined)}><div className="flex flex-col [&_button]:min-h-14 [&_button]:text-left [&_a]:min-h-14 [&_a]:py-4">
    {compact&&<><button disabled={!data?.capabilities.code} onClick={()=>sheet('code')}>Show code</button><button onClick={()=>sheet('about')}>About this diagram</button></>}
-   {/* Save to project files is hidden until the separately owned 0108 backend ships. */}
+   {compact&&data?.capabilities.save&&<button disabled={!view.exportReady} onClick={()=>sheet('save')}>Save to project files</button>}
    <details><summary className="min-h-14 cursor-pointer py-4">Download</summary><button className="block w-full" title={!data?.availability.exports?"Drawing downloads aren’t available yet.":undefined} disabled={!data?.availability.exports||!view.exportReady||!data?.capabilities.download_formats.includes('svg')} onClick={()=>void download('svg')}>Drawing (SVG)</button><button className="block w-full" disabled={!data?.capabilities.code||!data?.availability.source} onClick={()=>void download('mmd')}>Diagram code (.mmd)</button></details>
    {process.env.NEXT_PUBLIC_SJC_CANVAS_PRINT_ENABLED==='1'&&data?.availability.exports&&view.exportReady&&<a href={`/panel/canvas/${id}/print?v=${number}`} target="_blank" rel="noopener noreferrer">Print / Save PDF</a>}
    {v&&<a href={`/panel/canvas/${id}?v=${number}`} target="_blank" rel="noopener noreferrer">Open in new tab</a>}

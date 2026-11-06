@@ -24,6 +24,7 @@ import {existsSync,statSync} from 'node:fs';
 import ts from 'typescript';
 const root=new URL('../',import.meta.url);
 const seams=new Map([
+ ['@/lib/canvas-exports',`export async function canvasRender(id,n,input){return {ok:true,canvas_id:id,version:n,renderer_version:'1',sha256:'a'.repeat(64)};} export async function canvasDrawing(id,n){return {svg:'<svg/>',title:'Drawing',version:n};}`],
  ['server-only','export {};'],
  ['@/lib/ask-canvases',`export async function canvasGet(id,input){globalThis.__canvasCalls.push([id,input]);if(globalThis.__canvasFailure)throw {code:globalThis.__canvasFailure};return globalThis.__canvasData;}
  export function canvasFailure(e){const code=e?.code??'INTERNAL_ERROR';return {ok:false,code,message:'Fixed error',retryable:false};}
@@ -58,3 +59,6 @@ test('actual wrapper redirect headers deny framing; API paths never receive wrap
  const api=await proxy(req('/api/canvas/renderer'));assert.equal(api.headers.get('x-frame-options'),null);
  const headers=await cfg.headers();assert.deepEqual(headers.map(h=>h.source),['/panel/canvas/:path*']);assert.equal(cfg.outputFileTracingIncludes['/api/canvas/renderer'][0],'./renderer-assets/mermaid-12.3.0.min.js');
 });
+
+test('0108 SVG route uses accepted derivative and attachment, no CORS',async()=>{reset();globalThis.__canvasData.availability.exports=true;const response=await download.GET(new Request('https://app.test/?format=svg'),ctx);assert.equal(response.status,200);assert.match(response.headers.get('content-type'),/^image\/svg\+xml/);assert.match(response.headers.get('content-disposition'),/^attachment;/);assert.equal(response.headers.get('access-control-allow-origin'),null);assert.equal(await response.text(),'<svg/>');});
+test('0108 render forwards the strict derivative contract and selected version',async()=>{reset();globalThis.__canvasData.availability.exports=true;const response=await render.POST(new Request('https://app.test/render',{method:'POST',headers:{Origin:'https://app.test','Content-Type':'application/json'},body:JSON.stringify({svg:'<svg/>'})}),ctx);assert.equal(response.status,200);assert.deepEqual(await response.json(),{ok:true,canvas_id:'canvas-id',version:2,renderer_version:'1',sha256:'a'.repeat(64)});});

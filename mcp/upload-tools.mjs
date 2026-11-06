@@ -87,7 +87,7 @@ function decodeBase64(s) {
 
 const sha256Of = (buf) => createHash("sha256").update(buf).digest("hex");
 
-export function registerUploadTools(server, { rows, json, pool, uploadDir, envValue, currentPrincipal }) {
+export function registerUploadTools(server, { rows, json, pool, uploadDir, envValue, currentPrincipal, canvasFileCall }) {
   const fail = (e) => ({ content: [{ type: "text", text: `Error: ${e.message}` }], isError: true });
   const createdBy = () => `agent:${agentNameOf(server)}`;
   const refuse = async () => (currentPrincipal ? areaRefusal(rows, currentPrincipal, "projects") : null);
@@ -294,7 +294,7 @@ export function registerUploadTools(server, { rows, json, pool, uploadDir, envVa
           ],
         );
         const existing = await rows(
-          `SELECT id FROM files WHERE project_key = $1 AND name = $2 AND storage_path IS NOT NULL
+          `SELECT id FROM files WHERE security_profile IS NULL AND project_key = $1 AND name = $2 AND storage_path IS NOT NULL
             ORDER BY created_at DESC LIMIT 1`,
           [project.slug, name],
         );
@@ -395,7 +395,7 @@ export function registerUploadTools(server, { rows, json, pool, uploadDir, envVa
         const up = await uploadById(upload_id);
         if (up.target === "unsorted") throw new Error("This upload is for the Unsorted tray: finish it with commit_unsorted_upload.");
         if (up.status === "committed") {
-          const [f] = await rows(`SELECT id, name, size_label, mime_type, sha256 FROM files WHERE id = $1`, [up.file_id]);
+          const [f] = await rows(`SELECT id, name, size_label, mime_type, sha256 FROM files WHERE security_profile IS NULL AND id = $1`, [up.file_id]);
           if (!f) throw new Error("This upload was committed, but its file has since been deleted.");
           return json({ ok: true, file_id: f.id, name: f.name, size_label: f.size_label, mime_type: f.mime_type, sha256: f.sha256, replaced: !!up.replaced, already_committed: true });
         }
@@ -410,7 +410,7 @@ export function registerUploadTools(server, { rows, json, pool, uploadDir, envVa
           await mkdir(uploadDir, { recursive: true });
           const existing = up.replace_existing
             ? await rows(
-                `SELECT id, storage_path FROM files WHERE project_key = $1 AND name = $2 AND storage_path IS NOT NULL
+                `SELECT id, storage_path FROM files WHERE security_profile IS NULL AND project_key = $1 AND name = $2 AND storage_path IS NOT NULL
                   ORDER BY created_at DESC LIMIT 1`,
                 [up.project_slug, up.filename],
               )
@@ -477,14 +477,14 @@ export function registerUploadTools(server, { rows, json, pool, uploadDir, envVa
   const sameNameFile = async (run, { doc, sourceRef, name, uploadId }) => {
     if (doc) {
       const [f] = await run(
-        `SELECT id, storage_path FROM files WHERE id = ANY($1::text[]) AND name = $2 AND storage_path IS NOT NULL
+        `SELECT id, storage_path FROM files WHERE security_profile IS NULL AND id = ANY($1::text[]) AND name = $2 AND storage_path IS NOT NULL
           ORDER BY created_at DESC LIMIT 1`,
         [doc.attachment_file_ids, name],
       );
       return f ?? null;
     }
     const [f] = await run(
-      `SELECT f.id, f.storage_path FROM project_uploads u JOIN files f ON f.id = u.file_id
+      `SELECT f.id, f.storage_path FROM project_uploads u JOIN files f ON f.security_profile IS NULL AND f.id = u.file_id
         WHERE u.target = 'unsorted' AND u.status = 'committed' AND u.unsorted_doc_id IS NULL AND u.source_ref = $1
           AND u.id <> $3 AND f.name = $2 AND f.storage_path IS NOT NULL
         ORDER BY u.committed_at DESC LIMIT 1`,
@@ -590,7 +590,7 @@ export function registerUploadTools(server, { rows, json, pool, uploadDir, envVa
         const up = await uploadById(upload_id);
         if (up.target !== "unsorted") throw new Error("This upload is for a project's Files: finish it with commit_project_upload.");
         if (up.status === "committed") {
-          const [f] = await rows(`SELECT id, name, size_label, mime_type, sha256 FROM files WHERE id = $1`, [up.file_id]);
+          const [f] = await rows(`SELECT id, name, size_label, mime_type, sha256 FROM files WHERE security_profile IS NULL AND id = $1`, [up.file_id]);
           if (!f) throw new Error("This upload was committed, but its file has since been deleted.");
           const doc = up.unsorted_doc_id != null ? { id: Number(up.unsorted_doc_id) } : await trayDoc(rows, { sourceRef: up.source_ref });
           return json({
@@ -687,8 +687,9 @@ export function registerUploadTools(server, { rows, json, pool, uploadDir, envVa
         const project = await projectBySlug(project_slug);
         const why = t(reason, 500);
         if (!why) throw new Error("reason is required (it goes in the project history).");
+        const saved=canvasFileCall?await canvasFileCall('trash',{file_id:t(file_id,80),project_slug:project.slug}):null;if(saved?.ok)return json(saved);
         const [f] = await rows(
-          `SELECT id, name, created_by FROM files WHERE id = $1 AND project_key = $2 AND storage_path IS NOT NULL`,
+          `SELECT id, name, created_by FROM files WHERE security_profile IS NULL AND id = $1 AND project_key = $2 AND storage_path IS NOT NULL`,
           [t(file_id, 80), project.slug],
         );
         if (!f) throw new Error(`No file ${file_id} on ${project.slug}. Use list_project_files for ids.`);
@@ -733,9 +734,10 @@ export function registerUploadTools(server, { rows, json, pool, uploadDir, envVa
     async ({ project_slug, file_id }) => {
       try {
         const project = await projectBySlug(project_slug);
-        if (!file_id) return json({ ok: true, deleted_files: await listFileTrash(rows, project.slug) });
+        if (!file_id){const saved=canvasFileCall?await canvasFileCall('list',{project_slug:project.slug,trash:true}):null;return json({ok:true,deleted_files:[...await listFileTrash(rows,project.slug),...(saved?.ok?saved.deleted_files:[])]});}
         const refusal = await refuse();
         if (refusal) throw new Error(refusal);
+        const saved=canvasFileCall?await canvasFileCall('restore',{file_id:t(file_id,80),project_slug:project.slug}):null;if(saved?.ok)return json(saved);
         const [trashed] = await rows(`SELECT project_slug FROM file_trash WHERE file_id = $1`, [t(file_id, 80)]);
         if (trashed && trashed.project_slug !== project.slug) throw new Error(`That file was deleted from ${trashed.project_slug}, not ${project.slug}.`);
         const res = await txOver(pool)((run) => restoreProjectFile(run, { fileId: t(file_id, 80), restoredBy: createdBy() }));

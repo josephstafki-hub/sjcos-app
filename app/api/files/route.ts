@@ -8,6 +8,6 @@ export async function GET(req: Request) {
   const user = await getUserFromRequest(req);
   if (!user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   if (!hasAccess(user, "projects")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-  const data = await getFilesData();
+  const data = await getFilesData(user);
   return NextResponse.json(data);
 }

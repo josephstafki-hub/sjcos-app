@@ -1,3 +1,4 @@
+import {canvasFilePredicate,canvasTrashList} from './canvas-file-access';
 // Files browser data builder. DB-backed: the file list + previews read the files
 // table, and the left-rail project folders are built from the real projects that
 // actually have files (keyed by slug, which is how uploads + generated docs are
@@ -65,12 +66,13 @@ interface FileDbRow {
   mime_type: string | null;
 }
 
-export async function getFilesData(): Promise<FilesData> {
+export async function getFilesData(principal?:{id:string}): Promise<FilesData> {
+  const predicate=await canvasFilePredicate('f',principal);
   const [{ rows }, projectRes] = await Promise.all([
     query<FileDbRow>(`
       SELECT id, project_key, type, name, tag, ai_origin,
              modified_label, size_label, subtitle, ai_tags, storage_path, mime_type
-      FROM files
+      FROM files f WHERE ${predicate}
       ORDER BY sort, name
     `),
     // Real project folders: every project that has at least one file, newest work
@@ -78,7 +80,7 @@ export async function getFilesData(): Promise<FilesData> {
     query<{ slug: string; name: string }>(`
       SELECT p.slug, p.name
         FROM projects p
-       WHERE EXISTS (SELECT 1 FROM files f WHERE f.project_key = p.slug)
+       WHERE EXISTS (SELECT 1 FROM files f WHERE f.project_key = p.slug AND ${predicate})
        ORDER BY p.progress DESC, p.name ASC
     `),
   ]);
@@ -139,16 +141,16 @@ export async function getFilesData(): Promise<FilesData> {
     ],
     files,
     selectedId: "",
-    trash: (
+    trash: [...(
       await query<{
         id: string;
         name: string;
         projectKey: string;
         deleted: string;
       }>(
-        `SELECT file_id AS id, name, project_slug AS "projectKey", to_char(deleted_at, 'FMMon FMDD, YYYY') AS deleted FROM file_trash WHERE purge_after > now() ORDER BY deleted_at DESC`,
+        `SELECT file_id AS id, name, project_slug AS "projectKey", to_char(deleted_at, 'FMMon FMDD, YYYY') AS deleted FROM file_trash WHERE row->>'security_profile' IS NULL AND purge_after > now() ORDER BY deleted_at DESC`,
       )
-    ).rows,
+    ).rows,...(await canvasTrashList(undefined,principal)).map(r=>({id:r.file_id,name:r.name,projectKey:r.project_slug,deleted:new Date(r.deleted_at).toLocaleDateString('en-US')}))],
     previews,
   };
 }

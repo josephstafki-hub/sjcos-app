@@ -1,3 +1,4 @@
+import {resolveCanvasFilePolicy,canvasSnapshotResponse} from '@/lib/canvas-file-access';
 import { getCurrentUser } from "@/lib/dal";
 import { hasAccess } from "@/lib/api-auth";
 import { queryOne } from "@/lib/db";
@@ -17,6 +18,8 @@ export async function GET(
   const { id } = await params;
 
   const q = new URL(req.url).searchParams;
+  const access=await resolveCanvasFilePolicy({principal:q.has('sig')?null:await getCurrentUser(),fileId:id,operation:'read'});
+  if(!access)return new Response('Not found',{status:404});
   const sig = q.get("sig");
   if (sig !== null) {
     if (!verifyFileSignature(id, Number(q.get("exp")), sig))
@@ -33,11 +36,13 @@ export async function GET(
     }
   }
 
+  if(!access.ordinary)return canvasSnapshotResponse(req,id,await getCurrentUser());
   const row = await queryOne<{ storage_path: string | null; mime_type: string | null; name: string }>(
     `SELECT storage_path, mime_type, name FROM files WHERE id = $1`,
     [id],
   );
   if (!row?.storage_path) return new Response("Not found", { status: 404 });
 
-  return serveFile(req, id, { ...row, storage_path: row.storage_path });
+  const response=await serveFile(req, id, { ...row, storage_path: row.storage_path });
+  return response;
 }

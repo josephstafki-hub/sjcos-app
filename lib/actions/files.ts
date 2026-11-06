@@ -4,6 +4,7 @@
 // (provider-agnostic). uploadFile stores a real blob on the server and inserts a
 // files row, so /files is now a real upload browser (Drive mirror still deferred).
 
+import {canvasFileLifecycle} from '@/lib/canvas-file-access';
 import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -175,7 +176,7 @@ export async function setFileClientVisibility(
     lead_slug: string | null;
     storage_path: string | null;
   }>(
-    `SELECT name, project_key, lead_slug, storage_path FROM files WHERE id = $1`,
+    `SELECT name, project_key, lead_slug, storage_path FROM files WHERE security_profile IS NULL AND id = $1`,
     [id],
   );
   if (!file) return { ok: false, error: "File not found." };
@@ -207,6 +208,8 @@ export async function setFileClientVisibility(
  *  (lib/file-trash.ts). Refused while a newer same-name file is on the job. */
 export async function restoreDeletedFile(fileId: string): Promise<UploadResult> {
   const user = await requireAccess("projects");
+  const canvas=await canvasFileLifecycle(user,fileId,'restore').catch(()=>({ok:false}));
+  if(canvas){revalidatePath('/files');return canvas.ok?{ok:true}:{ok:false,error:'This file can no longer be restored. Refresh Trash and try again.'};}
   const res = await withTransaction((run) => restoreProjectFile(run, { fileId, restoredBy: `user:${user.name}` }));
   if (!res.ok) return {ok:false,error:res.error.startsWith("A newer")?"A newer file with this name is already here. Move it to Trash first to restore this copy.":"This file can no longer be restored. Refresh Trash and try again."};
   revalidatePath("/files");
@@ -217,7 +220,9 @@ export async function restoreDeletedFile(fileId: string): Promise<UploadResult> 
 /** Global Files browser uses the same 30-day, reference-safe trash as project files. */
 export async function trashBrowserFile(fileId: string): Promise<UploadResult> {
   const user = await requireAccess("projects");
-  const f = await queryOne<{project_key:string}>(`SELECT project_key FROM files WHERE id=$1`, [fileId]);
+  const canvas=await canvasFileLifecycle(user,fileId,'trash').catch(()=>({ok:false}));
+  if(canvas){revalidatePath('/files');return canvas.ok?{ok:true}:{ok:false,error:'This file is no longer available.'};}
+  const f = await queryOne<{project_key:string}>(`SELECT project_key FROM files WHERE security_profile IS NULL AND id=$1`, [fileId]);
   if (!f) return {ok:false,error:"This file is no longer available. Refresh the list."};
   const res = await withTransaction(run => trashProjectFile(run, {fileId, projectSlug:f.project_key, reason:"Removed from Files", deletedBy:`user:${user.name}`}));
   if (!res.ok) return {ok:false,error:"This file is linked to another record. Remove that attachment there before moving it to Trash."};
@@ -237,7 +242,7 @@ interface FileSummaryRow {
  *  blurb (or a fallback when the file is gone). */
 export async function summarizeFile(id: string): Promise<string> {
   const row = await queryOne<FileSummaryRow>(
-    `SELECT name, tag, subtitle, ai_tags FROM files WHERE id = $1`,
+    `SELECT name, tag, subtitle, ai_tags FROM files WHERE security_profile IS NULL AND id = $1`,
     [id],
   );
   if (!row) return "That file is no longer available.";

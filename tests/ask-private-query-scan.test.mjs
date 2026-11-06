@@ -59,3 +59,5 @@ test('R3 reply fan-out and browser carriers cannot escape the scanner',()=>{
  test('Canvas source, metadata, events, requests and usage join the private inventory',()=>{for(const table of ['ask_canvases','ask_canvas_versions','ask_canvas_requests','ask_canvas_events','ask_canvas_usage','ask_canvas_rate_windows'])assert.ok(scanSource('lib/new-canvas.ts',`query("SELECT * FROM ${table}")`).length,table);});
 
  test('0107 hashes and manifests are private carriers too',()=>{for(const table of ['ask_context_provenance','ask_context_inputs'])assert.ok(scanSource('lib/new-provenance.ts',`query("SELECT * FROM ${table}")`).length,table);});
+
+test('0108 derivative hashes, replay and snapshot audience records require review',()=>{for(const table of ['ask_canvas_derivatives','ask_canvas_file_saves','ask_canvas_derivative_usage','ask_canvas_file_requests'])assert.ok(scanSource('lib/new-save.ts',`query("SELECT * FROM ${table}")`).length,table);});

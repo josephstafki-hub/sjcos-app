@@ -21,7 +21,7 @@ export async function POST(req:Request) {
     if(!await queryOne(`SELECT 1 FROM projects WHERE slug=$1`,[slug])) return Response.json({error:"Job not found."},{status:404});
     const result=dailyLogId?await uploadProjectDailyLogPhoto(slug,dailyLogId,fd):await uploadProjectFile(slug,fd);
     if(!result.ok) return Response.json({error:result.error},{status:400});
-    const files=(await getProjectFiles(slug)).filter(f=>f.id===result.id).map(mobileFile);
+    const files=(await getProjectFiles(slug,user)).filter(f=>f.id===result.id).map(mobileFile);
     return Response.json({ok:true,files});
   });
 }

@@ -31,10 +31,11 @@ function stable(v: unknown): string { if (Array.isArray(v))
     return '[' + v.map(stable).join(',') + ']'; if (v && typeof v === 'object')
     return '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + stable((v as Row)[k])).join(',') + '}'; return JSON.stringify(v); }
 function fail(code: CanvasErrorCode, details?: Record<string, unknown>): never { throw Object.assign(new Error(code), { code, details }); }
-const statuses: Partial<Record<CanvasErrorCode, number>> = { CANVAS_DISABLED: 503, AUTH_REQUIRED: 401, CANVAS_UNAVAILABLE: 404, CONTEXT_PROVENANCE_INCOMPLETE: 403, RUN_CONTEXT_REQUIRED: 403, INVALID_INPUT: 400, UNSUPPORTED_KIND: 422, UNSAFE_CONTENT: 422, CONTENT_TOO_LARGE: 413, TOO_COMPLEX: 422, VERSION_CONFLICT: 409, IDEMPOTENCY_CONFLICT: 409, QUOTA_EXCEEDED: 429, ASK_PAUSED: 503 };
+const statuses: Partial<Record<CanvasErrorCode, number>> = { CANVAS_DISABLED: 503, AUTH_REQUIRED: 401, CANVAS_UNAVAILABLE: 404, CONTEXT_PROVENANCE_INCOMPLETE: 403, RUN_CONTEXT_REQUIRED: 403, INVALID_INPUT: 400, UNSUPPORTED_KIND: 422, UNSAFE_CONTENT: 422, CONTENT_TOO_LARGE: 413, TOO_COMPLEX: 422, VERSION_CONFLICT: 409, IDEMPOTENCY_CONFLICT: 409, QUOTA_EXCEEDED: 429, ASK_PAUSED: 503, EXPORT_NOT_READY: 409, SAVE_POLICY_CHANGED: 409, SAVE_POLICY_CONFLICT: 409, FILE_RESTORE_CONFLICT: 409, RENDERER_HASH_CONFLICT: 409, SAVE_FAILED: 409 };
 export function canvasFailure(e: unknown): CanvasError {
     const err = e as Row;
     let code = (Object.hasOwn(statuses, err?.code) ? err.code : err?.message) as string;
+    if(err?.code==='23514'&&err?.constraint==='ask_canvas_rate_windows_accepted_count_check')code='QUOTA_EXCEEDED';
     if (['ASK_SIGN_IN_REQUIRED', 'ASK_SESSION_REVOKED'].includes(code))
         code = 'AUTH_REQUIRED';
     if (['ASK_THREAD_UNAVAILABLE', 'ASK_ACCESS_DENIED'].includes(code))
@@ -45,7 +46,7 @@ export function canvasFailure(e: unknown): CanvasError {
         code = 'ASK_PAUSED';
     if (!Object.hasOwn(statuses, code))
         code = 'INTERNAL_ERROR';
-    const message = code === 'CANVAS_UNAVAILABLE' ? "This canvas isn't available to this account." : code === 'AUTH_REQUIRED' ? 'Sign in to open this canvas.' : code === 'CANVAS_DISABLED' ? 'Canvas is turned off. Your saved project files are still available.' : code === 'CONTEXT_PROVENANCE_INCOMPLETE' ? 'Start a new chat to make a canvas.' : code === 'ASK_PAUSED' ? 'Chats are paused while SJC OS checks its records. Try again in a few minutes.' : code === 'VERSION_CONFLICT' ? 'A newer version was saved.' : code === 'QUOTA_EXCEEDED' ? 'This chat has reached its canvas limit. Save what you need, or start a new chat.' : code === 'INVALID_INPUT' ? 'Check the canvas request.' : code === 'RUN_CONTEXT_REQUIRED' ? 'An active Ask run is required.' : 'Canvas could not be completed.';
+    const message = code === 'UNSUPPORTED_KIND' && err?.details?.rule==='LEAD_DESTINATION' ? "Leads can't hold canvas copies yet. Pick a project, or download it." : code === 'SAVE_POLICY_CHANGED' ? 'Canvas access changed. Review who can read this copy.' : code === 'SAVE_POLICY_CONFLICT' ? 'This version already has a saved copy with different access. Move it to Trash before saving another copy.' : code === 'SAVE_FAILED' ? 'Review who can read this copy again.' : code === 'EXPORT_NOT_READY' ? 'Open this version to prepare the drawing.' : code === 'CANVAS_UNAVAILABLE' ? "This canvas isn't available to this account." : code === 'AUTH_REQUIRED' ? 'Sign in to open this canvas.' : code === 'CANVAS_DISABLED' ? 'Canvas is turned off. Your saved project files are still available.' : code === 'CONTEXT_PROVENANCE_INCOMPLETE' ? 'Start a new chat to make a canvas.' : code === 'ASK_PAUSED' ? 'Chats are paused while SJC OS checks its records. Try again in a few minutes.' : code === 'VERSION_CONFLICT' ? 'A newer version was saved.' : code === 'QUOTA_EXCEEDED' ? 'This chat has reached its canvas limit. Save what you need, or start a new chat.' : code === 'INVALID_INPUT' ? 'Check the canvas request.' : code === 'RUN_CONTEXT_REQUIRED' ? 'An active Ask run is required.' : 'Canvas could not be completed.';
     // Only fixed keys/counts from our own validators. Never expose exception messages.
     const details: Record<string, unknown> = {};
     for (const k of ['max_bytes', 'received_bytes', 'latest_version', 'retry_after', 'limit', 'nodes', 'edges', 'depth', 'elements', 'path_units'])
@@ -53,6 +54,7 @@ export function canvasFailure(e: unknown): CanvasError {
             details[k] = err.details[k];
     if (typeof err?.details?.rule === 'string' && /^[A-Z_]{1,60}$/.test(err.details.rule))
         details.rule = err.details.rule;
+    if(code==='SAVE_POLICY_CHANGED'&&err?.details?.save_policy){const p=err.details.save_policy;details.save_policy=Object.fromEntries(['baseline_areas','baseline_source','provenance_revision','policy_revision','baseline_hash','catalog_version','area_options','project','owner'].map(k=>[k,p[k]]));}
     return { ok: false, code: code as CanvasErrorCode, message, retryable: ['ASK_PAUSED', 'INTERNAL_ERROR', 'QUOTA_EXCEEDED'].includes(code), ...(Object.keys(details).length ? { details } : {}) };
 }
 export function canvasStatus(e: CanvasError) { return statuses[e.code] ?? 500; }
@@ -86,8 +88,8 @@ async function availability(db: PoolClient, p: Person): Promise<Availability> {
     const flags = Object.fromEntries(rows.map(r => [r.key, r.value === true || r.value === 'true']));
     const staff = p.role === 'owner' || flags['canvas.staff_enabled'] === true;
     const master = process.env.SJC_CANVAS_ENABLED === '1' && staff && (await schemaCapabilities(db)).canvas;
-    const a = { master, diagrams: master && flags['canvas.diagrams_enabled'] === true, pages: false, floor: false, exports: false, staff, source: master && flags['canvas.source_enabled'] !== false };
-    return { revision: hash([a, rows]).slice(0, 24), ...a }; // Phase 2/3 and file exports remain off until their implementations land.
+    const a = { master, diagrams: master && flags['canvas.diagrams_enabled'] === true, pages: false, floor: false, exports: master && flags['canvas.diagrams_enabled'] === true && flags['canvas.exports_enabled'] === true && (await schemaCapabilities(db)).files, staff, source: master && flags['canvas.source_enabled'] !== false };
+    return { revision: hash([a, rows]).slice(0, 24), ...a }; // Page/Floor remain off; 0108 gates diagram exports.
 }
 function gate(a: Availability, kind?: string, write = false) { if (!a.master || !a.staff)
     fail('CANVAS_DISABLED'); if (kind && write && !(kind === 'diagram' ? a.diagrams : kind === 'page' ? a.pages : a.floor))
@@ -151,7 +153,7 @@ async function getIn(db: PoolClient, a: Actor, id: string, input: Row): Promise<
     gate(av, c.kind);
     const v = await version(db, c, input.version ?? c.latest_version);
     const canPreview = c.kind === 'diagram' && av.diagrams;
-    const result: CanvasGetResponse = { ok: true, canvas: meta(c), selected: vm(v), availability: av, capabilities: { preview: canPreview, code: av.source, download_formats: [], save: false, restore: c.kind !== 'floor_plan' && av.diagrams, load_latest: false }, preview: canPreview ? { mode: 'diagram_renderer', href: '/api/canvas/renderer', renderer_version: v.renderer_version } : null };
+    const result: CanvasGetResponse = { ok: true, canvas: meta(c), selected: vm(v), availability: av, capabilities: { preview: canPreview, code: av.source, download_formats: av.exports ? ['svg', 'mmd'] : [], save: av.exports && c.kind === 'diagram' && permitted(a.person,['projects']), restore: c.kind !== 'floor_plan' && av.diagrams, load_latest: false }, preview: canPreview ? { mode: 'diagram_renderer', href: '/api/canvas/renderer', renderer_version: v.renderer_version } : null };
     if (input.include_source) {
         if (!av.source)
             fail('CANVAS_DISABLED');
@@ -329,7 +331,7 @@ async function eventsIn(db: PoolClient, a: Actor, threadId: string, p: Row): Pro
             try {
                 const c = await load(db, a, r.canvas_id);
                 gate(av, c.kind);
-                event = { ...base, kind: r.kind, canvas_id: r.canvas_id, version: vm(await version(db, c, r.version)) } as CanvasEvent;
+                event = { ...base, kind: r.kind, canvas_id: r.canvas_id, version: vm(await version(db, c, r.version)), ...(r.kind==='saved'?{file_id:r.saved_file_id,project_name:r.saved_project_name,effective_policy:r.saved_policy}:{}) } as CanvasEvent;
             }
             catch (e) {
                 if (canvasFailure(e).code !== 'CANVAS_UNAVAILABLE' && canvasFailure(e).code !== 'CANVAS_DISABLED')
@@ -410,5 +412,19 @@ export async function canvasDelete(id: string, input: unknown) {
     return deleteCanvas(pool, id, p.request_id, undefined, a.person.id, async () => {
         await tx(a, async (db, actor) => { gate(await availability(db, actor.person)); const c = await load(db, actor, id); const old = (await db.query('SELECT input_hash FROM ask_canvas_requests WHERE conversation_id=$1 AND request_id=$2', [c.conversation_id, p.request_id])).rows[0]; if (old)
             fail('IDEMPOTENCY_CONFLICT'); });
+    });
+}
+/** 0108 seam: same journal, session, conversation lock and current source policy. */
+export async function canvasFileTransaction<T>(id: string, n: number, fn: (db: PoolClient, actor: Actor, canvas: Row, version: Row) => Promise<T>): Promise<T> {
+    const actor = await human();
+    return tx(actor, async (db, a) => {
+        const av = await availability(db, a.person); gate(av);
+        if (!av.exports) fail('CANVAS_DISABLED');
+        const c = await load(db, a, id); gate(av, c.kind, true);
+        if (c.kind !== 'diagram') fail('UNSUPPORTED_KIND');
+        if (!Number.isSafeInteger(n) || n < 1) fail('INVALID_INPUT');
+        const v = await version(db, c, n);
+        await classify(db, a, c.conversation_id, c.required_areas, v.baseline_areas);
+        return fn(db, a, c, v);
     });
 }

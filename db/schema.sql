@@ -3905,3 +3905,7 @@ INSERT INTO ask_canvas_maintenance(singleton) VALUES(true) ON CONFLICT DO NOTHIN
 -- The base schema intentionally omits ledger-managed Canvas relations.
 
 -- 0107 private Ask provenance: see db/migrations/0107_ask_context_provenance.sql (ordered migration ledger).
+
+-- 0108 private derivatives, immutable save/audience ledger and files security profile: see
+-- db/migrations/0108_ask_canvas_files.sql (ordered after 0106 + 0107).
+-- Tables: ask_canvas_derivatives, ask_canvas_file_saves, ask_canvas_derivative_usage.

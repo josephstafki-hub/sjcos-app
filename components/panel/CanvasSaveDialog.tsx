@@ -1,0 +1,43 @@
+'use client';
+import {useEffect,useRef,useState} from 'react';
+import type {CanvasGetResponse} from '@/lib/canvas-api-types';
+import {CanvasOverlay} from './canvas/CanvasOverlay';
+import {JobPicker} from './JobPicker';
+import {removedAreas,showRowWarnings,audienceSentence,acknowledgementLabel} from '@/lib/canvas-save-policy.mjs';
+type Policy={owner:boolean;baseline_areas:string[];baseline_source:string;policy_revision:string;area_options:{key:string;label:string}[];project:{slug:string;name:string}};
+export function CanvasSaveDialog({data,onClose}:{data:CanvasGetResponse;onClose:()=>void}){
+ const base=`/api/canvas/${data.canvas.id}/versions/${data.selected.version}`;
+ const [project,setProject]=useState(data.canvas.project_slug??''),[pick,setPick]=useState(!project),[filename,setFilename]=useState(`${data.selected.title} (v${data.selected.version}).html`);
+ const [p,setPolicy]=useState<Policy|null>(null),[kind,setKind]=useState('staff'),[selected,setSelected]=useState<string[]>([]),[ack,setAck]=useState<{token:string;expires:number}|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[refresh,setRefresh]=useState(0),[another,setAnother]=useState(false),[offerAnother,setOfferAnother]=useState(false);
+ const selection=useRef(0),request=useRef<string|null>(null);
+ const reset=()=>{selection.current++;setAck(null);request.current=null;};
+ useEffect(()=>{reset();setPolicy(null);if(!project)return;const c=new AbortController();void fetch(`${base}/save-policy?project=${encodeURIComponent(project)}`,{cache:'no-store',signal:c.signal}).then(async r=>{const b=await r.json();if(!r.ok)throw Error(b.message);setPolicy(b);setSelected(b.baseline_areas);}).catch(e=>{if(!c.signal.aborted)setError(e.message);});return()=>c.abort();},[base,project,refresh]);
+ useEffect(()=>{if(!ack)return;const t=setTimeout(()=>{reset();setError('Review who can read this copy again.');},Math.max(0,ack.expires-Date.now()));return()=>clearTimeout(t);},[ack]);
+ useEffect(()=>()=>{selection.current++;},[]);
+ const removed=p?removedAreas(p.baseline_areas,selected):[],warnings=showRowWarnings(removed);
+ const change=(next:string[])=>{reset();setSelected(next);};
+ const acknowledge=async(checked:boolean)=>{
+  reset();if(!checked||!p)return;const epoch=selection.current;setBusy(true);setError('');
+  try{const r=await fetch(`${base}/save-policy/acknowledgement`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project_slug:project,expected_policy_revision:p.policy_revision,removed_areas:removed})}),b=await r.json();if(!r.ok)throw Object.assign(Error(b.message),{code:b.code});if(epoch===selection.current)setAck({token:b.token,expires:b.expires_at});}catch(e){setError((e as Error).message);setRefresh(x=>x+1);}finally{setBusy(false);}
+ };
+ const save=async()=>{if(!p)return;setBusy(true);setError('');const request_id=request.current??=crypto.randomUUID();try{
+ const body={request_id,project_slug:project,expected_policy_revision:p.policy_revision,filename,...(p.owner?{audience:kind==='owner_only'?{kind}:{kind:'staff',required_areas:selected},...(ack?{declassification_ack:ack.token}:{})}:{}),...(another?{save_another_copy:true}:{})};
+ const r=await fetch(`${base}/save`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}),b=await r.json();if(!r.ok){if(b.code==='SAVE_POLICY_CHANGED'||b.code==='SAVE_FAILED'){reset();setRefresh(x=>x+1);}if(b.code==='SAVE_POLICY_CONFLICT')setOfferAnother(true);throw Error(b.message);}onClose();
+ }catch(e){setError((e as Error).message);}finally{setBusy(false);}};
+ return <CanvasOverlay title="Save to project files" onClose={onClose}><div className="flex max-h-[65dvh] flex-col gap-3 overflow-auto py-3">
+ <p>Canvas: {data.selected.title} · Version {data.selected.version}</p>
+ {data.canvas.lead_slug&&<p>Leads can&apos;t hold canvas copies yet. Pick a project, or download it.</p>}
+ <button className="min-h-12 text-left" onClick={()=>setPick(!pick)}>Project · {p?.project.name??project??'Pick a project'}</button>
+ {pick&&<JobPicker projectOnly title="Project" onPick={j=>{reset();setProject(j.slug);setPick(false);}} onDone={()=>setPick(false)}/>}
+ <label>Filename<input className="block min-h-12 w-full border border-rule bg-paper px-2 text-base" value={filename} onChange={e=>{request.current=null;setFilename(e.target.value);}}/></label>
+ {p?.owner&&<><label className="flex min-h-12 items-center gap-2"><input type="radio" checked={kind==='staff'} onChange={()=>{reset();setKind('staff');}}/>Share with staff</label>
+ {kind==='staff'&&<>{p.baseline_source==='unknown_context'&&<p>Claude may have used anything in this chat, so every area is ticked.</p>}<button className="min-h-12 text-left" onClick={()=>change([])}>Untick all</button>
+ <div className="max-h-56 overflow-auto" aria-label="Required access areas">{p.area_options.map(o=><div key={o.key}><label className="flex min-h-12 items-center gap-2"><input type="checkbox" checked={selected.includes(o.key)} onChange={()=>change(selected.includes(o.key)?selected.filter(k=>k!==o.key):[...selected,o.key])}/>{o.label}</label>{warnings&&removed.includes(o.key)&&<p>Staff without {o.label} access will be able to read this. <button className="min-h-12 underline" onClick={()=>change([...selected,o.key])}>Keep {o.label} ticked</button></p>}</div>)}</div></>}
+ <label className="flex min-h-12 items-center gap-2"><input type="radio" checked={kind==='owner_only'} onChange={()=>{reset();setKind('owner_only');}}/>Only Joe</label></>}
+ {p&&!p.owner&&<p>{p.area_options.filter(o=>selected.includes(o.key)).map(o=>o.label).join(', ')||'🔒 Staff'}</p>}
+ {p&&<><p>{audienceSentence(kind,selected,p.area_options,p.project.name)}</p>{p.owner&&kind==='staff'&&removed.length>0&&<><label className="flex min-h-12 items-start gap-2" aria-label={selected.length?'I understand — share without '+p.area_options.filter(o=>removed.includes(o.key)).map(o=>o.label).join(', '):acknowledgementLabel(selected,removed,p.area_options,p.project.name)}><input type="checkbox" checked={!!ack} disabled={busy} onChange={e=>void acknowledge(e.target.checked)}/>{acknowledgementLabel(selected,removed,p.area_options,p.project.name)}</label>{removed.length>2&&<details><summary>All removed areas</summary>{p.area_options.filter(o=>removed.includes(o.key)).map(o=><p key={o.key}>{o.label}</p>)}</details>}{!ack&&<p>Tick the line above to save.</p>}</>}</>}
+ <p>It won&apos;t appear on the client portal.</p>{error&&<p role="alert">{error}</p>}
+ {offerAnother&&<label className="min-h-12"><input type="checkbox" checked={another} onChange={e=>{request.current=null;setAnother(e.target.checked);}}/>Save another copy after the previous copy is moved to Trash</label>}
+ <div className="flex justify-end gap-4"><button className="min-h-12" onClick={onClose}>Cancel</button><button className="min-h-12" disabled={busy||!p||(p.owner&&kind==='staff'&&removed.length>0&&!ack)} onClick={()=>void save()}>Save</button></div>
+ </div></CanvasOverlay>;
+}

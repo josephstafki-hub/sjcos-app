@@ -18,7 +18,7 @@ import { recordWorkflowEvent } from "./workflow/engine.ts";
 export const TRASH_DAYS = 30;
 
 /** Links that don't stop a delete: the upload that made the file. */
-const IGNORED_REFS = new Set(["project_uploads.file_id"]);
+const IGNORED_REFS = new Set(["project_uploads.file_id", "ask_canvas_file_saves.file_id"]);
 
 /** Every table.column that still points at this file. */
 export async function fileReferences(run: Run, fileId: string): Promise<string[]> {
@@ -136,7 +136,7 @@ export async function restoreProjectFile(
 
 export async function listFileTrash(run: Run, projectSlug: string): Promise<TrashedFile[]> {
   return run<TrashedFile>(
-    `SELECT ${TRASH_COLS} FROM file_trash WHERE project_slug = $1 AND purge_after > now() ORDER BY deleted_at DESC`,
+    `SELECT ${TRASH_COLS} FROM file_trash WHERE row->>'security_profile' IS NULL AND project_slug = $1 AND purge_after > now() ORDER BY deleted_at DESC`,
     [projectSlug],
   );
 }

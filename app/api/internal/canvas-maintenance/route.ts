@@ -1,3 +1,4 @@
+import {canvasFileMaintenance} from '@/lib/canvas-exports';
 import { askHealthDiagnosis } from '@/lib/ask-health.mjs';
 import { timingSafeEqual } from 'node:crypto';
 import { refreshSourcedWorkItem } from '@/lib/obligations/work-items';
@@ -36,6 +37,6 @@ export async function POST(req:Request){
  const supplied=req.headers.get('authorization')??'';
  const wanted=`Bearer ${expected}`;
  if(!expected||Buffer.byteLength(supplied)!==Buffer.byteLength(wanted)||!timingSafeEqual(Buffer.from(supplied),Buffer.from(wanted)))return Response.json({error:'Unauthorized'},{status:401});
- try{const result=await maintainThreads(pool);await reportHealth(false);return Response.json(result);}
+ try{const result=await maintainThreads(pool,undefined,canvasFileMaintenance);await reportHealth(false);return Response.json(result);}
  catch{await reportHealth(true);return Response.json({ok:false,code:'ASK_PAUSED'},{status:503});}
 }

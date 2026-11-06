@@ -1,4 +1,5 @@
 import 'server-only';
+import {canvasRender,canvasDrawing} from '@/lib/canvas-exports';
 import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 import {canvasGet,canvasFailure,canvasStatus,canvasBody,canvasSameOrigin} from '@/lib/ask-canvases';
@@ -43,13 +44,12 @@ export async function previewRoute(params:Promise<{id:string;version:string}>){r
 export async function renderRoute(req:Request,params:Promise<{id:string;version:string}>){return canvasRoute(async()=>{
  canvasSameOrigin(req);const data=await selectedCanvas(params);
  if(!data.availability.exports)throw error('CANVAS_DISABLED');
- await canvasBody(req,524320);
- // 0108 owns immutable, quota-accounted derivatives. Never accept/store one early.
- throw error('CANVAS_DISABLED');
+ const input=await canvasBody(req,3145800);
+ return Response.json(await canvasRender(data.canvas.id,data.selected.version,input),{headers:canvasResponseHeaders('api')});
 });}
 export async function downloadRoute(req:Request,params:Promise<{id:string;version:string}>){return canvasRoute(async()=>{
  const data=await selectedCanvas(params),format=new URL(req.url).searchParams.get('format');
- if(format==='svg'){if(!data.availability.exports)throw error('CANVAS_DISABLED');throw error('EXPORT_NOT_READY');}
+ if(format==='svg'){if(!data.availability.exports)throw error('CANVAS_DISABLED');const d=await canvasDrawing(data.canvas.id,data.selected.version);return new Response(d.svg,{headers:{...canvasResponseHeaders('api'),'Content-Type':'image/svg+xml','Content-Disposition':`attachment; filename="drawing-v${d.version}.svg"; filename*=UTF-8''${encodeURIComponent(d.title.replace(/[^\p{L}\p{N} _-]/gu,'').slice(0,80)+` (v${d.version}).svg`)}`}});}
  if(format!=='mmd')throw error('INVALID_INPUT');
  if(!data.code||!data.availability.source||!data.capabilities.code)throw error('CANVAS_DISABLED');
  const title=data.selected.title.replace(/[^\p{L}\p{N} _-]/gu,'').trim().slice(0,80)||'Diagram';

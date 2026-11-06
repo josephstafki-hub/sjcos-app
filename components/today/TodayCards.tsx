@@ -8,6 +8,7 @@ import { useTodayQueue } from "./TodayQueueContext";
 import { TodayPriorityRow } from "./TodayPriorityRow";
 import { Segmented } from "@/components/ui";
 import { TodayRecovery } from "./TodayRecovery";
+import { AskSignInLink } from "@/components/panel/AskSignInLink";
 import { QueueList } from "./QueueList";
 
 /** The Today main column: the pinned AI brief, then ONE list — its top five as
@@ -17,7 +18,7 @@ import { QueueList } from "./QueueList";
  *  (docked beside this page, or a popped-out panel window). */
 export function TodayCards({ brief }: { brief: ReactNode }) {
   const [view, setView] = useState("active");
-  const { priorities, waiting, complete, snooze, busyId } = useTodayQueue();
+  const { priorities, waiting, complete, snooze, busyId, signedOut } = useTodayQueue();
   const listRef = useRef<HTMLDivElement>(null);
   const [openId, setOpenId] = useState<string | null>(null);
 
@@ -62,13 +63,18 @@ export function TodayCards({ brief }: { brief: ReactNode }) {
         value={view}
         onChange={setView}
         options={[
-          { value: "active", label: "Work list", count: onYou },
+          { value: "active", label: "Work list", count: signedOut ? undefined : onYou },
           { value: "done", label: "Done" },
           { value: "snoozed", label: "Snoozed" },
         ]}
       />
       {view !== "active" ? (
         <TodayRecovery key={view} view={view as "done" | "snoozed"} />
+      ) : signedOut ? (
+        <div className="rounded-lg border border-rule-soft bg-card px-3 py-2">
+          <p className="text-body text-ink-2">Sign in again to continue.</p>
+          <AskSignInLink />
+        </div>
       ) : (
         <div ref={listRef} className="flex min-w-0 flex-col gap-3">
           <div>

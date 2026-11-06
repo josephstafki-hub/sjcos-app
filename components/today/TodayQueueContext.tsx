@@ -18,6 +18,7 @@ import type { AssignedTo, TodayPriority, WaitingItem } from "@/lib/today";
 export type { WaitingItem };
 
 interface QueueState {
+  signedOut: boolean;
   priorities: TodayPriority[];
   setPriorities: React.Dispatch<React.SetStateAction<TodayPriority[]>>;
   waiting: WaitingItem[];
@@ -80,11 +81,12 @@ export function TodayQueueProvider({
 }) {
   const [priorities, setPriorities] = useState(initialPriorities);
   const [waiting, setWaiting] = useState(initialWaiting.items);
+  const [signedOut, setSignedOut] = useState(false);
   const [checkingId, setCheckingId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const lastRefresh = useRef(0);
   const stopped = useRef(false);
-  useEffect(() => subscribeBackgroundAuth(() => { stopped.current = true; setPriorities([]); setWaiting([]); }), []);
+  useEffect(() => subscribeBackgroundAuth(() => { stopped.current = true; setSignedOut(true); setPriorities([]); setWaiting([]); }), []);
 
   const applySnapshot = (snap: { priorities: TodayPriority[]; waiting: { items: WaitingItem[] } }) => {
     setPriorities(snap.priorities);
@@ -121,6 +123,7 @@ export function TodayQueueProvider({
       const snap = await refreshTodayQueue();
       if (isBackgroundFailure(snap)) {
         stopped.current = true; setPriorities([]); setWaiting([]);
+        if (snap.code === "SIGN_IN_AGAIN") setSignedOut(true);
         noteBackgroundFailure(snap); return;
       }
       if (!stopped.current && !backgroundAuthLost()) applySnapshot(snap);
@@ -210,6 +213,7 @@ export function TodayQueueProvider({
   return (
     <QueueContext.Provider
       value={{
+        signedOut,
         priorities,
         setPriorities,
         waiting,

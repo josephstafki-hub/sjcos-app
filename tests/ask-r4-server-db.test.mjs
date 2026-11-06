@@ -121,3 +121,36 @@ test('unsafe folder diagnosis is owner-only; maintenance shares it; repair prese
   for(const code of ['JOURNAL_AUTHORITY_IDENTITY','JOURNAL_BINDING','JOURNAL_INVALID'])assert.equal(health.askHealthCause(Error(code)),code);
  });
 })));
+
+// R5: trigger functions are installed capabilities, never PUBLIC entry points.
+// Real narrow identities cannot attach either function to attacker-owned temp
+// tables, poison a shared decision reference, or erase a normal business push.
+test('push trigger-only functions reject narrow temp triggers; website sources and boolean lookup still work',()=>withMigrationSubset('r5_push_acl',[100,105],async({url,db,apply})=>{
+ await apply();
+ const decision=(await db.query(`INSERT INTO decisions(kind,title,action,status) VALUES('grant','Shared business','send_email','pending') RETURNING id`)).rows[0].id;
+ const push=(await db.query(`INSERT INTO push_outbox(kind,title,body,payload,send_after) VALUES('decision','Shared','Keep this business notice',$1,now()) RETURNING id`,[JSON.stringify({decisionId:decision})])).rows[0].id;
+ for(const login of ['sjcos_agent','sjcos_worker','sjcos_readonly'])await withSessionIdentity(url,login,async c=>{
+  assert.deepEqual((await c.query('SELECT session_user, current_user')).rows[0],{session_user:login,current_user:login});
+  await c.query('CREATE TEMP TABLE forged_source(conversation_id uuid,decision_id uuid)');
+  await c.query('CREATE TEMP TABLE forged_push(ask_reply_erased boolean,payload jsonb,href text,title text,body text)');
+  await assert.rejects(c.query('CREATE TRIGGER forged_bind AFTER INSERT ON forged_source FOR EACH ROW EXECUTE FUNCTION public.bind_ask_push_source()'),e=>e.code==='42501');
+  await assert.rejects(c.query('CREATE TRIGGER forged_guard BEFORE INSERT ON forged_push FOR EACH ROW EXECUTE FUNCTION public.guard_ask_push_copy()'),e=>e.code==='42501');
+  await c.query('INSERT INTO forged_source VALUES($1,$2)',[randomUUID(),decision]);
+  assert.equal((await c.query('SELECT ask_push_is_private($1,NULL) AS yes',[JSON.stringify({decisionId:decision})])).rows[0].yes,false);
+  await assert.rejects(c.query('INSERT INTO private_ask_push_sources VALUES($1,$2)',['decision',decision]),e=>e.code==='42501');
+  await assert.rejects(c.query('SELECT * FROM private_ask_push_sources'),e=>e.code==='42501');
+  if(login==='sjcos_worker')await c.query('UPDATE push_outbox SET body=body WHERE id=$1',[push]);
+  assert.deepEqual((await c.query('SELECT body,ask_reply_erased FROM push_outbox WHERE id=$1',[push])).rows[0],{body:'Keep this business notice',ask_reply_erased:false});
+ });
+ await withSessionIdentity(url,'sjcos_test_website',async c=>{
+  const person=(await c.query(`INSERT INTO users(email,name,role,password_hash,initials) VALUES($1,'Owner','owner','x','O') RETURNING id`,[randomUUID()+'@example.test'])).rows[0].id;
+  await c.query('UPDATE ask_canvas_maintenance SET recovery_ready=true');
+  const thread=(await c.query(`INSERT INTO ai_conversations(agent,title,owner_user_id) VALUES('claude','Private',$1) RETURNING id`,[person])).rows[0].id;
+  await c.query(`SELECT set_config('sjcos.ask_actor',$1,false)`,[person]);
+  const grant=(await c.query(`INSERT INTO owner_grants(actions,reason,expires_at,conversation_id) VALUES(ARRAY['send_email'],'Private request',now()+interval '1 hour',$1) RETURNING id`,[thread])).rows[0].id;
+  await c.query(`INSERT INTO owner_replies(decision_id,body,route,conversation_id) VALUES($1,'Private reply','session',$2)`,[decision,thread]);
+  for(const ref of [{decisionId:decision},{grantId:grant}])assert.equal((await c.query('SELECT ask_push_is_private($1,NULL) AS yes',[JSON.stringify(ref)])).rows[0].yes,true);
+  await c.query('UPDATE push_outbox SET body=body WHERE id=$1',[push]);
+  assert.equal((await c.query('SELECT ask_reply_erased FROM push_outbox WHERE id=$1',[push])).rows[0].ask_reply_erased,true);
+ });
+}));

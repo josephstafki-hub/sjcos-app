@@ -207,7 +207,7 @@
     "db/migrations/0060_db_roles.sql": "fbd0efeb23fed602640eabe5d42c4694b98b1509c30d9c3feaa1d5ce9132ce24",
     "db/migrations/0062_portal_telegram.sql": "85878f8cf90c1ec4731c51ec5cd45ff1409ebc1ef3a5bf9e902394e90780155e",
     "db/migrations/0100_ask_launch_sessions_browser_core.sql": "dd0deca0d6bc5ec0ea573fe6214d62889d238027e5d91a69256d0b4aa2d99f04",
-    "db/migrations/0105_ask_thread_ownership.sql": "48b07a74680ea5bd6f4a291732f5e0df015977b2a1a56fa8324aa4b1dd096678",
+    "db/migrations/0105_ask_thread_ownership.sql": "3a105fc3041b26f3ef73d7796bf7cdf4aff6dae3bfa5df9d4d8e9bcf85311cf3",
     "db/schema.sql": "8af22913669451c5f4dbb3aad8da113a06b022924ac7db326ea506f81fa79e79",
     "db/seed-workflow-runbooks.mjs": "d7bc6de5467359b85364c72042184f34aed5baabf61093347b4dd8ff81ad5dad",
     "db/seed.sql": "fe0fa36f0ade311fe5d64ae7d878e249977ab3f653e29d9b24178dba87745400",
@@ -5298,9 +5298,9 @@
       "function": "<sql>",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "0105 website-session/source-person FORCE RLS, immutable provenance, journal/tombstone fences; R3 removes shared reply copies and scrubs historical decision/event/intent/work-item/trigger/execution fan-out, with replay using the website-only erasure function. Runtime copies additionally inherit live source visibility. Backup SELECT is explicit; narrow identities cannot spoof website authority. R4 adds historical push cleanup, immutable per-write erasure and website-only opaque source registry with boolean lookup for narrow retry safety.",
+      "explanation": "0105 website-session/source-person FORCE RLS, immutable provenance, journal/tombstone fences; R3 removes shared reply copies and scrubs historical decision/event/intent/work-item/trigger/execution fan-out, with replay using the website-only erasure function. Runtime copies additionally inherit live source visibility. Backup SELECT is explicit; narrow identities cannot spoof website authority. R4 adds historical push cleanup, immutable per-write erasure and website-only opaque source registry with boolean lookup for narrow retry safety. R5 revokes PUBLIC execution on both trigger-only push functions; real narrow identities cannot attach them to temporary tables. Installed source/sanitizer triggers and the boolean lookup retain their existing privileges.",
       "queries": [
-        "48b07a74680ea5bd6f4a291732f5e0df015977b2a1a56fa8324aa4b1dd096678"
+        "3a105fc3041b26f3ef73d7796bf7cdf4aff6dae3bfa5df9d4d8e9bcf85311cf3"
       ]
     },
     {

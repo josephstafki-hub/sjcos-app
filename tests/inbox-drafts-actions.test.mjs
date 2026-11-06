@@ -1,9 +1,11 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { registerHooks } from 'node:module';
+import { getRedirectError } from 'next/dist/client/components/redirect.js';
+globalThis.__draftRedirect=path=>{throw getRedirectError(path,'push');};
 const stubs={
  '@/lib/db':`export const query=async(sql,p)=>globalThis.__draftActions.query(sql,p);`,
- '@/lib/dal':`export const getCurrentUser=async()=>globalThis.__draftActions.user;export const can=()=>!globalThis.__draftActions.denied;export const requireAccess=async area=>{if(area!=='inbox')throw Error('wrong permission');if(globalThis.__draftActions.denied)throw Error('denied');return globalThis.__draftActions.user;};export const requireRole=async role=>{if(globalThis.__draftActions.user.role!==role)throw Error('denied')};`,
+ '@/lib/dal':`export const getCurrentUser=async()=>globalThis.__draftActions.user;export const can=()=>!globalThis.__draftActions.denied;export const requireAccess=async area=>{if(area!=='inbox')throw Error('wrong permission');if(!globalThis.__draftActions.user)globalThis.__draftRedirect('/login');if(globalThis.__draftActions.denied)globalThis.__draftRedirect('/today');return globalThis.__draftActions.user;};export const requireRole=async role=>{if(globalThis.__draftActions.user.role!==role)throw Error('denied')};`,
  '@/lib/mailbox-email':`export const ensureMailboxEmail=async()=>(globalThis.__draftActions.active?.email??'').toLowerCase();`,
  '@/lib/mailbox':`export const activeMailbox=()=>globalThis.__draftActions.active;
  export const withMailboxFor=async (user,fn)=>{const a=globalThis.__draftActions;a.scopes++;a.active={userId:user.id,email:a.email,refreshToken:a.email?'stub':null};return fn()};`,
@@ -64,7 +66,7 @@ test('one batch query; only own human drafts and owner-mailbox suggestions',asyn
 });
 test('all actions enforce access, never use owner fallback for disconnected staff, and validate model',async()=>{
  __draftActions.denied=true;for(const action of [()=>loadDrafts(['thread-1']),()=>saveDraft(input)])assert.deepEqual(await action(),{ok:false,code:'ACCESS_DENIED'});
- for(const action of [()=>discardDraft(input),()=>markDraftSent(input),()=>dismissSuggestion('00000000-0000-4000-8000-000000000001')])await assert.rejects(action,/ACCESS_DENIED/);
+ for(const action of [()=>discardDraft(input),()=>markDraftSent(input),()=>dismissSuggestion('00000000-0000-4000-8000-000000000001')])await assert.rejects(action,e=>e.digest==='NEXT_REDIRECT;push;/today;307;');
  assert.equal(__draftActions.calls.length,0);__draftActions.denied=false;__draftActions.user={id:'staff',role:'staff'};__draftActions.email=null;
  await assert.rejects(()=>saveDraft(input),/Connect your mailbox/);await saveDraft({...input,channel:'sms',threadKey:'sms:1'});assert.equal(__draftActions.calls.at(-1).p[0],'user:staff');
  await assert.rejects(()=>setInboxDraftModel('claude'),/denied/);__draftActions.user.role='owner';await assert.rejects(()=>setInboxDraftModel('qwen'),/Choose Claude or Hermes/);
@@ -102,3 +104,16 @@ test('unseen reviewed draft persists authorship and exact accepted suggestion wi
  assert.deepEqual((await loadDrafts([input.threadKey]))[0].sources,sources);
  await assert.rejects(()=>saveDraft({...input,provenance:{...provenance,sources:[{...sources[0],threadId:'foreign-thread'}]}}),/Invalid draft sources/);
  });
+
+test('foreground missing session redirects; background load/save stay typed before mailbox or SQL',async()=>{
+ __draftActions.user=null;
+ for(const action of [()=>loadDrafts(['thread-1']),()=>saveDraft(input)])assert.deepEqual(await action(),{ok:false,code:'SIGN_IN_AGAIN'});
+ for(const action of [()=>discardDraft(input),()=>markDraftSent(input),()=>dismissSuggestion('00000000-0000-4000-8000-000000000001')])await assert.rejects(action,e=>e.digest==='NEXT_REDIRECT;push;/login;307;');
+ assert.equal(__draftActions.calls.length,0);assert.equal(__draftActions.scopes,0);
+});
+
+test('connected staff saves ignore caller-supplied mailbox/person identity',async()=>{
+ __draftActions.user={id:'staff',role:'staff'};__draftActions.email='STAFF@example.test';
+ await saveDraft({...input,mailbox:'joe@example.test',userId:'joe',user_id:'joe'});
+ assert.deepEqual(__draftActions.calls.at(-1).p.slice(0,2),['staff@example.test','staff']);
+});

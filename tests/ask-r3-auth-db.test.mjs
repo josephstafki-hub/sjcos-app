@@ -47,7 +47,9 @@ test('real expired/revoked/legacy cookies: Proxy to exported Ask actions and sta
   let backgroundReads=0;
   const live=load('lib/actions/live.ts',{'@/lib/dal':dal,'@/lib/live':{getLiveChanges:async()=>{backgroundReads++;return {cursor:2,scopes:['work_items'],agentScopes:[]};}}});
   const queue=load('lib/actions/today.ts',{'@/lib/dal':dal,'@/lib/today':{getQueueSnapshot:async()=>{backgroundReads++;return {priorities:[],waiting:{items:[],total:0}};}}});
-  const inbox=load('lib/actions/inbox-drafts.ts',{'@/lib/dal':dal});
+  const inbox=load('lib/actions/inbox-drafts.ts',{'@/lib/dal':dal,'@/lib/mailbox':{withMailboxFor:()=>assert.fail('denied mailbox callback')},'@/lib/db':{query:()=>assert.fail('denied draft SQL')}});
+  const draft={threadKey:'thread',channel:'sms',baseVersion:0,body:'local draft',toEmail:'',subject:'',cc:[]};
+  const foreground=[()=>inbox.discardDraft(draft),()=>inbox.markDraftSent(draft),()=>inbox.dismissSuggestion(randomUUID()),()=>calls.loadSelectedCall(randomUUID())];
   const workbench=load('lib/actions/workbench.ts',{'@/lib/dal':dal});
   const calls=load('lib/actions/calls.ts',{'@/lib/dal':dal,'../comms/connection-copy':{}});
   const status=load('app/api/ai/status/route.ts',{'@/lib/dal':dal,'@/lib/db':{pool},'@/lib/ask-thread-journal.mjs':{withAskJournal:async(_p,fn)=>fn(),deletionCapabilities:async()=>({deleteAvailable:false})},'@/lib/thread-access':access,...contractDeps});
@@ -68,8 +70,9 @@ test('real expired/revoked/legacy cookies: Proxy to exported Ask actions and sta
     else assert.equal(page.status,307);
     for(const result of [await runs.pollAgentRun(randomUUID()),await actions.listThreadRailAction(),await actions.sendMessageAction(randomUUID(),'secret draft'),await actions.uploadChatFilesAction(new FormData()),await actions.loadConversationAction(randomUUID())])assert.deepEqual(plain(result),{ok:false,code:'SIGN_IN_AGAIN'});
     const before=backgroundReads;
-    for(const result of [await live.pollLiveChanges(1),await queue.refreshTodayQueue(),await inbox.loadDrafts(['thread']),await workbench.getWorkbenchAction(randomUUID()),await calls.loadCall(randomUUID())])assert.deepEqual(plain(result),{ok:false,code:'SIGN_IN_AGAIN'});
+    for(const result of [await live.pollLiveChanges(1),await queue.refreshTodayQueue(),await inbox.loadDrafts(['thread']),await inbox.saveDraft(draft),await workbench.getWorkbenchAction(randomUUID()),await calls.loadCall(randomUUID())])assert.deepEqual(plain(result),{ok:false,code:'SIGN_IN_AGAIN'});
     assert.equal(backgroundReads,before);
+    for(const action of foreground)await assert.rejects(action,e=>/^NEXT_REDIRECT;push;\/(login|logout);307;$/.test(e.digest));
     const res=await status.GET();assert.equal(res.status,401);assert.equal(res.headers.get('cache-control'),'no-store');assert.deepEqual(await res.json(),{ok:false,code:'SIGN_IN_AGAIN'});
    }else{assert.equal((await live.pollLiveChanges(1)).cursor,2);assert.equal((await queue.refreshTodayQueue()).waiting.total,0);assert.equal((await proxy(req('GET',false))).status,200);assert.equal((await actions.sendMessageAction(thread,'authenticated private message')).kind,'pending');assert.equal((await status.GET()).status,200);}
   };
@@ -78,6 +81,17 @@ test('real expired/revoked/legacy cookies: Proxy to exported Ask actions and sta
   const deniedDal={...dal,getCurrentUser:async()=>({role:'staff',permissions:['ai']})};
   const deniedQueue=load('lib/actions/today.ts',{'@/lib/dal':deniedDal,'@/lib/today':{getQueueSnapshot:async()=>assert.fail('denied queue read')}});
   assert.deepEqual(plain(await deniedQueue.refreshTodayQueue()),{ok:false,code:'ACCESS_DENIED'});
+  // No-ai staff retains foreground call access, then loses comms/inbox mid-session.
+  const staff=(await c.query(`INSERT INTO users(email,name,role,permissions,password_hash,initials) VALUES($1,'Staff','staff',ARRAY['comms','inbox'],'x','S') RETURNING id`,[randomUUID()+'@example.test'])).rows[0].id;
+  token=await sign({userId:staff,role:'staff',authAt:now-20,exp:now+3600});
+  const selected=load('lib/actions/calls.ts',{'@/lib/dal':dal,'../comms/connection-copy':{},'@/lib/voice':{getCall:async id=>{backgroundReads++;return {id};},getCallEvents:async()=>{backgroundReads++;return [];}}});
+  const selectedId=randomUUID();assert.equal((await selected.loadSelectedCall(selectedId)).call.id,selectedId);
+  assert.equal((await selected.loadCall(selectedId)).call.id,selectedId);
+  const readsBeforeDenial=backgroundReads;
+  await c.query("UPDATE users SET permissions=ARRAY['today']::text[] WHERE id=$1",[staff]);
+  for(const action of [...foreground,()=>selected.loadSelectedCall(selectedId)])await assert.rejects(action,e=>e.digest==='NEXT_REDIRECT;push;/today;307;');
+  for(const result of [await inbox.loadDrafts(['thread']),await inbox.saveDraft(draft),await selected.loadCall(selectedId)])assert.deepEqual(plain(result),{ok:false,code:'ACCESS_DENIED'});
+  assert.equal(backgroundReads,readsBeforeDenial);
   const registryExpired=await web.createWebSession(user,now-20,3600);
   const registryExpiredToken=await sign({...registryExpired,role:'owner',iss:web.WEB_SESSION_ISSUER,aud:web.WEB_SESSION_AUDIENCE});
   await c.query("UPDATE web_sessions SET expires_at=now()-interval '1 second' WHERE id=$1",[registryExpired.sid]);

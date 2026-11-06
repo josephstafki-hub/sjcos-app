@@ -795,3 +795,198 @@ Newly inventoried push schema/CLI/payment/cost-cap producers were individually
 reviewed: schema-only owner CLIs, business payment text, and fixed aggregate
 cost notices; they do not introduce private body readers. Push persistence and
 drain entries are now classified as fenced, not blanket business-only.
+
+## Build round 5 corrections (2026-11-05)
+
+This section records the fixes required by the [round-5 design review](../reviews/build-p0-r5-design.md)
+and [round-5 engineering review](../reviews/build-p0-r5-engineering.md). The
+[round-5 security review](../reviews/build-p0-r5-security.md) remains the privacy
+baseline; these fixes do not imply a deployment or Browser Phase 0b acceptance.
+Starting revision: `6775251c7610c32de7fe22ad4dccaa4162c701a6`, branch
+`t3/in-app-browser-agent-tools`.
+
+### Required items and security preservation
+
+- **Design 1 — signed-out queues:** `TodayQueueContext` exposes `signedOut` on
+  the document-local sign-out notification and a typed `SIGN_IN_AGAIN` refresh.
+  It still clears private priorities/waiting rows and stops polling; stale
+  refresh results cannot replace the cleared state. Today replaces Up next and
+  the list with “Sign in again to continue.” and `AskSignInLink`, omitting the
+  Work list count. The panel Queue rail uses the same copy/link under
+  “Queue · Priorities”, replacing both priorities and Waiting on me. This is
+  also the phone Queue tab. The link resolves the current page on mount/click;
+  no background navigation or private row retention was added. Healthy empty
+  queues retain their real empty-state message.
+- **Engineering 1 — push function ACLs:** 0105 now immediately revokes PUBLIC
+  execution on `bind_ask_push_source()` and `guard_ask_push_copy()`. No narrow
+  grants were added. Real agent, worker and readonly sessions cannot attach
+  either function to temporary tables (42501), inject registry references or
+  erase an unrelated business push. Installed website source triggers still
+  bind reply/grant IDs; installed sanitization triggers and the intentional
+  boolean `ask_push_is_private(jsonb,text)` remain functional. Historical
+  cleanup, irreversible erased markers, tombstone/replay and stale drain
+  sanitization retain their passing regression coverage. Registry contents
+  remain website-only opaque kind/UUID pairs.
+- **Engineering 2 — foreground inbox recovery:** redirecting `requireAccess('inbox')`
+  is restored for discard, dismiss and sent bookkeeping. Background load/save
+  authenticate directly with `getCurrentUser`/`can`, returning typed failures
+  before the same mailbox-only helper. Redirects are never caught/translated
+  into ordinary exceptions. Both wrappers retain server-derived mailbox/person
+  identity, connected/disconnected staff controls and versioned conflicts;
+  caller-injected mailbox/person fields are ignored. Background failure still
+  preserves the local unsent draft without navigation.
+- **Engineering 3 — foreground call selection:** CallsClient uses
+  `loadSelectedCall`, guarded by redirecting `requireAccess('comms')`, with no
+  dependency on an Ask panel. It shares the authorized detail loader with
+  `loadCall`. BrowserPhone continues using the typed, nonredirecting `loadCall`;
+  neither call/event reader runs on background denial. Real signed-cookie
+  tests cover expiry/revocation and permission removal for foreground reads;
+  a comms staff member without ai retains normal selection access.
+- **Engineering 4 — maintained fixture:** the server-boundary VM resolves the
+  real `ask-health.mjs` namespace. Both tests explicitly bootstrap their own
+  temporary deployment identity beside a separate journal leaf, restore prior
+  environment values and remove only their temporary root in finally. The
+  original eight status/delete/recovery assertions pass unchanged. The fixture
+  never needs the default `~/.local/state/sjcos-ask-deployment` identity.
+
+**Security review invariants:** no private query/reader, push transport, session,
+Proxy, action Origin/Host check, cookie policy or allowed-origin configuration
+was relaxed. Authentication/area checks still precede business callbacks. The
+only census update is the reviewed 0105 source/query hash plus an ACL explanation:
+**475 entries / 921 SQL fragments / 212 files**, 104 fenced, 157
+trusted-background and 214 not-private, zero violations. No entry was removed or
+reclassified. Background shell/focus/poll/Send/upload/Retry tests still clear
+private state, preserve drafts, stop trailing refresh and remain on the page.
+
+### Operative deployment checklist corrections
+
+Use the engineering review's **Complete Phase 0 deploy checklist for Joe /
+coordinator**, all twelve items, as the consolidated future procedure. It
+reconciles the historical handoff sections; in particular the explicit A1
+never-enabled ordinary-Ask mode remains valid. Required release checks include:
+
+1. Pin the complete release revision and migration checksums, preserve DB and
+   independently protected recovery state, verify target DB/website installer,
+   and coordinate every website/MCP/worker/detached writer at cutover. Keep the
+   shared host within 24 GB / 8 threads.
+2. Use ordered checksummed `db/migrate.mjs` status/dry-run/application. Phase 0
+   requires real 0100 then 0105 plus genuinely pending earlier migrations.
+   **0105 changed in place again for these ACL fixes. It is documented/supplied
+   as unapplied on live; no live DB was contacted to verify that premise.** The
+   deployer must verify it before applying. Never fake ledger rows/checksums or
+   bypass an applied migration mismatch; rebuild old disposable QA DBs instead.
+   Use the website/table-owner installer, not a narrow login. 0101–0104 remain
+   absent/deferred; 0106+ is outside Phase 0.
+3. Verify owned/quarantined backfill counts, notices, FORCE RLS, immutable
+   associations and corrected function ACLs with actual identities. Exercise
+   Joe, Abigail/other ai staff and no-ai staff. Joe has no staff-chat override;
+   ambiguous/inactive/mixed creators stay quarantined and cross-person folder
+   links move to Unfiled. Registry grants remain withheld.
+4. Provision protected deployment identity with `ask-deployment-bootstrap.mjs
+   --new-install` only for a demonstrably new, never-enabled installation, as
+   runtime uid. Keep the stable state location independent of BOTH DB and
+   journal restore/loss sets. A restore missing identity is an outage requiring
+   recovery of that volume, never re-bootstrap or marker replacement.
+5. Provision a stable absolute journal directory separate/nonnested with state;
+   all writers share its kernel lock. Inspect configured paths, ancestors,
+   symlinks and uid; repair only the correct runtime-owned leaf to 0700 and
+   individual sensitive regular nonsymlink files to 0600. Recursive mkdir does
+   not repair existing permissions. Preserve intents, identity and latches;
+   retry owner health/maintenance after safe repair.
+6. For A1 ordinary Ask with explicit never-enabled identity and entirely absent
+   authority config, leave Delete acceptance unset/off. Expect ready with
+   JOURNAL_NOT_CONFIGURED warning and `deleteAvailable:false`; staff see the
+   disabled Delete explanation. Partial/invalid config still pauses admission.
+7. Before ever enabling Delete, provision the stable HTTPS authority URL,
+   ledger UUID, Ed25519 public key, token and 32-byte hex journal key outside
+   both restore sets. Joe must accept independent monotonic CAS, immutable
+   encrypted prefixes durable before advancement, identity/key/sequence/head
+   and nonce/signature/failure evidence, DB restore plus journal-loss drill,
+   protected-state replay and real encrypted-backup aging. Tests do not certify
+   off-box durability. Once enabled, flag-off cannot disable recovery.
+8. Preserve protected runtime settings and valid session signing across website
+   and detached bridge paths. Keep website owner credentials separate from the
+   three narrow logins. Staff bridge uses the fixed internal endpoint and
+   protected CRON_SECRET; no fabricated bearer/cookies or private SQL fallback.
+9. At deployment, validate the existing bounded maintenance oneshot/timer under
+   runtime uid, protected `%h/.config/sjcos/canvas-maintenance.env`, actual working
+   directory and loopback port 3017. Prove secret POST before enabling the
+   five-minute Persistent timer. Retain Nice=19, MemoryMax=128M, CPUQuota=25%,
+   TimeoutStartSec=15, request timeout 10s, Restart=no. Measure deadline,
+   heartbeat, lease/backlog fencing, grace/hold/purge and owner repair lifecycle.
+10. Leave all six Browser settings false and Canvas rollout flags off. Host and
+    renderer helpers do not deliver persisted Canvas/provenance or Browser
+    runtime acceptance. Do not install/start Browser units from package pins.
+11. Coordinator acceptance must include no-ai staff Calls/inbox foreground
+    redirects, actual owner/staff login/renew/logout, explicit page versus
+    action POST, expired/revoked sessions with focus/timers, retained draft,
+    cleared private state, validated return links, normal/paused widths,
+    Delete-off/accepted retry, foreign attachments, interaction round trip and
+    quiet voice. Use only an approved memory-capped side build/dist/service and
+    stop it. Rollback retains additive schema, ownership, sessions and deletion
+    evidence and uses a privacy-compatible binary; never restore shared readers.
+12. Tell staff chats are person-private including from Joe, older ambiguous
+    chats need review, saved business files retain their audience, Delete is
+    unavailable pending recovery acceptance, paused chats retain draft/Retry,
+    sign-in returns to the current page, and Browser/new Canvas are off. Before
+    Delete is enabled, explain its 30-day grace and limits: audit/ID shells,
+    saved business files, provider histories, backups and filesystem blobs are
+    not all erased by Phase 0.
+
+Coordinator visual captures still required (no server/browser was started here):
+`owner-desk1280-today-session-expired` after cookie expiry and >4 s must stay on
+`/today`, show the fixed line and `/login?returnTo=%2Ftoday`, with no “Nothing else
+on the list.” or Work list zero count. Recapture desk1280 and phone360 panel
+expiry, including the phone Queue tab, no bare Waiting on me header, retained
+composer draft and sign-in round trip. Retain all remaining normal/paused width
+and quiet-console acceptance from the consolidated checklist.
+
+### Round-5 fix verification
+
+Regression expectations/assertions were written before product changes; initial
+runs reproduced ordinary inbox errors, use of the background call reader,
+missing queue sign-out state and PUBLIC trigger attachment. Fixture-only
+corrections during validation supplied Next Link/index-module resolution and a
+phone formatter in the controlled component loader, valid draft fields in the
+signed-cookie test, and a staff role-home expectation consistent with the real
+DAL. No production assertion was weakened or skipped.
+
+Each test file ran individually/sequentially with
+`SJC_TEST_CLUSTER_TAG=p0r5fix-<timestamp>[-<file>]`, `SJC_OUTBOUND_DISABLED=1` and
+EXIT cleanup stopping its disposable cluster even on failure. Protected state
+was explicitly isolated/bootstrapped where real journal admission was used;
+no operator default, live/QA DB or coordinator state was used. Final results:
+
+| `tests/<name>.test.mjs` | Pass | Fail / skip |
+|---|---:|---:|
+| ask-panel-ssr | 84 | 0 / 0 |
+| ask-r3-auth-db | 4 | 0 / 0 |
+| ask-r4-server-db | 3 | 0 / 0 |
+| ask-server-boundaries-db | 8 | 0 / 0 |
+| inbox-drafts-actions | 11 | 0 / 0 |
+| calls-client-selection | 4 | 0 / 0 |
+| ask-private-query-scan | 6 | 0 / 0 |
+| ask-r3-reply-copies-db | 6 | 0 / 0 |
+| db-roles-manifest-db | 6 | 0 / 0 |
+| db-roles-paths-db | 3 | 0 / 0 |
+| inbox-draft-flow | 39 | 0 / 0 |
+| inbox-draft-sync | 15 | 0 / 0 |
+
+**189 passed across 12 files, zero final failures/skips.** Component executions
+are controlled lifecycle/SSR tests, not browser/HTTP certification. The real
+signed-cookie actions/DAL and actual narrow SQL logins supply separate server
+and function-privilege evidence.
+
+`flock /tmp/sjcos-tsc.lock nice -n 19 npx tsc --noEmit -p .`: **exit 0**.
+`node scripts/db-roles-scan.mjs --diff`: **exit 0**. Every printed difference is
+explicitly withheld by the manifest: owner controls/settings, policies, users,
+permissions/revocations; private recovery/interactions/messages/web sessions;
+payment authorizations, QBO and mailbox credentials. No unaccounted table grant
+or new MCP/worker write was added. The table scan does not prove function ACL
+safety; the real three-login temp-trigger attack regression supplies that check.
+`db-roles-sql.mjs private_ask_push_sources` still prints no grants; the push_outbox
+generator output remains exactly as quoted in the round-4 section. No manifest
+expansion is needed for two function EXECUTE revocations. The privacy census
+passes unchanged in size/classifications with the reviewed 0105 hash update.
+`git diff --check` passes. All disposable clusters stopped. No exit 137, install,
+Next dev/build/start, browser, deployment or service operation occurred.

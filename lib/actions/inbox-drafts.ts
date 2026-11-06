@@ -2,7 +2,7 @@
 
 import type { BackgroundFailure } from '@/lib/background-result';
 import { query } from '@/lib/db';
-import { getCurrentUser, can, requireRole } from '@/lib/dal';
+import { getCurrentUser, can, requireAccess, requireRole, type CurrentUser } from '@/lib/dal';
 import { activeMailbox, withMailboxFor } from '@/lib/mailbox';
 import { ensureMailboxEmail } from '@/lib/mailbox-email';
 import { revalidatePath } from 'next/cache';
@@ -10,10 +10,13 @@ import type { DraftIdentity, DraftWriteResult, InboxDraft, SaveDraftInput } from
 
 // Never take mailbox or user_id from a caller. A disconnected staff mailbox
 // has its own namespace for SMS/portal drafts, never the owner's fallback.
-async function scoped<T>(fn: (mailbox: string, userId: string, owner: boolean, connected: boolean) => Promise<T>) {
-  const user = await getCurrentUser();
-  if (!user) throw Error('SIGN_IN_AGAIN');
-  if (!can(user, 'inbox')) throw Error('ACCESS_DENIED');
+type MailboxCallback<T> = (mailbox: string, userId: string, owner: boolean, connected: boolean) => Promise<T>;
+
+async function scoped<T>(fn: MailboxCallback<T>) {
+  return mailboxScoped(await requireAccess('inbox'), fn);
+}
+
+async function mailboxScoped<T>(user: CurrentUser, fn: MailboxCallback<T>) {
   return withMailboxFor(user, async () => {
     const mb = activeMailbox();
     if (!mb || mb.userId !== user.id) throw new Error('Mailbox scope is unavailable.');
@@ -24,11 +27,11 @@ async function scoped<T>(fn: (mailbox: string, userId: string, owner: boolean, c
   });
 }
 
-async function backgroundScoped<T>(fn: (mailbox: string, userId: string, owner: boolean, connected: boolean) => Promise<T>): Promise<T | BackgroundFailure> {
-  try { return await scoped(fn); } catch (error) {
-    if (error instanceof Error && (error.message === 'SIGN_IN_AGAIN' || error.message === 'ACCESS_DENIED')) return { ok: false, code: error.message };
-    throw error;
-  }
+async function backgroundScoped<T>(fn: MailboxCallback<T>): Promise<T | BackgroundFailure> {
+  const user = await getCurrentUser();
+  if (!user) return { ok: false, code: 'SIGN_IN_AGAIN' };
+  if (!can(user, 'inbox')) return { ok: false, code: 'ACCESS_DENIED' };
+  return mailboxScoped(user, fn);
 }
 
 const columns = `id, thread_key AS "threadKey", channel, source, source_message_id AS "sourceMessageId",

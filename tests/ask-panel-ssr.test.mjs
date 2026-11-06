@@ -14,10 +14,12 @@ import {hostWidths, deviceCases} from './fixtures/ask-pane-host.mjs';
 // Real React SSR, with controlled provider/action/browser seams. No DOM, DB or server.
 const root=new URL('../',import.meta.url);
 const stubs=new Map([
+ ['next/link',`import React from 'react';export default function Link(props){return React.createElement('a',props);}`],
  ['@/components/today/PriorityCard',`export const PriorityCard=()=>null;`],
  ['@/components/today/ModelActionChips',`export const ModelActionChips=()=>null;`],
  ['next/navigation',`export const useRouter=()=>globalThis.__panelRouter??({push(){},refresh(){}});export const usePathname=()=>'/panel';`],
- ['@/components/today/TodayQueueContext',`export const useTodayQueue=()=>({priorities:[],waiting:[],refresh:async()=>{}});`],
+ ['@/components/today/TodayQueueContext',`export const useTodayQueue=()=>globalThis.__queueState??({priorities:[],waiting:[],signedOut:false,refresh:async()=>{}});`],
+ ['./TodayQueueContext',`export const useTodayQueue=()=>globalThis.__queueState??({priorities:[],waiting:[],signedOut:false,refresh:async()=>{}});`],
  ['@/lib/use-dictation',`export const useDictation=options=>{globalThis.__dictationOptions=options;return {state:'idle',supported:true,start(){},stop(){},cancel(){}};}`],
  ['@/lib/use-voice-round',`export const useVoiceRound=options=>{globalThis.__voiceOptions=options;return {phase:'idle',voiceMode:false,supported:options.availability?.enabled??true};};`],
  ['./useRecordMentions',`export const useRecordMentions=()=>({refs:[],records:[],results:[],clear(){}});`],
@@ -32,13 +34,13 @@ const stubs=new Map([
 const hookNames=['useState','useRef','useEffect','useLayoutEffect','useSyncExternalStore','useReducer','useId','useCallback','useMemo'];
 registerHooks({
  resolve(s,c,n){
-  if(c.parentURL==='panel-react:hooks')return n(s,{...c,parentURL:import.meta.url});
+  if(c.parentURL==='panel-react:hooks'||c.parentURL==='panel-stub:next/link')return n(s,{...c,parentURL:import.meta.url});
   if(s==='react'&&/\/components\/(panel|shell|today)\//.test(c.parentURL??''))return {url:'panel-react:hooks',shortCircuit:true};
   if(stubs.has(s))return {url:'panel-stub:'+s,shortCircuit:true};
   if(s.startsWith('@/lib/actions/'))return {url:'panel-action:'+s,shortCircuit:true};
   if(s.startsWith('@/')||s.startsWith('.')){
    const u=s.startsWith('@/')?new URL(s.slice(2),root):new URL(s,c.parentURL);
-   for(const ext of ['', '.ts','.tsx'])if(existsSync(new URL(u.href+ext))&&statSync(new URL(u.href+ext)).isFile())return {url:u.href+ext,shortCircuit:true};
+   for(const ext of ['', '.ts','.tsx','/index.ts'])if(existsSync(new URL(u.href+ext))&&statSync(new URL(u.href+ext)).isFile())return {url:u.href+ext,shortCircuit:true};
   }
   return n(s,c);
  },
@@ -48,7 +50,7 @@ registerHooks({
   if(u.startsWith('panel-action:')){
    // Export only imported runtime action names; calls are controlled per test.
    const files=['useAgentChat.ts','ThreadList.tsx','useChatAttachments.ts'];
-   const names=new Set(['pollLiveChanges','refreshTodayQueue','checkPriorityCompletion','completeTodayItem','snoozeTodayItem','assignTodayItem','promoteTodayItem','sendBackTodayItem']);
+   const names=new Set(['pollLiveChanges','refreshTodayQueue','checkPriorityCompletion','completeTodayItem','snoozeTodayItem','assignTodayItem','promoteTodayItem','sendBackTodayItem','loadTodayRecovery','restoreTodayItem']);
    for(const file of files){const s=readFileSync(new URL('components/panel/'+file,root),'utf8');for(const m of s.matchAll(/\b(\w+(?:Action|AgentRun))\b/g))names.add(m[1]);}
    return {format:'module',source:[...names].map(k=>`export const ${k}=(...a)=>globalThis.__panelActions?.['${k}']?.(...a);`).join('\n'),shortCircuit:true};
   }
@@ -545,11 +547,12 @@ for(const source of ['poll','focus','send','upload','retry'])test(`mounted shell
   loadConversationAction:async()=>({ok:true,conversation:{id:'own',agent:'claude',title:'Private title',messages:[{id:'old',body:'Private transcript'}]}}),
   sendMessageAction:async()=>failure,uploadChatFilesAction:async()=>failure,
  };
- const nav=lifecycle(LiveActionNav),shell=lifecycle(LiveUpdates),queue=lifecycle(TodayQueueProvider,{initialPriorities:[],initialWaiting:{items:[],total:0}}),panel=lifecycle(PanelChat,{...chatProps,threadsRail:true});
+ const nav=lifecycle(LiveActionNav),shell=lifecycle(LiveUpdates),queue=lifecycle(TodayQueueProvider,{initialPriorities:[{id:'private-priority',title:'Private priority'}],initialWaiting:{items:[{id:'private-waiting',label:'Private waiting'}],total:1}}),panel=lifecycle(PanelChat,{...chatProps,threadsRail:true});
  try{
   nav.render();nav.effects();
   postPanelMessage({type:"run",phase:"start",runId:"run",agent:"claude",subjectId:"todo"},{local:true});assert.equal(pushes,1);
   shell.render();shell.effects();queue.render();queue.effects();panel.render();panel.effects();await tick();
+  assert.equal(queue.render().props.value.priorities.length,1);assert.equal(queue.render().props.value.waiting.length,1);assert.equal(queue.render().props.value.signedOut,false);
   let tree=panel.render();let rail=nodes(tree,n=>n.type===ThreadList)[0];await rail.props.onOpen('own');await tick();tree=panel.render();
   const composer=()=>nodes(panel.render(),n=>n.type==='input'&&n.props.placeholder?.startsWith('Tell '))[0];
   composer().props.onChange({target:{value:'Keep my draft'}});panel.render();
@@ -565,6 +568,8 @@ for(const source of ['poll','focus','send','upload','retry'])test(`mounted shell
   await tick();panel.render();panel.effects();tree=panel.render();
   const html=render(()=>tree);assert.match(html,/Sign in again to continue/);assert.doesNotMatch(html,/Private transcript|Private title/);assert.equal(composer().props.value,'Keep my draft');
   assert.equal(nodes(tree,n=>n.type===ThreadList)[0].props.failureCode,'SIGN_IN_AGAIN');
+  assert.equal(queue.render().props.value.signedOut,true);
+  assert.deepEqual(queue.render().props.value.priorities,[]);assert.deepEqual(queue.render().props.value.waiting,[]);
   const before=reads;await timers[0]();await events.get('focus')();await tick();assert.equal(reads,before);assert.equal(refreshes,1);
   postPanelMessage({type:"run",phase:"end",runId:"run",agent:"claude",subjectId:"todo"},{local:true});
   postPanelMessage({type:"focus",runId:"run",href:"/projects/private",label:"Private"},{local:true});
@@ -576,4 +581,30 @@ for(const source of ['poll','focus','send','upload','retry'])test(`mounted shell
   panel.dispose();queue.dispose();shell.dispose();nav.dispose();globalThis.document=oldDoc;globalThis.setInterval=oldInterval;globalThis.clearInterval=oldClear;
   delete globalThis.__panelActions;delete globalThis.__panelRouter;
  }
+}));
+
+// R5 expectations: cleared queues explain expiry on Today and every panel Queue
+// tab; no work count/all-clear/Waiting header, and sign-in returns to this page.
+for (const page of ['/today','/panel']) test(`signed-out queue at ${page} explains recovery without a false all-clear`,()=>clientScope(async()=>{
+ const {TodayCards}=await import('../components/today/TodayCards.tsx');
+ const {QueueRail}=await import('../components/panel/QueueRail.tsx');
+ const {Segmented}=await import('../components/ui/index.ts');
+ const {AskSignInLink}=await import('../components/panel/AskSignInLink.tsx');
+ window.location={pathname:page,search:'',hash:''};
+ globalThis.__queueState={priorities:[],waiting:[],signedOut:true};
+ try{
+  const cards=lifecycle(TodayCards,{brief:null});const tree=cards.render();
+  assert.equal(nodes(tree,n=>n.type===Segmented)[0].props.options[0].count,undefined);
+  for(const component of [()=>tree,()=>React.createElement(QueueRail,{onHandOff(){}})]){
+   const html=render(component);assert.match(html,/Sign in again to continue\./);assert.match(html,/>Sign in<\/a>/);
+   assert.doesNotMatch(html,/Nothing else on the list|Up next|Waiting on me/);
+  }
+  const link=lifecycle(AskSignInLink);link.render();link.effects();
+  assert.equal(link.render().props.href,`/login?returnTo=${encodeURIComponent(page)}`);link.dispose();cards.dispose();
+  // Healthy empty queues keep the true empty-state copy and zero count.
+  globalThis.__queueState.signedOut=false;
+  const healthy=lifecycle(TodayCards,{brief:null});const normal=healthy.render();
+  assert.equal(nodes(normal,n=>n.type===Segmented)[0].props.options[0].count,0);
+  assert.match(render(()=>normal),/Nothing else on the list/);healthy.dispose();
+ }finally{delete globalThis.__queueState;}
 }));

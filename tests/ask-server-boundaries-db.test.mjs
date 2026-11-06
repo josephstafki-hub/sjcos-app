@@ -1,3 +1,5 @@
+// R5 expectation: real health diagnosis and isolated, explicitly bootstrapped
+// deployment identity; retain the original status/deletion/recovery matrix.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
@@ -10,19 +12,23 @@ import {runInNewContext} from 'node:vm';
 import ts from 'typescript';
 import {withMigrationSubset,withSessionIdentity} from './_harness/testdb.mjs';
 import * as journal from '../lib/ask-thread-journal.mjs';
+import * as health from '../lib/ask-health.mjs';
+import {bootstrapDeployment} from '../lib/ask-deployment-state.mjs';
 import {makeIntent,readLocal,appendLocal,withLedgerLock,validateChain} from '../lib/canvas-deletion-ledger.mjs';
 const require=createRequire(import.meta.url);
 // Controlled request/provider seams, actual caller implementations and SQL.
 function load(file,deps={}){
  const exports={};const source=ts.transpileModule(readFileSync(new URL('../'+file,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,esModuleInterop:true}}).outputText;
- runInNewContext(source,{exports,process,Buffer,console,URL,Request,Response,FormData,File,setTimeout,clearTimeout,require:s=>s==='@/lib/ask-result-codes'?load('lib/ask-result-codes.ts',{}):Object.hasOwn(deps,s)?deps[s]:s.startsWith('node:')?require(s):{}});return exports;
+ runInNewContext(source,{exports,process,Buffer,console,URL,Request,Response,FormData,File,setTimeout,clearTimeout,require:s=>s==='@/lib/ask-health.mjs'?health:s==='@/lib/ask-result-codes'?load('lib/ask-result-codes.ts',{}):Object.hasOwn(deps,s)?deps[s]:s.startsWith('node:')?require(s):{}});return exports;
 }
 const plain=x=>JSON.parse(JSON.stringify(x));
 test('A1 real callers: virgin availability, typed closed boundaries, self-only mutations and durable delete retry',async t=>withMigrationSubset('server_boundaries',[100,105],async({url,db,apply})=>{
  await apply();
- const dir=await mkdtemp(path.join(tmpdir(),'p0fix-boundary-'));const saved={...process.env};
+ const root=await mkdtemp(path.join(tmpdir(),'p0fix-boundary-')),dir=path.join(root,'journal');const saved={...process.env};
  delete process.env.SJC_ASK_THREAD_DELETE_ACCEPTED;delete process.env.SJC_CANVAS_AUTHORITY_URL;process.env.SJC_CANVAS_DELETION_LEDGER_DIR=dir;
  try{
+ process.env.SJC_ASK_DEPLOYMENT_STATE_DIR=path.join(root,'deployment');
+ await bootstrapDeployment(process.env.SJC_ASK_DEPLOYMENT_STATE_DIR);
  const people=[];for(const role of ['owner','staff','staff'])people.push((await db.query(`INSERT INTO users(email,name,role,permissions,password_hash,initials) VALUES($1,'Caller',$2,ARRAY['ai'],'x','C') RETURNING id`,[randomUUID()+'@example.test',role])).rows[0].id);
  const ids=[];for(const person of people)ids.push((await db.query(`INSERT INTO ai_conversations(agent,title,owner_user_id) VALUES('claude','secret other title',$1) RETURNING id`,[person])).rows[0].id);
  await withSessionIdentity(url,'sjcos_test_website',async c=>{
@@ -131,14 +137,16 @@ test('A1 real callers: virgin availability, typed closed boundaries, self-only m
 
   });
  });
- }finally{for(const key of Object.keys(process.env))if(!(key in saved))delete process.env[key];Object.assign(process.env,saved);await rm(dir,{recursive:true,force:true});}
+ }finally{for(const key of Object.keys(process.env))if(!(key in saved))delete process.env[key];Object.assign(process.env,saved);await rm(root,{recursive:true,force:true});}
 }));
 
 test('missing privacy schema yields a fixed paused result before any private callback',()=>withMigrationSubset('missing_privacy',[100],async({db,apply})=>{
  await apply();const person=(await db.query(`INSERT INTO users(email,name,role,password_hash,initials) VALUES($1,'Missing schema','owner','x','M') RETURNING id`,[randomUUID()+'@example.test'])).rows[0].id;
- const dir=await mkdtemp(path.join(tmpdir(),'p0fix-missing-')),before=process.env.SJC_CANVAS_DELETION_LEDGER_DIR;process.env.SJC_CANVAS_DELETION_LEDGER_DIR=dir;
+ const root=await mkdtemp(path.join(tmpdir(),'p0fix-missing-')),dir=path.join(root,'journal'),before=process.env.SJC_CANVAS_DELETION_LEDGER_DIR,priorDeployment=process.env.SJC_ASK_DEPLOYMENT_STATE_DIR;process.env.SJC_CANVAS_DELETION_LEDGER_DIR=dir;
  try{
+  process.env.SJC_ASK_DEPLOYMENT_STATE_DIR=path.join(root,'deployment');
+  await bootstrapDeployment(process.env.SJC_ASK_DEPLOYMENT_STATE_DIR);
   const access=load('lib/thread-access.ts',{'@/lib/db':{pool:db},'@/lib/session':{readSession:async()=>({userId:person,authAt:Math.floor(Date.now()/1000)})},'@/lib/ask-thread-journal.mjs':journal});
   assert.deepEqual(plain(await access.askBoundary(async()=>assert.fail('private callback ran'))),{ok:false,code:'ASK_PAUSED'});
- }finally{if(before===undefined)delete process.env.SJC_CANVAS_DELETION_LEDGER_DIR;else process.env.SJC_CANVAS_DELETION_LEDGER_DIR=before;await rm(dir,{recursive:true,force:true});}
+ }finally{if(before===undefined)delete process.env.SJC_CANVAS_DELETION_LEDGER_DIR;else process.env.SJC_CANVAS_DELETION_LEDGER_DIR=before;if(priorDeployment===undefined)delete process.env.SJC_ASK_DEPLOYMENT_STATE_DIR;else process.env.SJC_ASK_DEPLOYMENT_STATE_DIR=priorDeployment;await rm(root,{recursive:true,force:true});}
 }));

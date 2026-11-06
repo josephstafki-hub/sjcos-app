@@ -47,6 +47,17 @@ export async function loadCall(id: string): Promise<CallDetail | null | Backgrou
   const user = await getCurrentUser();
   if (!user) return { ok: false, code: "SIGN_IN_AGAIN" };
   if (!can(user, "comms")) return { ok: false, code: "ACCESS_DENIED" };
+  return authorizedCallDetail(id);
+}
+
+/** Explicit call selection keeps the DAL navigation path, including for staff
+ *  who do not have Ask. BrowserPhone timers continue to use loadCall. */
+export async function loadSelectedCall(id: string): Promise<CallDetail | null> {
+  await requireAccess("comms");
+  return authorizedCallDetail(id);
+}
+
+async function authorizedCallDetail(id: string): Promise<CallDetail | null> {
   const call = await getCall(id);
   if (!call) return null;
   const events = await getCallEvents(id);

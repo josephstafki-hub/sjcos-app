@@ -1,13 +1,10 @@
 "use client";
 
-import { isBackgroundFailure } from "@/lib/background-result";
-import { backgroundAuthLost, noteBackgroundFailure } from "@/components/shell/backgroundAuth";
-
 import { useEffect, useState, useTransition } from "react";
 import { PhoneCall, PhoneIncoming, PhoneOutgoing, Voicemail, AlertCircle, ExternalLink, Plus, X, ArrowLeft, FileText } from "lucide-react";
 import { ConnectionNotice } from "@/components/messages/ConnectionNotice";
 import { Button, PageHeader, Chip } from "@/components/ui";
-import { loadCall, type CallDetail } from "@/lib/actions/calls";
+import { loadSelectedCall, type CallDetail } from "@/lib/actions/calls";
 import { CallViaSwitch, useBrowserPhone, useStartCall } from "@/components/calls/BrowserPhone";
 import { runAction } from "@/lib/run-action";
 import { formatUsPhone } from "@/lib/comms/phone";
@@ -88,8 +85,7 @@ export function CallsClient({
     if (!selectedId) return;
     const id = selectedId;
     start(async () => {
-      const d = await loadCall(id);
-      if (isBackgroundFailure(d)) { noteBackgroundFailure(d); return; }
+      const d = await loadSelectedCall(id);
       setDetail((prev) => (prev?.call.id === id && !d ? prev : d));
     });
   }, [selectedId]);

@@ -297,6 +297,7 @@ BEGIN
  END IF;
  RETURN NEW;
 END $$;
+REVOKE ALL ON FUNCTION bind_ask_push_source() FROM PUBLIC;
 CREATE TRIGGER bind_ask_push_source AFTER INSERT OR UPDATE ON owner_replies FOR EACH ROW EXECUTE FUNCTION bind_ask_push_source();
 CREATE TRIGGER bind_ask_push_source AFTER INSERT OR UPDATE ON owner_grants FOR EACH ROW EXECUTE FUNCTION bind_ask_push_source();
 CREATE OR REPLACE FUNCTION ask_push_is_private(p jsonb, link text) RETURNS boolean
@@ -317,6 +318,7 @@ BEGIN
  END IF;
  RETURN NEW;
 END $$;
+REVOKE ALL ON FUNCTION guard_ask_push_copy() FROM PUBLIC;
 CREATE TRIGGER guard_ask_push_copy BEFORE INSERT OR UPDATE ON push_outbox FOR EACH ROW EXECUTE FUNCTION guard_ask_push_copy();
 CREATE OR REPLACE FUNCTION erase_ask_reply_copies(thread uuid) RETURNS void
 LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$

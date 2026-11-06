@@ -2,6 +2,48 @@
 
 2026-11-05. Branch `t3/in-app-browser-agent-tools`. Starting HEAD was `6d4494823daaf4e74d69be2103e8b809b11c03d8`; concurrent plan/review commits are outside this implementation. Only the explicitly owned panel files, new shared test fixtures/test and this handoff are staged.
 
+## Build round 3 panel fixes — 2026-11-05
+
+Starting HEAD: `245f5a09289310aef6d11a5a016bd8e77abd865e` on `t3/in-app-browser-agent-tools`. Ownership stays in `components/panel/**`, `tests/ask-panel-ssr.test.mjs` and this handoff; concurrent server, lib, DB and non-panel test edits are not staged in this UI commit.
+
+- Design REQUIRED 1 (`askStatusCopy.ts`, `AskSignInLink.tsx`): an unknown action rejection probes `/api/ai/status` with `cache: 'no-store'`; only HTTP 401 becomes **Sign in again to continue.** All other statuses and failed probes become the fixed paused sentence. Typed returned/thrown failures bypass the probe. Genuine login/logout redirect digests use the server builder's shared `askRedirectPath` helper; exact legacy session/cookie codes also map to Sign in. The list and composer share a hydration-stable Sign in link with **`returnTo`** containing the current path, query and hash. Upload transport errors now use the same boundary, clearing attachments and showing fixed copy rather than a raw cause.
+- Design REQUIRED 2 (`ThreadList.tsx`): MenuItem descriptions render as a visible, wrapping second line while retaining `title`. Disabled Delete therefore visibly reads **Chat deletion is not ready yet. Try again later.** Archived trash is absent unless `capabilities.deleteAvailable` is true.
+- Design REQUIRED 4 (`ThreadList.tsx`): failed rail/drawer preserves the ordinary Threads header and the existing × **Close threads** markup. Status, Try again/Sign in and deletion status sit in the `p-3` body. The **Close Threads** text button is gone; rail sizing remains the same as the healthy rail.
+- Design REQUIRED 5 (`PanelChat.tsx`, `useAgentChat.ts`, `useChatAttachments.ts`): Attach remains enabled for `THREAD_UNAVAILABLE`. A nonempty file selection or file paste clears only that notice before staging the file. Canceling the picker does not clear it. Other Ask failures still disable Attach; picking does not send the retained draft.
+- Engineering REQUIRED 2, **panel side only** (`PanelChat.tsx`, `PanelDictation.tsx`, `useAgentChat.ts`): both voice consumers receive the same `availability` value. Known pause/sign-out/chat-off disables it; unavailable-thread New chat permits it. Successful Retry advances the generation (including a successful initial status/list check); a failed Retry does not. Successfully opening a conversation from a failed state also advances it. Disabled voice controls stay hidden independently of the shared hook's current result.
+- Design REQUIRED 6: the judge's exact blocking condition is under **Next visual round** below. Pane-host layout is not visually certified by these tests.
+
+### Lib/login reconciliation still required (coordinator-owned)
+
+The coordinator explicitly accepted these dependencies during this panel run. No `lib/**`, login or API implementation is edited here. **The current lib hooks ignore the new option and still cache an initial unavailable result permanently; this panel commit alone does not fix voice re-probing or prove paused probes are non-erroring.** Named typed options allow the panel to compile against either the old or new lib signatures without casts, suppressions, dependency changes or duplicate probe implementations.
+
+Exact calls made by this panel (existing required fields remain required; `availability` is optional for compatibility):
+
+```ts
+// components/panel/PanelChat.tsx → lib/use-voice-round.ts
+const voiceOptions = {
+  send: async (text: string) => submitVoice(text),
+  onError: flashNotice,
+  availability, // { enabled: boolean; generation: number }
+};
+useVoiceRound(voiceOptions);
+// components/panel/PanelDictation.tsx → lib/use-dictation.ts
+const options = { onText, onError: setError, availability };
+useDictation(options);
+```
+
+Expected added property on **both** option types: `availability?: { enabled: boolean; generation: number }`. `useVoiceRound` must forward it to both `useVoiceAvailable` (`lib/use-voice-available.ts`) and `useTtsAvailable` (`lib/use-tts-available.ts`), and to its internal `useDictation` call. `useDictation` must forward it to its own `useVoiceAvailable` call. Disabled means no new capability requests. A changed generation invalidates cached results, re-runs mounted effects, and shares in-flight probes across consumers; `{available:false}` is a normal capability result, not a logged error. Omitted options preserve existing callers' behavior. Verify paused 200/unavailable responses, skipped requests while disabled, recovery after an initially failed probe, and one re-probe per capability with multiple mounted consumers in the coordinator's lib tests. Remount/re-key alone cannot clear the current module-level caches.
+
+The Sign in query parameter is **`returnTo`**, URL-encoded from `window.location.pathname + search + hash`, refreshed on click. The existing `validateBrowserReturnPath` accepts only Browser review paths, so ordinary page return is **pending coordinator reconciliation**: preserve its narrow Browser allowlist, add a separate safe relative app-route validator for ordinary returns, strip `c`/`m` and unapproved Browser parameters, and fall back to `/today` when rejected. Security review belongs to that reconciliation.
+
+### Round 3 validation and remaining captures
+
+Expectations preceded implementation: the first SSR regression run was **53 pass / 19 fail**. Four of those failures also exposed a fixture setup omission (History was closed); the corrected fixture opens the actual rail. A later explicit redirect-digest expectation also failed before its mapper fix. Final single-file invocations: `node --test --test-reporter=spec tests/ask-panel-ssr.test.mjs` → **77 pass / 0 fail / 0 skipped**, exit **0**; `node --test --test-reporter=spec tests/panel-defects.test.mjs` → **6 pass / 0 fail / 0 skipped**, exit **0**. Locked `flock /tmp/sjcos-tsc.lock nice -n 19 npx tsc --noEmit -p .` → **exit 0**. `git diff --check` → **exit 0**.
+
+The maintained SSR file exercises actual React SSR, controlled initial/effect/event lifecycles, the actual `useAgentChat` state transitions and upload hook, with controlled server-action/fetch and voice-provider seams. Voice tests assert the panel's enabled/generation forwarding and recovery transitions; they do not certify the pending lib implementation or live login navigation. No install, Next build/dev/start, browser, DB, service action, deploy or subagent was used.
+
+Coordinator captures still needed: expired session mid-chat at 1280/phone360 (Sign in in list/composer, draft retained and return to the same app page after reconciliation); disabled Delete's visible second line at both widths and no archived trash; paused History header/× at phone360/desk1280 as both people; unavailable-link file selection clearing the notice with the draft retained; an empty folder expanded via its chevron; paused-page console logs and voice returning after Retry once the lib fix lands; phone paused composer with History explicitly closed. Pane-host captures remain blocking for Canvas Phase 1 build round 1 as specified below.
+
 ## Build round 2 panel fixes — 2026-11-05
 
 Starting HEAD: `6693c528086c9f75a66183149346acc016a0ecbf`. This section supersedes round 1's loading, unavailable-chat and composer-size behavior. Only `components/panel/`, `tests/ask-panel-ssr.test.mjs` and this handoff changed in this revision; concurrent server changes are outside this UI commit.
@@ -61,6 +103,8 @@ What Joe/coordinator must do before rollout:
 Item 3's count is **0 on the Nov 4 live dump**, measured by the coordinator: Abigail 2 / Joe 291 / held aside 0. The deploy dry-run must re-count it before rollout.
 
 Next visual round (coordinator only): compare ordinary two-tab pill/hover against base at 360/390, tablet 820, landscape 800×360, 420 dock and 1100/1280 popout; check chat width with the rail at 880/900/1100/1280, one visible Threads control in narrow Chat, and four registered labels at 360. Check zero #418/hydration/page errors at every width with populated storage. Capture each fixed-code state, retained draft and disabled Send, sign-in link, private-content clearance, unavailable-thread fresh chat, and recovery. Verify disabled Delete explanation, exact confirm, title-free pending/error/retry after a deliberately lost response. Mount authorized test panes: verify actual 839/840/1000 allocation, one landscape selector/Close with suppressed horizontal header/grabber, stage ≥200, portrait ≥420, rotation/draft/focus/history preservation and real iframe/Safari behavior using the existing capture list below. No new screenshots were produced here.
+
+Pane-host layout (landscape strip, 839/840/1000 split, 1100 popout pane, 1280 expansion and Back to app) is not visually verified in Phase 0, because nothing registers a pane. These captures block Canvas Phase 1 build round 1.
 
 Recapture the deep link with **`/panel?c=<other id>`**, not `?thread=`, as Joe and Abigail at 1280 and phone360: the sentence has no button, the viewer's own chats stay visible, `c`/`m` leave the URL, and reload shows no notice. Capture History immediately on opening (Loading chats…) and after load at 360/390, 800×360, 820 and the 900 sheet; expand an empty folder (Empty — start a chat here.). Compare the composer controls at 420 dock, 1280 popout and 800×360 with `e082956a`: 28 px with a fine pointer, 44 px on touch.
 

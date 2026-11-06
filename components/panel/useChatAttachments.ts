@@ -5,7 +5,7 @@ import { uploadChatFilesAction } from "@/lib/actions/ai-chat";
 import type { ChatAttachment } from "@/lib/dev-agents-meta";
 
 import type { AskFailureCode } from "@/lib/ask-result-codes";
-import { askFailure, ASK_STATUS_COPY } from "./askStatusCopy";
+import { askCall, askFailure, ASK_STATUS_COPY } from "./askStatusCopy";
 
 /** Mirror of MAX_UPLOAD_BYTES in lib/actions/ai-chat.ts. Checked here too
  *  because Next's serverActions.bodySizeLimit (25mb, next.config.ts) measures
@@ -23,7 +23,7 @@ const MAX_UPLOAD_BYTES = 25 * 1024 * 1024;
  * an opaque throw — one request each keeps a good file from being lost to a
  * bad neighbour.
  */
-export function useChatAttachments(onError: (msg: string) => void, onFailure?: (code: AskFailureCode) => void) {
+export function useChatAttachments(onError: (msg: string) => void, onFailure?: (code: AskFailureCode) => void, onPick?: () => void) {
   const generation = useRef(0);
   const clearAttachments = () => { generation.current++; setAttachments([]); };
   const [attachments, setAttachments] = useState<ChatAttachment[]>([]);
@@ -37,6 +37,7 @@ export function useChatAttachments(onError: (msg: string) => void, onFailure?: (
 
   async function uploadFiles(list: FileList | null) {
     if (!list?.length) return;
+    onPick?.();
     const claim = generation.current;
     setUploadCount((n) => n + 1);
     const errors: string[] = [];
@@ -49,7 +50,7 @@ export function useChatAttachments(onError: (msg: string) => void, onFailure?: (
         try {
           const fd = new FormData();
           fd.append("files", f);
-          const r = await uploadChatFilesAction(fd);
+          const r = await askCall(uploadChatFilesAction(fd));
           if (claim !== generation.current) return;
           if (r.ok) setAttachments((a) => [...a, ...r.files]);
           else {

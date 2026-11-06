@@ -65,6 +65,7 @@ import { isRunSeen, markRunSeen, panelUnreadSince, readPanelState } from "./pane
 
 import type { AskFailureCode, AskThreadCapabilities } from "@/lib/ask-result-codes";
 import { askCall, askFailure, ASK_STATUS_COPY, ASK_DELETE_CONFIRM, ASK_EMPTY_COPY } from "./askStatusCopy";
+import { AskSignInLink } from "./AskSignInLink";
 
 /** "2m" / "3h" / "5d" / "Aug 12" from a pg timestamptz::text. */
 function timeAgo(ts: string | null, now: number): string {
@@ -527,11 +528,24 @@ export function ThreadList({
 
   const shelfState = (key: string) => shelf[key] ?? { open: false, count: SETTLED_INITIAL };
 
-  if (failure) return <aside className={`flex min-h-0 flex-col rounded-lg border border-rule bg-paper p-3 text-body text-ink-2 ${className}`}>
-    <p role="status">{ASK_STATUS_COPY[failure]}</p>
-    {failure === 'SIGN_IN_AGAIN' ? <a href="/login" className="inline-flex min-h-11 items-center text-ai-2">Sign in</a> : <button className="min-h-11 text-left text-ai-2" onClick={() => void (async () => { try { await onRetry?.(); await reload(); } catch (error) { fail(error); } })()}>Try again</button>}
-    {deletion && <div role="status" className="text-body">Chat deletion {deletion.state === 'pending' ? 'is pending.' : "couldn't be confirmed."}<button className="min-h-11 px-2 text-ai-2" onClick={() => void remove(deletion.id,true)}>Retry deletion</button></div>}
-    {onClose && <button className="min-h-11 text-left" onClick={onClose}>Close Threads</button>}
+  if (failure) return <aside
+    style={variant === "rail" ? { width: "18rem", minWidth: "14rem", maxWidth: "45%" } : undefined}
+    className={`flex min-h-0 flex-col overflow-hidden ${variant === "rail" ? "rounded-lg border border-rule bg-paper shadow-card" : "bg-paper"} ${className}`}
+  >
+    <div className="relative flex items-center gap-1.5 border-b border-rule px-3 py-2">
+      <span className="text-label font-semibold text-ink-3">Threads</span>
+      <div className="flex-1" />
+      {onClose && (
+        <button onClick={onClose} aria-label="Close threads" title="Close threads" className="rounded p-0.5 text-ink-3 hover:bg-paper-2">
+          <X className="size-3.5" strokeWidth={1.75} />
+        </button>
+      )}
+    </div>
+    <div className="p-3 text-body text-ink-2">
+      <p role="status">{ASK_STATUS_COPY[failure]}</p>
+      {failure === 'SIGN_IN_AGAIN' ? <AskSignInLink /> : <button className="min-h-11 text-left text-ai-2" onClick={() => void (async () => { try { await onRetry?.(); await reload(); } catch (error) { fail(error); } })()}>Try again</button>}
+      {deletion && <div role="status" className="text-body">Chat deletion {deletion.state === 'pending' ? 'is pending.' : "couldn't be confirmed."}<button className="min-h-11 px-2 text-ai-2" onClick={() => void remove(deletion.id,true)}>Retry deletion</button></div>}
+    </div>
   </aside>;
 
   return (
@@ -802,9 +816,9 @@ export function ThreadList({
                       <ArchiveRestore className="size-3 text-ink-4" strokeWidth={1.5} />
                     </button>
                   )}
-                  <button onClick={() => void remove(t.id)} aria-label="Delete" disabled={!capabilities.deleteAvailable || !!deletion} title={capabilities.deleteAvailable ? "Delete" : ASK_STATUS_COPY.DELETE_NOT_READY} className="flex size-11 items-center justify-center rounded hover:bg-paper-2 disabled:opacity-40">
+                  {capabilities.deleteAvailable && <button onClick={() => void remove(t.id)} aria-label="Delete" disabled={!!deletion} title="Delete" className="flex size-11 items-center justify-center rounded hover:bg-paper-2 disabled:opacity-40">
                     <Trash2 className="size-3 text-flag" strokeWidth={1.5} />
-                  </button>
+                  </button>}
                 </div>
               </div>
             ))}
@@ -1039,7 +1053,7 @@ function MenuItem({
       }`}
     >
       <Icon className="size-3 flex-none" strokeWidth={1.75} />
-      <span className="truncate">{label}</span>
+      <span className="min-w-0"><span className="block truncate">{label}</span>{description && <span className="block text-meta text-ink-4 whitespace-normal">{description}</span>}</span>
     </button>
   );
 }

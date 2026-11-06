@@ -3,10 +3,13 @@ import { useState } from "react";
 import { Mic, Square, Loader2 } from "lucide-react";
 import { useDictation } from "@/lib/use-dictation";
 
-export function PanelDictation({ onText }: { onText: (text: string) => void }) {
+export type AskVoiceAvailability = { enabled: boolean; generation: number };
+
+export function PanelDictation({ onText, availability }: { onText: (text: string) => void; availability?: AskVoiceAvailability }) {
   const [error, setError] = useState("");
-  const mic = useDictation({ onText, onError: setError });
-  if (!mic.supported) return null;
+  const options = { onText, onError: setError, availability };
+  const mic = useDictation(options);
+  if (availability?.enabled === false || !mic.supported) return null;
   return <span className="relative flex items-center">
     <button type="button" aria-label={mic.state === "recording" ? "Stop dictation" : "Dictate"} title={mic.state === "recording" ? "Stop dictation" : "Dictate"}
       disabled={mic.state === "transcribing"} className="rounded-md p-1.5 text-ink-3 hover:bg-hover"

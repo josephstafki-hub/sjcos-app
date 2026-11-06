@@ -1,4 +1,4 @@
-import { isAskFailure, type AskFailure, type AskFailureCode } from '@/lib/ask-result-codes';
+import { askRedirectPath, isAskFailure, type AskFailure, type AskFailureCode } from '@/lib/ask-result-codes';
 
 export const ASK_STATUS_COPY: Record<AskFailureCode, string> = {
   ASK_PAUSED: 'Chats are paused while SJC OS checks its records. Try again in a few minutes.',
@@ -13,9 +13,11 @@ export const ASK_EMPTY_COPY = 'No chats yet. Only your own chats show here.';
 /** Compatibility with older actions that still throw. Never display a raw cause. */
 export function askFailure(value: unknown): AskFailure | null {
   if (isAskFailure(value)) return value;
+  const redirect = askRedirectPath(value);
+  if (redirect === '/login' || redirect === '/logout') return {ok:false,code:'SIGN_IN_AGAIN'};
   const message = value instanceof Error ? value.message : typeof value === 'string' ? value : '';
   const legacy: Record<string, AskFailureCode> = {
-    ASK_SIGN_IN_REQUIRED: 'SIGN_IN_AGAIN', ASK_ACCESS_DENIED: 'CHAT_OFF',
+    ASK_SIGN_IN_REQUIRED: 'SIGN_IN_AGAIN', ASK_SESSION_REVOKED: 'SIGN_IN_AGAIN', ASK_COOKIE_REQUIRED: 'SIGN_IN_AGAIN', ASK_ACCESS_DENIED: 'CHAT_OFF',
     ASK_THREAD_UNAVAILABLE: 'THREAD_UNAVAILABLE', ASK_RECOVERY_UNAVAILABLE: 'ASK_PAUSED',
   };
   const code = legacy[message] ?? (Object.keys(ASK_STATUS_COPY) as AskFailureCode[]).find(k => k === message || ASK_STATUS_COPY[k] === message);
@@ -26,7 +28,12 @@ export function askFailure(value: unknown): AskFailure | null {
 export async function askCall<T>(work: Promise<T>): Promise<Exclude<T, AskFailure>> {
   let result: T;
   try { result = await work; }
-  catch (error) { throw askFailure(error) ?? {ok:false,code:'ASK_PAUSED'} satisfies AskFailure; }
+  catch (error) {
+    const known = askFailure(error);
+    if (known) throw known;
+    const signedOut = await fetch('/api/ai/status', { cache: 'no-store' }).then(r => r.status === 401, () => false);
+    throw { ok: false, code: signedOut ? 'SIGN_IN_AGAIN' : 'ASK_PAUSED' } satisfies AskFailure;
+  }
   const failure = askFailure(result);
   if (failure) throw failure;
   return result as Exclude<T, AskFailure>;

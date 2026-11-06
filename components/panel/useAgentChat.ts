@@ -142,6 +142,7 @@ export function useAgentChat({
    *  thread and coming back shows the run's real age, not a restart at 0. */
   const [runStartedAt, setRunStartedAt] = useState<number | null>(null);
   const [failureCode, setFailureCode] = useState<AskFailureCode | null>(null);
+  const [recoveryGeneration, setRecoveryGeneration] = useState(0);
   const failureRef = useRef<AskFailureCode | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -373,6 +374,7 @@ export function useAgentChat({
       if (!live.alive) return;
       failureRef.current = null;
       setFailureCode(null);
+      setRecoveryGeneration(value => value + 1);
     } catch (error) { if (live.alive) handleFailure(error); }
   };
   const control = async (work: Promise<unknown>) => {
@@ -397,6 +399,7 @@ export function useAgentChat({
       const detail = loaded && "conversation" in loaded ? loaded.conversation : loaded;
       if (!live.alive) return;
       if (!detail) { reportFailure("THREAD_UNAVAILABLE"); return; }
+      if (failureRef.current) setRecoveryGeneration(value => value + 1);
       failureRef.current = null;
       setFailureCode(null);
       setAgent(detail.agent);
@@ -491,13 +494,17 @@ export function useAgentChat({
     setSteerStatus({});
   };
 
+  const clearUnavailable = () => {
+    if (failureRef.current === "THREAD_UNAVAILABLE") { failureRef.current = null; setFailureCode(null); }
+  };
+
   /** Start a fresh thread — Unfiled. The app view's page and any earlier
    *  "new chat in …" click are deliberately NOT consulted: that is what used
    *  to file every chat started beside a project page under that project.
    *  Allowed mid-run on purpose: the run finishes server-side and its reply
    *  lands in its own thread, marked live in the thread list. */
   const newChat = () => {
-    if (failureRef.current === "THREAD_UNAVAILABLE") { failureRef.current = null; setFailureCode(null); }
+    clearUnavailable();
     const leftRunning = detachRun();
     setNextHome(null);
     writePanelState({ conversationId: null });
@@ -682,7 +689,7 @@ export function useAgentChat({
   const submit = (spec: PanelSend) => {
     if (pending || (failureRef.current && failureRef.current !== "THREAD_UNAVAILABLE")) return;
     if (!spec.directive.trim() && !spec.attachments?.length) return;
-    if (failureRef.current === "THREAD_UNAVAILABLE") { failureRef.current = null; setFailureCode(null); }
+    clearUnavailable();
     const from = agent;
     const target = spec.agent ?? from;
     const switching = target !== from;
@@ -812,6 +819,8 @@ export function useAgentChat({
     elapsed,
     error,
     failureCode,
+    recoveryGeneration,
+    clearUnavailable,
     reportFailure,
     retry,
     notice,

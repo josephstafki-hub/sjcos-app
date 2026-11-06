@@ -15,7 +15,8 @@ const stubs=new Map([
  ['@/components/today/ModelActionChips',`export const ModelActionChips=()=>null;`],
  ['next/navigation',`export const useRouter=()=>({push(){}});export const usePathname=()=>'/panel';`],
  ['@/components/today/TodayQueueContext',`export const useTodayQueue=()=>({priorities:[],waiting:[],refresh:async()=>{}});`],
- ['@/lib/use-voice-round',`export const useVoiceRound=()=>({phase:'idle',voiceMode:false,supported:true});`],
+ ['@/lib/use-dictation',`export const useDictation=options=>{globalThis.__dictationOptions=options;return {state:'idle',supported:true,start(){},stop(){},cancel(){}};}`],
+ ['@/lib/use-voice-round',`export const useVoiceRound=options=>{globalThis.__voiceOptions=options;return {phase:'idle',voiceMode:false,supported:options.availability?.enabled??true};};`],
  ['./useRecordMentions',`export const useRecordMentions=()=>({refs:[],records:[],results:[],clear(){}});`],
  ['./PanelDictation',`export const PanelDictation=()=>null;`],
  ['./JobPicker',`export const JobPicker=()=>null;`],
@@ -104,7 +105,7 @@ function nodes(tree,predicate) {
 const tick=async()=>{for(let i=0;i<16;i++)await Promise.resolve();};
 const {ThreadList}=await import('../components/panel/ThreadList.tsx');
 const {useAgentChat}=await import('../components/panel/useAgentChat.ts');
-const {ASK_STATUS_COPY,askFailure}=await import('../components/panel/askStatusCopy.ts');
+const {ASK_STATUS_COPY,askFailure,askCall}=await import('../components/panel/askStatusCopy.ts');
 const railProps={currentId:null,variant:'rail',scopeFolderId:null,onOpen(){},onNew(){},onNewFor(){},onScopeChange(){},onCurrentRemoved(){}};
 function clientScope(work){
  const prior={window:globalThis.window,sessionStorage:globalThis.sessionStorage,BroadcastChannel:globalThis.BroadcastChannel};
@@ -164,7 +165,7 @@ for(const available of [false,true])test(`delete capability ${available}; lost-r
   h.render();h.effects();await tick();let tree=h.render();
   nodes(tree,n=>n.props['aria-label']==='More')[0].props.onClick();tree=h.render();
   const action=nodes(tree,n=>n.props.label==='Delete')[0];assert.equal(action.props.disabled,!available);
-  if(!available){assert.equal(action.props.description,ASK_STATUS_COPY.DELETE_NOT_READY);assert.equal(calls.length,0);return;}
+  if(!available){assert.equal(action.props.description,ASK_STATUS_COPY.DELETE_NOT_READY);assert.match(render(()=>action),/<span class="block text-meta text-ink-4 whitespace-normal">Chat deletion is not ready yet\. Try again later\.<\/span>/);assert.equal(calls.length,0);return;}
   action.props.onClick();await tick();tree=h.render();assert.doesNotMatch(render(()=>tree),/Private delete title/);assert.match(render(()=>tree),/couldn&#x27;t be confirmed/);
   const retry=nodes(tree,n=>n.type==='button'&&n.props.children==='Retry deletion')[0];retry.props.onClick();await tick();tree=h.render();
   assert.equal(calls.length,2);assert.equal(calls[0][1],calls[1][1]);assert.match(calls[0][1],/^[0-9a-f]{8}-[0-9a-f-]{27}$/);assert.equal(confirms,1);
@@ -265,6 +266,7 @@ for(const code of ['ASK_PAUSED','THREAD_UNAVAILABLE','SIGN_IN_AGAIN','CHAT_OFF']
   else if(code==='SIGN_IN_AGAIN')assert.match(html,/href="\/login"/);
   else assert.match(html,/Try again/);
   const send=nodes(tree,n=>n.type==='button'&&n.props['aria-label']==='Send')[0];assert.equal(send.props.disabled,code!=='THREAD_UNAVAILABLE');
+  const attach=nodes(tree,n=>n.type==='button'&&n.props['aria-label']==='Attach files')[0];assert.equal(attach.props.disabled,code!=='THREAD_UNAVAILABLE');
   assert.equal(nodes(tree,n=>n.type==='input'&&n.props.placeholder?.startsWith('Tell '))[0].props.value,'Keep the typed draft');
   assert.equal((html.match(/Keep the typed draft/g)||[]).length,1);
  }finally{h.dispose();delete globalThis.__panelActions;}
@@ -363,3 +365,157 @@ test('initial composer keeps 44 px touch targets and compiles 28 px fine-pointer
  assert.match(css,/\.size-11\s*\{\s*width: calc\(var\(--spacing\) \* 11\);\s*height: calc\(var\(--spacing\) \* 11\);/);
  assert.match(css,/@media \(pointer: fine\)\s*\{\s*width: calc\(var\(--spacing\) \* 7\);\s*height: calc\(var\(--spacing\) \* 7\);/);
 });
+
+
+for(const status of [401,200,403,503,'offline'])test(`unknown action throw probes status ${status} before selecting fixed copy`,async()=>{
+ const prior=globalThis.fetch,calls=[];
+ globalThis.fetch=async(...args)=>{calls.push(args);if(status==='offline')throw Error('offline private cause');return {status};};
+ try{
+  await assert.rejects(askCall(Promise.reject(Error('unexpected HTML private cause'))),{ok:false,code:status===401?'SIGN_IN_AGAIN':'ASK_PAUSED'});
+  assert.deepEqual(calls,[['/api/ai/status',{cache:'no-store'}]]);
+ }finally{globalThis.fetch=prior;}
+});
+test('typed returned and thrown sign-in failures do not probe; successes pass through',async()=>{
+ const prior=globalThis.fetch;globalThis.fetch=()=>{throw Error('must not probe known results');};
+ try{
+  await assert.rejects(askCall(Promise.resolve({ok:false,code:'SIGN_IN_AGAIN'})),{ok:false,code:'SIGN_IN_AGAIN'});
+  await assert.rejects(askCall(Promise.reject({ok:false,code:'SIGN_IN_AGAIN'})),{ok:false,code:'SIGN_IN_AGAIN'});
+  const success={ok:true,id:'owned'};assert.equal(await askCall(Promise.resolve(success)),success);
+ }finally{globalThis.fetch=prior;}
+});
+for(const variant of ['rail','drawer'])for(const code of ['ASK_PAUSED','SIGN_IN_AGAIN'])test(`${variant} ${code} keeps normal header and close control in SSR and initial render`,()=>{
+ let closed=0;const props={...railProps,variant,failureCode:code,onClose(){closed++;}},h=lifecycle(ThreadList,props);
+ try{
+  const tree=h.render();
+  for(const html of [render(()=>React.createElement(ThreadList,props)),render(()=>tree)]){
+   assert.match(html,/<div class="relative flex items-center gap-1.5 border-b border-rule px-3 py-2"><span class="text-label font-semibold text-ink-3">Threads<\/span>/);
+   assert.equal((html.match(/aria-label="Close threads"/g)||[]).length,1);
+   assert.match(html,/<div class="p-3[^"]*"><p role="status">/);
+   assert.doesNotMatch(html,/Close Threads|Search threads|New folder/);
+  }
+  nodes(tree,n=>n.type==='button'&&n.props['aria-label']==='Close threads')[0].props.onClick();assert.equal(closed,1);
+ }finally{h.dispose();}
+});
+for(const available of [false,true])test(`archived trash visibility follows capability ${available}`,()=>clientScope(async()=>{
+ globalThis.__panelActions={
+  listThreadRailAction:async()=>({ok:true,rail:{folders:[],threads:[]},capabilities:{deleteAvailable:available}}),
+  listArchivedThreadsAction:async()=>({ok:true,threads:[{...thread,archivedAt:'2026-11-01'}]}),
+ };
+ const h=lifecycle(ThreadList,railProps);
+ try{
+  h.render();h.effects();await tick();let tree=h.render();
+  nodes(tree,n=>n.type==='button'&&n.props.children==='Show archived')[0].props.onClick();h.render();h.effects();await tick();tree=h.render();
+  assert.match(render(()=>tree),/Private delete title/);
+  assert.equal(nodes(tree,n=>n.type==='button'&&n.props['aria-label']==='Delete').length,Number(available));
+ }finally{h.dispose();delete globalThis.__panelActions;}
+}));
+test('picking a file in unavailable New chat clears the notice and stages the file without sending',()=>clientScope(async()=>{
+ const calls=[];
+ globalThis.__panelActions={
+  listThreadRailAction:async()=>({ok:true,rail:{folders:[],threads:[]}}),
+  newConversationAction:async()=>({ok:false,code:'THREAD_UNAVAILABLE'}),
+  uploadChatFilesAction:async fd=>{calls.push(fd.get('files').name);return {ok:true,files:[{id:'upload',name:'photo.jpg',url:'/photo.jpg',kind:'image'}]};},
+ };
+ const h=lifecycle(PanelChat,chatProps);
+ try{
+  h.render();h.effects();await tick();let tree=h.render();
+  nodes(tree,n=>n.type==='input'&&n.props.placeholder?.startsWith('Tell '))[0].props.onChange({target:{value:'Draft stays'}});
+  tree=h.render();nodes(tree,n=>n.type==='form')[0].props.onSubmit({preventDefault(){}});await tick();h.render();h.effects();tree=h.render();
+  assert.match(render(()=>tree),/This chat isn/);
+  const input=nodes(tree,n=>n.type==='input'&&n.props.type==='file')[0];
+  await input.props.onChange({target:{files:null}});assert.match(render(()=>h.render()),/This chat isn/);
+  await input.props.onChange({target:{files:[new File(['photo'],'photo.jpg',{type:'image/jpeg'})]}});await tick();tree=h.render();
+  assert.doesNotMatch(render(()=>tree),/This chat isn/);assert.deepEqual(calls,['photo.jpg']);
+  assert.match(render(()=>tree),/photo.jpg/);
+  assert.equal(nodes(tree,n=>n.type==='input'&&n.props.placeholder?.startsWith('Tell '))[0].props.value,'Draft stays');
+ }finally{h.dispose();delete globalThis.__panelActions;}
+}));
+for(const typed of [false,true])test(`expired session ${typed?'typed result':'transport throw'} shows sign in, clears content and retains draft`,()=>clientScope(async()=>{
+ const prior=globalThis.fetch;let expired=false;
+ globalThis.fetch=async()=>({status:401});
+ globalThis.__panelActions={
+  listThreadRailAction:async()=>({ok:true,rail:{folders:[],threads:[]}}),
+  loadConversationAction:async()=>({ok:true,conversation:{id:'owned',agent:'claude',title:'Private title',messages:[{id:'old',body:'Private transcript'}]}}),
+  sendMessageAction:async()=>{if(!expired)return {ok:true,kind:'answer',message:{id:'answer',body:'Done'}};if(typed)return {ok:false,code:'SIGN_IN_AGAIN'};throw Error('Unexpected server HTML');},
+ };
+ const restored=[],h=lifecycle(()=>useAgentChat({getPageContext:()=>undefined,onSendError:spec=>restored.push(spec.directive)}));
+ try{
+  h.render();h.effects();await tick();await h.render().openConversation('owned');assert.equal(h.render().conversationTitle,'Private title');
+  expired=true;h.render().submit({directive:'Keep draft'});await tick();const chat=h.render();
+  assert.equal(chat.failureCode,'SIGN_IN_AGAIN');assert.deepEqual(chat.messages,[]);assert.equal(chat.conversationTitle,'New chat');assert.deepEqual(restored,['Keep draft']);
+  assert.match(render(()=>React.createElement(ThreadList,{...railProps,failureCode:chat.failureCode})),/Sign in again to continue\./);
+ }finally{h.dispose();delete globalThis.__panelActions;globalThis.fetch=prior;}
+}));
+for(const code of ['ASK_PAUSED','SIGN_IN_AGAIN','CHAT_OFF','THREAD_UNAVAILABLE'])test(`panel voice and dictation receive recovery generation after ${code}`,()=>clientScope(async()=>{
+ let state=null;
+ globalThis.__panelActions={listThreadRailAction:async()=>state?{ok:false,code:state}:{ok:true,rail:{folders:[],threads:[]}}};
+ const h=lifecycle(PanelChat,{...chatProps,threadsRail:true});
+ try{
+  h.render();h.effects();await tick();let tree=h.render();
+  const rail=nodes(tree,n=>n.type===ThreadList)[0];assert.ok(rail);
+  const before=globalThis.__voiceOptions.availability;
+  assert.equal(before.enabled,true);assert.equal(typeof before.generation,'number');
+  rail.props.onFailure(code);tree=h.render();
+  assert.equal(globalThis.__voiceOptions.availability.enabled,code==='THREAD_UNAVAILABLE');
+  const dictation=nodes(tree,n=>typeof n.type==='function'&&n.type.name==='PanelDictation')[0];
+  assert.deepEqual(dictation.props.availability,globalThis.__voiceOptions.availability);
+  if(code!=='THREAD_UNAVAILABLE'){
+   state=code;await rail.props.onRetry();await tick();tree=h.render();
+   assert.deepEqual(globalThis.__voiceOptions.availability,{enabled:false,generation:before.generation});
+  }
+  state=null;await nodes(tree,n=>n.type===ThreadList)[0].props.onRetry();
+  await tick();tree=h.render();
+  assert.equal(globalThis.__voiceOptions.availability.enabled,true);
+  assert.ok(globalThis.__voiceOptions.availability.generation>before.generation);
+ }finally{h.dispose();delete globalThis.__panelActions;delete globalThis.__voiceOptions;}
+}));
+test('handoff carries the exact unverified pane-host blocking condition',()=>{
+ const handoff=readFileSync(new URL('docs/plans/build/ask-pane-host-phase0-HANDOFF.md',root),'utf8');
+ assert.ok(handoff.slice(handoff.indexOf('Next visual round (coordinator only):')).includes('Pane-host layout (landscape strip, 839/840/1000 split, 1100 popout pane, 1280 expansion and Back to app) is not visually verified in Phase 0, because nothing registers a pane. These captures block Canvas Phase 1 build round 1.'));
+});
+
+test('shared Sign in link keeps SSR stable and returns to the current page including query and hash',()=>clientScope(async()=>{
+ const {AskSignInLink}=await import('../components/panel/AskSignInLink.tsx');
+ window.location=new URL('https://sjcos.test/projects/owned?tab=money#invoice');
+ const h=lifecycle(AskSignInLink);
+ try{
+  const server=render(()=>React.createElement(AskSignInLink));
+  assert.equal(render(()=>h.render()),server);h.effects();const tree=h.render();
+  assert.equal(tree.props.href,'/login?returnTo='+encodeURIComponent('/projects/owned?tab=money#invoice'));
+  window.location=new URL('https://sjcos.test/today?filter=waiting');const anchor={href:''};tree.props.onClick({currentTarget:anchor});
+  assert.equal(anchor.href,'/login?returnTo='+encodeURIComponent('/today?filter=waiting'));
+ }finally{h.dispose();}
+}));
+
+test('auth redirect digests and exact legacy auth codes normalize without accepting arbitrary login text',()=>{
+ for(const path of ['/login','/login?returnTo=%2Ftoday','/logout']){
+  const error=Object.assign(Error('NEXT_REDIRECT'),{digest:`NEXT_REDIRECT;push;${path};307;`});
+  assert.deepEqual(askFailure(error),{ok:false,code:'SIGN_IN_AGAIN'});
+ }
+ for(const code of ['ASK_COOKIE_REQUIRED','ASK_SESSION_REVOKED'])assert.deepEqual(askFailure(Error(code)),{ok:false,code:'SIGN_IN_AGAIN'});
+ for(const digest of ['NEXT_REDIRECT;push;/today;307;','NEXT_REDIRECT;push;https://other.test/login;307;','NEXT_REDIRECT;push;//other.test/login;307;','NEXT_REDIRECT;push;/login;bad;']){
+  assert.equal(askFailure(Object.assign(Error('NEXT_REDIRECT'),{digest})),null);
+ }
+ assert.equal(askFailure(Error('private cause includes login')),null);
+});
+test('PanelDictation forwards the optional enabled/generation contract to the dictation hook',()=>clientScope(async()=>{
+ const {PanelDictation:ActualDictation}=await import('../components/panel/PanelDictation.tsx');
+ const onText=()=>{},props={onText,availability:{enabled:false,generation:2}},h=lifecycle(ActualDictation,props);
+ try{
+  assert.equal(render(()=>React.createElement(ActualDictation,props)),'');assert.equal(h.render(),null);
+  assert.equal(globalThis.__dictationOptions.onText,onText);assert.deepEqual(globalThis.__dictationOptions.availability,props.availability);
+  props.availability={enabled:true,generation:3};assert.match(render(()=>h.render()),/aria-label="Dictate"/);
+  assert.deepEqual(globalThis.__dictationOptions.availability,props.availability);
+  delete props.availability;assert.match(render(()=>h.render()),/aria-label="Dictate"/);assert.equal(globalThis.__dictationOptions.availability,undefined);
+ }finally{h.dispose();delete globalThis.__dictationOptions;}
+}));
+for(const code of ['SIGN_IN_AGAIN','ASK_PAUSED'])test(`upload transport errors use status to report ${code} without exposing causes`,()=>clientScope(async()=>{
+ const {useChatAttachments}=await import('../components/panel/useChatAttachments.ts');
+ const prior=globalThis.fetch,failures=[],errors=[];globalThis.fetch=async()=>({status:code==='SIGN_IN_AGAIN'?401:503});
+ globalThis.__panelActions={uploadChatFilesAction:async()=>{throw Error('Unexpected login HTML or private cause');}};
+ const h=lifecycle(()=>useChatAttachments(msg=>errors.push(msg),code=>failures.push(code)));
+ try{
+  await h.render().uploadFiles([new File(['photo'],'photo.jpg')]);const uploads=h.render();
+  assert.deepEqual(failures,[code]);assert.deepEqual(errors,[ASK_STATUS_COPY[code]]);assert.deepEqual(uploads.attachments,[]);assert.equal(uploads.uploading,false);
+ }finally{h.dispose();delete globalThis.__panelActions;globalThis.fetch=prior;}
+}));

@@ -19,7 +19,8 @@ import {
 import { useRecordMentions } from "./useRecordMentions";
 import { RunReview } from "./RunReview";
 import { AssistantMarkdown } from "./AssistantMarkdown";
-import { PanelDictation } from "./PanelDictation";
+import { PanelDictation, type AskVoiceAvailability } from "./PanelDictation";
+import { AskSignInLink } from "./AskSignInLink";
 import { mergeTranscript } from "@/lib/append-transcript";
 import { useVoiceRound } from "@/lib/use-voice-round";
 import { GrantCard } from "./GrantCard";
@@ -143,12 +144,7 @@ export function PanelChat({
     uploadFiles,
     uploadFromTransfer,
     removeAttachment,
-  } = useChatAttachments(flashNotice, code => chat.reportFailure(code));
-
-  const voice = useVoiceRound({
-    send: async (text) => submitVoice(text),
-    onError: flashNotice,
-  });
+  } = useChatAttachments(flashNotice, code => chat.reportFailure(code), () => chat.clearUnavailable());
 
   // Every turn is grounded in the live queue (ids included) PLUS whatever
   // page the app view is showing — read at send time via a ref so the poll
@@ -178,6 +174,19 @@ export function PanelChat({
       if (spec.attachments?.length) setAttachments((cur) => [...spec.attachments!, ...cur]);
     },
   });
+  const availability: AskVoiceAvailability = {
+    enabled: !chat.failureCode || chat.failureCode === "THREAD_UNAVAILABLE",
+    generation: chat.recoveryGeneration,
+  };
+  // Named options allow the panel contract to land before the matching lib
+  // signature. The shared hooks must consume availability (see the handoff).
+  const voiceOptions = {
+    send: async (text: string) => submitVoice(text),
+    onError: flashNotice,
+    availability,
+  };
+  const voiceRound = useVoiceRound(voiceOptions);
+  const voice = { ...voiceRound, supported: availability.enabled && voiceRound.supported };
   const meta = AGENT_META[chat.agent];
   useEffect(() => {
     if (!chat.failureCode) return;
@@ -848,7 +857,7 @@ export function PanelChat({
       </div>}
       {chat.failureCode && <div role="status" className="border-t border-rule px-3 py-2 text-body text-ink-2">
         <p>{ASK_STATUS_COPY[chat.failureCode]}</p>
-        {chat.failureCode === "SIGN_IN_AGAIN" ? <a href="/login" className="inline-flex min-h-11 items-center text-ai-2">Sign in</a> : chat.failureCode !== "THREAD_UNAVAILABLE" && <button type="button" className="min-h-11 text-ai-2" onClick={() => void chat.retry()}>Try again</button>}
+        {chat.failureCode === "SIGN_IN_AGAIN" ? <AskSignInLink /> : chat.failureCode !== "THREAD_UNAVAILABLE" && <button type="button" className="min-h-11 text-ai-2" onClick={() => void chat.retry()}>Try again</button>}
       </div>}
       {/* Composer */}
       <form
@@ -869,14 +878,14 @@ export function PanelChat({
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
-          disabled={!!chat.failureCode || chat.pending || uploading}
+          disabled={(!!chat.failureCode && chat.failureCode !== "THREAD_UNAVAILABLE") || chat.pending || uploading}
           aria-label="Attach files"
           title="Attach files"
           className="flex size-11 pointer-fine:size-7 flex-none items-center justify-center rounded-md text-ink-3 transition-colors hover:bg-paper-2 disabled:opacity-40"
         >
           <Paperclip className={`size-4 ${uploading ? "animate-pulse" : ""}`} strokeWidth={1.75} />
         </button>
-        <PanelDictation onText={(t) => setPrompt((cur) => mergeTranscript(cur, t))} />
+        <PanelDictation availability={availability} onText={(t) => setPrompt((cur) => mergeTranscript(cur, t))} />
         <span className="hidden sm:contents">
           <VoiceRoundButton voice={voice} />
         </span>

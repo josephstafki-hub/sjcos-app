@@ -4596,3 +4596,6 @@ ALTER TABLE browser_read_manifests ADD COLUMN IF NOT EXISTS payload_purged_at ti
 ALTER TABLE browser_task_runs ADD COLUMN IF NOT EXISTS model_active_ms bigint NOT NULL DEFAULT 0 CHECK(model_active_ms BETWEEN 0 AND 1200000);
 ALTER TABLE browser_task_runs ADD COLUMN IF NOT EXISTS model_turns integer NOT NULL DEFAULT 0 CHECK(model_turns BETWEEN 0 AND 60);
 ALTER TABLE browser_task_runs ADD COLUMN IF NOT EXISTS model_cost_micros bigint NOT NULL DEFAULT 0 CHECK(model_cost_micros BETWEEN 0 AND 10000000);
+
+CREATE TABLE IF NOT EXISTS browser_retention_progress(task_id uuid PRIMARY KEY REFERENCES browser_tasks(id) ON DELETE CASCADE,completed_at timestamptz);
+REVOKE ALL ON browser_retention_progress FROM PUBLIC;

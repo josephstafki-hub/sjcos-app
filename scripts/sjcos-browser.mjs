@@ -16,12 +16,13 @@ if(process.argv.length===3&&process.argv[2]==='--mcp-peer-relay'){
   if(process.getuid()===0||process.argv.length!==2)throw Error();
   const {adapter,config}=await loadProductionBootstrap(),deps=await adapter.serviceDependencies(config);
   for(const k of ['boot','tick','shutdown','beforeEffect'])if(typeof deps.io?.checkpoints?.[k]!=='function')throw Error('BROWSER_BOOTSTRAP_REFUSED');
+  for(const k of ['authorizeLifecycle','authorizeFrame'])if(typeof deps.io?.[k]!=='function')throw Error('BROWSER_BOOTSTRAP_REFUSED');
   client=await strictStartup('controller',deps.database);
   service=new BrowserService({io:{...deps.io,hooks:await phase1Hooks()}});
   await deps.verifyReadiness();await deps.verifyAccounting();await service.start();
   if(!(deps.rpc?.responseKey instanceof Uint8Array)||deps.rpc.responseKey.length!==32||!deps.mcp?.key||typeof deps.mcp?.handle!=='function')throw Error('BROWSER_BOOTSTRAP_REFUSED');
   mcp=await (await import('../lib/browser/controller-mcp.mjs')).serveProductionMcpEndpoint({uid:process.getuid(),...deps.mcp});
-  frames=await serveProductionFrames({uid:process.getuid(),...deps.frames});
+  frames=await serveProductionFrames({uid:process.getuid(),...deps.frames,authorize:async h=>await deps.io.authorizeFrame(h)===true&&await deps.frames.authorize(h)===true});
   rpc=await serveProductionController({uid:process.getuid(),handle:createProductionRpc({...deps.rpc,handlers:await deps.handlers(service)})});
   let ticking=false;
   interval=setInterval(()=>{if(ticking||closing)return;ticking=true;void service.tick().catch(()=>service.pressure()).finally(()=>ticking=false);},1000);

@@ -56,3 +56,22 @@ test('manifest approval expiry and group size are bounded',()=>{
  const task=makeTask(),m=makeManifest(task);assert.throws(()=>verifyReadManifest(m,{key,now:Date.parse(m.entries[0].expires_at)}));
  const entries=[...proposal.entries,...Array.from({length:21},(_,i)=>({url:'https://portal.example/assets/'+i+'.css',role:'resource',source:'page'}))];assert.throws(()=>buildReadManifest({proposal:{v:1,entries},actorProof:actor(task,randomUUID(),{staff:{id:randomUUID()}}),expectedRevision:1}));
 });
+
+// R1 expectations first: asset discovery blocks original flow, persists a
+// document+resources human review, and only deliberate new reload consumes it.
+check('R1 missing public asset stages durable review without fatal gate or replay',async({c,url,task,m,args,anchor,consume,viewer,proof,people,staffSid})=>{
+ await anchor();await consume();
+ const {createPhase1ReadAuthority}=await import('../lib/browser/read-authority.mjs'),{createWebsiteDiscovery}=await import('../lib/browser/production-bridge.mjs'),{createProductionGate}=await import('../lib/browser/production-gate.mjs'),{generateKeyPairSync}=await import('node:crypto');
+ const keys=generateKeyPairSync('ed25519'),target=randomUUID(),contextId=randomUUID();let fatal=0,handler,sends=[];
+ const full=async()=>{const t=(await c.query('SELECT t.*, (SELECT max(revision) FROM browser_read_manifests WHERE task_id=t.id) read_manifest_revision FROM browser_tasks t WHERE id=$1',[task.id])).rows[0];for(const k of ['context_generation','listener_generation','control_epoch','document_epoch','read_manifest_revision'])t[k]=Number(t[k]);return t;};
+ const record={task:await full()},stage=createWebsiteDiscovery({transaction:fn=>fn(c),proofKey:key,confirmedFacts:async()=>({values:[],classifyPublicUrl:()=>true})});
+ let gate;gate=createProductionGate({call:async()=>({ok:true,listenerCookie:'cookie'}),onFatal:async()=>fatal++,readBridgeFor:async()=>({handle:async()=>({ok:true}),authority:createPhase1ReadAuthority({contextFor:async()=>({task:await full(),manifest:m,binding:gate.bindingForTarget(target),eligible:true,provenance:{classification:'public_nonbusiness'}}),repository:{transaction:async()=>{throw Error('no original-flow consume');}},audit:{anchorReadIntent:async()=>{throw Error('no original-flow audit');}},journal:{claim:async()=>{}},manifestKey:key,requestKey:hash,dispatchPrivateKey:keys.privateKey,dispatchPublicKey:keys.publicKey,stageDiscovery:stage,confirmedFactsFor:async()=>({values:[],classifyPublicUrl:()=>true})})})});
+ const lease=await gate.open(),ctx={id:contextId,lease};await gate.attach(ctx,record);const binding=await gate.policy.bindTarget({targetId:target,browserContextId:contextId,type:'page',waitingForDebugger:true});
+ await gate.policy.registerFetch({on:(event,fn)=>{if(event==='Fetch.requestPaused')handler=fn;},send:async(...x)=>sends.push(x)},binding,()=>true);
+ await handler({requestId:'asset',resourceType:'Stylesheet',request:{method:'GET',url:'https://portal.example/assets/public.css'}});assert.equal(fatal,0);assert.equal(sends.at(-1)[0],'Fetch.failRequest');
+ const pending=(await c.query('SELECT * FROM browser_read_manifests WHERE task_id=$1 ORDER BY revision DESC LIMIT 1',[task.id])).rows[0];assert.equal(pending.authorization_state,'pending');assert.deepEqual(pending.public_entries.candidates.map(e=>e.role),['document','resource']);
+ const current=await full(),proposal={v:1,entries:pending.public_entries.candidates.map(e=>({url:e.url,role:e.role,source:e.source}))},manifest=buildReadManifest({proposal,expectedRevision:Number(pending.revision),actorProof:actor(current,staffSid,people)});
+ await browserWebReads(c,{tid:task.id,vid:viewer.id,expected_revision:Number(pending.revision),proposal:manifest,decision:'approve',i:await proof('review'),d:hash});
+ assert.equal((await c.query('SELECT document_epoch FROM browser_tasks WHERE id=$1',[task.id])).rows[0].document_epoch,'1','review did not replay');
+ const reload={...args,revision:manifest.revision,entry:manifest.initial_entry_id,manifest_d:Buffer.from(manifest.digest,'hex'),flow_nonce:randomUUID()};await anchor(reload);assert.equal((await consume(reload)).parent_document_epoch,2);
+});

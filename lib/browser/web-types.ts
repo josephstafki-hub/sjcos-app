@@ -27,8 +27,9 @@ export type BrowserProjection = {
  window_count:number|null;watching_owner:boolean;owner_label:string|null;
 };
 export type BrowserQueue = {queue_position:number|null;queue_expires_at:string|null;offer_expires_at:string|null;offer_status:'offered'|'expired'|'waiting'|'queue_expired'|'none'};
-export type BrowserStatus = TaskMetadata & BrowserProjection & BrowserQueue & {task:TaskUI;active_run_id:string|null;available_controls:ControlMessage['action'][];pending_action:ReviewNotice|null;downloads:never[];server_time:string};
-export type BrowserJoin = BrowserStatus & {viewer_id:string;device_secret:string;expires_at:string;owner_review_claim?:OwnerBrowserReviewClaim};
+export type PrivateViewStatus = 'required'|'pending_audit'|'authorized'|'unavailable';
+export type BrowserStatus = TaskMetadata & BrowserProjection & BrowserQueue & {private_view_status:PrivateViewStatus;navigation:{context_generation:number;document_epoch:number;read_manifest_revision:number;target_ids:string[]}|null;task:TaskUI;active_run_id:string|null;available_controls:ControlMessage['action'][];pending_action:ReviewNotice|null;downloads:never[];server_time:string};
+export type BrowserJoin = BrowserStatus & {stream_id:string;stream_generation:number;viewer_id:string;device_secret:string;expires_at:string;owner_review_claim?:OwnerBrowserReviewClaim};
 export type BrowserStart = BrowserStatus & {run_id:string|null;run_attachment:'attached'|'queued'|'unavailable';start_code:'BROWSER_SERVICE_UNAVAILABLE'|null};
 export type BrowserControl = BrowserStatus & {control_token?:string;expires_at?:string|null};
 export type BrowserPresence = {present_until:string;control_expires_at:string|null;control_epoch:number;context_generation:number;server_time:string};

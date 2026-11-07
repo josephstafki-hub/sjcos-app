@@ -3,7 +3,7 @@ import {createPhase1ReadAuthority,verifyReadDispatch,actualRequestHmac} from '..
 import {createGateAuthority} from '../lib/browser/controller-gate.mjs';
 import {makeTask,makeManifest,makeRequest,key,provenance} from './fixtures/browser-phase1-privacy/helpers.mjs';
 function setup(){
- let time=Date.now(),mono=0,task=makeTask(),manifest=makeManifest(task),eligible=true;task={...task,read_manifest_revision:manifest.revision};
+ let time=Date.now(),mono=0,task=makeTask(),manifest=makeManifest(task,{now:time}),eligible=true;task={...task,read_manifest_revision:manifest.revision};
  const binding={taskId:task.id,bootId:task.controller_boot_id,generation:1,contextGeneration:0,guardId:randomUUID(),targetId:randomUUID(),listenerCookie:'opaque',listener:18081,contextId:randomUUID()};
  const {publicKey,privateKey}=generateKeyPairSync('ed25519');const events=[],claims=new Set();let intent;
  const audit={anchorReadIntent:async x=>{events.push('anchor');intent=x.binding;}};

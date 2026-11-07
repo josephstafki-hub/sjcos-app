@@ -3245,6 +3245,9 @@
     },
     "ask_canvas_floor_refs": {
       "note": "Private retained floor snapshot references. Owner website Canvas adapter only; no narrow reads or writes."
+    },
+    "browser_retention_progress": {
+      "note": "Owner-only Browser retention cursor; no narrow login may scrub payloads or mark completion."
     }
   },
   "functions": {
@@ -3354,6 +3357,11 @@
     },
     "browser_web_model_budget(uuid,uuid,bigint,integer,bigint)": {
       "note": "Website only; monotonic cumulative model work, no narrow EXECUTE."
+    },
+    "browser_runtime_access(uuid,uuid,bigint,uuid,uuid,bigint)": {
+      "sjcos_browser": [
+        "EXECUTE"
+      ]
     }
   }
 }

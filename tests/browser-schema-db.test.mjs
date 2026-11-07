@@ -64,7 +64,7 @@ p1check('actual service advances epochs and enters private with vault off; canno
 p1check('fresh browser requires completed old-generation fence and consumes generation',async({c,task,viewer,proof})=>{
  await c.query(`UPDATE browser_tasks SET private=true,privacy_mode='private',state='paused' WHERE id=$1`,[task.id]);
  await deny(c.query('SELECT browser_web_control($1,$2,$3,0,$4,$5)',[task.id,viewer.id,'fresh_browser',randomUUID(),hash]));
- const i=await proof('fresh_browser',{safe_result:{drained:true,fenced:true,context_generation:0,old_generation:0,new_boot_id:randomUUID()}});
+ const i=await proof('fresh_browser',{safe_result:{drained:true,fenced:true,context_generation:0,old_generation:0,new_boot_id:task.controller_boot_id}});
  const r=(await c.query('SELECT browser_web_control($1,$2,$3,0,$4,$5) r',[task.id,viewer.id,'fresh_browser',i,hash])).rows[0].r;
  assert.equal(r.private,false);assert.equal(r.context_generation,1);assert.equal(r.state,'paused');assert.equal(r.current_run_id,null);
  assert.deepEqual((await c.query('SELECT browser_web_control($1,$2,$3,0,$4,$5) r',[task.id,viewer.id,'fresh_browser',i,hash])).rows[0].r,r);

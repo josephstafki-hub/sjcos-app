@@ -14,3 +14,19 @@ export function registerBrowserTools(server,{transportKind,verifiedRun,authorize
     }catch{return errorEnvelope('BROWSER_SERVICE_UNAVAILABLE');}
   });
 }
+
+/** Dedicated stdio entry seam. No global MCP import. Both DB verification and
+ * kernel-peer capability delivery finish before the first tool is registered.
+ * Adapters are trusted code, never a model-selected module path. */
+export async function startBrowserMcp({server,transport,args=process.argv.slice(2),connectDb,authorize,invoke,observationContext}) {
+  const {startupFromRendezvous}=await import('../lib/browser/rendezvous-client.mjs');
+  const {parseMcpIdentity}=await import('../lib/browser/cli-launch.mjs');
+  const {runId,taskId,kind}=parseMcpIdentity(args);
+  const {client,verifiedRun}=await startupFromRendezvous({runId,taskId,kind,connectDb});
+  try{
+    if(kind!=='browser')throw Error('BROWSER_RENDEZVOUS_REFUSED');
+    registerBrowserTools(server,{transportKind:'stdio',verifiedRun,authorize:call=>authorize({...call,client}),invoke:(...call)=>invoke(client,...call),observationContext});
+    await server.connect(transport);
+    return {close:async()=>{await server.close();await client.end();}};
+  }catch{await client.end();throw Error('BROWSER_RENDEZVOUS_REFUSED');}
+}

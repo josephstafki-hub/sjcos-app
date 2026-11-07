@@ -77,5 +77,15 @@
       "text": "case \"Target.setAutoAttach\": {",
       "sha256": "29bf0aabbcb6b20f2115abba725d9fb320cc86d0606e4455c467164d68a49a7d"
     }
-  ]
+  ],
+  "patchedCensusFile": "playwright-patch/result.json",
+  "resumeDisposition": {
+    "36391": "close/revoke via __sjc.detach; never resume",
+    "39059": "await __sjc.resume after initialization; external guard owns single resume",
+    "39236": "worker attachment removed; deny before construction",
+    "39642": "service-worker constructor hard denial",
+    "39645": "crash reload resume removed; boot revocation",
+    "44326": "DevTools install hard denial",
+    "44603": "worker transport hard denial"
+  }
 }

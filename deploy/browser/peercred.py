@@ -21,8 +21,10 @@ def peer_proof(accepted_socket):
     pid, uid, _ = struct.unpack("3i", accepted_socket.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
     first = proc_record(pid)
     ancestors = []
+    snapshots = []
     cursor = first
     for _ in range(64):
+        snapshots.append(cursor)
         ancestors.append({"pid": cursor["pid"], "startTime": cursor["startTime"]})
         if cursor["ppid"] <= 1:
             break
@@ -33,7 +35,7 @@ def peer_proof(accepted_socket):
         raise ValueError("BROWSER_RENDEZVOUS_REFUSED")
     proof = {"pid": pid, "uid": uid, "startTime": first["startTime"],
              "ancestors": ancestors, "cgroup": open(f"/proc/{pid}/cgroup", encoding="ascii").read(),
-             "executableDigest": digest(executable), "scriptDigest": digest(os.fsdecode(argv[1]))}
-    if proc_record(pid) != first:
+             "executableDigest": digest(f"/proc/{pid}/exe"), "scriptDigest": digest(os.fsdecode(argv[1]))}
+    if any(proc_record(snapshot["pid"]) != snapshot for snapshot in snapshots) or os.readlink(f"/proc/{pid}/exe") != executable:
         raise ValueError("BROWSER_RENDEZVOUS_REFUSED")
     return proof

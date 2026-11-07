@@ -392,3 +392,11 @@ detach evidence and independently recomputed capture/RSS artifacts.
 Candidate `386ad6cf` on `t3/browser-phase1`: the Phase 1 integration (A0–A3b, B/B2, C/C2, D) including the guarded target-barrier lifecycle release (patch `fb71a7f9…`, bundle `5c72f2b3…`). Coordinator source fixes before the run: provisioner and `runtime-readiness` source allowlists admit exactly `scripts/browser-retention.mjs`; provisioner patch pins updated; source inventories refreshed (`refresh-production-sources.mjs --check` + `provision_acceptance.py --check-sources` pass).
 
 Result: unprovision → provision → AppArmor → installation-only runtime check → **network 28/28** → **RSS 15/15**, `realRuntime: true`, `simulated: false`, `releaseReady: false` (signed independent attestation still required). Evidence `~/qa-sjcos/browser-acc/p1a/`. This re-attests the 0b containment/RSS gates for the changed runtime only; production Phase 1 units, bridges, privacy canary, devices and SSE remain coordinator gates.
+
+## Phase 1 round 1 fixes — root re-acceptance (runs p1b → p1c, p1c-rss; 2026-11-07)
+
+- **p1b** (`f5cafe45`): network stopped at `listener-cross-context` — retained-artifact recompute mismatch on `controllerEventsSha256`: the `boot_revoked` teardown event after the deliberately killed gate landed between measurement and the observations write. Harness race, not a containment failure. Fix `35feb203`: wait (≤2 s) for the controller event log to go quiet, then measure, derive RSS and retain the SAME frozen snapshot (stricter — the teardown revocation is now inside the measured evidence). Diagnostics kept in `/root/browser-diag/p1b-network-fail`.
+- **p1c** (`35feb203`): **network 28/28**. RSS stopped at `preallocation-backpressure` "ordered hold samples cover interval with ≤250 ms gaps" while the coordinator was concurrently restoring/migrating/seeding the QA database (CPU contention). No code change.
+- **p1c-rss** (`35feb203`, RSS only, idle box): **RSS 15/15**.
+
+Result for candidate `35feb203`: network 28/28 (p1c) + RSS 15/15 (p1c-rss), `realRuntime: true`, `simulated: false`, `releaseReady: false`. Evidence `~/qa-sjcos/browser-acc/{p1c,p1c-rss}/`. Operating note: never run heavy work on the box during root RSS runs.

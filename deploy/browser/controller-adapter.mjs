@@ -15,4 +15,4 @@ for(const [name,hash]of Object.entries(lock.files??{})){
   await trusted(base+'/'+name);if(createHash('sha256').update(await readFile(base+'/'+name)).digest('hex')!==hash)throw Error('BROWSER_CONTROLLER_INSTALL_REFUSED');
 }
 const implementation=await import('/opt/sjcos-browser/node/source/lib/browser/controller-adapter.mjs');
-export const {prepareAcceptance,runNetworkCases,browserMcpDependencies}=implementation;
+export const {prepareAcceptance,runNetworkCases,browserMcpDependencies,prepareFixtureController}=implementation;

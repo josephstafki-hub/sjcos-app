@@ -52,7 +52,7 @@ else:raise AssertionError('forwarded after loss')
 assert flow.killed
 `;
  // request re-raises by design: caller confirms kill before dispatcher fatal.
- const r=spawnSync('python3',['-B','-c',code],{encoding:'utf8',timeout:10000,maxBuffer:8192});assert.equal(r.status,0,r.stderr);
+ const r=spawnSync('/opt/sjcos-browser/py/bin/python',['-B','-c',code],{encoding:'utf8',timeout:10000,maxBuffer:8192});assert.equal(r.status,0,r.stderr);
 });
 test('addon always shuts down after terminal receipt persistence failure',()=>{
  const code=String.raw`
@@ -69,7 +69,7 @@ except RuntimeError:pass
 else:raise AssertionError('durability failure swallowed')
 assert closed==[True] and a.dead
 `;
- const r=spawnSync('python3',['-B','-c',code],{encoding:'utf8',timeout:10000});assert.equal(r.status,0,r.stderr);
+ const r=spawnSync('/opt/sjcos-browser/py/bin/python',['-B','-c',code],{encoding:'utf8',timeout:10000});assert.equal(r.status,0,r.stderr);
 });
 test('timeout during final binding recheck cannot schedule a late resume',async()=>{const {args,calls}=barrier();let resolve,n=0;args.validateBinding=async()=>++n===1?true:await new Promise(r=>resolve=r);args.timeoutMs=5;assert.equal((await guardTarget(args)).ok,false);resolve(true);await new Promise(r=>setImmediate(r));assert.equal(calls.includes('Runtime.runIfWaitingForDebugger'),false);});
 test('versioned file manifest hashes the exact addon, dispatcher, gate and patch spec',async()=>{const lock=JSON.parse(await readFile('deploy/browser/runtime-lock.json','utf8'));assert.equal((await verifyRuntimeFiles(process.cwd(),lock)).ok,true);assert.equal(lock.acceptance.releaseReady,false);assert.equal(lock.acceptance.parserPatchSha256,sha256(await readFile('deploy/browser/parser_adapter.py')));assert.equal(lock.acceptance.parserTransportIntegrated,false);const result=JSON.parse(await readFile('deploy/browser/playwright-patch/result.json'));assert.equal(lock.acceptance.playwrightPatchSha256,result.playwrightPatchSha256);assert.equal(lock.acceptance.patchedBundleSha256,result.patchedBundleSha256);});
@@ -85,7 +85,7 @@ for k,v in [('uid',43),('cgroup','host'),('ancestors',[{'pid':123,'startTime':'o
  assert not validate_peer(r,q,{**p,k:v})
 assert not validate_peer(r,{**q,'capability':'forged'},p)
 `;
- const r=spawnSync('python3',['-B','-c',code],{encoding:'utf8',timeout:10000,maxBuffer:8192});assert.equal(r.status,0,r.stderr);
+ const r=spawnSync('/opt/sjcos-browser/py/bin/python',['-B','-c',code],{encoding:'utf8',timeout:10000,maxBuffer:8192});assert.equal(r.status,0,r.stderr);
 });
 
 test('durable broker refuses PID reuse even with forged matching historical ancestry, before DSN access',()=>{
@@ -107,5 +107,7 @@ with tempfile.TemporaryDirectory() as d:
  else:raise AssertionError('historical PID allowed')
  assert len(os.listdir(d))==1
 `;
- const r=spawnSync('python3',['-B','-c',code],{encoding:'utf8',timeout:10000,maxBuffer:8192});assert.equal(r.status,0,r.stderr);
+ const r=spawnSync('/opt/sjcos-browser/py/bin/python',['-B','-c',code],{encoding:'utf8',timeout:10000,maxBuffer:8192});assert.equal(r.status,0,r.stderr);
 });
+
+test('root-runner candidate lock contains all transport/controller and fixture sources without acceptance promotion',async()=>{const lock=JSON.parse(await readFile('deploy/browser/runtime-lock.json','utf8'));for(const name of ['transport_runtime.py','transport_tls.py','transport_dns.py','transport_control.py','controller-adapter.mjs','fixtures/fixture-io.py','fixtures/root-fixture.mjs'])assert.equal(lock.files['deploy/browser/'+name],sha256(await readFile('deploy/browser/'+name)));for(const name of ['root-runner','root-fixture','fixture-controller','controller-adapter'])assert.equal(lock.files['lib/browser/'+name+'.mjs'],sha256(await readFile('lib/browser/'+name+'.mjs')));assert.equal(lock.acceptance.parserPatchSha256,'a8b424037e37de756647d3cf87554dd5385700fc1bfcd9d3d0a6af9543d0f943');assert.equal(lock.acceptance.parserTransportIntegrated,false);});

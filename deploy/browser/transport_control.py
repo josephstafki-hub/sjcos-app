@@ -81,7 +81,7 @@ class ControlServer:
                 await self.runtime.settled(c)
             return dict(ok=True,closed=op=='revoke',durable=True)
         if op=='revoke_all':
-            self.runtime.revoke_all();self.dead=True
+            self.runtime.revoke_all() # keep root-only terminal stats available until process shutdown
             for task in self.tasks.values():task.cancel()
             await asyncio.gather(*self.tasks.values(),return_exceptions=True);self.tasks.clear()
             await self.runtime.settled()
@@ -92,10 +92,11 @@ class ControlServer:
             self.runtime.case=x['name'];self.runtime.event_log.clear();self.runtime.dropped_events=0
             return dict(ok=True,startSequence=self.runtime.event_sequence)
         if op=='fault_arm':
-            if self.runtime.case is None or x.get('point') not in ('before_request_decision','after_consume','before_connect','after_connect','before_drain') or x.get('action') not in ('revoke_all','close_client','close_upstream','raise'):raise Refused('BROWSER_FAULT')
+            if self.runtime.case is None or x.get('point') not in ('before_connect_reply','before_request_decision','after_consume','before_connect','before_dial','after_connect','before_drain') or x.get('action') not in ('revoke_all','close_client','close_upstream','raise','dial_other_peer','exit','proxy407'):raise Refused('BROWSER_FAULT')
             self.runtime.fault=dict(point=x['point'],action=x['action']);return dict(ok=True)
-        if op in ('events','case_end'):
+        if op in ('events','events_drain','case_end'):
             result=dict(ok=True,events=list(self.runtime.event_log),droppedEvents=self.runtime.dropped_events,lastSequence=self.runtime.event_sequence)
+            if op=='events_drain':self.runtime.event_log.clear();self.runtime.dropped_events=0
             if op=='case_end':
                 result['name']=self.runtime.case;self.runtime.case=None;self.runtime.fault=None
                 result['stats']=await self.dispatch(dict(op='stats'))
@@ -103,7 +104,7 @@ class ControlServer:
         if op=='stats':
             r=self.runtime
             queues=[r.max_queue]+[io.max_queue for h in r.handlers.values() for io in (h.client_io,h.upstream_io) if io]
-            return dict(ok=True,flows=len(r.owner.flows),handlers=len(r.handlers),reservations=len(r.owner.transport_reservations),pools=r.owner.pools,maxima=r.owner.maxima,maxResponseSlots=r.owner.max_slots,maxHandlers=r.max_handlers,maxDirectionalQueueBytes=max(queues),listeners=len(r.listeners),dead=r.dead)
+            return dict(ok=True,flows=len(r.owner.flows),handlers=len(r.handlers),reservations=len(r.owner.transport_reservations),pools=r.owner.pools,maxima=r.owner.maxima,maxResponseSlots=r.owner.max_slots,activeResponseSlots=len(r.owner.flows),maxHandlers=r.max_handlers,maxDirectionalQueueBytes=max(queues),listeners=len(r.listeners),dead=r.dead)
         raise Refused('BROWSER_CONTROL')
     async def serve(self,path):
         from transport_runtime import AsyncSocket
@@ -123,8 +124,13 @@ class ControlServer:
                     raw=json.dumps(result,separators=(',',':'),allow_nan=False).encode()
                     if len(raw)>HEADER:raise Refused('BROWSER_CONTROL_LIMIT')
                     await io.write(struct.pack('!I',len(raw))+raw)
-                except (Exception,asyncio.CancelledError):
+                except asyncio.CancelledError:
                     self.runtime.revoke_all();raise
+                except Exception:
+                    self.runtime.revoke_all()
+                    raw=b'{"ok":false}'
+                    try:await io.write(struct.pack('!I',len(raw))+raw)
+                    except Exception:pass
                 finally:io.close()
         finally:
             sock.close();self.runtime.revoke_all()

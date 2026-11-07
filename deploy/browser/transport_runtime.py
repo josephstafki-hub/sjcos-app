@@ -5,6 +5,7 @@ close avoids keepalive/pipelining authority reuse. The root launcher supplies a
 verified deployment predicate, root-peer UnixPolicy and client leaf CA factory.
 No StreamReader, StreamWriter, HttpStream, flow store, protocol guessing or log.
 """
+import os
 import asyncio
 import hashlib
 import importlib.metadata
@@ -47,6 +48,14 @@ class Listener:
     address: tuple
     context: int
     active: bool=True
+
+def validate_connect_headers(fields,authority):
+    names=[k.lower() for k,v in fields]
+    allowed={b'host',b'proxy-connection',b'user-agent'}
+    if len(fields)>128 or len(set(names))!=len(names) or any(n not in allowed for n in names):raise Refused('BROWSER_CONNECT')
+    values=dict((k.lower(),v) for k,v in fields)
+    if values.get(b'host')!=authority.encode('ascii'):raise Refused('BROWSER_CONNECT')
+    if b'proxy-connection' in values and values[b'proxy-connection'].lower() not in (b'keep-alive',b'close'):raise Refused('BROWSER_CONNECT')
 
 class AsyncSocket:
     """Single scratch allocation, no concurrent receive/read-ahead/send queue.
@@ -132,7 +141,7 @@ class TransportRuntime:
     def observe(self,event,h=None,**fields):
         self.event_sequence+=1
         item=dict(seq=self.event_sequence,event=event,at=self.clock(),**fields)
-        if h:item.update(id=h.flow.id,listenerCookie=h.listener.cookie,generation=h.listener.binding['generation'])
+        if h:item.update(id=h.flow.id,listenerCookie=h.listener.cookie,generation=h.listener.binding['generation'],targetId=h.binding['targetId'],requestDigest=getattr(h,'request_digest',None))
         if len(self.event_log)==64:self.event_log.pop(0);self.dropped_events+=1
         self.event_log.append(item)
 
@@ -142,6 +151,10 @@ class TransportRuntime:
         if f['action']=='revoke_all':self.revoke_all()
         elif f['action']=='close_client':h.client_io.close()
         elif f['action']=='close_upstream' and h.upstream_io:h.upstream_io.close()
+        if f['action']=='exit':os._exit(70) # explicit root-only abrupt-death fixture
+        if f['action']=='dial_other_peer':
+            h.context.server.address=('8.8.4.4',443)
+            return # allow the real socket connect and getpeername comparison
         if f['action']=='raise':raise RuntimeError('BROWSER_INJECTED_FAILURE')
         raise Refused('BROWSER_INJECTED_FAILURE')
 
@@ -177,7 +190,9 @@ class TransportRuntime:
             while l.active and not self.dead:
                 sock,_=await asyncio.get_running_loop().sock_accept(l.sock)
                 try:h=self.adopt(sock,listener_cookie)
-                except BaseException:sock.close();continue
+                except BaseException:
+                    self.observe('admission_refused',listenerCookie=listener_cookie)
+                    sock.close();continue
                 task=asyncio.create_task(h.run());tasks.add(task);task.add_done_callback(tasks.discard)
         finally:
             self.revoke_listener(listener_cookie)
@@ -251,7 +266,9 @@ class TransportRuntime:
         if h is None:raise Refused('BROWSER_REVOKED')
         self.handler(h.flow);self.remaining(h.flow)
         expected=h.decision['pin']['address']
-        if not data.server.peername or data.server.peername[:2]!=(expected,443) or data.server.sni!=h.hostname or self.clock()>=h.decision_deadline:raise Refused('BROWSER_PEER')
+        if not data.server.peername or data.server.peername[:2]!=(expected,443) or data.server.sni!=h.hostname or self.clock()>=h.decision_deadline:
+            self.observe('peer_refused',h,expected=expected,actual=data.server.peername[0] if data.server.peername else None)
+            raise Refused('BROWSER_PEER')
         meta=self.event_metadata('server_connected',h.flow);meta.update(dns=h.dns,hostname=h.hostname,peerAddress=expected)
         result=await asyncio.to_thread(policy.call,meta,min(self.remaining(h.flow),h.decision_deadline-self.clock()))
         answer=self.apply_verified('server_connected',h.flow,result)
@@ -442,10 +459,14 @@ class TransportHandler(ConnectionHandler):
             if r.method!='CONNECT' or r.http_version!='HTTP/1.1' or not authority.endswith(':443'):raise Refused('BROWSER_CONNECT')
             self.hostname=hostname(authority[:-4])
             fields=r.headers.fields
-            if len(fields)>128 or len({k.lower() for k,v in fields})!=len(fields) or any(k.lower()!=b'host' for k,v in fields) or r.headers.get('host')!=authority:raise Refused('BROWSER_CONNECT')
+            validate_connect_headers(fields,authority)
         except (ValueError,UnicodeError):raise Refused('BROWSER_CONNECT') from None
         self.flow.request=r
         await self.handle_hook(_hooks.HttpConnectHook(self.flow))
+        if self.runtime.fault==dict(point='before_connect_reply',action='proxy407'):
+            self.runtime.fault=None;self.runtime.observe('proxy_407',self)
+            await self.client_io.write(b'HTTP/1.1 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic realm="fixture"\r\nContent-Length: 0\r\nConnection: close\r\n\r\n')
+            raise Refused('BROWSER_PROXY_AUTH_REQUIRED')
         await self.client_io.write(b'HTTP/1.1 200 Connection Established\r\n\r\n')
         self.client_tls=TLSChannel(self.client_io,self.context,True,self.runtime.tls_config,self.hostname,self.deadline)
         await self.client_tls.handshake()
@@ -453,6 +474,7 @@ class TransportHandler(ConnectionHandler):
         data=server_hooks.ServerConnectionHookData(client=self.client,server=self.context.server)
         await self.handle_hook(server_hooks.ServerConnectHook(data))
         self.read_deadline=min(self.deadline,self.decision_deadline)
+        self.runtime.fault_point('before_dial',self) # root-only acceptance socket fault
         family=socket.AF_INET6 if ':' in self.context.server.address[0] else socket.AF_INET
         sock=socket.socket(family,socket.SOCK_STREAM)
         self.upstream_io=AsyncSocket(sock,self.io_remaining)
@@ -510,8 +532,12 @@ class TransportHandler(ConnectionHandler):
             self.downstream_plaintext_bytes=len(head)+len(response.raw_content)
             self.runtime.observe('drained',self,bytes=self.downstream_plaintext_bytes)
             self.drained=True;success=True
-        except (Refused,OSError,asyncio.TimeoutError,asyncio.CancelledError):
-            pass # content-free peer failure
+        except Refused as error:
+            import re
+            reason=str(error)
+            self.runtime.observe('refused',self,reason=reason if re.fullmatch('BROWSER_[A-Z_]{1,80}',reason) else 'BROWSER_REFUSED')
+        except (OSError,asyncio.TimeoutError,asyncio.CancelledError) as error:
+            self.runtime.observe('socket_closed',self,reason=type(error).__name__)
         except BaseException:
             self.runtime.revoke_all() # unexpected dispatcher/parser failure is boot fatal
         finally:

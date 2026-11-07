@@ -11,6 +11,9 @@ files={
  'deploy/browser/parser_adapter.py':'parser_adapter.py',
  'deploy/browser/egress_gate.py':'egress_gate.py',
  'deploy/browser/closed_dispatcher.py':'closed_dispatcher.py',
+ **{'deploy/browser/'+name:name for name in ['transport_runtime.py','transport_tls.py','transport_dns.py','transport_control.py']},
+ 'deploy/browser/controller-adapter.mjs':'controller-adapter.mjs',
+ 'deploy/browser/fixtures/fixture-io.py':'fixtures/fixture-io.py',
  'deploy/browser/fixtures/network-driver.py':'fixtures/network-driver',
  'deploy/browser/fixtures/rss-driver.py':'fixtures/rss-driver',
 }

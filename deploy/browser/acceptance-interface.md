@@ -63,3 +63,49 @@ complete fresh Unbound proofs, signed manifest/consume/checkpoint controller,
 unknown receipts and drain-close ack. The RSS driver currently only validates
 and delegates to an integrated `parser-transport-driver` which does not exist.
 Neither driver is currently sufficient for a passing acceptance run.
+
+## Assembled root runner (2026-11-06, supersedes missing-driver notes above)
+
+The fixed installed network-driver and rss-driver now execute
+`node/source/deploy/browser/fixtures/root-fixture.mjs`. The checkout entry scripts
+own the disposable namespace recipe and fresh delegated 3G scope's sibling
+`gate` (384MiB/35%/32 tasks), `dns` (64MiB/one Unbound thread), `helpers`
+(2GiB/105%/208 tasks), and `supervisor` (32MiB/10%/16 tasks) groups. The Node
+supervisor and suite observer move into gate, conservatively charging their
+overhead alongside the dedicated Python transport and its threads. Browser,
+controller, traffic clients and origins stay outside it. The measured
+`memory.peak` includes the gate's full native/TLS/parser footprint and observer
+overhead, not a ledger estimate. This replaces the missing parser-transport-driver
+arrangement. The scope still caps aggregate
+CPU at150%, memory3G and tasks256, with zero swap; no host networking or NAT.
+
+Each named case starts a fresh fixture controller, CA, signed exact manifests,
+durable consume/checkpoint journal, dedicated uid gate and patched Chromium.
+The root-only candidate launch reads a fresh expiring protected run capability,
+checks the installed inventory and run/task/boot/namespace, and leaves the
+separate release launcher/readiness contract unchanged. Fixture signing keys are
+not reviewer keys. They are erased on success/failure, including emergency
+cleanup after boot death. All deployment flags and the installed config's
+`enabled` remain false. No credential/DB/production authority is provided.
+
+The driver receives the namespace arguments above plus `--helper-cgroup`,
+`--gate-cgroup`, `--dns-cgroup`, and `--log-dir`. The supervisor passes them;
+there is no arbitrary helper path override. Optional `--case NAME` returns
+`diagnosticOnly:true` and cannot validate a complete run. `--keep-on-failure`
+retains root-private observations after stopping processes and removing owned
+network/cgroup/config/key state. A successful run writes one <=1MiB JSON document
+validated by acceptance.mjs, plus `<output>.d` with packet/event/receipt artifacts.
+`parserTransportIntegrated:true` is emitted in successful runtime evidence only;
+the source lock stays false pending root execution and independent review.
+
+The existing 21 controller cases and seven direct probes are preserved. Raw TLS
+clients exercise malformed SNI/Host, real different-peer socket dialing, parser
+load and consumed-write interruption using authenticated registered listeners.
+They do not pretend to be CDP Fetch events. Browser cases use the actual paused
+Fetch guards. The controller-loss cases revoke a live pending policy request and
+close the real policy endpoint; no retained keepalive authority exists because
+T1 closes a tunnel after its first response. Gate-crash uses explicit root-only
+abrupt exit70, never an OOM-shaped SIGKILL. Proxy407 is a real CONNECT challenge.
+Terminal telemetry survives revocation and is drained within its bounded ring;
+missing/dropped observations, unmatched origin consumes, nonempty allocations,
+missing positive controls or absent integration fail rather than invent results.

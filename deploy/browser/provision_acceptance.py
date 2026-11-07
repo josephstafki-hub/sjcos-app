@@ -188,13 +188,16 @@ def provision():
         # Remember every destination touched by install-acceptance.sh, then use
         # that existing independently hash-checking installer as required.
         installs={'parser_adapter.py':'deploy/browser/parser_adapter.py','egress_gate.py':'deploy/browser/egress_gate.py',
-                  'closed_dispatcher.py':'deploy/browser/closed_dispatcher.py','fixtures/network-driver':'deploy/browser/fixtures/network-driver.py',
+                  'closed_dispatcher.py':'deploy/browser/closed_dispatcher.py',
+                  **{name:'deploy/browser/'+name for name in ['transport_runtime.py','transport_tls.py','transport_dns.py','transport_control.py']},
+                  'controller-adapter.mjs':'deploy/browser/controller-adapter.mjs',
+                  'fixtures/fixture-io.py':'deploy/browser/fixtures/fixture-io.py','fixtures/network-driver':'deploy/browser/fixtures/network-driver.py',
                   'fixtures/rss-driver':'deploy/browser/fixtures/rss-driver.py'}
         for dst,src in installs.items():
             tx.remember(RUNTIME/dst);state['files'][str(RUNTIME/dst)]['after']=digest(files[src])
         tx.remember(RUNTIME/'runtime-lock.json');state['files'][str(RUNTIME/'runtime-lock.json')]['after']=digest(lock_bytes);tx.save()
         run(['/bin/sh',str(frozen/'deploy/browser/install-acceptance.sh')])
-    for name in launcher:
+    for name in files:
         tx.write(RUNTIME/'node/source'/name,files[name])
     tx.write(RUNTIME/'fixtures/launcher-driver',files['deploy/browser/launcher-driver'],0o755)
     # Dedicated runtime group access exactly g+rX / o-rwx, never symlink targets.
@@ -214,7 +217,7 @@ def provision():
                                                 'mode':original['mode'] if original else stat.S_IMODE(st.st_mode)})
     tx.save() # Batch metadata intent BEFORE chmod, no multi-MiB journal per file.
     for p in permission_paths: tx.permissions(p,group.gr_gid)
-    for d,mode in [('/etc/sjcos-browser',0o755),('/run/sjcos-browser',0o711),('/run/sjcos-browser/profiles',0o711),('/run/sjcos-browser/cli',0o711),('/run/sjcos-browser/registry',0o700)]:
+    for d,mode in [('/etc/sjcos-browser',0o755),('/run/sjcos-browser',0o711),('/run/sjcos-browser/profiles',0o711),('/run/sjcos-browser/cli',0o711),('/run/sjcos-browser/registry',0o700),('/etc/sjcos-browser/runs',0o711),('/var/lib/sjcos-browser/controller-receipts',0o700)]:
         tx.directory(Path(d),mode)
     node_hash=digest(Path('/usr/bin/node').read_bytes())
     # No DSNs, fake executable digests, self-signed review or fabricated controller.
@@ -223,17 +226,16 @@ def provision():
             'launcherDigests':[digest(files['deploy/browser/launcher-driver.mjs'])],
             'cliDigest':None,'nodeDigest':node_hash,
             'executables':{'browser':digest(files['deploy/browser/mcp-entry.mjs'])},'credentialFiles':{}}
-    blockers=['mitmproxy TLS/socket transport integration','signed read-manifest/consume/checkpoint controller',
-              'real 21-case controller packet runner','integrated parser-transport RSS driver','independent acceptance evidence/signature']
+    blockers=['root network/RSS evidence not yet collected','independent acceptance evidence/signature']
     config={'format':1,'enabled':False,'dbMode':'DB-less','uid':user.pw_uid,'gid':group.gr_gid,
-            'adapter':'/opt/sjcos-browser/controller-adapter.mjs','adapterSha256':None,'blockers':blockers,
+            'adapter':'/opt/sjcos-browser/controller-adapter.mjs','adapterSha256':digest(files['deploy/browser/controller-adapter.mjs']),'databaseEnabled':False,'candidateRunner':'root-only-disposable','blockers':blockers,
             'caps':{'childMemory':'3G','childCpu':'150%','tasks':256,'gateMiB':384,'gateCpu':'35%','dnsMiB':64,'controllerHeapMiB':256,'contexts':2,'tabs':4}}
     tx.write(Path('/etc/sjcos-browser/launch-broker.json'),json.dumps(broker,indent=2).encode()+b'\n',0o600)
     tx.write(Path('/etc/sjcos-browser/acceptance.json'),json.dumps(config,indent=2).encode()+b'\n',0o644)
     # Installed inventory proves byte integrity, NEVER review/acceptance.
     inventory=['unbound/sbin/unbound','browsers/chromium-1248/chrome-linux64/chrome',*installs,
                'fixtures/launcher-driver','node/node_modules/playwright-core/lib/coreBundle.js','node/node_modules/playwright-core/lib/sjc-patch.json']
-    inventory += ['node/source/'+name for name in launcher]
+    inventory += ['node/source/'+name for name in files]
     manifest={'format':1,'sourceLockSha256':digest(lock_bytes),'files':{name:digest((RUNTIME/name).read_bytes()) for name in inventory}}
     tx.write(RUNTIME/'installed-hashes.json',json.dumps(manifest,indent=2).encode()+b'\n')
     state['complete']=True;tx.save()

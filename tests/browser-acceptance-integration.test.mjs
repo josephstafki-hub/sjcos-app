@@ -32,7 +32,7 @@ for(const [name,measurement] of [['missing',undefined],['null',null],['empty',{}
 test('driver rejects stale invocation nonce',()=>assert.throws(()=>validateEvidence(network(),{runId:'stale',kind:'network'})));
 test('both plans share complete ordered absolute coordinator sequence',()=>{
  const s=coordinatorSequence({root:process.cwd(),uid:1010,tag:'integration'});
- assert.equal(s.length,5);assert.match(s[0],/provision-acceptance\.sh/);assert.match(s[1],/runtime-check\.mjs.*--installation-only/);assert.match(s[2],/network-integration/);assert.match(s[3],/rss-integration/);assert.match(s[4],/unprovision-acceptance\.sh/);
+ assert.equal(s.length,6);assert.match(s[0],/unprovision-acceptance\.sh/);assert.match(s[1],/provision-acceptance\.sh/);assert.match(s[2],/runtime-check\.mjs.*--installation-only/);assert.match(s[3],/network-integration/);assert.match(s[4],/rss-integration/);assert.match(s[5],/unprovision-acceptance\.sh/);
  for(const c of s)assert.ok(c.includes(process.cwd()));
 });
 test('provisioning never installs dependencies, signs its own evidence or changes services',async()=>{
@@ -41,7 +41,7 @@ test('provisioning never installs dependencies, signs its own evidence or change
  for(const token of ['sjcos-browser','/usr/sbin/nologin','/var/lib/sjcos-browser','installed-hashes.json','credentialFiles','DB-less'])assert.ok(source.includes(token),token);
 });
 test('real provision journal preserves originals and refuses symlink/permission escapes',()=>{
- const r=spawnSync('/usr/bin/python3',['-B','deploy/browser/provision_acceptance_tests.py'],{encoding:'utf8',timeout:10000});
+ const r=spawnSync('/opt/sjcos-browser/py/bin/python',['-B','deploy/browser/provision_acceptance_tests.py'],{encoding:'utf8',timeout:10000});
  assert.equal(r.status,0,r.stderr);assert.match(r.stderr,/Ran 9 tests/);
 });
 for(const command of ['provision','unprovision'])test(command+' refuses nonroot before side effects',()=>{

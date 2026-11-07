@@ -24,9 +24,11 @@ test('0105 without 0100 rolls back atomically, then additive 0100+0105 succeeds'
  await apply(listMigrationFiles().filter(f=>f.id>=100&&f.id<=109).map(f=>f.id));
 }));
 
-test('combined Browser matrix blocked: missing requests reject before applying any subset',()=>withMigrationSubset('blocked_combined',[100,101,102,103,104,105],async({db,apply})=>{
- await assert.rejects(apply(),/Requested migrations do not exist: 101, 102, 103, 104/);
- assert.equal((await db.query('SELECT count(*)::int AS n FROM schema_migrations WHERE id>=100')).rows[0].n,0);
+test('combined Browser + Phase 0 matrix applies 0100-0105 together and is idempotent',()=>withMigrationSubset('combined_browser',[100,101,102,103,104,105],async({db,apply})=>{
+ await apply();
+ assert.equal((await db.query('SELECT count(*)::int AS n FROM schema_migrations WHERE id BETWEEN 100 AND 105')).rows[0].n,6);
+ for(const t of ['browser_logins','browser_handoffs','browser_actions'])assert.equal((await db.query('SELECT to_regclass($1)::text AS name',[t])).rows[0].name,t);
+ await apply();
 }));
 
 test('0106 core applies on Canvas-only prerequisites, page predeclared, no provenance FK or narrow grants',()=>withMigrationSubset('canvas_core_only',[100,105,106],async({db,apply,url})=>{

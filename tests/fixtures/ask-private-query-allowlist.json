@@ -207,7 +207,7 @@
     "db/migrations/0062_portal_telegram.sql": "85878f8cf90c1ec4731c51ec5cd45ff1409ebc1ef3a5bf9e902394e90780155e",
     "db/migrations/0100_ask_launch_sessions_browser_core.sql": "dd0deca0d6bc5ec0ea573fe6214d62889d238027e5d91a69256d0b4aa2d99f04",
     "db/migrations/0105_ask_thread_ownership.sql": "3a105fc3041b26f3ef73d7796bf7cdf4aff6dae3bfa5df9d4d8e9bcf85311cf3",
-    "db/schema.sql": "45f9c44b5137ee148c85cdab9a9335f69929514e9dc679693985b0fb4b31989d",
+    "db/schema.sql": "9fb28d72e2d294afee2980a52314ef0fb1220f6d3c88923b9388b2253e4e153c",
     "db/seed-workflow-runbooks.mjs": "8f1b9e05bbb08312b1e81fd90aa1b852ce33b53367880dad4b4f3883281c0a29",
     "db/seed.sql": "fe0fa36f0ade311fe5d64ae7d878e249977ab3f653e29d9b24178dba87745400",
     "db/apply-push-outbox.mjs": "3466c5e4f0dbaecf175fd55c31de18a7a989a8972e399b86bdf05771c5739627",
@@ -250,7 +250,11 @@
     "db/migrations/0111_sms_threads_per_line.sql": "35b409a9b3d2e0d1ea6bb4eda63d4d03dbb657b81200a112ebb0b46802b40e75",
     "db/migrations/0112_ask_phone_copy_privacy.sql": "54bcb27c61fbb30f36bdcd3d2e26187c0f304fbaa0d5e3730da38cfbd8f0122f",
     "lib/canvas-floor.ts": "a3f397de17690c8186253f947846ba8509994f05c87f053da8cbb1aacb9e3949",
-    "db/migrations/0114_canvas_floor_refs.sql": "8a774c0353e3fefd3663ff41229c19809bc3ed4f2657fc9b9056ac4e10595b86"
+    "db/migrations/0114_canvas_floor_refs.sql": "8a774c0353e3fefd3663ff41229c19809bc3ed4f2657fc9b9056ac4e10595b86",
+    "db/migrations/0101_browser_vault_handoffs.sql": "a5fe3e47fa3ba8cca2389d67fc9856de9af6b34d3cac2c6c1f6d01f98bcbdd60",
+    "db/migrations/0102_browser_actions_audit.sql": "717163bf096ccdbd936a17d9b0f2d3f522c8d7e869d6f3f2f8e05ec5cb30268b",
+    "db/migrations/0103_browser_file_provenance.sql": "d11dc01762025309fa978b790ae3687f9837cda11ec666d0f141209fd81cc02c",
+    "db/migrations/0104_browser_rollout_catalog.sql": "933d805150678178e9e37c0dcfca13b1c5df5ac7dcd603da9a013daba8ada691"
   },
   "entries": [
     {
@@ -5302,9 +5306,9 @@
       "function": "<sql>",
       "classification": "trusted-background",
       "reason": "trusted-background",
-      "explanation": "0107 migration/schema: website-only hash manifests, no narrow grants; SECURITY DEFINER triggers take the conversation row lock.",
+      "explanation": "Owner-only canonical schema snapshot after merging main (0107/0109/0112 Ask/Canvas/phone-copy guards and 0114 floor references) with additive Browser 0101–0104. Hash manifests, floor references, Browser ciphertext, named grants, review/execution, provenance and audit are website-only; no model/narrow SQL readers or secret-key storage; SECURITY DEFINER triggers take the conversation row lock. Browser runtime admission and flags stay disabled.",
       "queries": [
-        "45f9c44b5137ee148c85cdab9a9335f69929514e9dc679693985b0fb4b31989d"
+        "9fb28d72e2d294afee2980a52314ef0fb1220f6d3c88923b9388b2253e4e153c"
       ]
     },
     {
@@ -7075,6 +7079,46 @@
       "explanation": "Owner migration only: additive immutable floor snapshot references and guards (no narrow grants, REVOKE ALL FROM PUBLIC); payload JSON cast is evaluated only for floor_plan rows. No request handler.",
       "queries": [
         "8a774c0353e3fefd3663ff41229c19809bc3ed4f2657fc9b9056ac4e10595b86"
+      ]
+    },
+    {
+      "file": "db/migrations/0101_browser_vault_handoffs.sql",
+      "function": "<sql>",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-run additive vault/handoff schema SQL, not a request-time reader. Private metadata/counter helpers and SECURITY DEFINER triggers require the actual website session login; named sharing additionally requires a fresh owner sid. Envelopes contain ciphertext, never KEKs or plaintext credentials. No narrow/service table or private-function privileges.",
+      "queries": [
+        "a5fe3e47fa3ba8cca2389d67fc9856de9af6b34d3cac2c6c1f6d01f98bcbdd60"
+      ]
+    },
+    {
+      "file": "db/migrations/0102_browser_actions_audit.sql",
+      "function": "<sql>",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-run additive review/action/audit schema SQL, not a request-time reader. SECURITY DEFINER guards preserve original task/run/person, require a fresh owner sid plus exact one-use grant for company approval, prevent consumed-action replay, and enforce append-only head-CAS audit metadata. Signing/HMAC keys and sink verification remain outside SQL. No narrow/service table or function privileges.",
+      "queries": [
+        "717163bf096ccdbd936a17d9b0f2d3f522c8d7e869d6f3f2f8e05ec5cb30268b"
+      ]
+    },
+    {
+      "file": "db/migrations/0103_browser_file_provenance.sql",
+      "function": "<sql>",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-run additive file provenance schema SQL, not a request-time reader. SECURITY DEFINER write guards retain task/project/artifact/hash/private bindings. Restrictive RLS hides private file rows from narrow logins and composes with Canvas. The explicitly PUBLIC predicate reveals only whether session_user is the website; it returns no file or secret data. No new file-serving/decrypt path.",
+      "queries": [
+        "d11dc01762025309fa978b790ae3687f9837cda11ec666d0f141209fd81cc02c"
+      ]
+    },
+    {
+      "file": "db/migrations/0104_browser_rollout_catalog.sql",
+      "function": "<sql>",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Owner-run additive versioned generic permit/tool catalog and retention-trigger DDL, not a request-time reader. Defaults stay false, no tools or services are activated, no narrow table grants are added, and the private SECURITY DEFINER truncation guard only refuses destruction.",
+      "queries": [
+        "933d805150678178e9e37c0dcfca13b1c5df5ac7dcd603da9a013daba8ada691"
       ]
     }
   ]

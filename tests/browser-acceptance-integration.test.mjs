@@ -49,3 +49,18 @@ for(const command of ['provision','unprovision'])test(command+' refuses nonroot 
  const r=spawnSync('/bin/bash',['deploy/browser/'+command+'-acceptance.sh'],{encoding:'utf8',timeout:10000});
  assert.equal(r.status,1);assert.equal(r.stdout,'');assert.match(r.stderr,/BROWSER_PROVISION_ROOT_REQUIRED/);
 });
+
+import {prepareAcceptance,browserMcpDependencies} from '../lib/browser/controller-adapter.mjs';
+test('controller candidate cannot bootstrap root operations from an unprivileged caller',async()=>{
+ assert.notEqual(process.getuid(),0);
+ await assert.rejects(prepareAcceptance({runId:'11111111-1111-4111-8111-111111111111',config:{enabled:true,uid:process.getuid(),gid:process.getgid()}}),/BROWSER_CONTROLLER_REFUSED/);
+});
+test('explicit DB-less adapter does not import pg or attempt a connection',async()=>{
+ const deps=await browserMcpDependencies({config:{databaseEnabled:false}});
+ await assert.rejects(deps.connectDb('postgres://sjcos_browser@127.0.0.1/never_connect'),/BROWSER_DB_DISABLED/);
+});
+test('installed controller wrapper binds its entire source graph before evaluation',async()=>{
+ const source=await readFile('deploy/browser/controller-adapter.mjs','utf8');
+ for(const name of ['controller-authority','controller-gate','controller-rpc','controller-network','controller-mcp','controller-scenarios','protected-bootstrap','acceptance-attestation','response-budget'])assert.ok(source.includes('lib/browser/'+name+'.mjs'));
+ assert.ok(source.indexOf('for(const [name,hash]')<source.indexOf('const implementation=await import'));
+});

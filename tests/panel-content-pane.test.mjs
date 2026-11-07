@@ -215,3 +215,13 @@ test('R2 Browser attention dot keeps width and Browser-only host rows fit wrappe
  const {readFileSync}=await import('node:fs');const dock=readFileSync(new URL('../components/panel/PanelDock.tsx',import.meta.url),'utf8');assert.match(dock,/inline-block shrink-0 size-1\.5/);
  const {browserRenderHarness}=await import('./fixtures/ask-pane-host.mjs'),render=await browserRenderHarness(),{AskContentPane}=await import('../components/panel/AskContentPane.tsx');const html=render(AskContentPane,{id:'browser',registration:{id:'browser',beforeLeave:async()=>true,render:()=>({content:null,actions:null})},snapshot:{kind:'browser',id:'b',task_id:'b',label:'Browser',thread_id:'t',user_id:'u',run_id:null},mode:'sheet',compact:true,landscape:false,split:false,paneWidth:320,viewportWidth:320,signal:new AbortController().signal,frameBoundary(){},onExit(){},entrySerial:1});assert.match(html,/48px minmax\(20px,auto\) minmax\(0,1fr\) auto/);assert.match(html,/data-browser-ui/);
 });
+
+test('R4 Browser shell collapses a null actions slot under dialogs without changing Canvas rows',async()=>{
+ const {browserRenderHarness}=await import('./fixtures/ask-pane-host.mjs'),render=await browserRenderHarness(),{AskContentPane}=await import('../components/panel/AskContentPane.tsx'),{BrowserPane}=await import('../components/panel/BrowserPane.tsx'),React=await import('react');
+ const session={model:{dialog:'fresh',state:'working',phone:false,origin:'city.example'},action(){},input(){}},handle={get:()=>session,subscribe:()=>()=>{}};
+ for(const kind of ['browser','canvas'])for(const landscape of [false,true]){
+  const html=render(AskContentPane,{id:kind,registration:{id:kind,render:context=>kind==='browser'?{content:React.createElement(BrowserPane,{context,slot:'content',handle}),actions:React.createElement(BrowserPane,{context,slot:'actions',handle})}:{content:null,actions:null}},snapshot:{kind,id:'b',task_id:'b',label:kind,thread_id:'t',user_id:'u',run_id:null},mode:'sheet',compact:true,landscape,split:false,paneWidth:320,viewportWidth:320,signal:new AbortController().signal,frameBoundary(){},onExit(){},entrySerial:1});
+  if(kind==='browser'){assert.match(html,/<div[^>]*data-browser-shell-actions[^>]*><\/div>/,'real BrowserPane returns no wrapper under a dialog');assert.match(html,/\[data-browser-shell-actions\]:empty[^}]*display:none/);assert.match(html,/has\(> \[data-browser-shell-actions\]:empty\)[^}]*grid-template-columns:minmax\(0,1fr\)/);}
+  else assert.doesNotMatch(html,/display:none|grid-template-rows:44px/);
+ }
+});

@@ -17,6 +17,10 @@ test('Browser state does not cross person/thread or restore without auth',()=>{l
 // Expectations written before the Phase 1 renderer, device helper and API adapter.
 const {browserRenderHarness,browserLandscapeRows}=await import('./fixtures/ask-pane-host.mjs');
 const render=await browserRenderHarness();
+// Install real-app module boundaries before any lazy server import can cache a
+// failed next/headers resolution. Database access still requires the SQL test.
+process.env.SJC_TEST_CLUSTER_TAG='browser-p1-r4-ui-'+process.pid;
+const {appHooks}=await import('./phase0a-fixtures.mjs');appHooks();
 const {BrowserView}=await import('../components/panel/BrowserView.tsx');
 const {classifyBrowserDevice,stableBrowserDevice}=await import('../components/panel/browser/device.ts');
 const {browserModel,afterBrowserControl,letterboxPoint}=await import('../components/panel/browser/model.ts');
@@ -120,7 +124,7 @@ async function sessionFixture({ownerView=false,viewerId='viewer',detail:initial,
  const {browserSessionHarness}=await import('./fixtures/ask-pane-host.mjs'),{browserAPI}=await apiTools(),{useBrowserSession}=await import('../components/panel/useBrowserSession.ts');
  const saved={...browserAPI},doc=globalThis.document,win=globalThis.window,interval=globalThis.setInterval,clear=globalThis.clearInterval,timers=new Set();globalThis.setInterval=(fn,ms)=>{const timer={fn,ms};timers.add(timer);return timer;};globalThis.clearInterval=timer=>timers.delete(timer);globalThis.document=Object.assign(new EventTarget(),{hidden:false});globalThis.window={screen:{width:1280,height:900}};
  let status=initial??{revision:1,context_generation:2,server_time:new Date().toISOString(),task:{state:'active',control:'agent',control_epoch:7,document_epoch:3,read_manifest_revision:4,private:false,allowed_sites:['https://city.example'],required_areas:[]},navigation,available_controls:['back','forward','reload','switch_tab','stop'],pending_action:null};
- const joined={viewer_id:viewerId,device_secret:'secret',expires_at:'2099-01-01T00:00:00Z',...(ownerView?{owner_review_claim:{claim_id:'claim',expires_at:claimExpires}}:{})},calls=[];let eventCallback;
+ const joined={stream_id:'stream',stream_generation:1,viewer_id:viewerId,device_secret:'secret',expires_at:'2099-01-01T00:00:00Z',...(ownerView?{owner_review_claim:{claim_id:'claim',expires_at:claimExpires}}:{})},calls=[];let eventCallback;
  Object.assign(browserAPI,{join:async()=>({...status,...joined}),detail:async()=>status,answers:async()=>({answers:[]}),leave:async()=>{},presence:async()=>({}),closeStream:async(_id,_v,binding)=>({closed:true,planned:true,...binding}),reads:async()=>({candidates:[],candidates_status:'none'}),control:async(...args)=>{calls.push(args);return status;},events:events??(async(_id,_v,signal,onEvent)=>{eventCallback=onEvent;onEvent('state',{...status,stream_id:'stream',stream_generation:1});await new Promise(resolve=>signal.addEventListener('abort',resolve,{once:true}));})});
  const props={taskId:'task',conversationId:'thread',visible:true,ownerView},h=await browserSessionHarness(()=>useBrowserSession(props));await h.settle();
  return {h,props,calls,async poll(ms=5000){for(const timer of timers)if(timer.ms===ms)await timer.fn();await h.settle();},setStatus(next){status=next;},get status(){return status;},emit(name,data){eventCallback(name,data);},async dispose(){h.dispose();await h.settle();Object.assign(browserAPI,saved);globalThis.document=doc;globalThis.window=win;globalThis.setInterval=interval;globalThis.clearInterval=clear;}};
@@ -180,7 +184,7 @@ test('R1 real Watch waits for server audit signal before subscribing; invalidati
  const f=await sessionFixture({ownerView:true,detail:{revision:1,context_generation:2,server_time:new Date().toISOString(),private_view_status:'required',task:{state:'paused',control:'person',control_epoch:8,document_epoch:3,read_manifest_revision:4,private:true,allowed_sites:['https://city.example'],required_areas:[]},available_controls:['stop'],pending_action:null},events:async(_id,_v,signal,onEvent)=>{f.opens++;f.onEvent=onEvent;onEvent('state',{...f.status,stream_id:'10000000-0000-4000-8000-000000000001',stream_generation:1});await new Promise(resolve=>signal.addEventListener('abort',resolve,{once:true}));}});f.opens=0;
  try{
   const {browserAPI}=await apiTools();f.setStatus({...f.status,revision:2,private_view_status:'required',task:{...f.status.task,private:true,control:'person',control_epoch:8}});await f.poll();assert.equal(f.opens,0);assert.match(view(f.h.value.model),/Show the page/);
-  browserAPI.join=async()=>{f.setStatus({...f.status,revision:3,private_view_status:'pending_audit'});return {...f.status,viewer_id:'viewer',device_secret:'secret',owner_review_claim:{claim_id:'claim',expires_at:'2099-01-01T00:00:00Z'}};};await f.h.value.action('show_private');await f.h.settle();assert.equal(f.opens,0);assert.match(view(f.h.value.model),/Waiting to show the private page/);assert.doesNotMatch(view(f.h.value.model),/<img|Private — only you/);
+  browserAPI.join=async()=>{f.setStatus({...f.status,revision:3,private_view_status:'pending_audit'});return {...f.status,stream_id:'stream',stream_generation:1,viewer_id:'viewer',device_secret:'secret',owner_review_claim:{claim_id:'claim',expires_at:'2099-01-01T00:00:00Z'}};};await f.h.value.action('show_private');await f.h.settle();assert.equal(f.opens,0);assert.match(view(f.h.value.model),/Waiting to show the private page/);assert.doesNotMatch(view(f.h.value.model),/<img|Private — only you/);
   f.setStatus({...f.status,revision:4,private_view_status:'authorized'});await f.poll();assert.equal(f.opens,1);f.onEvent('frame',{stream_id:'10000000-0000-4000-8000-000000000001',stream_generation:1,frame_id:'10000000-0000-4000-8000-000000000002',seq:1,control_epoch:8,document_epoch:3,viewport:{width:1280,height:800},width:1280,height:800,jpeg_base64:'/9j/'});assert.match(view(f.h.value.model),/<img/);
   f.setStatus({...f.status,revision:5,private_view_status:'required'});f.onEvent('state',f.status);await f.h.settle();assert.equal(f.h.value.model.privateConsented,false);assert.doesNotMatch(view(f.h.value.model),/<img|Private — only you/);assert.match(view(f.h.value.model),/>Show the page</);
  }finally{await f.dispose();}
@@ -324,7 +328,7 @@ test('R3 ENG1 join identity survives failed retries and owner renewals, independ
   const first=f.joins[0][1].device_id;assert.match(first??'',/^[0-9a-f-]{36}$/);f.resolve();await f.h.settle();await f.h.value.action('reconnect');await f.h.settle();assert.equal(f.joins[1][1].device_id,first);f.resolve();await f.h.settle();
  }finally{await f.dispose();}
  const other=await joinFixture();try{assert.notEqual(other.joins[0][1].device_id,f.joins[0][1].device_id);other.resolve();await other.h.settle();}finally{await other.dispose();}
- const owner=await sessionFixture({ownerView:true});try{const {browserAPI}=await apiTools(),joins=[];browserAPI.join=async(...args)=>{joins.push(args);return {...owner.status,viewer_id:'viewer',device_secret:'secret',owner_review_claim:{claim_id:'claim',expires_at:'2099-01-01T00:00:00Z'}};};owner.setStatus({...owner.status,task:{...owner.status.task,private:true,control:'person'}});await owner.poll();await owner.h.value.action('show_private');assert.match(joins[0][1].device_id,/^[0-9a-f-]{36}$/);assert.equal(joins[0][2].viewer_id,'viewer');}finally{await owner.dispose();}
+ const owner=await sessionFixture({ownerView:true});try{const {browserAPI}=await apiTools(),joins=[];browserAPI.join=async(...args)=>{joins.push(args);return {...owner.status,stream_id:'stream',stream_generation:1,viewer_id:'viewer',device_secret:'secret',owner_review_claim:{claim_id:'claim',expires_at:'2099-01-01T00:00:00Z'}};};owner.setStatus({...owner.status,task:{...owner.status.task,private:true,control:'person'}});await owner.poll();await owner.h.value.action('show_private');assert.match(joins[0][1].device_id,/^[0-9a-f-]{36}$/);assert.equal(joins[0][2].viewer_id,'viewer');}finally{await owner.dispose();}
 });
 test('R3 4 no Projects access renders plain No job without a chooser',async()=>{
  const {BrowserJobField}=await import('../components/panel/BrowserJobField.tsx');
@@ -347,7 +351,7 @@ test('R3 12 owner Pause confirm succeeds only after ACK; Show page reaches autho
   const {browserAPI}=await apiTools();f.h.value.patch({personName:'Abigail'});f.setStatus({...f.status,available_controls:['pause','take_over']});await f.poll();await f.h.value.action('pause_owner');assert.match(view(f.h.value.model),/aria-label="Pause Abigail's agent\? Abigail will need to tap Continue\."/);
   browserAPI.control=async()=>{f.setStatus({...f.status,revision:2,task:{...f.status.task,state:'paused',control:'none'},paused_by:'owner',paused_by_label:'Taylor'});return f.status;};await f.h.value.action('confirm_pause_owner');assert.match(view(f.h.value.model),/Agent paused. Abigail can tap Continue./);
   f.setStatus({...f.status,revision:3,task:{...f.status.task,state:'active',private:true,control:'person'},paused_by:null});await f.poll();assert.match(view(f.h.value.model),/>Show the page</);
-  let authorize;browserAPI.join=()=>new Promise(r=>authorize=()=>{f.setStatus({...f.status,private_view_status:'authorized'});r({...f.status,viewer_id:'viewer',device_secret:'secret',owner_review_claim:{claim_id:'claim',expires_at:'2099-01-01T00:00:00Z'}});});const show=f.h.value.action('show_private');await f.h.settle();assert.match(view(f.h.value.model),/Waiting to show the private page…/);assert.doesNotMatch(view(f.h.value.model),/<img/);authorize();await show;await f.h.settle();
+  let authorize;browserAPI.join=()=>new Promise(r=>authorize=()=>{f.setStatus({...f.status,private_view_status:'authorized'});r({...f.status,stream_id:'stream',stream_generation:1,viewer_id:'viewer',device_secret:'secret',owner_review_claim:{claim_id:'claim',expires_at:'2099-01-01T00:00:00Z'}});});const show=f.h.value.action('show_private');await f.h.settle();assert.match(view(f.h.value.model),/Waiting to show the private page…/);assert.doesNotMatch(view(f.h.value.model),/<img/);authorize();await show;await f.h.settle();
   f.h.value.patch({frameUrl:'data:image/jpeg;base64,/9j/'});await f.h.settle();assert.match(view(f.h.value.model),/Private — only you and Abigail see this page./);assert.match(view(f.h.value.model),/You're watching. Abigail is in control./);assert.match(view(f.h.value.model),/<img/);await f.h.value.action('takeover');assert.match(view(f.h.value.model),/aria-label="Take over from Abigail\? Their control ends\."/);
  }finally{await f.dispose();}
 });
@@ -382,7 +386,7 @@ test('R3 ENG1 a failed initial join retries the same device and in-flight reques
  const f=await joinFixture();try{const {BrowserAPIError}=await apiTools();f.reject(new BrowserAPIError('BROWSER_SERVICE_UNAVAILABLE'));await f.h.settle();assert.match(view(f.h.value.model),/Couldn't connect to the browser./);await f.h.value.action('reconnect');await f.h.settle();assert.equal(f.joins.length,2);assert.equal(f.joins[0][1].device_id,f.joins[1][1].device_id);assert.equal(f.joins[0][4],f.joins[1][4]);assert.equal(f.joins[1][2],undefined);f.resolve();await f.h.settle();assert.equal(f.leaves.length,0);}finally{await f.dispose();}
 });
 test('R3 ENG1 owner attendance renews with its existing viewer and stable device ID',async()=>{
- const f=await sessionFixture({ownerView:true,claimExpires:'2000-01-01T00:00:00Z'});try{const {browserAPI}=await apiTools(),calls=[];browserAPI.join=async(...args)=>{calls.push(args);return {...f.status,viewer_id:'viewer',device_secret:'secret',owner_review_claim:{claim_id:'claim',expires_at:'2000-01-01T00:00:00Z'}};};await f.poll();await f.poll();assert.equal(calls.length,2);assert.equal(calls[0][2].viewer_id,'viewer');assert.equal(calls[0][2].device_secret,'secret');assert.equal(calls[0][1].device_id,calls[1][1].device_id);assert.match(calls[0][1].device_id,/^[0-9a-f-]{36}$/);}finally{await f.dispose();}
+ const f=await sessionFixture({ownerView:true,claimExpires:'2000-01-01T00:00:00Z'});try{const {browserAPI}=await apiTools(),calls=[];browserAPI.join=async(...args)=>{calls.push(args);return {...f.status,stream_id:'stream',stream_generation:1,viewer_id:'viewer',device_secret:'secret',owner_review_claim:{claim_id:'claim',expires_at:'2000-01-01T00:00:00Z'}};};await f.poll();await f.poll();assert.equal(calls.length,2);assert.equal(calls[0][2].viewer_id,'viewer');assert.equal(calls[0][2].device_secret,'secret');assert.equal(calls[0][1].device_id,calls[1][1].device_id);assert.match(calls[0][1].device_id,/^[0-9a-f-]{36}$/);}finally{await f.dispose();}
 });
 
 test('R3 8 actual chat status row renders queue labels and Stopped without duplicate Browser',async()=>{
@@ -399,4 +403,154 @@ test('R3 ENG1 actual join adapter sends the explicit device UUID and stable retr
  const task={task_id:id,run_id:null,state:'active',control:'agent',private:false,privacy_mode:'public',allowed_sites:['https://city.example'],required_areas:['ai'],manifest_revision:1,read_manifest_revision:1,control_epoch:0,document_epoch:1,attention:'none'};
  globalThis.fetch=async(url,options)=>{calls.push({url,options});return Response.json(url.endsWith('/csrf')?{ok:true,csrf_token:'csrf',expires_at:'2099-01-01T00:00:00Z'}:{ok:true,task,viewer_id:id,device_secret:'secret'});};
  try{for(let n=0;n<2;n++)await browserAPI.join(id,{mode:'initiator',device_id:device},undefined,undefined,key);const requests=calls.filter(x=>x.url.endsWith('/join'));assert.equal(requests.length,2);for(const r of requests)assert.deepEqual(JSON.parse(r.options.body),{mode:'initiator',device_id:device,idempotency_key:key});}finally{globalThis.fetch=old;}
+});
+
+// R4 expectations first: a lifecycle may retire only the lease it still owns.
+// The fake boundary mirrors same-device server reuse, slot limits and attended
+// pause. It holds committed replies/Leave ACKs independently of request order.
+async function retirementFixture(){
+ const {browserSessionHarness}=await import('./fixtures/ask-pane-host.mjs'),{browserAPI}=await apiTools(),{useBrowserSession}=await import('../components/panel/useBrowserSession.ts');
+ const saved={...browserAPI},doc=globalThis.document,win=globalThis.window,interval=globalThis.setInterval,clear=globalThis.clearInterval,timers=new Set();
+ globalThis.document=Object.assign(new EventTarget(),{hidden:false});globalThis.window={screen:{width:1280,height:900}};globalThis.setInterval=(fn,ms)=>{const t={fn,ms};timers.add(t);return t;};globalThis.clearInterval=t=>timers.delete(t);
+ const joins=[],leaves=[],rows=new Map(),replies=new Map(),states=new Map();let holdLeave=false,leaveACK;
+ const status=id=>({revision:1,context_generation:1,server_time:new Date().toISOString(),task:{task_id:id,state:states.get(id)??'active',control:states.get(id)==='paused'?'none':'agent',control_epoch:1,document_epoch:1,private:false,allowed_sites:['https://city.example'],required_areas:[]},available_controls:['stop']});
+ const second={viewer_id:'second-device',left:false};rows.set('second',second);
+ Object.assign(browserAPI,{
+  join:(id,body,v,signal,key)=>{let row=replies.get(key);if(!row){row=[...rows.values()].find(r=>r.taskId===id&&r.device===body.device_id&&!r.left);if(!row){assert.ok([...rows.values()].filter(r=>!r.left&&(r.taskId===id||r===second)).length<2,'a second real device leaves only one slot');row={viewer_id:crypto.randomUUID(),device_secret:'secret',taskId:id,device:body.device_id,left:false};rows.set(row.viewer_id,row);}replies.set(key,row);}const call={id,body,v,key,row};joins.push(call);return new Promise((resolve,reject)=>Object.assign(call,{reply(){resolve({...status(id),...row,stream_id:'stream',stream_generation:1});},lost(){reject(new Error('lost committed reply'));}}));},
+  leave:(id,v)=>{const row=rows.get(v.viewer_id);leaves.push({id,v});row.left=true;if(![...rows.values()].some(r=>!r.left&&(r.taskId===id||(r===second&&id==='A'))))states.set(id,'paused');return holdLeave?new Promise(r=>leaveACK=r):Promise.resolve({left:true});},
+  presence:async(id,v)=>{assert.equal(rows.get(v.viewer_id)?.left,false,'current presence must remain renewable (never 403)');return {};},
+  detail:async id=>status(id),answers:async()=>({answers:[]})
+ });
+ const props={taskId:'A',conversationId:'thread',visible:false},h=await browserSessionHarness(()=>useBrowserSession(props));h.value;
+ const change=async p=>{Object.assign(props,p);h.render();await h.settle();};
+ return {h,props,joins,leaves,rows,states,change,holdLeave(){holdLeave=true;},ackLeave(){holdLeave=false;leaveACK({left:true});},async renew(){for(const t of timers)if(t.ms===5000)await t.fn();await h.settle();},async dispose(){for(const j of joins)j.reply();h.dispose();await h.settle();Object.assign(browserAPI,saved);globalThis.document=doc;globalThis.window=win;globalThis.setInterval=interval;globalThis.clearInterval=clear;}};
+}
+for(const path of ['active off/on','task empty/return','A/B/A','two quick returns'])test('R4 cleanup during committed join: '+path,async()=>{
+ const f=await retirementFixture();try{
+  const first=f.joins[0];
+  if(path==='active off/on'){await f.change({active:false});await f.change({active:true});}
+  else if(path==='task empty/return'){await f.change({taskId:null});await f.change({taskId:'A'});}
+  else if(path==='A/B/A'){await f.change({taskId:'B'});await f.change({taskId:'A'});}
+  else {await f.change({active:false});await f.change({active:true});await f.change({active:false});await f.change({active:true});}
+  assert.equal(f.joins.filter(j=>j.id==='A').length,1,'return transfers the outstanding acquisition, not a duplicate join');
+  for(const j of f.joins.filter(j=>j.id==='A'))j.reply();await f.h.settle();
+  for(const j of f.joins.filter(j=>j.id==='B'))j.reply();await f.h.settle();
+  assert.equal(f.h.value.model.taskId,'A');assert.equal(f.h.value.model.state,'working');assert.equal(first.row.left,false);assert.notEqual(f.states.get('A'),'paused');assert.equal(f.leaves.filter(l=>l.id==='A').length,0);await f.renew();
+ }finally{await f.dispose();}assert.equal(f.leaves.filter(l=>l.id==='A').length,1,'genuine departure leaves once');
+});
+test('R4 already-sent Leave drains before replacement join, including two quick returns',async()=>{
+ const f=await retirementFixture();try{
+  f.joins[0].reply();await f.h.settle();f.holdLeave();await f.change({active:false});assert.equal(f.leaves.length,1);
+  await f.change({active:true});assert.equal(f.joins.length,1,'no acquisition before Leave ACK');
+  await f.change({active:false});await f.change({active:true});assert.equal(f.joins.length,1);
+  f.ackLeave();await f.h.settle();assert.equal(f.joins.length,2);assert.equal(f.joins[1].body.device_id,f.joins[0].body.device_id);assert.equal(f.joins[1].v,undefined,'retired credentials are discarded');assert.notEqual(f.joins[1].key,f.joins[0].key);
+  f.joins[1].reply();await f.h.settle();assert.notEqual(f.joins[1].row.viewer_id,f.joins[0].row.viewer_id);assert.equal(f.joins[1].row.left,false);assert.equal(f.h.value.model.state,'working','second attended device keeps the task running');await f.renew();assert.equal(f.leaves.length,1);
+ }finally{await f.dispose();}
+});
+test('R4 lost committed join reply returns to the same request key without stale cleanup',async()=>{
+ const f=await retirementFixture();try{
+  const first=f.joins[0];await f.change({active:false});first.lost();await f.h.settle();await f.change({active:true});assert.equal(f.joins.length,2);assert.equal(f.joins[1].key,first.key);assert.equal(f.joins[1].body.device_id,first.body.device_id);
+  f.joins[1].reply();await f.h.settle();assert.equal(f.joins[1].row,first.row);assert.equal(first.row.left,false);assert.equal(f.leaves.length,0);assert.equal(f.h.value.model.state,'working');await f.renew();
+ }finally{await f.dispose();}
+});
+for(const state of ['queued','offer','queue_expired','offer_expired','off','starting','closed','failed'])test('R4 no SSE before a joined session: '+state,async()=>{
+ let subscriptions=0;const f=await sessionFixture({events:async()=>{subscriptions++;}});try{
+  const {browserAPI}=await apiTools();f.props.visible=false;f.h.render();await f.h.settle();subscriptions=0;
+  const taskState=['offer','queue_expired','offer_expired'].includes(state)?'queued':state==='off'?'created':state;
+  f.setStatus({...f.status,revision:2,task:{...f.status.task,state:taskState},...(state==='off'?{reason_code:'BROWSER_DISABLED'}:{})});await f.poll();f.props.visible=true;f.h.render();await f.h.settle();
+  assert.equal(subscriptions,0,'metadata/queue states must not request a controller stream');
+ }finally{await f.dispose();}
+});
+test('R4 no SSE for successful join without a stream binding',async()=>{
+ let subscriptions=0;const f=await sessionFixture({events:async(_id,_v,signal)=>{subscriptions++;await new Promise(r=>signal.addEventListener('abort',r,{once:true}));}});try{
+  const {browserAPI}=await apiTools();f.props.visible=false;f.h.render();await f.h.settle();subscriptions=0;
+  browserAPI.join=async()=>({...f.status,viewer_id:'viewer',device_secret:'secret'});await f.h.value.action('reconnect');await f.h.settle();f.props.visible=true;f.h.render();await f.h.settle();assert.equal(subscriptions,0,'successful join alone is insufficient');
+ }finally{await f.dispose();}
+});
+test('R4 dialog options are inert, keyboard has a visible prompt, private pause and empty Sites say it once',()=>{
+ for(const dialog of ['menu','takeover','replace','leave','fresh','sites','addresses','pause_owner','reload']){
+  const html=render(BrowserView,{model:{...base,dialog,state:'controlling',capture:true,compactCapture:true},slot:'title',onAction(){}});assert.doesNotMatch(html,/aria-label="Browser options"|>Done<|data-browser-compact-capture="true"/);
+ }
+ assert.match(view({state:'controlling',capture:true}),/placeholder="Type here to send keys to the page\."/);
+ const privateHTML=view({state:'paused_private',privatePage:true,frameUrl:'frame'});assert.doesNotMatch(privateHTML,/Private — you took over/);assert.match(privateHTML,/Paused\. The agent can't read this page\./);
+ const empty=view({state:'empty',dialog:'sites'});assert.match(empty,/aria-label="Add at least one site to start\."/);assert.equal(empty.split('Add at least one site to start.').length-1,2,'dialog accessible name and heading only');assert.doesNotMatch(empty,/This task can use these sites/);
+ for(const p of [{sites:['https://city.example']},{hasTask:true}])assert.match(view({dialog:'sites',...p}),/aria-label="This task can use these sites\."/);
+});
+
+test('R4 same task with a changed host scope drains the previous binding before joining',async()=>{
+ const f=await retirementFixture();try{
+  const old=f.joins[0];await f.change({signal:new AbortController().signal});assert.equal(f.joins.length,1,'a new scope cannot reuse a viewer while the prior scope can still leave it');
+  old.reply();await f.h.settle();assert.equal(f.leaves.length,1);assert.equal(f.joins.length,2);f.joins[1].reply();await f.h.settle();assert.equal(f.joins[1].row.left,false);await f.renew();
+ }finally{await f.dispose();}
+});
+test('R4 queue polling starts SSE only when a joined task reaches a running session',async()=>{
+ let subscriptions=0;const f=await sessionFixture({events:async(_id,_v,signal,onEvent)=>{subscriptions++;onEvent('state',{...f.status,stream_id:'stream',stream_generation:1});await new Promise(r=>signal.addEventListener('abort',r,{once:true}));}});try{
+  f.props.visible=false;f.h.render();await f.h.settle();subscriptions=0;f.setStatus({...f.status,revision:2,task:{...f.status.task,state:'queued'}});await f.poll();f.props.visible=true;f.h.render();await f.h.settle();assert.equal(subscriptions,0);assert.equal(f.h.value.model.state,'queued');
+  f.setStatus({...f.status,revision:3,task:{...f.status.task,state:'active'}});await f.poll();assert.equal(subscriptions,1);assert.equal(f.h.value.model.state,'working');
+ }finally{await f.dispose();}
+});
+
+// Actual hook → fetch adapter → website handler → guarded SQL. Only HTTP reply
+// delivery is delayed. Every route uses an independent non-superuser LOGIN.
+// Keep the cluster tag separate from the parallel QA builder and coordinator.
+test('R4 real website/SQL retirement orderings with a second attended device',async t=>{
+ const {withTestDb,withLogin,stopCluster}=await import('./_harness/testdb.mjs');
+ const {phase1Fixture}=await import('./browser-schema-fixtures.mjs'),{createWebsiteAdapter}=await import('../lib/browser/web.ts'),{createBrowserWebHandler,createCsrf}=await import('../lib/browser/web-transport.mjs'),{useBrowserSession}=await import('../components/panel/useBrowserSession.ts'),{browserSessionHarness}=await import('./fixtures/ask-pane-host.mjs');
+ try{await withTestDb(async(url,db)=>{
+  for(const ordering of ['active off/on','task empty/return','A/B/A','Leave ACK','lost committed reply'])await t.test(ordering,async()=>phase1Fixture(url,db,async({c,task,viewer,staffSid,ownerSid,thread,people})=>{
+   globalThis.__phase0aDb=c;
+   const origin='https://browser.test',secret='r4-ui-session-secret-of-at-least-32-characters',key=Buffer.alloc(32,8);
+   const ownerView=ordering==='A/B/A',sid=ownerView?ownerSid:staffSid;
+   const row=(await c.query('SELECT *,extract(epoch FROM auth_at)::float auth_s,extract(epoch FROM expires_at)::float exp_s FROM web_sessions WHERE id=$1',[sid])).rows[0],session={sid,userId:row.user_id,authAt:row.auth_s,generation:Number(row.generation),exp:row.exp_s};
+   const route=(path,options={},webSession=session)=>withLogin(url,'sjcos_test_website',async login=>{
+    assert.deepEqual((await login.query('SELECT session_user,current_user')).rows[0],{session_user:'sjcos_test_website',current_user:'sjcos_test_website'});
+    const adapter=createWebsiteAdapter({db:{query:(...args)=>login.query(...args),connect:async()=>({query:(...args)=>login.query(...args),release(){}})},key,controller:{call:async()=>({ok:true})}}),csrf=createCsrf(webSession,secret);
+    const handler=createBrowserWebHandler({origin,csrfKey:secret,...adapter,session:async()=>webSession,flags:async()=>({can_start:true})});
+    const headers=new Headers(options.headers);for(const [name,value] of Object.entries({origin,'sec-fetch-site':'same-origin','content-type':'application/json','x-sjc-csrf':csrf.token,cookie:`sjc_browser_csrf=${csrf.token}`}))headers.set(name,value);
+    return handler(new Request(origin+'/api/agent-browser'+path,{...options,headers}));
+   });
+   await c.query('UPDATE browser_viewers SET left_at=now() WHERE id=$1',[viewer.id]);
+   const staffRow=(await c.query('SELECT *,extract(epoch FROM auth_at)::float auth_s,extract(epoch FROM expires_at)::float exp_s FROM web_sessions WHERE id=$1',[staffSid])).rows[0],staffSession={sid:staffSid,userId:staffRow.user_id,authAt:staffRow.auth_s,generation:Number(staffRow.generation),exp:staffRow.exp_s};
+   const second=await route(`/tasks/${task.id}/join`,{method:'POST',body:JSON.stringify({mode:'initiator',device_id:crypto.randomUUID(),idempotency_key:crypto.randomUUID()})},staffSession);assert.equal(second.status,200);const secondViewer=await second.json();
+   // Two valid live tasks belong to different people; the owner can Watch both.
+   let b;await phase1Fixture(url,db,async other=>{b=other.task.id;});
+   await c.query("UPDATE app_settings SET value=(value::jsonb || $1::jsonb)::text WHERE key='browser.pilot_user_ids'",[JSON.stringify([people.owner.id,people.staff.id])]);
+   const saved={fetch:globalThis.fetch,document:globalThis.document,window:globalThis.window,setInterval:globalThis.setInterval,clearInterval:globalThis.clearInterval},timers=new Set(),joins=[],leaves=[],pending=new Set();let deliverFirst,deliverLeave;
+   const deferred=()=>{let resolve,reject;const promise=new Promise((r,j)=>{resolve=r;reject=j;});return {promise,resolve,reject};},errors=deferred(),wait=signal=>Promise.race([signal.promise,errors.promise]),joinSignals=[deferred(),deferred(),deferred()],leaveSignals=[deferred(),deferred()];
+   globalThis.document=Object.assign(new EventTarget(),{hidden:false});globalThis.window={screen:{width:1280,height:900}};globalThis.setInterval=(fn,ms)=>{const timer={fn,ms};timers.add(timer);return timer;};globalThis.clearInterval=timer=>timers.delete(timer);
+   globalThis.fetch=(input,options={})=>{
+    const request=(async()=>{const path=new URL(input,origin).pathname.replace('/api/agent-browser','')+new URL(input,origin).search;const response=await route(path,options);
+     if(path.endsWith('/join')){assert.equal(response.status,200,JSON.stringify(await response.clone().json()));const data=await response.clone().json(),index=joins.length;joins.push({data,body:JSON.parse(options.body)});if(index===0){const gate=deferred();deliverFirst=()=>gate.resolve();joinSignals[index].resolve();await gate.promise;if(ordering==='lost committed reply')throw Object.assign(Error('lost committed join reply'),{expectedLost:true});}else joinSignals[index]?.resolve();}
+     if(path.endsWith('/leave')){assert.equal(response.status,200);const index=leaves.length;leaves.push(path);if(ordering==='Leave ACK'&&index===0){const gate=deferred();deliverLeave=()=>gate.resolve();leaveSignals[index].resolve();await gate.promise;}else leaveSignals[index]?.resolve();}
+     return response;
+    })();pending.add(request);void request.catch(e=>{if(!e.expectedLost)errors.reject(e);});void request.finally(()=>pending.delete(request)).catch(()=>{});return request;
+   };
+   const props={taskId:task.id,conversationId:ownerView?null:thread,visible:false,ownerView};let h;
+   try{
+    h=await browserSessionHarness(()=>useBrowserSession(props));h.value;await wait(joinSignals[0]);
+    const change=async patch=>{Object.assign(props,patch);h.render();await h.settle();};
+    if(ordering==='Leave ACK'){
+     deliverFirst();await h.settle();assert.equal(h.value.model.state,'working');await change({active:false});await wait(leaveSignals[0]);
+     await change({active:true});await change({active:false});await change({active:true});assert.equal(joins.length,1,'do not acquire while Leave ACK is pending');deliverLeave();await wait(joinSignals[1]);await h.settle();
+     assert.notEqual(joins[1].data.viewer_id,joins[0].data.viewer_id);assert.equal(h.value.model.state,'working','second device remains attended; no pause or auto-resume');
+    }else{
+     if(ordering==='active off/on'){await change({active:false});await change({active:true});}
+     if(ordering==='task empty/return'){await change({taskId:null});await change({taskId:task.id});}
+     if(ordering==='A/B/A'){await change({taskId:b});await change({taskId:task.id});}
+     if(ordering==='lost committed reply'){await change({active:false});deliverFirst();await h.settle();await change({active:true});await wait(joinSignals[1]);await h.settle();assert.equal(joins[1].body.idempotency_key,joins[0].body.idempotency_key);assert.equal(joins[1].data.viewer_id,joins[0].data.viewer_id);}
+     else {assert.equal(joins.filter(j=>j.data.task.task_id===task.id).length,1);deliverFirst();await h.settle();}
+     assert.equal(h.value.model.taskId,task.id);assert.equal(h.value.model.state,'working');
+    }
+    const current=joins.filter(j=>j.data.task.task_id===task.id).at(-1).data;
+    const before=(await c.query('SELECT state,paused_by FROM browser_tasks WHERE id=$1',[task.id])).rows[0];assert.equal(before.state,'active');assert.equal(before.paused_by,null);
+    assert.equal((await c.query('SELECT left_at FROM browser_viewers WHERE id=$1',[current.viewer_id])).rows[0].left_at,null);
+    const stream=(await c.query('SELECT stream_id,stream_generation FROM browser_viewers WHERE id=$1',[current.viewer_id])).rows[0];assert.equal(stream.stream_id,current.stream_id);assert.equal(Number(stream.stream_generation),current.stream_generation);
+    for(const timer of timers)if(timer.ms===5000)await timer.fn();await h.settle();assert.notEqual(h.value.model.state,'access_removed');
+    const presence=await route(`/sessions/${task.id}/presence`,{method:'POST',headers:{'X-SJC-Browser-Viewer':current.viewer_id,'X-SJC-Browser-Device':current.device_secret,...(current.owner_review_claim?{'X-SJC-Browser-Claim':current.owner_review_claim.claim_id}:{})},body:JSON.stringify({viewer_id:current.viewer_id,device_secret:current.device_secret,visible:true,host_context:ownerView?{kind:'owner_review',claim_id:current.owner_review_claim.claim_id}:{kind:'initiator',conversation_id:thread},expected_epoch:Number((await c.query('SELECT control_epoch FROM browser_tasks WHERE id=$1',[task.id])).rows[0].control_epoch),idempotency_key:crypto.randomUUID()})});assert.equal(presence.status,200,'replacement remains renewable, never 403');
+    assert.equal((await c.query('SELECT left_at FROM browser_viewers WHERE id=$1',[secondViewer.viewer_id])).rows[0].left_at,null,'second device remains attended');
+   }finally{
+    deliverFirst?.();deliverLeave?.();h?.dispose();await h?.settle();while(pending.size)await Promise.allSettled([...pending]);Object.assign(globalThis,saved);
+   }
+  }));
+ },{fresh:true});}finally{stopCluster();delete globalThis.__phase0aDb;}
 });

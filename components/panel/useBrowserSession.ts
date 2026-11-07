@@ -9,6 +9,13 @@ import {isNavigation,navigationBinding} from './browser/navigation';
 import {Frame,InputEvent} from '../../lib/browser/phase1-contracts.mjs';
 
 export type BrowserSession=ReturnType<typeof useBrowserSession>;
+type JoinLease={binding:unknown[];key:string;version:number;joined:(Viewer & Detail)|null;pending:Promise<Viewer & Detail>|null;owner:object;release?:object;retiring:Promise<void>|null;drain:Promise<unknown>|null;retirementFailed:boolean};
+// All acquisitions (including private consent/claim renewal) belong to the lease,
+// so departure also waits for their committed replies before retiring it.
+function acquireLease(lease:JoinLease,request:()=>Promise<Viewer & Detail>){
+ if(!lease.pending)lease.pending=request().then(d=>{lease.joined=d;lease.key=crypto.randomUUID();return d;}).finally(()=>{lease.pending=null;});
+ return lease.pending;
+}
 const initial:BrowserModel={state:'empty',origin:'',phone:true,ownerName:'Owner',personName:'Team member',width:360};
 export function useBrowserSession({taskId,conversationId,visible,active=true,ownerView=false,localThreadId,signal,onExit,identity,onCreated,ensureConversation}:{taskId:string|null;conversationId:string|null;visible:boolean;active?:boolean;ownerView?:boolean;localThreadId?:string|null;signal?:AbortSignal;onExit?:()=>void;identity?:{personName:string;ownerName:string;isOwner:boolean;canChooseProject?:boolean};onCreated?:(id:string)=>void;ensureConversation?:()=>Promise<string>}) {
  const [model,setModel]=useState<BrowserModel>(initial),[version,refresh]=useState(0),[joinVersion,rejoin]=useState(0);
@@ -20,7 +27,7 @@ export function useBrowserSession({taskId,conversationId,visible,active=true,own
  const adoption=useRef<{taskId:string;joined:Viewer & Detail}|null>(null),viewer=useRef<Viewer|null>(null),detail=useRef<Detail|null>(null),frame=useRef<FrameData|null>(null),token=useRef<{value:string;expires:number}|null>(null),reads=useRef<Reads|null>(null),seq=useRef(0),busy=useRef(false),current=useRef(0),frameGate=useRef(createFrameGate()),streamDrain=useRef<Promise<unknown>>(Promise.resolve()),streamAbort=useRef<AbortController|null>(null),streamStop=useRef<(()=>Promise<unknown>)|null>(null),offset=useRef(0),idleDeadline=useRef<string|null>(null),address=useRef(''),purpose=useRef(''),requestedAction=useRef<string|null>(null),donePrompt=useRef(false),leaveResolve=useRef<((ok:boolean)=>void)|null>(null),lastMove=useRef(0),mustPause=useRef(false);
  // A lease survives effect replay and reconnects, but never crosses a task,
  // thread, role or authenticated host scope. No credential is persisted.
- const joinLease=useRef<{binding:unknown[];key:string;version:number;joined:(Viewer & Detail)|null;pending:Promise<Viewer & Detail>|null;release?:object;disposed:boolean}|null>(null);
+ const leases=useRef<JoinLease[]>([]),joinLease=useRef<JoinLease|null>(null);
  const snapshotRef=useRef<{task_id:string;revision:string;status:string;takeover:boolean;attention:'none'|'needs_you';run_id:string|null}|null>(null);
  const patch=useCallback((p:Partial<BrowserModel>)=>setModel(m=>({...m,...p})),[]);
  const clear=useCallback(()=>{streamAbort.current?.abort();frame.current=null;token.current=null;patch({frameUrl:undefined,capture:false});},[patch]);
@@ -46,38 +53,60 @@ export function useBrowserSession({taskId,conversationId,visible,active=true,own
   const generation=++current.current;reconnectReview.current=false;const c=new AbortController();viewer.current=null;mustPause.current=false;frameGate.current=createFrameGate();detail.current=null;snapshotRef.current=null;reads.current=null;donePrompt.current=false;clear();patch({state:taskId?'starting':'empty',taskId:taskId??undefined,taskRevision:undefined,ownerPaused:false,idleSeconds:undefined,projectId:null,projectLabel:null,hasTask:!!taskId,privateConsented:false,privateViewStatus:'required',dialog:null,error:undefined,availableControls:[],queuePosition:null,readUrls:[],approvedReadUrls:[],readExpired:true,watchingOwner:false});
   const abort=()=>{c.abort();clear();viewer.current=null;patch({state:'access_removed',dialog:null});};signal?.addEventListener('abort',abort,{once:true});
   if(!taskId||!active)return ()=>{c.abort();signal?.removeEventListener('abort',abort);};
-  const binding=[taskId,conversationId,ownerView,localThreadId,signal];
-  let lease=joinLease.current;
-  if(!lease||lease.disposed||lease.binding.some((v,i)=>v!==binding[i])){
-   lease={binding,key:crypto.randomUUID(),version:joinVersion,joined:null,pending:null,disposed:false};joinLease.current=lease;
+  const binding=[taskId,conversationId,ownerView,localThreadId,signal],owner={};
+  let lease=leases.current.find(l=>l.binding.every((v,i)=>v===binding[i]));
+  if(!lease){
+   lease={binding,key:crypto.randomUUID(),version:joinVersion,joined:null,pending:null,owner,retiring:null,drain:null,retirementFailed:false};leases.current.push(lease);
   }
-  lease.release=undefined;
+  lease.owner=owner;lease.release=undefined;joinLease.current=lease;
   const mounted=lease;
+  // Once Leave is sent it cannot be cancelled. Keep its ACK as an acquisition
+  // barrier; an uncertain failure must drain on retry before any replacement.
+  const retire=()=>{
+   mounted.retirementFailed=false;
+   const leaving=mounted.joined!;
+   const retirement=Promise.resolve().then(()=>browserAPI.leave(taskId,leaving)).then(()=>{
+    mounted.joined=null;mounted.key=crypto.randomUUID();mounted.version=-1;
+   }).catch(e=>{mounted.retirementFailed=true;throw e;}).finally(()=>{mounted.retiring=null;});
+   mounted.retiring=retirement;return retirement;
+  };
   const join=async()=>{try{
+   // Different host/auth scopes cannot share credentials. Their prior same-task
+   // retirement must finish too, since the server may still reuse this device.
+   const predecessors=leases.current.filter(l=>l!==mounted&&l.binding[0]===taskId&&l.drain).map(l=>l.drain!);
+   if(predecessors.length)await Promise.all(predecessors);
+   if(mounted.retiring)await mounted.retiring;
+   else if(mounted.retirementFailed)await retire();
+   if(c.signal.aborted||mounted.owner!==owner)return;
    const adopted=adoption.current?.taskId===taskId?adoption.current.joined:null;adoption.current=null;
    if(adopted)mounted.joined=adopted;
    if(!mounted.pending&&(!mounted.joined||mounted.version!==joinVersion)){
     mounted.version=joinVersion;
-    mounted.pending=browserAPI.join(taskId,{device_id:getDeviceId(),mode:ownerView?'owner_review':'initiator',...(ownerView&&localThreadId?{local_thread_id:localThreadId}:{})},mounted.joined??undefined,undefined,mounted.key).then(d=>{mounted.joined=d;mounted.key=crypto.randomUUID();return d;}).finally(()=>{mounted.pending=null;});
+    acquireLease(mounted,()=>browserAPI.join(taskId,{device_id:getDeviceId(),mode:ownerView?'owner_review':'initiator',...(ownerView&&localThreadId?{local_thread_id:localThreadId}:{})},mounted.joined??undefined,undefined,mounted.key));
    }
    const d=mounted.pending?await mounted.pending:mounted.joined!;
    if(c.signal.aborted||generation!==current.current)return;
    reconnectReview.current=joinVersion>0;viewer.current=d;apply(d);if(requestedAction.current)void action('load_action',requestedAction.current);void browserAPI.answers(taskId,d).then(a=>{if(!c.signal.aborted)patch({answers:a.answers});}).catch(()=>{});refresh(x=>x+1);
   }catch(e){if(!c.signal.aborted)failure(e);}};
   void join();
-  const presence=async()=>{const v=viewer.current,d=detail.current;if(!v||!d||c.signal.aborted)return;try{if(ownerView&&v.owner_review_claim&&Date.parse(v.owner_review_claim.expires_at)<Date.now()+30000){const renewed=await browserAPI.join(taskId,{device_id:getDeviceId(),mode:'owner_review',...(localThreadId?{local_thread_id:localThreadId}:{}),private_view:live.current.model.privateConsented===true},v,c.signal);if(c.signal.aborted)return;mounted.joined=renewed;viewer.current=renewed;apply(renewed);refresh(x=>x+1);return;}const renewed=await browserAPI.presence(taskId,v,{visible:!document.hidden&&live.current.active,host_context:ownerView?{kind:'owner_review',claim_id:v.owner_review_claim!.claim_id}:{kind:'initiator',conversation_id:conversationId!},expected_epoch:d.task.control_epoch});if(c.signal.aborted)return;token.current=renewControl(token.current,detail.current??d,renewed);await reload();}catch(e){if(!c.signal.aborted){if(['BROWSER_STREAM_STALE','BROWSER_REVIEW_STALE'].includes((e as BrowserAPIError).code)){clear();try{await reload();}catch(error){failure(error);}}else failure(e);}}};
+  const presence=async()=>{const v=viewer.current,d=detail.current;if(!v||!d||c.signal.aborted)return;try{if(ownerView&&v.owner_review_claim&&Date.parse(v.owner_review_claim.expires_at)<Date.now()+30000){const renewed=await acquireLease(mounted,()=>browserAPI.join(taskId,{device_id:getDeviceId(),mode:'owner_review',...(localThreadId?{local_thread_id:localThreadId}:{}),private_view:live.current.model.privateConsented===true},v,undefined,mounted.key));if(c.signal.aborted)return;mounted.joined=renewed;viewer.current=renewed;apply(renewed);refresh(x=>x+1);return;}const renewed=await browserAPI.presence(taskId,v,{visible:!document.hidden&&live.current.active,host_context:ownerView?{kind:'owner_review',claim_id:v.owner_review_claim!.claim_id}:{kind:'initiator',conversation_id:conversationId!},expected_epoch:d.task.control_epoch});if(c.signal.aborted)return;token.current=renewControl(token.current,detail.current??d,renewed);await reload();}catch(e){if(!c.signal.aborted){if(['BROWSER_STREAM_STALE','BROWSER_REVIEW_STALE'].includes((e as BrowserAPIError).code)){clear();try{await reload();}catch(error){failure(error);}}else failure(e);}}};
   const tick=setInterval(presence,5000);
   const hide=()=>{if(document.hidden){clear();void presence();}};document.addEventListener('visibilitychange',hide);
   return ()=>{c.abort();clearInterval(tick);signal?.removeEventListener('abort',abort);document.removeEventListener('visibilitychange',hide);viewer.current=null;clear();leaveResolve.current?.(false);leaveResolve.current=null;
-   // StrictMode tears down and replays effects synchronously. Only a real
-   // departure retires attendance; a delayed join is still cleaned up once.
-   const release={};mounted.release=release;queueMicrotask(()=>{
-    if(mounted.release!==release||mounted.disposed)return;mounted.disposed=true;
-    void Promise.resolve(mounted.pending).catch(()=>null).then(()=>{if(mounted.joined)return browserAPI.leave(taskId,mounted.joined);}).catch(()=>{});
-   });};
+   // Ownership can transfer while a committed join reply is still in flight,
+   // including A→empty→A and A→B→A. Check the departing token AFTER the
+   // pending acquisition, immediately before sending Leave.
+   if(mounted.owner!==owner)return;
+   mounted.release=owner;
+   mounted.drain=Promise.resolve(mounted.pending).catch(()=>null).then(()=>{
+     if(mounted.owner!==owner||mounted.release!==owner||mounted.retiring||!mounted.joined)return;
+     return retire();
+   });
+   void mounted.drain.catch(()=>{});};
  },[taskId,conversationId,active,ownerView,localThreadId,signal,joinVersion,apply,clear,patch,reload,failure,getDeviceId]);
+ const streamSession=!!detail.current&&['active','paused'].includes(detail.current.task.state)&&detail.current.reason_code!=='BROWSER_DISABLED';
  useEffect(()=>{
-  const v=viewer.current,d=detail.current;if(!taskId||!v||!d||!visible||!active||document.hidden||!frameGate.current.ready()||(ownerView&&d.task.private&&!privateWatchReady(model)))return;
+  const v=viewer.current,d=detail.current;if(!taskId||!v||!d||!visible||!active||document.hidden||!v.stream_id||!Number.isSafeInteger(v.stream_generation)||v.stream_generation<1||!['active','paused'].includes(d.task.state)||d.reason_code==='BROWSER_DISABLED'||!frameGate.current.ready()||(ownerView&&d.task.private&&!privateWatchReady(model)))return;
   const c=new AbortController();streamAbort.current=c;const lifecycle=createStreamLifecycle(()=>c.abort());c.signal.addEventListener('abort',()=>lifecycle.fail(),{once:true});let stopped=false,opened=false,serverRotated=false,rotation:ReturnType<typeof setTimeout>|undefined;
   const stop=()=>{stopped=true;if(rotation)clearTimeout(rotation);frame.current=null;patch({frameUrl:undefined});if(!opened||serverRotated||c.signal.aborted){lifecycle.fail();c.abort();return Promise.resolve();}return lifecycle.close(binding=>browserAPI.closeStream(taskId,v,binding));};streamStop.current=stop;
   const run=async()=>{try{await streamDrain.current;if(stopped||c.signal.aborted)return;opened=true;await browserAPI.events(taskId,v,c.signal,(name,payload)=>{
@@ -91,7 +120,7 @@ export function useBrowserSession({taskId,conversationId,visible,active=true,own
   });if(!stopped&&!serverRotated&&!c.signal.aborted){clear();patch({state:'disconnected'});}}catch(e){if(!stopped&&!serverRotated&&!c.signal.aborted)failure(e);}finally{lifecycle.fail();}};void run();
   return ()=>{if(streamStop.current===stop)streamStop.current=null;streamDrain.current=stop().catch(()=>{});};
   // Live pause deliberately leaves the authenticated stream and attendance running.
- },[taskId,visible,active,ownerView,model.privateConsented,model.privateViewStatus,version,apply,clear,patch,failure,reload]);
+ },[taskId,visible,active,ownerView,model.privateConsented,model.privateViewStatus,streamSession,version,apply,clear,patch,failure,reload]);
  useEffect(()=>{const tick=setInterval(()=>{if(token.current&&token.current.expires<=Date.now()){token.current=null;patch({state:'paused_private',capture:false});}if(reads.current&&readReview(reads.current,offset.current).readExpired)patch({readExpired:true});const end=idleDeadline.current;if(end)patch({idleSeconds:Math.max(0,Math.ceil((Date.parse(end)-Date.now()-offset.current)/1000))});},1000);return ()=>clearInterval(tick);},[patch]);
  async function loadReads(cursor?:string){if(!taskId||!viewer.current)return;const generation=current.current,request=++readRequest.current,revision=reads.current?.revision;reads.current=null;patch({readUrls:[],readSuggestions:[],readNextCursor:null,readExpired:true});try{const r=await browserAPI.reads(taskId,viewer.current,cursor);if(generation!==current.current||request!==readRequest.current)return;if(cursor&&revision!==r.revision)throw new BrowserAPIError('BROWSER_REVIEW_STALE');reads.current=r;patch({...readReview(r,offset.current),readNextCursor:r.next_cursor??null,approvedReadUrls:(r.entries??[]).map(e=>e.canonical_url)});}catch(e){if(generation===current.current&&request===readRequest.current)patch({error:browserErrorCopy((e as BrowserAPIError).code,live.current.model)});}}
  const perform=async(action:ControlMessage['action'],target?:string)=>{
@@ -145,7 +174,7 @@ export function useBrowserSession({taskId,conversationId,visible,active=true,own
    else if(name==='resume'){if(!detail.current?.task.private)await perform('resume');}
    else if(name==='start'&&taskId){const started=await browserAPI.start(taskId,viewer.current??undefined);apply(started);if(started.start_code)throw new BrowserAPIError(started.start_code);await reload();}
    else if(name==='reconnect'){clear();rejoin(x=>x+1);}
-   else if(name==='show_private'&&taskId&&detail.current?.task.private){const epoch=current.current;clear();patch({privateConsented:false,privateViewStatus:'pending_audit'});const v=await browserAPI.join(taskId,{device_id:getDeviceId(),mode:'owner_review',private_view:true,...(localThreadId?{local_thread_id:localThreadId}:{})},viewer.current??undefined);if(epoch!==current.current||!apply(v))return;viewer.current=v;if(joinLease.current)joinLease.current.joined=v;patch({privateConsented:v.task.private&&['pending_audit','authorized'].includes(v.private_view_status)});refresh(x=>x+1);}
+   else if(name==='show_private'&&taskId&&detail.current?.task.private){const epoch=current.current,lease=joinLease.current;if(!lease)return;clear();patch({privateConsented:false,privateViewStatus:'pending_audit'});const v=await acquireLease(lease,()=>browserAPI.join(taskId,{device_id:getDeviceId(),mode:'owner_review',private_view:true,...(localThreadId?{local_thread_id:localThreadId}:{})},viewer.current??undefined,undefined,lease.key));if(epoch!==current.current||!apply(v))return;viewer.current=v;if(joinLease.current)joinLease.current.joined=v;patch({privateConsented:v.task.private&&['pending_audit','authorized'].includes(v.private_view_status)});refresh(x=>x+1);}
    else if(name==='keep_open'&&taskId&&viewer.current&&detail.current){await browserAPI.presence(taskId,viewer.current,{visible:true,host_context:ownerView?{kind:'owner_review',claim_id:viewer.current.owner_review_claim!.claim_id}:{kind:'initiator',conversation_id:conversationId!},expected_epoch:detail.current.task.control_epoch});await reload();}
    else if(name==='close_review'&&detail.current?.pending_action&&viewer.current){await browserAPI.closeNotice(detail.current.pending_action.id,viewer.current,detail.current.pending_action.revision);await reload();}
    else if((name==='approve_read'||name==='deny_read')&&taskId&&viewer.current&&reads.current){const r=reads.current;if(name==='approve_read'&&(live.current.model.readExpired||readReview(r,offset.current).readExpired))return;if(name==='deny_read'&&!r.candidates?.length&&detail.current?.pending_action)await browserAPI.closeNotice(detail.current.pending_action.id,viewer.current,detail.current.pending_action.revision);else await browserAPI.decideRead(taskId,viewer.current,r.revision,(r.candidates??[]).map(x=>({url:x.url,role:x.role,source:x.source})),name==='approve_read'?'approve':'deny');await reload();}

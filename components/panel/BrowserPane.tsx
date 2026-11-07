@@ -25,7 +25,7 @@ export function BrowserPane({context,slot,handle}:{context:AskPaneRenderContext;
   const key=(e:KeyboardEvent)=>trapAskFocus(e,element);element.addEventListener('keydown',key);
   return ()=>{release();element.removeEventListener('keydown',key);opener?.isConnected&&opener.focus();};
  },[slot,m.dialog,m.state]);
- if(context.signal.aborted)return null;
+ if(context.signal.aborted||(slot==='actions'&&m.dialog))return null;
  return <div ref={root} className="h-full min-h-0"><BrowserView model={m} slot={slot} onAction={(a,v)=>void session.action(a,v)} onInput={session.input}/></div>;
 }
 export function useBrowserFeed(scope:AskPaneScope|null,agent:string,active=true,visible=false,onClaude?:()=>void,onExit?:()=>void,ensureConversation?:()=>Promise<string>,newChatProject?:string) {

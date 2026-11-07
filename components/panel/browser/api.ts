@@ -6,7 +6,7 @@ import type {NavigationBinding} from './navigation';
 import type * as Web from '../../../lib/browser/web-types';
 import type {TaskUI as Task,ReviewNotice as Review,OwnerBrowserReviewClaim as OwnerClaim,BrowserStatus,BrowserJoin,BrowserAvailability,BrowserResponse,ControlMessage,ManualInput as Input} from '../../../lib/browser/web-types';
 export type {Task,Review,OwnerClaim};
-export type Viewer=Pick<BrowserJoin,'viewer_id'|'device_secret'|'expires_at'|'owner_review_claim'>;
+export type Viewer=Pick<BrowserJoin,'viewer_id'|'device_secret'|'expires_at'|'owner_review_claim'|'stream_id'|'stream_generation'>;
 export type Detail=BrowserStatus;
 export type Reads=Web.BrowserReads;
 export type Settings=Web.BrowserSettings;

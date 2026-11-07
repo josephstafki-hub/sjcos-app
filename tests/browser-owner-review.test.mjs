@@ -45,3 +45,10 @@ test('R3 2 owner dialogs have only their own decisions at portrait split and lan
 test('R3 10 owner header separates Back from the independently wrapping title',()=>{
  for(const width of [360,820,1280]){const html=view({width,projectLabel:'Maple Ave kitchen'});assert.match(html,/<header[^>]*gap-2/);assert.match(html,/<\/button><span[^>]*min-w-0[^>]*>Abigail's browser — Maple Ave kitchen<\/span>/);assert.doesNotMatch(html,/<span[^>]*> · Abigail/);}
 });
+
+test('R4 owner landscape dialog uses the full stage without an empty action column',()=>{
+ for(const dialog of ['replace','fresh','pause_owner']){
+  const html=view({landscape:true,width:800,dialog,privatePage:false});assert.doesNotMatch(html,/grid-template-columns:minmax\(0,1fr\) 128px|col-start-2 row-start-3/);assert.match(html,/grid-template-columns:minmax\(0,1fr\)/);
+ }
+ assert.match(view({landscape:true,width:800,privatePage:false}),/grid-template-columns:minmax\(0,1fr\) 128px/);
+});

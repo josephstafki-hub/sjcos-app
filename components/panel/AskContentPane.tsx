@@ -47,6 +47,8 @@ export function AskContentPane({id,registration,onExit,entrySerial,...context}:A
     className="grid h-full min-h-0 min-w-0 overflow-hidden bg-paper text-body"
     style={{gridTemplateColumns:landscape?'minmax(0,1fr) 128px':'minmax(0,1fr)',gridTemplateRows:landscape?'48px 20px minmax(200px,1fr)':snapshot.kind==='browser'?'48px minmax(20px,auto) minmax(0,1fr) auto':'48px 20px minmax(0,1fr) 56px'}}>
     {snapshot.kind==='browser'&&<style>{`
+      [data-ask-pane="browser"] > [data-browser-shell-actions]:empty {display:none}
+      [data-ask-pane="browser"][data-landscape="true"]:has(> [data-browser-shell-actions]:empty) {grid-template-columns:minmax(0,1fr) !important}
       [data-ask-pane="browser"]:has([data-browser-compact-capture="true"]) {grid-template-rows:44px 0px minmax(0,1fr) 44px !important}
       [data-ask-pane="browser"][data-landscape="true"]:has([data-browser-compact-capture="true"]) {grid-template-rows:44px 0px minmax(0,1fr) !important}
       [data-ask-pane="browser"]:has([data-browser-compact-capture="true"]) > [data-browser-shell-title] {height:44px}
@@ -68,7 +70,7 @@ export function AskContentPane({id,registration,onExit,entrySerial,...context}:A
       <div ref={stage} className="h-full min-h-0 min-w-0">{slots.content}</div>
       <span tabIndex={0} data-ask-boundary className="sr-only" aria-label="End of pane content" onFocus={e=>boundary(false,e.relatedTarget,e.currentTarget)} />
     </div>
-    <div ref={actions} className={`min-h-0 min-w-0 ${landscape?'col-start-2 row-start-1 row-span-3 flex flex-col overflow-y-auto border-l':`col-start-1 row-start-4 flex items-center border-t ${snapshot.kind==='browser'?'min-h-14 max-h-[40dvh] overflow-y-auto':'h-14'}`} border-rule [&_button]:min-h-12`}>
+    <div ref={actions} data-browser-shell-actions className={`min-h-0 min-w-0 ${landscape?'col-start-2 row-start-1 row-span-3 flex flex-col overflow-y-auto border-l':`col-start-1 row-start-4 flex items-center border-t ${snapshot.kind==='browser'?'min-h-14 max-h-[40dvh] overflow-y-auto':'h-14'}`} border-rule [&_button]:min-h-12`}>
       {slots.actions}
     </div>
   </section>;

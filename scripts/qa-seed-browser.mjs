@@ -4,6 +4,7 @@ import {pathToFileURL} from 'node:url';
 import {randomBytes,randomUUID,createHmac,createHash,scryptSync} from 'node:crypto';
 import {mkdir,writeFile,readFile,chmod} from 'node:fs/promises';
 import {qaTarget,qaGuard,qaPrivatePath,prepareQaAuditKeys,QA_PEOPLE,PUBLIC_URLS,qaProof,qaAttachRun,qaIdentity,writeScenario} from './qa-browser-fake-controller.mjs';
+import {prepareQaLogins,qaLoginUrl,verifyQaLoginUrls,QA_LOGINS} from '../qa/browser/logins.mjs';
 import * as repo from '../lib/browser/repository.mjs';
 import {buildReadManifest} from '../lib/browser/read-manifest.mjs';
 
@@ -38,13 +39,14 @@ export const RECIPES={
  resource_expired:['resource_review','Wait 60 seconds; candidate deadlines are never extended by GET.'],
 };
 const idFor=text=>{const h=createHash('sha256').update('sjcos-browser-qa-v1:'+text).digest('hex');return `${h.slice(0,8)}-${h.slice(8,12)}-4${h.slice(13,16)}-a${h.slice(17,20)}-${h.slice(20,32)}`;};
+export const QA_PROJECT={id:idFor('maple-ave-kitchen'),slug:'qa-browser-maple-ave-kitchen',name:'Maple Ave kitchen'};
 const hash=x=>createHash('sha256').update(x).digest();
 const origins={v:1,entries:[{origin:'https://city.example',role:'document'},{origin:'https://county.example',role:'document'}]};
 const setting=async(c,k,v)=>c.query(`INSERT INTO app_settings(key,value) VALUES($1,$2) ON CONFLICT(key) DO UPDATE SET value=EXCLUDED.value,updated_at=clock_timestamp() WHERE app_settings.value IS DISTINCT FROM EXCLUDED.value`,[k,v]);
 
 /** c must be the caller's explicit connected QA bootstrap client, never ambient. */
 export async function seedBrowser(c,{state='working',refresh=false,resourceCount=1}={}){
- const dir=await qaGuard(c),database=(await c.query('SELECT current_database() name')).rows[0].name;
+ const dir=await prepareQaLogins(c),database=(await c.query('SELECT current_database() name')).rows[0].name;
  if(!BASE_STATES.includes(state)&&!RECIPES[state])throw Error('Unknown QA Browser state');
  const requested=state,base=RECIPES[state]?.[0]??state;if(state==='resource_20')resourceCount=20;
  await mkdir(dir,{recursive:true,mode:0o700});await qaPrivatePath(dir);
@@ -56,7 +58,8 @@ export async function seedBrowser(c,{state='working',refresh=false,resourceCount
  // Serialize all seed invocations; no disabling triggers/constraints or schema changes.
  await c.query('SELECT pg_advisory_lock(1150099)');
  try{
-  const scenario=previous??{v:1,database,install_id:randomUUID(),tasks:{},states:{}};scenario.install_id??=randomUUID();
+  if(previous?.fixture_revision!==2)refresh=true;
+  const scenario=previous??{v:1,database,install_id:randomUUID(),tasks:{},states:{}};scenario.install_id??=randomUUID();scenario.fixture_revision=2;
   const asWebsite=fn=>qaIdentity(c,website,fn),asService=fn=>qaIdentity(c,'sjcos_browser',fn);
   await asWebsite(async c=>{
    for(const [role,p] of Object.entries(QA_PEOPLE)){
@@ -66,6 +69,7 @@ export async function seedBrowser(c,{state='working',refresh=false,resourceCount
     await c.query(`INSERT INTO users(id,email,name,role,permissions,password_hash,initials) VALUES($1,$2,$3,$4,ARRAY['ai','projects','compliance'],$6,$5) ON CONFLICT(id) DO NOTHING`,[p.id,p.email,p.name,role,p.name.slice(0,2),passwordHash]);
     const u=(await c.query('SELECT * FROM users WHERE id=$1',[p.id])).rows[0];if(u.role!==role||!u.active||role==='staff'&&!['ai','projects','compliance'].every(a=>u.permissions.includes(a)))throw Error('QA principal collision or missing permissions');
    }
+   await c.query(`INSERT INTO projects(id,slug,name,client_name,address) VALUES($1,$2,$3,'Morgan Reed','124 Maple Avenue') ON CONFLICT(id) DO NOTHING`,[QA_PROJECT.id,QA_PROJECT.slug,QA_PROJECT.name]);
    for(const [k,v] of Object.entries({'browser.enabled':'true','browser.staff_enabled':'true','browser.pilot_user_ids':JSON.stringify(Object.values(QA_PEOPLE).map(p=>p.id)),'browser.vault_enabled':'false','browser.files_enabled':'false','browser.final_steps_enabled':'false','browser.permit_handoff_enabled':'false'}))await setting(c,k,v);
    // Same disposable recovery readiness convention as the existing QA seeds.
    await c.query('UPDATE ask_canvas_maintenance SET recovery_ready=true WHERE NOT recovery_ready');
@@ -74,24 +78,26 @@ export async function seedBrowser(c,{state='working',refresh=false,resourceCount
    const key=role+'_'+kind,person=QA_PEOPLE[role],thread=idFor(key);
    await asWebsite(c=>c.query(`INSERT INTO ai_conversations(id,agent,title,owner_user_id) VALUES($1,'claude',$2,$3) ON CONFLICT(id) DO NOTHING`,[thread,'QA Browser · '+person.name+' · '+kind,person.id]));
    if(kind==='empty'){scenario.states[key]={url:`/panel?c=${thread}`,as:role,thread_id:thread,notes:'Choose Browser. No task has been started.'};return;}
-   const live=(await asWebsite(c=>c.query(`SELECT * FROM browser_tasks WHERE initiator_user_id=$1 AND state IN ('queued','starting','active','paused')`,[person.id]))).rows[0];
+   let live=(await asWebsite(c=>c.query(`SELECT * FROM browser_tasks WHERE initiator_user_id=$1 AND state IN ('queued','starting','active','paused')`,[person.id]))).rows[0];
    if(live){
     // Stop queued tasks through the website too: a waiting task has no boot yet.
     const device=randomBytes(32),join=await asWebsite(c=>qaProof(c,live,live.initiating_web_session_id,null,'join',{}, {device_secret_hash:device.toString('hex')}));
     const viewer=await asWebsite(c=>repo.browserWebJoin(c,{tid:live.id,session:live.initiating_web_session_id,device_hash:device,role:'initiator',private_view:false,i:join.i,d:join.d}));
+    // Join may retire expired control/attendance and advance the epoch.
+    live=(await asWebsite(c=>c.query('SELECT * FROM browser_tasks WHERE id=$1',[live.id]))).rows[0];
     const p=await asWebsite(c=>qaProof(c,live,live.initiating_web_session_id,viewer.viewer_id,'close'));
     await asWebsite(c=>repo.browserWebControl(c,{tid:live.id,vid:viewer.viewer_id,op:'stop',epoch:Number(live.control_epoch),i:p.i,d:p.d}));
     if(live.current_run_id)await asWebsite(c=>c.query("UPDATE dev_agent_runs SET status='done' WHERE id=$1",[live.current_run_id]));if(scenario.tasks[live.id])scenario.tasks[live.id].active=false;
    }
    const sid=(await asWebsite(c=>c.query(`INSERT INTO web_sessions(user_id,auth_at,expires_at) VALUES($1,now(),now()+interval '8 hours') RETURNING id`,[person.id]))).rows[0].id;
    const boot=randomUUID(),now=Date.now(),initial=buildReadManifest({proposal:{v:1,entries:[{url:PUBLIC_URLS[0],role:'document',source:'person'}]},expectedRevision:0,actorProof:{key:createHmac('sha256',keys.request).update('browser-phase1-read-manifest-key').digest(),task:{origins,private:false,privacy_mode:'public',document_epoch:0,read_manifest_revision:0},confirmedFacts:{values:[],classifyPublicUrl:u=>PUBLIC_URLS.includes(u)},userId:person.id,sessionId:sid,sessionExpiresAt:now+3600000,authorize:()=>true}});
-   let task=await asWebsite(c=>repo.browserWebAdmit(c,{conversation:thread,project:null,kind:'public_research',manifest:{purpose:'Check public permit requirements for a residential alteration.',origins,initial_read:initial},session:sid,i:randomUUID(),d:hash(kind+role)}));
+   let task=await asWebsite(c=>repo.browserWebAdmit(c,{conversation:thread,project:QA_PROJECT.id,kind:'public_research',manifest:{purpose:'Check public permit requirements for a residential alteration.',origins,initial_read:initial},session:sid,i:randomUUID(),d:hash(kind+role)}));
    // The real queue offer persists the fixture kernel boot; acceptance initializes both generations.
    const device=hash('QA seed viewer '+task.id),p=await asWebsite(c=>qaProof(c,task,sid,null,'join',{}, {device_secret_hash:device.toString('hex')}));
    const joined=await asWebsite(c=>repo.browserWebJoin(c,{tid:task.id,session:sid,device_hash:device,role:'initiator',private_view:false,i:p.i,d:p.d}));const vid=joined.viewer_id;
    const get=async()=>{const t=(await asWebsite(c=>c.query('SELECT * FROM browser_tasks WHERE id=$1',[task.id]))).rows[0];return {...t,control_epoch:Number(t.control_epoch),document_epoch:Number(t.document_epoch),context_generation:Number(t.context_generation),revision:Number(t.revision)};};
    const control=async(op,extra={})=>{task=await get();const p=await asWebsite(c=>qaProof(c,task,sid,vid,({stop:'close',done:'release',take_over:'takeover'})[op]??op,{},extra));return asWebsite(c=>repo.browserWebControl(c,{tid:task.id,vid,op,epoch:task.control_epoch,i:p.i,d:p.d}));};
-   const entry={task_id:task.id,as:role,state:kind,active:!archive};scenario.tasks[task.id]=entry;
+   const entry={task_id:task.id,project_id:QA_PROJECT.id,task_label:'Check public permit requirements',job_label:QA_PROJECT.name,as:role,state:kind,active:!archive};scenario.tasks[task.id]=entry;
    if(!['queued','offer','offer_expired','queue_expired'].includes(kind)){
     await asService(c=>repo.browserQueueOffer(c,{boot}));
     const p=await asWebsite(c=>qaProof(c,task,sid,vid,'accept_offer',{}, {boot_id:boot}));await asWebsite(c=>repo.browserWebQueue(c,{tid:task.id,vid,op:'accept',i:p.i,d:p.d}));task=await get();
@@ -115,6 +121,8 @@ export async function seedBrowser(c,{state='working',refresh=false,resourceCount
      if(kind==='paused_private'||kind==='other_device')await asService(c=>repo.browserEnterPrivate(c,{tid:task.id,boot,expected_epoch:task.control_epoch,mode:'private'}));
      else if(!['working','idle_warning','read_review','resource_review','write_blocked','final_blocked'].includes(kind))await control('pause',{fenced:true});
      if(kind==='other_device'){task=await get();await asWebsite(c=>c.query('UPDATE browser_tasks SET controller_user_id=$2,controller_device_hash=$3,control_expires_at=now()+interval \'8 hours\' WHERE id=$1',[task.id,person.id,device]));}
+     if(kind==='owner_paused')await asWebsite(c=>c.query("UPDATE browser_tasks SET paused_by='owner',paused_by_user_id=$2 WHERE id=$1",[task.id,QA_PEOPLE.owner.id]));
+     if(kind==='turn_ended')await asWebsite(c=>c.query("UPDATE browser_tasks SET paused_by='agent',paused_by_user_id=NULL WHERE id=$1",[task.id]));
      const reason={idle_closed:'idle_closed',crashed:'crashed',latched:'latched',absent:'absent',turn_ended:'turn_ended',owner_paused:'owner_paused',unknown:'unknown'}[kind];if(reason){entry.reason=reason;entry.no_frames=['idle_closed','crashed','latched'].includes(kind);}
      const code={queue_full:'BROWSER_QUEUE_FULL',auth_expired:'BROWSER_AUTH_EXPIRED',access_removed:'BROWSER_REVOKED',closed:'BROWSER_NOT_FOUND',service_unavailable:'BROWSER_SERVICE_UNAVAILABLE'}[kind];if(code){entry.code=code;entry.no_frames=true;}
      if(kind==='idle_warning')entry.idle_closes_at=new Date(Date.now()+60000).toISOString();
@@ -130,7 +138,8 @@ export async function seedBrowser(c,{state='working',refresh=false,resourceCount
    }
    if(archive)await control('stop');
    // Seed attendance is not an extra device competing with screenshot viewers.
-   await asWebsite(c=>c.query('UPDATE browser_viewers SET left_at=now(),visible_until=now() WHERE id=$1',[vid]));
+   if(kind==='other_device'&&!archive)await asWebsite(c=>c.query("UPDATE browser_viewers SET visible_until=(SELECT expires_at FROM web_sessions WHERE id=browser_viewers.web_session_id) WHERE id=$1",[vid]));
+   else await asWebsite(c=>c.query('UPDATE browser_viewers SET left_at=now(),visible_until=now() WHERE id=$1',[vid]));
    if(archive){task=await get();if(task.current_run_id)await asWebsite(c=>c.query("UPDATE dev_agent_runs SET status='done' WHERE id=$1",[task.current_run_id]));}
    scenario.states[key]={url:`/panel?c=${thread}`,as:role,thread_id:thread,task_id:task.id,watch_url:role==='staff'?`/today?browser=${task.id}`:null,notes:`Select with --state ${kind} before capturing; choose Operator > Browser. ${archive?'Historical terminal fixture; not currently selected.':'Selected.'}`};
   };
@@ -150,20 +159,33 @@ export async function seedBrowser(c,{state='working',refresh=false,resourceCount
 }
 /** systemd EnvironmentFile syntax: values are quoted data, never shell code.
  * Do not source these files in a shell; use EnvironmentFile on the side units. */
+async function mergeEnvironment(target,values){
+ let previous='';try{await qaPrivatePath(target,{file:true});previous=await readFile(target,'utf8');}catch(e){if(e.code!=='ENOENT')throw e;}
+ // Keep all coordinator lines byte-for-byte, including comments and quoting.
+ const kept=previous.split('\n').filter(line=>{const key=/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=/.exec(line)?.[1];return !key||!Object.hasOwn(values,key);}).join('\n').replace(/\n*$/,'');
+ const generated=Object.entries(values).map(([k,v])=>k+'='+JSON.stringify(v)).join('\n');
+ await writeFile(target,(kept?kept+'\n':'')+generated+'\n',{mode:0o600});await chmod(target,0o600);
+}
 export async function writeQaEnvironment(c,url){
- const dir=await qaGuard(c),website=(await c.query("SELECT pg_get_userbyid(relowner) name FROM pg_class WHERE oid='browser_tasks'::regclass")).rows[0].name;
+ const dir=await qaGuard(c);
  const sessionFile=dir+'/keys/session.hex';try{await writeFile(sessionFile,randomBytes(32).toString('hex')+'\n',{flag:'wx',mode:0o600});}catch(e){if(e.code!=='EEXIST')throw e;}await qaPrivatePath(sessionFile,{file:true});
  const shared={SJC_QA_SIDE_BUILD:'1',SJC_QA_BROWSER_FAKE:dir,SJC_BROWSER_ENABLED:'1',SJC_OUTBOUND_DISABLED:'1'};
  for(const [name,key]of Object.entries({request:'SJC_BROWSER_WEB_RPC_KEY',response:'SJC_BROWSER_WEB_RESPONSE_KEY',frame:'SJC_BROWSER_FRAME_KEY'}))shared[key]=(await readFile(dir+'/keys/'+name+'.hex','utf8')).trim();
- const asLogin=login=>{const u=new URL(url);u.searchParams.set('options','-c session_authorization='+login);return u.href;};
- const side={...shared,DATABASE_URL:asLogin(website),SESSION_SECRET:(await readFile(sessionFile,'utf8')).trim(),NEXT_PUBLIC_APP_URL:process.env.NEXT_PUBLIC_APP_URL??'http://127.0.0.1:3191',SJC_DIST_DIR:'.next-qa-browser'};
- for(const [key,login]of Object.entries({DATABASE_URL_AGENT:'sjcos_agent',DATABASE_URL_WORKER:'sjcos_worker',DATABASE_URL_READONLY:'sjcos_readonly',DATABASE_URL_BACKUP:'sjcos_backup'}))side[key]=asLogin(login);
- for(const [file,values]of Object.entries({'fake.env':{...shared,SJC_QA_DATABASE_URL:url},'side.env':side})){
-  const text=Object.entries(values).map(([k,v])=>k+'='+JSON.stringify(v)).join('\n')+'\n';
-  const target=dir+'/'+file;try{await qaPrivatePath(target,{file:true});}catch(e){if(e.code!=='ENOENT')throw e;}
-  await writeFile(target,text,{mode:0o600});await chmod(target,0o600);
- }
+ const logins=Object.fromEntries(await Promise.all(QA_LOGINS.map(async role=>[role,await qaLoginUrl(url,role,dir)])));
+ // Real connections, every URL, before publishing an environment file.
+ await verifyQaLoginUrls(logins);
+ const side={...shared,DATABASE_URL:logins.sjcos,SESSION_SECRET:(await readFile(sessionFile,'utf8')).trim()};
+ for(const [key,role]of Object.entries({DATABASE_URL_AGENT:'sjcos_agent',DATABASE_URL_WORKER:'sjcos_worker',DATABASE_URL_READONLY:'sjcos_readonly',DATABASE_URL_BACKUP:'sjcos_backup',DATABASE_URL_BROWSER:'sjcos_browser'}))side[key]=logins[role];
+ const generated=dir+'/side.generated.env';try{await qaPrivatePath(generated,{file:true});}catch(e){if(e.code!=='ENOENT')throw e;}
+ await writeFile(generated,Object.entries(side).map(([k,v])=>k+'='+JSON.stringify(v)).join('\n')+'\n',{mode:0o600});await chmod(generated,0o600);
+ await mergeEnvironment(dir+'/side.env',side);
+ // Origin/dist/provider/Canvas/Ask/cron configuration belongs to the coordinator.
+ // Add an origin default only on first provision; preserve subsequent overrides.
+ const sideText=await readFile(dir+'/side.env','utf8');
+ if(!/^\s*NEXT_PUBLIC_APP_URL\s*=/m.test(sideText))await mergeEnvironment(dir+'/side.env',{NEXT_PUBLIC_APP_URL:process.env.NEXT_PUBLIC_APP_URL??'http://127.0.0.1:3191'});
+ await mergeEnvironment(dir+'/fake.env',{...shared,SJC_QA_DATABASE_URL:url});
 }
+
 async function main(){
  const name=process.argv[2],url=qaTarget(name,process.env.SJC_QA_DATABASE_URL);if(process.env.SJC_QA_SIDE_BUILD!=='1'||!process.env.SJC_QA_BROWSER_FAKE)throw Error('QA_ONLY: missing side-build env');
  const args=process.argv.slice(3);let state='working',refresh=false;for(let i=0;i<args.length;i++){if(args[i]==='--state')state=args[++i];else if(args[i]==='--refresh')refresh=true;else throw Error('Usage: qa-seed-browser.mjs DB_NAME [--state STATE] [--refresh]');}

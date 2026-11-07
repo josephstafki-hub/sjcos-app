@@ -4,7 +4,8 @@ import {createServer,connect} from 'node:net';
 import {readFile,writeFile,lstat,chmod} from 'node:fs/promises';
 import {pathToFileURL} from 'node:url';
 import {createHash,createHmac,randomUUID,randomBytes,generateKeyPairSync,createPrivateKey,createPublicKey,sign} from 'node:crypto';
-import {qaBrowserDirectory} from '../lib/browser/phase-flags.mjs';
+import {qaBrowserDirectory,clusterBinding} from '../qa/browser/fixture-guards.mjs';
+export {qaBrowserDirectory} from '../qa/browser/fixture-guards.mjs';
 import {canonical,digest,equal,projectMetadataPage,metadataBytes,verifyRpcResponse} from '../lib/browser/web-transport.mjs';
 import {createProductionRpc,encodeFrame,frameReader} from '../lib/browser/controller-rpc.mjs';
 import {encodeBinaryFrame} from '../lib/browser/live-view.mjs';
@@ -20,7 +21,7 @@ const refused=()=>{throw Error('QA_ONLY: explicit side-build env, private direct
 export function qaTarget(name,url){
  if(!/^sjcos_qa_[a-z0-9_]+$/.test(name??''))refused();
  let u;try{u=new URL(url);}catch{refused();}
- if(!['postgres:','postgresql:'].includes(u.protocol)||decodeURIComponent(u.pathname.slice(1))!==name)refused();
+ if(!['postgres:','postgresql:'].includes(u.protocol)||decodeURIComponent(u.pathname.slice(1))!==name||Number(u.searchParams.get('port')||u.port||5432)===5432)refused();
  return u.href;
 }
 export async function qaGuard(db,env=process.env){const dir=await qaBrowserDirectory(db,env);if(!dir)refused();return dir;}
@@ -31,7 +32,7 @@ export async function qaPrivatePath(path,{file=false}={}){
  const parts=path.split('/').filter(Boolean);let current='';
  for(let i=0;i<parts.length;i++){current+='/'+parts[i];const s=await lstat(current);if(s.isSymbolicLink()||(s.mode&(current.startsWith('/home/joe/qa-sjcos/')?0o022:0o002))||(i===parts.length-1?(s.uid!==process.getuid()||(s.mode&0o077)||(file?!s.isFile():!s.isDirectory())):!s.isDirectory()))refused();}
 }
-export async function readScenario(db,dir){if(await qaGuard(db)!==dir)refused();await qaPrivatePath(dir+'/scenario.json',{file:true});const s=JSON.parse(await readFile(dir+'/scenario.json','utf8'));if(s.v!==1||s.database!==(await db.query('SELECT current_database() AS name')).rows[0].name||!s.tasks||!s.states)refused();return s;}
+export async function readScenario(db,dir){if(await qaGuard(db)!==dir)refused();await qaPrivatePath(dir+'/scenario.json',{file:true});await qaPrivatePath(dir+'/keys/cluster.json',{file:true});const pinned=JSON.parse(await readFile(dir+'/keys/cluster.json','utf8'));if(canonical(pinned)!==canonical(await clusterBinding(db)))refused();const s=JSON.parse(await readFile(dir+'/scenario.json','utf8'));if(s.v!==1||s.database!==(await db.query('SELECT current_database() AS name')).rows[0].name||!s.tasks||!s.states)refused();return s;}
 export async function writeScenario(dir,scenario){await qaPrivatePath(dir);const temp=dir+'/scenario-'+randomUUID()+'.json';await writeFile(temp,JSON.stringify(scenario,null,2),{mode:0o600,flag:'wx'});const {rename}=await import('node:fs/promises');await rename(temp,dir+'/scenario.json');}
 export async function prepareQaAuditKeys(dir){
  for(const name of ['audit','checkpoint','sink']){
@@ -78,7 +79,7 @@ export async function qaAttachRun(c,task,viewer,session){
  const p=await qaProof(c,task,session.sid,viewer.id,'attach_run');
  await repo.browserWebAttachRun(c,{tid:task.id,rid,vid:viewer.id,expected_epoch:Number(task.control_epoch),i:p.i});return {run_id:rid};
 }
-/** Only called after the runtime triple guard in web.ts; rechecked per hook. */
+/** Only reachable from the separately built QA overlay; guards rechecked per hook. */
 export async function createQaWebsiteHooks({db,key,dir}){
  await readScenario(db,dir);
  const transaction=async fn=>{const c=await db.connect();try{await c.query('BEGIN');const result=await fn(c);await c.query('COMMIT');return result;}catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}};
@@ -88,9 +89,9 @@ export async function createQaWebsiteHooks({db,key,dir}){
   discover:async input=>{await readScenario(db,dir);return discover({...input,proposal:input.proposal??{v:1,entries:[{url:PUBLIC_URLS[0],role:'document',source:'person'}]}});},
   navigation:async({task})=>{const s=await readScenario(db,dir),e=s.tasks[task.id];return e?.navigation?{guarded:true,back:true,forward:false,reload:true,targets:['qa-permit','qa-payment']}:null;},
   authorizePrivateWatch:async input=>{await readScenario(db,dir);const t=(await db.query('SELECT * FROM browser_tasks WHERE id=$1',[input.task_id])).rows[0];if(!t||input.binding?.viewer_id!==input.object_id)refused();const v=(await db.query('SELECT * FROM browser_viewers WHERE id=$1 AND task_id=$2',[input.object_id,t.id])).rows[0];if(!v||v.joined_role!=='owner_review'||v.web_session_id!==input.binding.sid)refused();const body={viewer_id:v.id,visible:true,generation:Number(v.stream_generation),idempotency_key:randomUUID()},p=await qaProof(db,t,input.binding.sid,input.object_id,'presence',body,{qa_private_watch:true});return qaSignedCall(db,dir,key,{task_id:t.id,original_run_id:t.current_run_id,viewer_id:input.object_id,boot_id:t.controller_boot_id},{proof_id:p.id,body});},
-  classifyTask:async input=>{const s=await readScenario(db,dir);if(!Object.values(s.states).some(x=>x.thread_id===input.conversation_id&&QA_PEOPLE[x.as]?.id===input.user_id)||input.project_id||input.lead_slug)refused();return {task_kind:/** @type {const} */('public_research'),catalog_version:1};},
+  classifyTask:async input=>{const s=await readScenario(db,dir);if(!Object.values(s.states).some(x=>x.thread_id===input.conversation_id&&QA_PEOPLE[x.as]?.id===input.user_id)||input.project_id&&!Object.values(s.tasks).some(t=>t.project_id===input.project_id)||input.lead_slug)refused();return {task_kind:/** @type {const} */('public_research'),catalog_version:1};},
   confirmedFacts:async()=>{await readScenario(db,dir);return confirmedFacts();},
-  projection:async({task,viewer,session})=>{const s=await readScenario(db,dir),entry=s.tasks[task.id];if(!entry)refused();const watch=(await db.query('SELECT 1 FROM browser_owner_views WHERE task_id=$1 AND revoked_at IS NULL AND expires_at>clock_timestamp() LIMIT 1',[task.id])).rows.length>0;return {state_reason:entry.idle_closes_at&&Date.parse(entry.idle_closes_at)<=Date.now()?'idle_closed':entry.reason??null,reason_code:entry.code??null,idle_closes_at:entry.idle_closes_at??null,controller:task.controller_user_id?(task.controller_user_id===session.userId?(viewer&&task.controller_device_hash?.equals(viewer.device_hash)?'self':'other_device'):'owner'):'none',window_count:entry.windows??1,watching_owner:watch,owner_label:QA_PEOPLE.owner.name};},
+  projection:async({task,viewer,session})=>{const s=await readScenario(db,dir),entry=s.tasks[task.id];if(!entry)refused();const watch=(await db.query('SELECT 1 FROM browser_owner_views WHERE task_id=$1 AND revoked_at IS NULL AND expires_at>clock_timestamp() LIMIT 1',[task.id])).rows.length>0;return {state_reason:entry.idle_closes_at&&Date.parse(entry.idle_closes_at)<=Date.now()?'idle_closed':entry.reason??null,reason_code:entry.code??null,idle_closes_at:entry.idle_closes_at??null,site_label:'City permits',controller:task.controller_user_id?(task.controller_user_id===session.userId?(viewer&&task.controller_device_hash?.equals(viewer.device_hash)?'self':'other_device'):'owner'):'none',window_count:entry.windows??1,watching_owner:watch,owner_label:QA_PEOPLE.owner.name};},
   start:async({task,viewer,session})=>{
    await readScenario(db,dir);
    return transaction(async c=>{

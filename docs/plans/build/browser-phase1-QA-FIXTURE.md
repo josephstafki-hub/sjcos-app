@@ -1,90 +1,113 @@
-# Browser Phase 1 — coordinator screenshot fixture
+# Browser Phase 1 — QA-only overlay fixture (round 2)
 
-QA only, not runtime/release acceptance. No Next build/start/dev, browser, socket
-listener, service command, live DB or :5499 connection was run by this builder.
-The seed and fake use an explicit QA bootstrap URL; neither loads `.env.local`.
-No new dependency, role grant, migration, executable installation or send grant.
+This is a screenshot fixture, not production runtime/release acceptance. The
+production website imports only `lib/browser/runtime-endpoints.ts`, whose
+ordinary implementation uses the protected installed bridge and fixed
+root-owned sockets. **Environment variables and a QA-named database cannot
+select the fake in an ordinary production artifact.**
 
-## Coordinator commands
+`node scripts/qa-browser-overlay.mjs OUT_DIR` creates a separate disposable
+source artifact under `/home/joe/qa-sjcos/`. It copies regular tracked and
+nonignored source files, excludes `.git`, env files, build directories and
+TypeScript caches, symlinks the existing `node_modules` (no install), and
+replaces **only** `lib/browser/runtime-endpoints.ts` with
+`qa/browser/runtime-endpoints.ts`. `QA-BROWSER-OVERLAY.json` records the source
+HEAD and both leaf hashes, explicitly marking the result QA-only. The copier
+refuses existing output directories, symlink ancestors, traversal and output
+inside either checkout. It executes no build, server or database command.
 
-Run from `/home/joe/.t3/worktrees/sjcos-app/t3-cf34c1be`. The coordinator supplies
-an already migrated **private** QA Postgres (through 0115). Its bootstrap URL must
-connect as a QA superuser: SQL session identities must be the actual website
-owner and `sjcos_browser`, using `SET SESSION AUTHORIZATION`, never `SET ROLE`.
-The script does not create a cluster, migrate it, or guess a DB URL/port.
+The replacement implements the exact SERVER interface at the top of
+[browser-phase1-R2-SERVER-HANDOFF.md](browser-phase1-R2-SERVER-HANDOFF.md):
+`browserWebEndpoint` (paths, purpose-separated keys, socket validation),
+`loadWebsiteTrust` (fake hooks and local QA audit signer), and `readinessSource`
+(existing flag evaluation). No production source imports `qa/**` or the fake.
+The separate artifact is the trust boundary; DB/path/cluster checks are extra
+protections, not proof of production-equivalent custody.
+
+## Coordinator workflow
+
+Run from `/home/joe/.t3/worktrees/sjcos-app/t3-cf34c1be` after builders freeze.
+The coordinator supplies an already migrated **private** QA Postgres, including
+round 2 migration 0115, and an explicit bootstrap superuser distinct from all
+six application logins. The fixture never reads `.env.local`, provisions a
+cluster, migrates it or guesses a live URL. Default port/explicit port 5432 is
+refused before connecting. The connected server must also report a non-5432
+port and an isolated non-live data directory.
 
 ```bash
 export SJC_QA_SIDE_BUILD=1
 export SJC_QA_BROWSER_FAKE=/home/joe/qa-sjcos/browser-p1
-# Set these to the coordinator's actual private QA database and HTTPS side origin.
 export SJC_QA_DATABASE_URL='postgresql://QA_BOOTSTRAP@127.0.0.1:QA_PORT/sjcos_qa_browser_p1'
 export NEXT_PUBLIC_APP_URL='https://YOUR_PRIVATE_QA_ORIGIN'
 mkdir -p /home/joe/qa-sjcos/browser-p1
 chmod 700 /home/joe/qa-sjcos/browser-p1
 node scripts/qa-seed-browser.mjs sjcos_qa_browser_p1 --state working > /home/joe/qa-sjcos/browser-p1/urls.json
-
-systemd-run --user --unit=sjcos-qa-browser-fake --collect \
-  -p MemoryMax=512M -p Restart=no \
-  -p WorkingDirectory=/home/joe/.t3/worktrees/sjcos-app/t3-cf34c1be \
-  -p EnvironmentFile=/home/joe/qa-sjcos/browser-p1/fake.env \
-  /usr/bin/node scripts/qa-browser-fake-controller.mjs sjcos_qa_browser_p1
+node scripts/qa-browser-overlay.mjs /home/joe/qa-sjcos/browser-p1-r2-source
 ```
 
-`QA_BOOTSTRAP`, `QA_PORT` and the origin above are explicit coordinator inputs;
-there is deliberately no usable default pointing at a running cluster. Do not
-print either generated env file. They use systemd EnvironmentFile quoting;
-**do not source them in a shell**. Keys remain in `keys/{request,response,frame}.hex`
-(mode0600), independent random 32-byte HMAC keys. Passwords and the isolated
-session secret are also generated once, mode0600, and preserved on replay.
+Create/chmod the fixture state directory to 0700 before redirecting `urls.json`
+on first use. The seed pins the actual DB OID, server port and postmaster start
+in `keys/cluster.json` (0600); fake hooks check this binding on scenario reads.
+Use a new state directory after replacing/restarting that cluster. Never point
+the bootstrap URL at the live cluster. This implementation builder never
+connects to the coordinator's QA cluster (:5499).
 
-The generated `side.env` adds:
+Real QA-cluster logins are `sjcos` (website), `sjcos_agent`, `sjcos_worker`,
+`sjcos_readonly`, `sjcos_backup`, and `sjcos_browser`. Each has a generated,
+persisted 0600 `keys/ROLE.password`, LOGIN and no superuser/create-role/create-DB/
+replication/RLS-bypass privileges. If the disposable DB was loaded as the
+bootstrap or a test website owner, its public application objects/functions
+and website policy are transferred to `sjcos` inside that QA DB only. Existing
+narrow table grants are retained, not widened. The bootstrap must be a
+separate QA administrator; the fixture will not demote its own connection.
 
-- `SJC_QA_SIDE_BUILD=1`, `SJC_QA_BROWSER_FAKE`, `SJC_BROWSER_ENABLED=1`;
-- the SAME production key inputs `SJC_BROWSER_WEB_RPC_KEY`,
-  `SJC_BROWSER_WEB_RESPONSE_KEY`, `SJC_BROWSER_FRAME_KEY` (hex file contents);
-- `DATABASE_URL` with actual website session authorization, and the four narrow
-  URL variables with their respective actual QA logins; no inherited live DSN;
-- isolated `SESSION_SECRET`, `SJC_OUTBOUND_DISABLED=1`, coordinator's
-  `NEXT_PUBLIC_APP_URL`, and `SJC_DIST_DIR=.next-qa-browser`.
+Generated URLs specify each actual username/password, remove any old `options`,
+and are connected independently before environment publication. Every connection
+must report matching `session_user` and `current_user` and no privileged role
+attributes. There is no startup `session_authorization` URL trick and no
+`SET ROLE` substitute. The fake alone retains the explicit QA bootstrap URL to
+serialize its existing per-operation `SET SESSION AUTHORIZATION` website/service
+calls; the website side process always connects as real `sjcos`.
 
-Merge the coordinator's other existing QA isolation variables (Ask journal /
-recovery/deployment state, Canvas fixture settings, etc.) into the side unit;
-this fixture doesn't provision unrelated subsystems. Use an HTTPS side origin
-for Secure cookies and the real CSRF origin check. Sign in normally as
-`qa-browser-owner@example.test` (Taylor) or `qa-browser-staff@example.test`
-(Abigail), with passwords read privately from `keys/owner.password` and
-`keys/staff.password`. Existing user credentials/permissions are preserved;
-a conflicting ID or insufficient staff rights refuses. No auth-cookie bypass.
+The seed writes fixture-owned values to **`side.generated.env`**, and merges
+those same keys into **`side.env`**. Comments and every unowned key are preserved,
+including `SJC_ASK_DEPLOYMENT_STATE_DIR`, `SJC_CANVAS_*`, `AI_PROVIDER`,
+`NEXT_PUBLIC_AI_PROVIDER`, `CRON_SECRET`, coordinator origin and dist settings.
+The first seed supplies an origin default if missing. It does not own or reset
+origin/dist on replay. `fake.env` holds the explicit QA bootstrap URL and fixture
+keys. All generated env files are 0600, with systemd EnvironmentFile quoting:
+**never print them or source them as shell code**. The generated application
+URLs include `DATABASE_URL_BROWSER` in addition to the usual four narrow URLs.
 
-Only the coordinator runs these build/start commands, after reviewing the
-other builders' readiness and QA setup. Both units use their own dist, never
-`/home/joe/sjcos-app/.next`; inspect existing Next processes first. These commands
-are instructions, not evidence that a production side build was exercised.
+Before building, merge/review the coordinator's other side-only isolation
+settings in `side.env` (Ask journal/recovery/deployment, Canvas fixtures, fake
+providers, cron, etc.). Use HTTPS for Secure cookies and CSRF. Sign in normally
+as `qa-browser-owner@example.test` (Taylor) or
+`qa-browser-staff@example.test` (Abigail), reading their passwords privately from
+`keys/owner.password` and `keys/staff.password`. Existing user credentials and
+rights are preserved; no auth-cookie bypass is added.
+
+Only the coordinator runs the following commands. They are also printed by the
+overlay script with its exact output directory and current fixture env path.
+`SJC_DIST_DIR=.next-qa-browser` is deliberately passed to the process, overriding
+any merged dist value so this artifact's build stays **inside the output tree**.
+Next's installed documentation requires a relative dist directory within its
+project. Neither the worktree nor `/home/joe/sjcos-app/.next` is a build target.
 
 ```bash
 pgrep -af next
-systemd-run --user --unit=sjcos-qa-browser-build --collect --wait --pipe \
-  -p MemoryMax=8G -p Restart=no \
-  -p WorkingDirectory=/home/joe/.t3/worktrees/sjcos-app/t3-cf34c1be \
-  -p EnvironmentFile=/home/joe/qa-sjcos/browser-p1/side.env \
-  /usr/bin/nice -n 19 /usr/bin/env NODE_OPTIONS=--max-old-space-size=6144 ./node_modules/.bin/next build
-systemd-run --user --unit=sjcos-qa-browser-side --collect \
-  -p MemoryMax=8G -p Restart=no \
-  -p WorkingDirectory=/home/joe/.t3/worktrees/sjcos-app/t3-cf34c1be \
-  -p EnvironmentFile=/home/joe/qa-sjcos/browser-p1/side.env \
-  ./node_modules/.bin/next start --hostname 127.0.0.1 --port 3191
+systemd-run --user --unit=sjcos-qa-browser-build --collect --wait --pipe -p MemoryMax=8G -p Restart=no -p WorkingDirectory='/home/joe/qa-sjcos/browser-p1-r2-source' -p EnvironmentFile='/home/joe/qa-sjcos/browser-p1/side.env' /usr/bin/nice -n 19 /usr/bin/env SJC_DIST_DIR=.next-qa-browser NODE_OPTIONS=--max-old-space-size=6144 ./node_modules/.bin/next build
+systemd-run --user --unit=sjcos-qa-browser-fake --collect -p MemoryMax=512M -p Restart=no -p WorkingDirectory='/home/joe/qa-sjcos/browser-p1-r2-source' -p EnvironmentFile='/home/joe/qa-sjcos/browser-p1/fake.env' /usr/bin/node scripts/qa-browser-fake-controller.mjs sjcos_qa_browser_p1
+systemd-run --user --unit=sjcos-qa-browser-side --collect -p MemoryMax=8G -p Restart=no -p WorkingDirectory='/home/joe/qa-sjcos/browser-p1-r2-source' -p EnvironmentFile='/home/joe/qa-sjcos/browser-p1/side.env' /usr/bin/env SJC_DIST_DIR=.next-qa-browser NODE_OPTIONS=--max-old-space-size=6144 ./node_modules/.bin/next start --hostname 127.0.0.1 --port 3191
 ```
 
-Stop just those fixture units when finished (coordinator only):
-
-```bash
-systemctl --user stop sjcos-qa-browser-side.service sjcos-qa-browser-fake.service
-```
-
-Never touch the four live SJC/Ordinem units. Exit137/Killed means stop and report,
-not retry. The fake refuses existing sockets; normal graceful stop removes its
-own sockets. If a killed unit leaves stale socket paths, establish that its
-process is gone before the coordinator removes just those two QA paths.
+After QA, the coordinator stops just its fixture units:
+`systemctl --user stop sjcos-qa-browser-side.service sjcos-qa-browser-fake.service`.
+Never touch the live SJC/Ordinem units. Never run `next dev`. Exit137/Killed
+means stop and report. Fake startup refuses existing socket paths; after a
+killed fake, establish that its process is gone before removing only its two
+stale QA sockets. A changed source snapshot requires a **new** overlay directory;
+reseeded scenario state is reread without a build/restart.
 
 ## Choosing a state
 
@@ -144,94 +167,64 @@ Keyboard capture, IME/Escape, local Zoom/pan/Fit, pause live view, own-confirm,
 owner replacement, leave cancellation and fresh consent are real UI actions;
 the fixture deliberately doesn't add query-string UI state injection.
 
-## Product-code hook inventory (every touched product line)
+## Round 2 data and verification
 
-Line numbers refer to this candidate; use the diff if parallel changes move them.
+Every selected task references the real QA project **Maple Ave kitchen**,
+address **124 Maple Avenue**, with a readable permit-research purpose. SERVER's
+normal projections derive `job_label`, `task_label`, owner `busy_with_label`,
+read-candidate `suggested_by`/label, named pilot `people` and `project_id` from
+these records. Pauses carry the new SQL `paused_by` identity; owner-paused and
+turn-ended screenshot projections explicitly seed owner Taylor and agent
+attribution. The fake adds the safe current site label “City permits”.
 
-| File | Added/changed lines | Purpose |
-|---|---|---|
-| `lib/browser/phase-flags.mjs` | 17–26 | `qaBrowserDirectory`: exact side flag, canonical absolute directory under `/home/joe/qa-sjcos/`, actual `SELECT current_database()` matching `sjcos_qa_*`; absent env returns null without DB I/O. |
-| `lib/browser/web-rpc.ts` | 8,28–37,43–44,52–53 | Optional connected DB; runtime guarded alternative socket directory; lstat/no-symlink/private QA ancestry checks. Otherwise original root-owned `/run/sjcos-browser/{control,frames}.sock` trust checks and signatures. |
-| `lib/browser/web.ts` | 6–7,201,208,211 | Import QA bridge/guard; select fixture hooks only after guard; provide DB to real Unix client; recheck guard before cached handler reuse (changed/missing guard fails503). |
+Join now retires expired attendance and may advance control epochs. Reseeding
+re-reads the epoch after joining before stopping a previous task. The
+`other_device` recipe deliberately retains its synthetic other-device attendance
+for eight hours; other seed viewers leave immediately. This prevents the new
+expiry guard from correctly clearing the very control record that recipe needs.
+Normal replay is idempotent; upgrading an old scenario forces one current-task
+refresh to apply the round 2 project metadata.
 
-No signing checks were removed or substituted. Ordinary production keeps the
-installed protected website loader, fixed root-owned sockets, real auth/CSRF,
-independent keys, frozen schemas,32KiB caps, response command/boot/sequence
-verification and signed binary frame gate. The fixture has **no import-time I/O**.
-No protected installation, production readiness evidence or owner grant is
-fabricated. Private owner consent uses actual event/checkpoint signatures and
-the existing protected audit writer/verifier + repository SQL. The seed also
-creates mode0600 `audit.hex`, `checkpoint.pem`, and `sink.pem` under `keys/`.
-The local QA sink is explicitly identified `qa_local_not_independent`; it is not
-an independently administered production sink. The guarded website hook sends
-a signed presence proof to the fake to anchor the exact viewer/stream/generation
-consent binding before the existing SQL private-view gate can succeed. The alternative website projection/run attachment exists exclusively
-inside the explicitly guarded screenshot bridge. Its fake runs spawn no agent.
-
-## Verification and limits
-
-Tests use `tests/_harness/testdb.mjs`, explicit tagged socket URLs and fresh
-`sjcos_qa_browser_fixture` / `sjcos_guard_browser` harness DBs. The test file's
-after-hook stops its tagged cluster and removes only its unique test directory.
-No test opens a listener: B's real Unix client runs with only Node socket/filesystem
-IO mocked. A's actual RPC signer and B's actual response/frame verifiers run.
+Run the fixture test file alone with its own unique tag; its after-hook stops
+that tagged harness cluster and removes its unique state/overlay directories:
 
 ```bash
-SJC_TEST_CLUSTER_TAG=browser-p1-qafix-7b91 node --test tests/qa-browser-fixture.test.mjs
-SJC_TEST_CLUSTER_TAG=browser-p1-qafix-7b91 node --test tests/browser-routes.test.mjs
-SJC_TEST_CLUSTER_TAG=browser-p1-qafix-7b91 node --test tests/browser-live-view.test.mjs
-SJC_TEST_CLUSTER_TAG=browser-p1-qafix-7b91 node --test tests/browser-flags-db.test.mjs
-SJC_TEST_CLUSTER_TAG=browser-p1-qafix-7b91 node scripts/test-db.mjs stop
+SJC_TEST_CLUSTER_TAG=browser-p1-r2q-UNIQUE_NONCE node --test tests/qa-browser-fixture.test.mjs
 flock /tmp/sjcos-tsc.lock nice -n 19 npx tsc --noEmit -p .
 ```
 
-R1 fixture repair: **fixture 15/15, routes 45/45, live-view 13/13,
-flags DB 12/12 (85 passed; zero failed/skipped)**. Routes, live-view and flags
-were each run once. Fixture test 15 additionally selects/replays every base state
-and recipe, checks signed exact navigation bindings and pre-frame close, renewed
-consent/checkpoint invalidation, audit-pending denial/recovery, distinct Continue
-runs/capabilities, stable-boot fresh fences and real exact-path/resource discovery.
-All DB tests used only the tagged disposable harness. Its cluster was stopped.
-Locked tsc: **exit 0**. No browser/server/Next command, live DB/service action,
-QA :5499 connection, dependency install, source inventory refresh or exit137.
+The overlay output is outside the worktree and therefore outside this TypeScript
+project. Tests exercise real non-superuser login connections, narrow protected
+write denial, environment merge/replay, every recipe, signed fake RPC/frames,
+private consent and local audit pending/recovery, Continue/fresh/discovery,
+production leaf refusal with QA env + a real QA-named database, and production
+source scanning (`lib/`, `app/`, `components/`) for QA imports/env selectors.
+They copy a real disposable source overlay without building or starting it,
+check its marker/single-leaf substitution/dependency symlink and unsafe path
+refusals, and execute the actual website adapter against seeded project,
+people, pause attribution, In use and suggested-by data. Node socket IO is
+mocked; no listener/browser is started by these tests.
 
-Not covered / must not be claimed:
+Final R2 fixture: **19/19 passed**, zero failed/skipped, on tagged harness
+`browser-p1-r2q-e341ca9`; its cluster was stopped by the after-hook.
+Locked TypeScript check: **exit 0**. Earlier checks caught transient UI type
+errors and a QA leaf inference annotation; both are resolved in the final check.
+No next dev/build/start, browser, coordinator QA DB connection, live DB/service
+operation or dependency installation is part of builder verification. The
+coordinator still must build this **separate** artifact, inspect its module
+separation, and check HTTPS auth/CSRF/SSE, cookies, geometry and devices.
 
-- Discovery uses the real website adapter with a closed fictional QA catalog:
-  the two PUBLIC_URLS, city `/permits/details` and `/assets/public-N.css`.
-  Arbitrary added addresses remain refused. This does not attest runtime Fetch
-  discovery, CDP navigation, actual history or window switching.
-- Production build/bundling/start, actual Unix listener IO/systemd lifecycle,
-  HTTPS/cookies/CSRF/SSE through the side host, visual geometry, device/IME or
-  screenshots. Coordinator must exercise these before accepting the fixture.
-- Real website HTTP requests, browser/model execution, page mutations, private
-  output containment, runtime crash/latch/expiry/revocation or hostile canary.
-  JPEGs are fictional public pages (city permit and county property) drawn as SVG
-  then converted with preinstalled `/usr/bin/convert`, baseline JPEG52KB each,
-  embedded in the owned script; no browser/dependency/extra asset files.
-- `loading` with Earlier view cannot be forced by the available safe server
-  projection; it currently aliases starting. `resource_21` cannot be persisted by
-  0115 (max20); it aliases the legal one-resource review and is **not a21-item
-  screenshot fixture**. These require the existing renderer tests/coordinator
-  resolution, not another product bypass. Settings conflict/unavailable backend
-  requires real concurrent edits/backend failure, not a seed flag.
-- Actual closed/failed tasks refuse join. Closed/crash/expiry/revocation shots use
-  paused records with safe fixed projections so that the UI can join; archived
-  true terminal records still exist. Idle expiry blanks presentation, not a real
-  controller close. Do not count these shots as terminal authorization tests.
-- Pending read/resource candidate approvals exercise existing real policy. A
-  resource-only proposal still lacks the document required by the manifest
-  builder; no approval success is fabricated. Retained command-notice Watch links
-  may hit the existing owner-view SQL action-table check; this fixture supplies
-  own notices and current Watch, not a bypass for that seam or bell dispatch.
-- Fresh reset clears the run and revokes reads in SQL; the QA discovery hook
-  stages a new pending review. Continue checks reviewed next-document reads and
-  attaches a distinct immutable run/capability through real SQL. The process
-  binding is inert QA metadata; no real runner is attached. Manual input is acknowledged against the real
-  web boundary but does not edit a canned JPEG.
+Local QA checkpoint signatures exercise the real verifier and SQL consent
+binding but use **qa_local_not_independent** custody. They do not attest an
+independent production sink. Process bindings are inert, manual input never
+edits canned JPEGs, fault/idle states are safe presentation projections, and
+navigation ACKs do not drive real CDP/history. Do not count screenshots as
+runtime privacy, revocation, root installation or network containment evidence.
+`resource_21` still aliases the legal resource review (SQL max20); `loading`
+still aliases starting and cannot force Earlier view. A resource-only approval
+still requires an approved document through real policy. Settings conflict or
+backend failure needs a real concurrent edit/failure, not another fixture flag.
 
-R1 root source inventory still needs coordinator refresh after all builders
-freeze. This repair changes no product hook lines and refreshes no source locks.
-The existing side-unit commands are unchanged; select the new states with the
-same `node scripts/qa-seed-browser.mjs sjcos_qa_browser_p1 --state STATE --refresh`
-command and refresh `urls.json`. No push or deploy.
+Private-query and root source inventories must be reviewed/refreshed by their
+owners after all builders freeze, including these changed QA SQL/source hashes.
+This task owns no scanner allowlist or root source inventory and weakens no scan.

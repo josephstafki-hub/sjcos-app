@@ -1,26 +1,30 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {randomBytes,randomUUID,createHash,createHmac} from 'node:crypto';
-import {rm,readFile,mkdir,stat,symlink} from 'node:fs/promises';
+import {rm,readFile,mkdir,stat,symlink,writeFile,readdir,realpath,lstat} from 'node:fs/promises';
 import ts from 'typescript';
 import {readFileSync} from 'node:fs';
 import {registerHooks} from 'node:module';
 import {EventEmitter} from 'node:events';
 import {spawnSync} from 'node:child_process';
 import {buildReadManifest} from '../lib/browser/read-manifest.mjs';
-import {qaBrowserDirectory} from '../lib/browser/phase-flags.mjs';
+import {qaBrowserDirectory} from '../qa/browser/fixture-guards.mjs';
+import {QA_LOGINS,qaLoginUrl} from '../qa/browser/logins.mjs';
+import {createOverlay,overlayCommands} from '../scripts/qa-browser-overlay.mjs';
+import pg from 'pg';
 import {qaTarget,qaGuard,qaPrivatePath,QA_ROOT,QA_PEOPLE,cannedFrame,createFakeProtocol,createQaWebsiteHooks,qaIdentity,qaProof,readScenario,writeScenario} from '../scripts/qa-browser-fake-controller.mjs';
-import {seedBrowser,writeQaEnvironment,BASE_STATES,RECIPES} from '../scripts/qa-seed-browser.mjs';
+import {seedBrowser,writeQaEnvironment,BASE_STATES,RECIPES,QA_PROJECT} from '../scripts/qa-seed-browser.mjs';
 import {canonical,digest,metadataBytes,verifyRpcResponse,collectMetadataPages} from '../lib/browser/web-transport.mjs';
 import {decodeBinaryFrame,binaryReader} from '../lib/browser/live-view.mjs';
 import {appHooks} from './phase0a-fixtures.mjs';
 import {withTestDb,stopCluster} from './_harness/testdb.mjs';
 appHooks();
+const overlayDir=QA_ROOT+'-overlay-test-'+process.pid;
 const env={SJC_QA_SIDE_BUILD:'1',SJC_QA_BROWSER_FAKE:QA_ROOT+'-test-'+process.pid};
-const dbMock=name=>({query:async()=>({rows:[{name}]})});
-const oldEnv={SJC_QA_SIDE_BUILD:process.env.SJC_QA_SIDE_BUILD,SJC_QA_BROWSER_FAKE:process.env.SJC_QA_BROWSER_FAKE};
+const dbMock=name=>({query:async()=>({rows:[{name,port:54123}]})});
+const oldEnv={SJC_QA_SIDE_BUILD:process.env.SJC_QA_SIDE_BUILD,SJC_QA_BROWSER_FAKE:process.env.SJC_QA_BROWSER_FAKE,...Object.fromEntries(['SJC_BROWSER_WEB_RPC_KEY','SJC_BROWSER_WEB_RESPONSE_KEY','SJC_BROWSER_FRAME_KEY'].map(k=>[k,process.env[k]]))};
 Object.assign(process.env,env);
-test.after(async()=>{await rm(env.SJC_QA_BROWSER_FAKE,{recursive:true,force:true});for(const [k,v]of Object.entries(oldEnv)){if(v===undefined)delete process.env[k];else process.env[k]=v;}stopCluster();});
+test.after(async()=>{await rm(overlayDir,{recursive:true,force:true});await rm(env.SJC_QA_BROWSER_FAKE,{recursive:true,force:true});for(const [k,v]of Object.entries(oldEnv)){if(v===undefined)delete process.env[k];else process.env[k]=v;}stopCluster();});
 for(const missing of ['SJC_QA_SIDE_BUILD','SJC_QA_BROWSER_FAKE'])test('hook inert without '+missing,async()=>{const e={...env};delete e[missing];let queried=false;assert.equal(await qaBrowserDirectory({query:()=>{queried=true;throw Error();}},e),null);assert.equal(queried,false);await assert.rejects(qaGuard(dbMock('sjcos_qa_test'),e));});
 test('runtime actual DB name overrides QA-looking environment',async()=>{await assert.rejects(qaBrowserDirectory(dbMock('sjcos'),{...env,DATABASE_URL:'postgres://localhost/sjcos_qa_fake'}));assert.equal(await qaBrowserDirectory(dbMock('sjcos_qa_test'),env),env.SJC_QA_BROWSER_FAKE);});
 for(const dir of ['/tmp/fake','/home/joe/qa-sjcos/../escape','/home/joe/qa-sjcos/a/','relative','/home/joe/qa-sjcos'])test('reject alternate path '+dir,()=>assert.rejects(qaBrowserDirectory(dbMock('sjcos_qa_test'),{...env,SJC_QA_BROWSER_FAKE:dir})));
@@ -38,35 +42,121 @@ test('QA path refuses symlinks and shared fixture directories',async()=>{
 // Exercise B's actual UnixWebController without opening any server or listener.
 // Its production socket trust path is retained and mocked only at Node IO.
 let wire,wireFrame;const connected=[];
-registerHooks({resolve(s,c,next){if(c.parentURL?.endsWith('/lib/browser/web-rpc.ts')&&['node:net','node:fs/promises'].includes(s))return {url:'qa-wire:'+s,shortCircuit:true};return next(s,c);},load(u,c,next){if(u.endsWith('/lib/browser/web-rpc.ts'))return {format:'module',source:ts.transpileModule(readFileSync(new URL(u),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText,shortCircuit:true};if(u==='qa-wire:node:net')return {format:'module',source:'export const connect=(...a)=>globalThis.__qaConnect(...a);',shortCircuit:true};if(u==='qa-wire:node:fs/promises')return {format:'module',source:'export const lstat=async path=>({uid:path.startsWith("/home/joe/qa-sjcos/")?process.getuid():0,mode:0o700,isSymbolicLink:()=>false,isSocket:()=>path.endsWith(".sock"),isDirectory:()=>!path.endsWith(".sock")});',shortCircuit:true};return next(u,c);}});
+const rpcUrl=new URL('../lib/browser/web-rpc.ts',import.meta.url);
+registerHooks({
+ resolve(s,c,next){
+  const rpc=c.parentURL===rpcUrl.href||c.parentURL==='qa-overlay:web-rpc.ts';
+  const endpoint=c.parentURL?.endsWith('/runtime-endpoints.ts');
+  if((rpc&&s==='node:net')||(endpoint&&s==='node:fs/promises'))return {url:'qa-wire:'+s,shortCircuit:true};
+  if(c.parentURL==='qa-overlay:web-rpc.ts'&&s==='./runtime-endpoints')return {url:new URL('../qa/browser/runtime-endpoints.ts',import.meta.url).href,shortCircuit:true};
+  if(c.parentURL==='qa-overlay:web-rpc.ts'&&s.startsWith('.'))return {url:new URL(s,rpcUrl).href,shortCircuit:true};
+  return next(s,c);
+ },
+ load(u,c,next){
+  if(u.endsWith('.ts'))return {format:'module',source:ts.transpileModule(readFileSync(u==='qa-overlay:web-rpc.ts'?rpcUrl:new URL(u),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext}}).outputText,shortCircuit:true};
+  if(u==='qa-wire:node:net')return {format:'module',source:'export const connect=(...a)=>globalThis.__qaConnect(...a);',shortCircuit:true};
+  if(u==='qa-wire:node:fs/promises')return {format:'module',source:'export const lstat=async path=>({uid:path.startsWith("/home/joe/qa-sjcos/")?process.getuid():0,mode:0o600,isSymbolicLink:()=>false,isSocket:()=>path.endsWith(".sock"),isDirectory:()=>!path.endsWith(".sock")});',shortCircuit:true};
+  return next(u,c);
+ }
+});
 globalThis.__qaConnect=path=>{connected.push(path);const socket=new EventEmitter();socket.setTimeout=()=>{};socket.destroy=()=>{};socket.write=packet=>{void (async()=>{try{const request=JSON.parse(packet.subarray(4));if(path.endsWith('/frames.sock')){socket.emit('data',await wireFrame(request));return;}const response=await wire(request),json=Buffer.from(canonical(response)),size=Buffer.alloc(4);size.writeUInt32BE(json.length);socket.emit('data',Buffer.concat([size,json]));}catch(e){socket.emit('error',e);}})();};queueMicrotask(()=>socket.emit('connect'));return socket;};
 const {UnixWebController}=await import('../lib/browser/web-rpc.ts');
+const {UnixWebController:QaWebController}=await import('qa-overlay:web-rpc.ts');
+const productionEndpoints=await import('../lib/browser/runtime-endpoints.ts');
+
+test('production source graph contains no QA imports or selectors',async()=>{
+ const forbidden=/qa\/|qa-browser-fake-controller|SJC_QA_SIDE_BUILD|SJC_QA_BROWSER_FAKE|SJC_QA_DATABASE_URL|SJC_QA_CLUSTER/;
+ async function scan(dir){for(const e of await readdir(dir,{withFileTypes:true})){const file=dir+'/'+e.name;if(e.isDirectory())await scan(file);else if(/\.(?:[cm]?[jt]sx?)$/.test(e.name))assert.doesNotMatch(await readFile(file,'utf8'),forbidden,file);}}
+ for(const dir of ['lib','app','components'])await scan(dir);
+});
+test('QA overlay copies source, replaces exactly the endpoint leaf, links existing dependencies and prints isolated commands',async()=>{
+ const result=await createOverlay(overlayDir);
+ assert.equal(result.marker.qa_only,true);assert.equal(result.marker.production_trust,false);
+ assert.equal(await readFile(overlayDir+'/lib/browser/runtime-endpoints.ts','utf8'),await readFile('qa/browser/runtime-endpoints.ts','utf8'));
+ for(const file of ['lib/browser/web.ts','lib/browser/web-rpc.ts','lib/browser/phase-flags.mjs','next.config.ts'])assert.equal(await readFile(overlayDir+'/'+file,'utf8'),await readFile(file,'utf8'));
+ assert.equal((await lstat(overlayDir+'/node_modules')).isSymbolicLink(),true);
+ assert.equal(await realpath(overlayDir+'/node_modules'),await realpath('node_modules'));
+ for(const file of ['.git','.env.local','.next'])await assert.rejects(lstat(overlayDir+'/'+file),{code:'ENOENT'});
+ assert.equal(JSON.parse(await readFile(overlayDir+'/QA-BROWSER-OVERLAY.json','utf8')).replacement,'lib/browser/runtime-endpoints.ts');
+ assert.equal(result.marker.dist_dir,overlayDir+'/.next-qa-browser');
+ for(const cmd of result.commands.slice(1)){assert.ok(cmd.includes(overlayDir));assert.match(cmd,/MemoryMax=8G/);assert.match(cmd,/SJC_DIST_DIR=\.next-qa-browser/);}
+ assert.match(result.commands[1],/next build$/);assert.match(result.commands[2],/next start .*--port 3191$/);
+ await assert.rejects(createOverlay(overlayDir),{code:'EEXIST'});
+});
+test('overlay rejects checkouts, traversal, non-QA paths and symlink ancestry',async()=>{
+ for(const out of [process.cwd()+'/qa-copy','/home/joe/sjcos-app/qa-copy','/tmp/qa-copy','/home/joe/qa-sjcos','/home/joe/qa-sjcos/../escape'])await assert.rejects(createOverlay(out),/QA_ONLY/);
+ const link=env.SJC_QA_BROWSER_FAKE+'-overlay-link';await symlink('/tmp',link);try{await assert.rejects(createOverlay(link+'/escape'),/QA_ONLY/);}finally{await rm(link);}
+});
+test('QA guard refuses the live server port even with a QA database name',async()=>{
+ await assert.rejects(qaBrowserDirectory({query:async()=>({rows:[{name:'sjcos_qa_fake',port:5432}]})},env));
+ assert.throws(()=>qaTarget('sjcos_qa_fake','postgres://qa@127.0.0.1:5432/sjcos_qa_fake'),/QA_ONLY/);
+});
 
 test('connected non-QA harness database refuses seed before filesystem writes',()=>withTestDb(async(_url,c)=>{await assert.rejects(seedBrowser(c),/BROWSER_DISABLED/);},{name:'sjcos_guard_browser',fresh:true}));
 
-test('real harness seed idempotence, all recipes, signed fake RPC and frames',async()=>withTestDb(async(url,c)=>{
- await c.query('UPDATE ask_canvas_maintenance SET recovery_ready=true');
- const first=await seedBrowser(c),before=(await c.query('SELECT count(*) n FROM browser_tasks')).rows[0].n;
- await writeQaEnvironment(c,url);const side=await readFile(env.SJC_QA_BROWSER_FAKE+'/side.env','utf8');assert.match(side,/SJC_BROWSER_WEB_RPC_KEY=/);assert.match(side,/session_authorization/);assert.ok((await stat(env.SJC_QA_BROWSER_FAKE+'/side.env')).mode%512===384);
- const second=await seedBrowser(c);assert.deepEqual(second,first);assert.equal((await c.query('SELECT count(*) n FROM browser_tasks')).rows[0].n,before);
+test('real harness seed idempotence, all recipes, signed fake RPC and frames',async()=>withTestDb(async(url,admin)=>{
+ await admin.query('UPDATE ask_canvas_maintenance SET recovery_ready=true');
+ const first=await seedBrowser(admin);
+ const c=new pg.Client({connectionString:await qaLoginUrl(url,'sjcos',env.SJC_QA_BROWSER_FAKE)});await c.connect();
+ try{
+ const before=(await c.query('SELECT count(*) n FROM browser_tasks')).rows[0].n;
+ await writeQaEnvironment(admin,url);const side=await readFile(env.SJC_QA_BROWSER_FAKE+'/side.env','utf8');assert.match(side,/SJC_BROWSER_WEB_RPC_KEY=/);assert.doesNotMatch(side,/session_authorization/);assert.ok((await stat(env.SJC_QA_BROWSER_FAKE+'/side.env')).mode%512===384);
+ const values=Object.fromEntries(side.trim().split('\n').filter(x=>/^[A-Z_]+=/.test(x)).map(line=>{const i=line.indexOf('=');return [line.slice(0,i),JSON.parse(line.slice(i+1))];}));
+ const urlRoles={DATABASE_URL:'sjcos',DATABASE_URL_AGENT:'sjcos_agent',DATABASE_URL_WORKER:'sjcos_worker',DATABASE_URL_READONLY:'sjcos_readonly',DATABASE_URL_BACKUP:'sjcos_backup',DATABASE_URL_BROWSER:'sjcos_browser'};
+ for(const [key,role] of Object.entries(urlRoles)){
+  const login=new pg.Client({connectionString:values[key]});await login.connect();
+  try{const actual=(await login.query('SELECT session_user,current_user,rolsuper FROM pg_roles WHERE rolname=session_user')).rows[0];assert.deepEqual(actual,{session_user:role,current_user:role,rolsuper:false});if(role!=='sjcos')await assert.rejects(login.query('UPDATE app_settings SET value=value WHERE key=\'browser.enabled\''));}
+  finally{await login.end();}
+ }
+ for(const role of QA_LOGINS)assert.equal((await stat(env.SJC_QA_BROWSER_FAKE+'/keys/'+role+'.password')).mode&0o777,0o600);
+ const extras='\n# coordinator settings remain exactly as entered\nCOORDINATOR_SENTINEL="keep me"\nSJC_ASK_DEPLOYMENT_STATE_DIR="/tmp/qa-ask"\nSJC_CANVAS_ENABLED="1"\nSJC_CANVAS_FIXTURE="keep"\nAI_PROVIDER="fake"\nNEXT_PUBLIC_AI_PROVIDER="fake"\nCRON_SECRET="test-only"\nSJC_DIST_DIR=".next-coordinator"\n';
+ await writeFile(env.SJC_QA_BROWSER_FAKE+'/side.env',side.replace(/^NEXT_PUBLIC_APP_URL=.*$/m,'NEXT_PUBLIC_APP_URL="https://qa.example.test"')+extras,{mode:0o600});
+ await writeQaEnvironment(admin,url);const replayed=await readFile(env.SJC_QA_BROWSER_FAKE+'/side.env','utf8');
+ assert.ok(replayed.includes(extras.trimEnd()));assert.match(replayed,/NEXT_PUBLIC_APP_URL="https:\/\/qa.example.test"/);
+ const generated=await readFile(env.SJC_QA_BROWSER_FAKE+'/side.generated.env','utf8');assert.doesNotMatch(generated,/COORDINATOR_SENTINEL|SJC_DIST_DIR|AI_PROVIDER|CRON_SECRET/);assert.equal((await stat(env.SJC_QA_BROWSER_FAKE+'/side.generated.env')).mode&0o777,0o600);
+ // QA flags plus a real QA-named database cannot select fake production trust.
+ assert.match((await c.query('SELECT current_database() name')).rows[0].name,/^sjcos_qa_/);
+ assert.equal(productionEndpoints.browserWebEndpoint().control,'/run/sjcos-browser/control.sock');
+ assert.equal(await productionEndpoints.browserWebEndpoint().socketPath('control'),'/run/sjcos-browser/control.sock');
+ await assert.rejects(productionEndpoints.loadWebsiteTrust({db:c,key:Buffer.alloc(32,7),controller:{}}));
+
+ await assert.rejects(readScenario(dbMock('sjcos_qa_browser_fixture'),env.SJC_QA_BROWSER_FAKE),/QA_ONLY/);
+ const second=await seedBrowser(admin);assert.deepEqual(second,first);assert.equal((await c.query('SELECT count(*) n FROM browser_tasks')).rows[0].n,before);
  for(const as of ['owner','staff'])for(const state of BASE_STATES){const row=first.states[as+'_'+state];assert.ok(row,as+' '+state);assert.match(row.thread_id,/^[a-f0-9-]{36}$/);}
  for(const state of Object.keys(RECIPES))assert.ok(first.states['owner_'+state]);
  const modes=await Promise.all(['request','response','frame'].map(k=>stat(env.SJC_QA_BROWSER_FAKE+'/keys/'+k+'.hex')));assert.ok(modes.every(s=>(s.mode&0o777)===0o600));
  const keys=Object.fromEntries(await Promise.all(['request','response','frame'].map(async k=>[k,Buffer.from((await readFile(env.SJC_QA_BROWSER_FAKE+'/keys/'+k+'.hex','utf8')).trim(),'hex')])));
  const website=(await c.query("SELECT pg_get_userbyid(relowner) name FROM pg_class WHERE oid='browser_tasks'::regclass")).rows[0].name;
- const protocol=await createFakeProtocol({db:c,keys,website});wire=x=>protocol.rpc(x);
+ const protocol=await createFakeProtocol({db:admin,keys,website});wire=x=>protocol.rpc(x);
  const client=new UnixWebController(keys.request,keys.response,keys.frame);
  const t=(await qaIdentity(c,website,c=>c.query('SELECT * FROM browser_tasks WHERE id=$1',[first.states.staff_working.task_id]))).rows[0];
  const binding={task_id:t.id,original_run_id:t.current_run_id,viewer_id:null,boot_id:t.controller_boot_id};
  assert.equal((await client.call('health',binding,{proof_id:null,body:{}})).qa_fixture,true);
  assert.equal(connected.at(-1),'/run/sjcos-browser/control.sock');
- const qaClient=new UnixWebController(keys.request,keys.response,keys.frame,c);
+ const qaClient=new QaWebController(keys.request,keys.response,keys.frame);
+ for(const key of ['SJC_BROWSER_WEB_RPC_KEY','SJC_BROWSER_WEB_RESPONSE_KEY','SJC_BROWSER_FRAME_KEY'])process.env[key]=values[key];
+ const qaEndpoints=await import('../qa/browser/runtime-endpoints.ts');
+ assert.deepEqual(Object.keys(qaEndpoints).sort(),Object.keys(productionEndpoints).sort());
+ const websitePool={query:(...args)=>c.query(...args),connect:async()=>({query:(...args)=>c.query(...args),release(){}})};
+ await assert.rejects(qaEndpoints.loadWebsiteTrust({db:admin,key:keys.request,controller:qaClient}),/BROWSER_DISABLED/);
+ const overlayHooks=await qaEndpoints.loadWebsiteTrust({db:websitePool,key:keys.request,controller:qaClient});
+ const {createWebsiteAdapter}=await import('../lib/browser/web.ts');
+ const adapter=createWebsiteAdapter({db:websitePool,key:keys.request,controller:qaClient,websiteHooks:overlayHooks});
+ const owner=(await c.query('SELECT * FROM users WHERE id=$1',[QA_PEOPLE.owner.id])).rows[0];
+ const staff=(await c.query('SELECT * FROM users WHERE id=$1',[QA_PEOPLE.staff.id])).rows[0];
+ const session={userId:owner.id,sid:(await c.query('SELECT initiating_web_session_id sid FROM browser_tasks WHERE id=$1',[first.states.owner_working.task_id])).rows[0].sid,exp:Math.floor(Date.now()/1000)+3600};
+ const projectTask=async id=>(await c.query('SELECT t.*,p.name job_label FROM browser_tasks t JOIN projects p ON p.id=t.project_id WHERE t.id=$1',[id])).rows[0];
+ const execute=(operation,task=null,user=owner)=>adapter.execute({operation,request:new Request('https://qa.example.test/api/agent-browser'),session:{...session,userId:user.id},context:{user,task,viewer:null,claim:null,objectId:null},flags:{}});
+ const inUse=await execute('in_use');assert.equal(inUse.items.length,1);assert.equal(inUse.items[0].person_label,'Abigail');assert.equal(inUse.items[0].job_label,QA_PROJECT.name);assert.match(inUse.items[0].task_label,/permit/);
+ const status=await execute('status',await projectTask(t.id));assert.equal(status.job_label,QA_PROJECT.name);assert.equal(status.site_label,'City permits');assert.ok(['Taylor','Abigail'].includes(status.busy_with_label));
+ const settings=await execute('settings_get');assert.ok(settings.people.some(p=>p.label==='Taylor'&&p.eligible));assert.ok(settings.people.some(p=>p.label==='Abigail'&&p.eligible));
+
  assert.equal((await qaClient.call('health',binding,{proof_id:null,body:{}})).qa_fixture,true);
  assert.equal(connected.at(-1),env.SJC_QA_BROWSER_FAKE+'/control.sock');
  const count=connected.length;
- await assert.rejects(new UnixWebController(keys.request,keys.response,keys.frame,dbMock('sjcos')).call('health',binding,{proof_id:null,body:{}}));assert.equal(connected.length,count);
+ await assert.rejects(qaGuard(dbMock('sjcos')));assert.equal(connected.length,count);
  const saved=process.env.SJC_QA_SIDE_BUILD;delete process.env.SJC_QA_SIDE_BUILD;
- await assert.rejects(qaClient.call('health',binding,{proof_id:null,body:{}}));assert.equal(connected.at(-1),'/run/sjcos-browser/control.sock');
+ await assert.rejects(qaClient.call('health',binding,{proof_id:null,body:{}}));assert.equal(connected.length,count);
  process.env.SJC_QA_SIDE_BUILD=saved;
  const bad=new UnixWebController(keys.request,randomBytes(32),keys.frame);await assert.rejects(bad.call('health',binding,{proof_id:null,body:{}}),/BROWSER_SERVICE_UNAVAILABLE/);
  const originalWire=wire;wire=async x=>{const r=await originalWire(x);return {...r,sequence:r.sequence+1};};await assert.rejects(client.call('health',binding,{proof_id:null,body:{}}));wire=originalWire;
@@ -114,7 +204,7 @@ test('real harness seed idempotence, all recipes, signed fake RPC and frames',as
  const recovery=await qaProof(c,privateTask,ownerSid,ov.id,'presence',{}, {qa_private_watch:true});
  await client.call('presence',{...binding,viewer_id:ov.id},{proof_id:recovery.id,body:{viewer_id:ov.id,visible:true,generation:Number(ov.stream_generation),idempotency_key:randomUUID()}});
  assert.ok(await protocol.frame(ownerHello(),0));
- const next=await seedBrowser(c,{state:'resource_20'});assert.notEqual(next.states.staff_resource_review.task_id,t.id);
+ const next=await seedBrowser(admin,{state:'resource_20'});assert.notEqual(next.states.staff_resource_review.task_id,t.id);
  const rt=(await qaIdentity(c,website,c=>c.query('SELECT * FROM browser_tasks WHERE id=$1',[next.states.staff_resource_review.task_id]))).rows[0];
  const liveCount=(await qaIdentity(c,website,c=>c.query("SELECT count(*)::int n FROM browser_tasks WHERE state IN ('queued','starting','active','paused')"))).rows[0].n;assert.equal(liveCount,2);
  const rbind={task_id:rt.id,original_run_id:rt.current_run_id,viewer_id:null,boot_id:rt.controller_boot_id};
@@ -122,9 +212,17 @@ test('real harness seed idempotence, all recipes, signed fake RPC and frames',as
  const stored=await readScenario(c,env.SJC_QA_BROWSER_FAKE);assert.equal(stored.selected,'resource_20');
  // Every recipe can be selected and replayed, preserving the two-context limit.
  for(const state of [...BASE_STATES,...Object.keys(RECIPES)].filter(s=>s!=='off')){
-  const selected=await seedBrowser(c,{state});assert.equal(selected.selected,state);
-  assert.deepEqual(await seedBrowser(c,{state}),selected);
+  const selected=await seedBrowser(admin,{state});assert.equal(selected.selected,state);
+  assert.deepEqual(await seedBrowser(admin,{state}),selected);
   const row=selected.states['staff_'+state],entry=selected.tasks[row?.task_id];
+  if(row?.task_id){
+   const st=await projectTask(row.task_id);assert.equal(st.project_id,QA_PROJECT.id);
+   if(state==='other_device'){const attendance=(await c.query('SELECT visible_until,left_at FROM browser_viewers WHERE task_id=$1 AND left_at IS NULL',[st.id])).rows;assert.equal(attendance.length,1);assert.ok(new Date(attendance[0].visible_until)>new Date());assert.ok(st.controller_user_id);}
+   if(state==='owner_paused'){const detail=await execute('status',st);assert.equal(detail.paused_by,'owner');assert.equal(detail.paused_by_label,'Taylor');}
+   if(state==='turn_ended')assert.equal((await execute('status',st)).paused_by,'agent');
+   if(['read_review','resource_review','exact_path_review','exact_resource_review'].includes(state)){const reads=await execute('reads_get',st,staff);assert.ok(reads.candidates.every(x=>x.suggested_by==='page_link'&&x.suggested_by_label==='Page link'));}
+  }
+
   if(['guarded_menu','reload_confirm'].includes(state))assert.equal(entry.navigation,true);
   if(state==='pre_frame_close')assert.equal(entry.no_frames,true);
   if(state==='watch_audit_pending')assert.equal(entry.audit_pending,true);
@@ -158,7 +256,7 @@ test('real harness seed idempotence, all recipes, signed fake RPC and frames',as
   }
  }
  // Real Continue attaches a distinct immutable run and capability after the SQL resume fence.
- const continuing=await seedBrowser(c,{state:'working',refresh:true}),ct=(await c.query('SELECT * FROM browser_tasks WHERE id=$1',[continuing.states.staff_working.task_id])).rows[0];
+ const continuing=await seedBrowser(admin,{state:'working',refresh:true}),ct=(await c.query('SELECT * FROM browser_tasks WHERE id=$1',[continuing.states.staff_working.task_id])).rows[0];
  const device2=Buffer.alloc(32,9),jp=await qaProof(c,ct,ct.initiating_web_session_id,null,'join',{}, {device_secret_hash:device2.toString('hex')});
  const cv=await repo.browserWebJoin(c,{tid:ct.id,session:ct.initiating_web_session_id,device_hash:device2,role:'initiator',private_view:false,i:jp.i,d:jp.d});
  const pool={query:(...args)=>c.query(...args),connect:async()=>({query:(...args)=>c.query(...args),release:()=>{}})};
@@ -170,7 +268,7 @@ test('real harness seed idempotence, all recipes, signed fake RPC and frames',as
  const runRows=(await c.query('SELECT * FROM browser_task_runs WHERE task_id=$1 ORDER BY created_at',[ct.id])).rows;assert.equal(runRows.length,2);assert.equal(runRows[0].disposition,'stopped');assert.ok(runRows[1].capability_expires_at);
  await assert.rejects(hooks.start({task:resumed,viewer:{id:cv.viewer_id},session:{sid:ct.initiating_web_session_id}}),/BROWSER_REVIEW_PENDING/);
  // Fresh keeps the trusted boot, rotates independent generations, and stages new review.
- await qaIdentity(c,'sjcos_browser',c=>repo.browserEnterPrivate(c,{tid:resumed.id,boot:resumed.controller_boot_id,expected_epoch:Number(resumed.control_epoch),mode:'private'}));
+ await qaIdentity(admin,'sjcos_browser',c=>repo.browserEnterPrivate(c,{tid:resumed.id,boot:resumed.controller_boot_id,expected_epoch:Number(resumed.control_epoch),mode:'private'}));
  const priv=(await c.query('SELECT * FROM browser_tasks WHERE id=$1',[resumed.id])).rows[0];
  const fp=await qaProof(c,priv,priv.initiating_web_session_id,cv.viewer_id,'fresh_browser',{}, {drained:true,fenced:true,context_generation:Number(priv.context_generation),old_generation:Number(priv.context_generation),new_boot_id:priv.controller_boot_id});
  await repo.browserWebControl(c,{tid:priv.id,vid:cv.viewer_id,op:'fresh_browser',epoch:Number(priv.control_epoch),i:fp.i,d:fp.d});
@@ -184,6 +282,7 @@ test('real harness seed idempotence, all recipes, signed fake RPC and frames',as
  const approval=await qaProof(c,fresh,fresh.initiating_web_session_id,cv.viewer_id,'review');
  await repo.browserWebReads(c,{tid:fresh.id,vid:cv.viewer_id,expected_revision:Number(discovery.revision),proposal:manifest,decision:'approve',i:approval.i,d:approval.d});
  const freshRun=await hooks.start({task:fresh,viewer:{id:cv.viewer_id},session:{sid:fresh.initiating_web_session_id}});assert.notEqual(freshRun.run_id,resumed.current_run_id);
- const off=await seedBrowser(c,{state:'off'});assert.equal(off.selected,'off');assert.equal((await qaIdentity(c,website,c=>c.query("SELECT value FROM app_settings WHERE key='browser.enabled'"))).rows[0].value,'false');
+ const off=await seedBrowser(admin,{state:'off'});assert.equal(off.selected,'off');assert.equal((await qaIdentity(c,website,c=>c.query("SELECT value FROM app_settings WHERE key='browser.enabled'"))).rows[0].value,'false');
 
+ }finally{await c.end();}
 }, {name:'sjcos_qa_browser_fixture',fresh:true}));

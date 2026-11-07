@@ -1,8 +1,11 @@
-# REVIEW TEMPLATE ONLY. Namespace setup must precede this service.
 [Unit]
 Description=SJC OS restricted browser resolver
 ConditionPathExists=/etc/sjcos-browser/phase1-accepted
+Requires=sjcos-browser-setup.service
+After=sjcos-browser-setup.service
+BindsTo=sjcos-browser-setup.service
 [Service]
+SupplementaryGroups=sjcos-browser
 User=sjcos-browser-dns
 Group=sjcos-browser-dns
 Slice=user-@JOE_UID@-sjcosbrowser.slice
@@ -21,3 +24,8 @@ ProtectSystem=strict
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes
+
+RuntimeDirectory=sjcos-browser-dns
+RuntimeDirectoryMode=0700
+ReadWritePaths=/run/sjcos-browser-dns
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

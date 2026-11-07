@@ -1,12 +1,15 @@
-# REVIEW TEMPLATE ONLY; fixed root-owned gate config/CA provisioned separately.
 [Unit]
 Description=SJC OS bounded public read gate
 After=sjcos-browser-dns.service
 Requires=sjcos-browser-dns.service
 ConditionPathExists=/etc/sjcos-browser/phase1-accepted
+Requires=sjcos-browser-setup.service
+After=sjcos-browser-setup.service
+BindsTo=sjcos-browser-setup.service
 [Service]
+SupplementaryGroups=sjcos-browser
 User=sjcos-browser-gate
-Group=sjcos-browser-gate
+Group=sjcos-browser-controller
 Slice=user-@JOE_UID@-sjcosbrowser.slice
 NetworkNamespacePath=/run/netns/sjcos-browser-gate
 ExecStart=/opt/sjcos-browser/py/bin/python -I -B /opt/sjcos-browser/node/source/deploy/browser/phase1-gate-entry.py
@@ -14,6 +17,7 @@ MemoryMax=384M
 MemorySwapMax=0
 CPUQuota=35%
 TasksMax=32
+ExecStopPost=+/usr/bin/python3 -I -B /opt/sjcos-browser/node/source/deploy/browser/browser-latch.py record
 Restart=no
 Nice=15
 OOMPolicy=stop
@@ -28,3 +32,10 @@ PrivateTmp=yes
 PrivateDevices=yes
 LoadCredential=ca-key:/etc/sjcos-browser/credentials/gate-ca-key
 LoadCredential=dispatch-public:/etc/sjcos-browser/credentials/read-dispatch-public
+
+RuntimeDirectory=sjcos-browser-gate
+RuntimeDirectoryMode=0750
+ReadWritePaths=/run/sjcos-browser-supervisor /var/lib/sjcos-browser-supervisor /run/sjcos-browser-gate
+InaccessiblePaths=/etc/sjcos-browser/credentials
+ProtectProc=invisible
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6

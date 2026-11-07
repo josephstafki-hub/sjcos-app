@@ -1,0 +1,25 @@
+[Unit]
+Description=SJC OS fixed browser network containment
+Before=sjcos-browser-helper.service sjcos-browser-dns.service sjcos-browser-gate.service sjcos-browser.service
+ConditionPathExists=/etc/sjcos-browser/phase1-accepted
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+User=root
+Slice=user-@JOE_UID@-sjcosbrowser.slice
+ExecStart=/usr/bin/python3 -I -B /opt/sjcos-browser/node/source/deploy/browser/phase1-namespace.py up
+ExecStop=/usr/bin/python3 -I -B /opt/sjcos-browser/node/source/deploy/browser/phase1-namespace.py down
+RuntimeDirectory=sjcos-browser-setup
+RuntimeDirectoryMode=0700
+Restart=no
+TimeoutStartSec=30
+TimeoutStopSec=30
+MemoryMax=32M
+MemorySwapMax=0
+CPUQuota=10%
+TasksMax=16
+Nice=15
+UMask=0077
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_SYS_ADMIN CAP_DAC_OVERRIDE
+RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_INET AF_INET6

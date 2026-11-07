@@ -1,13 +1,15 @@
-# REVIEW TEMPLATE ONLY. Not installed/started; @JOE_UID@ must be substituted.
+# Installed disabled only; independent exact-candidate evidence required.
 [Unit]
 Description=SJC OS attended public browser controller
-Requires=sjcos-browser-supervisor.service sjcos-browser-gate.service sjcos-browser-dns.service
-After=sjcos-browser-supervisor.service sjcos-browser-gate.service sjcos-browser-dns.service
+Requires=sjcos-browser-supervisor.service sjcos-browser-helper.service sjcos-browser-gate.service sjcos-browser-dns.service sjcos-browser-setup.service
+After=sjcos-browser-supervisor.service sjcos-browser-helper.service sjcos-browser-gate.service sjcos-browser-dns.service sjcos-browser-setup.service
+BindsTo=sjcos-browser-gate.service sjcos-browser-helper.service
 ConditionPathExists=/etc/sjcos-browser/phase1-accepted
 [Service]
 Type=simple
-User=sjcos-browser
-Group=sjcos-browser
+User=sjcos-browser-controller
+Group=sjcos-browser-controller
+SupplementaryGroups=sjcos-browser-gate sjcos-browser
 Slice=user-@JOE_UID@-sjcosbrowser.slice
 NetworkNamespacePath=/run/netns/sjcos-browser
 ExecStartPre=+/usr/bin/python3 -I -B /opt/sjcos-browser/node/source/deploy/browser/browser-latch.py check
@@ -27,7 +29,10 @@ PrivateTmp=yes
 PrivateDevices=yes
 RuntimeDirectory=sjcos-browser-runtime
 RuntimeDirectoryMode=0750
-ReadWritePaths=/run/sjcos-browser-runtime
+ReadWritePaths=/run/sjcos-browser-supervisor /var/lib/sjcos-browser-supervisor /run/sjcos-browser-runtime
+InaccessiblePaths=/etc/sjcos-browser/credentials
+ProtectProc=invisible
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
 TemporaryFileSystem=/run/sjcos-browser-runtime/tmp:rw,nosuid,nodev,noexec,size=384M,mode=0700
 TemporaryFileSystem=/dev/shm:rw,nosuid,nodev,noexec,size=128M
 BindReadOnlyPaths=/run/postgresql/.s.PGSQL.@BROWSER_DB_PORT@
@@ -37,5 +42,8 @@ LoadCredential=frame:/etc/sjcos-browser/credentials/frame
 LoadCredential=read-dispatch:/etc/sjcos-browser/credentials/read-dispatch
 LoadCredential=manifest-hmac:/etc/sjcos-browser/credentials/manifest-hmac
 LoadCredential=audit:/etc/sjcos-browser/credentials/audit
+LoadCredential=web-response:/etc/sjcos-browser/credentials/web-response
+LoadCredential=request-hmac:/etc/sjcos-browser/credentials/request-hmac
+LoadCredential=dispatch-public:/etc/sjcos-browser/credentials/read-dispatch-public
 # Credential files are controller-only; Chromium and CLI get explicit env and no
 # inherited descriptors/mount access. Public CA only; gate owns CA private key.

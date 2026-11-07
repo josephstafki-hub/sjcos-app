@@ -1,0 +1,34 @@
+[Unit]
+Description=SJC OS fixed nonroot Chromium process tree helper
+Requires=sjcos-browser-setup.service sjcos-browser-supervisor.service
+After=sjcos-browser-setup.service sjcos-browser-supervisor.service
+BindsTo=sjcos-browser.service
+ConditionPathExists=/etc/sjcos-browser/phase1-accepted
+[Service]
+Type=simple
+User=root
+Group=sjcos-browser-controller
+Slice=user-@JOE_UID@-sjcosbrowser.slice
+NetworkNamespacePath=/run/netns/sjcos-browser
+ExecStart=/usr/bin/python3 -I -B /opt/sjcos-browser/node/source/deploy/browser/phase1-chromium-helper.py
+ExecStopPost=+/usr/bin/python3 -I -B /opt/sjcos-browser/node/source/deploy/browser/browser-latch.py record
+Restart=no
+OOMPolicy=stop
+KillMode=control-group
+TimeoutStopSec=15
+Nice=15
+UMask=0077
+LimitCORE=0
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+RuntimeDirectory=sjcos-browser-helper sjcos-browser-chromium
+RuntimeDirectoryMode=0750
+ReadWritePaths=/run/sjcos-browser-supervisor /var/lib/sjcos-browser-supervisor /run/sjcos-browser-helper /run/sjcos-browser-chromium
+TemporaryFileSystem=/run/sjcos-browser-chromium:rw,nosuid,nodev,noexec,size=384M,mode=0750
+TemporaryFileSystem=/dev/shm:rw,nosuid,nodev,noexec,size=128M
+InaccessiblePaths=-/run/credentials/sjcos-browser.service /etc/sjcos-browser/credentials
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_CHOWN CAP_DAC_OVERRIDE CAP_NET_ADMIN
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK

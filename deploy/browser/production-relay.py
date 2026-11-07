@@ -1,13 +1,13 @@
 #!/usr/bin/python3
 """Minimal fixed peer relay: no SQL, launch, CDP, crypto keys or module loader.
-Root owns public sockets; the two endpoints are always nonroot uid998. Bounded
+Root owns public sockets; the two endpoints are always separate nonroot controller uid. Bounded
 8 connections, 320KiB per direction, 2s control/65s frames. Controller verifies
 all purpose HMACs, proof associations and current authority at the other end.
 """
 import os,socket,struct,selectors,time,pathlib
 PUBLIC={'/run/sjcos-browser/control.sock':('/run/sjcos-browser-runtime/web.sock',2),'/run/sjcos-browser/frames.sock':('/run/sjcos-browser-runtime/frames.sock',65)}
 def serve(web_uid,controller_uid,web_gid):
- if os.geteuid()!=0 or controller_uid!=998 or web_uid<=0:raise ValueError()
+ if os.geteuid()!=0 or controller_uid in (0,998) or web_uid<=0:raise ValueError()
  selector=selectors.DefaultSelector();pairs={};listeners=[]
  def close(p):
   if p.get('closed'):return
@@ -70,6 +70,6 @@ def serve(web_uid,controller_uid,web_gid):
 if __name__=='__main__':
  try:
   import pwd
-  web=pwd.getpwnam('joe');controller=pwd.getpwnam('sjcos-browser')
+  web=pwd.getpwnam('joe');controller=pwd.getpwnam('sjcos-browser-controller')
   serve(web.pw_uid,controller.pw_uid,web.pw_gid)
  except Exception:raise SystemExit('BROWSER_RELAY_REFUSED')

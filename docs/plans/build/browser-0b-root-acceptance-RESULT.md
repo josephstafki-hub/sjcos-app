@@ -404,3 +404,7 @@ Result for candidate `35feb203`: network 28/28 (p1c) + RSS 15/15 (p1c-rss), `rea
 ## Phase 1 round 2 fixes — root re-acceptance (run p1d, 2026-11-07 06:50–07:05)
 
 Candidate `faee0245` (round 2 server/factory/QA/UI fixes; QA hooks removed from the production module graph; inventories refreshed). Single uninterrupted run: **network 28/28**, **RSS 15/15**, `realRuntime: true`, `simulated: false`, `releaseReady: false`. Evidence `~/qa-sjcos/browser-acc/p1d/`.
+
+## Phase 1 round 3 fixes — root re-acceptance (run p1e, 2026-11-07)
+
+Candidate `fd02a1ec` (round 3 server/QA/UI fixes; inventories refreshed). Single run: **network 28/28**, **RSS 15/15**, `realRuntime: true`, `simulated: false`, `releaseReady: false`. Evidence `~/qa-sjcos/browser-acc/p1e/`.

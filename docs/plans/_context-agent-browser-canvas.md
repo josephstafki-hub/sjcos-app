@@ -204,3 +204,11 @@ Branch note: T3 renamed this branch to `t3/in-app-browser-agent-tools`.
   - **Phase 2 builder** owns the shared canvas files.
   - **Phase 3 builder** owns the new floor files and writes the exact shared-file hook it needs into its HANDOFF; the coordinator applies it.
 - Real fixtures only: capture real browser/library output (lesson from Phase 1's Mermaid filters).
+
+## Joe's decisions, round 4: payment details (2026-11-07)
+
+Joe, verbatim: "No separate virtual cards would be too complicated on my end. A secure way to store payment details would be great. Permission always needed right before use."
+
+- Store the company's payment details (card) securely in the Browser vault. No virtual or single-merchant cards.
+- Joe's permission is needed right before every use: the card is filled only for a Pay step Joe has just approved, never earlier and never reused.
+- This overrides the earlier plan text that kept card numbers out of the vault and made card entry a manual take-over only.

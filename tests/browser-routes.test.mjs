@@ -120,12 +120,13 @@ test('R2 production endpoint leaf cannot select QA trust by environment or datab
  for(const file of ['phase-flags.mjs','web.ts','web-rpc.ts','runtime-endpoints.ts'])assert.doesNotMatch(readFileSync(new URL('../lib/browser/'+file,import.meta.url),'utf8'),/qaBrowserDirectory|createQaWebsiteHooks|SJC_QA|qa-browser-fake/);
  const {withTestDb}=await import('./_harness/testdb.mjs');
  await withTestDb(async(_url,db)=>{
-  await db.query('CREATE DATABASE sjcos_qa_r2_production_boundary');
+  const qaName='sjcos_qa_r2_'+randomUUID().replaceAll('-','');await db.query('CREATE DATABASE '+qaName);
+  const pg=(await import('pg')).default,qaUrl=new URL(_url);qaUrl.pathname='/'+qaName;const qaDb=new pg.Client({connectionString:qaUrl.href});await qaDb.connect();assert.equal((await qaDb.query('SELECT current_database() name')).rows[0].name,qaName);
   const exports={},seen=[];
   runInNewContext(ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText,{exports,Buffer,process:{env:{SJC_QA_SIDE_BUILD:'1',SJC_QA_BROWSER_FAKE:'/tmp/fake',SJC_BROWSER_WEB_RPC_KEY:'11'.repeat(32),SJC_BROWSER_WEB_RESPONSE_KEY:'22'.repeat(32),SJC_BROWSER_FRAME_KEY:'33'.repeat(32)}},require:name=>name==='./website-bridge.mjs'?{loadWebsiteBridge:async input=>{seen.push(input);throw Error('protected trust refused');}}:name==='./phase-flags.mjs'?awaitFlags:{}});
   assert.equal(exports.browserWebEndpoint().control,'/run/sjcos-browser/control.sock');
   assert.equal(exports.browserWebEndpoint().frames,'/run/sjcos-browser/frames.sock');
-  await assert.rejects(exports.loadWebsiteTrust({db,key:Buffer.alloc(32),controller:{}}),/protected trust refused/);assert.equal(seen.length,1);
+  await assert.rejects(exports.loadWebsiteTrust({db:qaDb,key:Buffer.alloc(32),controller:{}}),/protected trust refused/);assert.equal(seen.length,1);await qaDb.end();await db.query('DROP DATABASE '+qaName);
  });
 });
 const awaitFlags=await import('../lib/browser/phase-flags.mjs');

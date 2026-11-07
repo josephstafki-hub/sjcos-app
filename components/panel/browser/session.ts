@@ -22,7 +22,7 @@ export function readReview(reads:Partial<Pick<BrowserReads,'candidates'|'expires
  const candidates=reads.candidates??[];
  const deadlines=candidates.map(c=>c.server_deadline?Date.parse(c.server_deadline):NaN);
  if(reads.expires_at)deadlines.push(Date.parse(reads.expires_at));
- return {readUrls:candidates.map(c=>c.url),readExpired:reads.candidates_status!=='pending'||!candidates.length||deadlines.some(d=>!Number.isFinite(d)||d<=Date.now()+serverOffset)};
+ return {readSuggestions:candidates.map(c=>({suggested_by:c.suggested_by??(c.source==='page'?'page_link':c.source),suggested_by_label:c.suggested_by_label??null})),readUrls:candidates.map(c=>c.url),readExpired:reads.candidates_status!=='pending'||!candidates.length||deadlines.some(d=>!Number.isFinite(d)||d<=Date.now()+serverOffset)};
 }
 /** Stopping local presentation is immediate; planned attendance preservation
  * requires the authenticated close ACK before cancelling the GET transport. */
@@ -30,8 +30,9 @@ export async function closeBrowserStream(ack:()=>Promise<unknown>,abort:()=>void
 
 /** These are display projections, never input/control authority. */
 export function browserProjection(d:Partial<BrowserStatus>):Partial<Pick<BrowserModel,'state'|'queuePosition'|'watchingOwner'|'ownerName'|'windowCount'|'controller'>> {
+ const reasonAllowed=!d.task||['paused','closed','failed'].includes(d.task.state);
  const offered=d.offer_status==='offered'?'offer':d.offer_status==='expired'?'offer_expired':d.offer_status==='queue_expired'?'queue_expired':undefined;
- return {state:(d.projection_status==='available'?d.state_reason:undefined)??offered??undefined,queuePosition:d.queue_position??null,watchingOwner:d.watching_owner===true,ownerName:d.owner_label??undefined,windowCount:d.window_count??undefined,controller:d.controller==='owner'?'owner' as const:d.controller==='other_device'?'other_device' as const:undefined};
+ return {state:(d.task?.state==='paused'&&d.paused_by==='owner'?'owner_paused':undefined)??(d.projection_status==='available'&&reasonAllowed?d.state_reason:undefined)??offered??undefined,queuePosition:d.queue_position??null,watchingOwner:d.watching_owner===true,ownerName:d.paused_by==='owner'?d.paused_by_label??d.owner_label??undefined:d.owner_label??undefined,windowCount:d.window_count??undefined,controller:d.controller==='owner'?'owner' as const:d.controller==='other_device'?'other_device' as const:undefined};
 }
 export function renewControl(token:{value:string;expires:number}|null,detail:Pick<BrowserStatus,'context_generation'|'task'>,r:BrowserPresence) {
  if(!token||r.context_generation!==detail.context_generation||r.control_epoch!==detail.task.control_epoch||!r.control_expires_at)return null;

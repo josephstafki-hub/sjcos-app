@@ -39,6 +39,8 @@ export async function browserSessionHarness(factory) {
   useCallback(fn,deps){return dispatcher.useMemo(()=>fn,deps);},
   useEffect(fn,deps){const i=index++;if(!slots[i]||!same(slots[i].deps,deps)){const old=slots[i];slots[i]={deps,cleanup:old?.cleanup};effects.push(()=>{slots[i].cleanup?.();slots[i].cleanup=fn();});}}
  };
+ dispatcher.useLayoutEffect=dispatcher.useEffect;
+ dispatcher.useSyncExternalStore=(subscribe,get)=>{const [snapshot,set]=dispatcher.useState(get);dispatcher.useEffect(()=>subscribe(()=>set(get())),[subscribe,get]);return snapshot;};
  function flush(){let rounds=0;while(dirty){if(++rounds>60)throw Error('hook render loop');dirty=false;index=0;const saved=internals.H;internals.H=dispatcher;try{value=factory();}finally{internals.H=saved;}const run=effects;effects=[];run.forEach(fn=>fn());}return value;}
  return {get value(){return flush();},async settle(){for(let i=0;i<8;i++){flush();await new Promise(resolve=>setImmediate(resolve));}return flush();},render(){dirty=true;return flush();},dispose(){slots.forEach(s=>s?.cleanup?.());}};
 }

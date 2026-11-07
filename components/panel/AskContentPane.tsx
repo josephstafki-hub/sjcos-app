@@ -43,9 +43,9 @@ export function AskContentPane({id,registration,onExit,entrySerial,...context}:A
     root.current?.focus();
   };
   return <section ref={root} id={id} tabIndex={-1} role="region" aria-label={snapshot.kind==='workbench'?'Record':snapshot.kind==='canvas'?'Canvas':'Browser'}
-    data-ask-pane={snapshot.kind} data-compact={compact} data-landscape={landscape}
+    data-browser-ui={snapshot.kind==='browser'?true:undefined} data-ask-pane={snapshot.kind} data-compact={compact} data-landscape={landscape}
     className="grid h-full min-h-0 min-w-0 overflow-hidden bg-paper text-body"
-    style={{gridTemplateColumns:landscape?'minmax(0,1fr) 128px':'minmax(0,1fr)',gridTemplateRows:landscape?'48px 20px minmax(200px,1fr)':'48px 20px minmax(0,1fr) 56px'}}>
+    style={{gridTemplateColumns:landscape?'minmax(0,1fr) 128px':'minmax(0,1fr)',gridTemplateRows:landscape?'48px 20px minmax(200px,1fr)':snapshot.kind==='browser'?'48px minmax(20px,auto) minmax(0,1fr) auto':'48px 20px minmax(0,1fr) 56px'}}>
     {snapshot.kind==='browser'&&<style>{`
       [data-ask-pane="browser"]:has([data-browser-compact-capture="true"]) {grid-template-rows:44px 0px minmax(0,1fr) 44px !important}
       [data-ask-pane="browser"][data-landscape="true"]:has([data-browser-compact-capture="true"]) {grid-template-rows:44px 0px minmax(0,1fr) !important}
@@ -62,13 +62,13 @@ export function AskContentPane({id,registration,onExit,entrySerial,...context}:A
       </div>
       {!exit&&<button onClick={onExit} aria-label={closeLabel} className="flex size-11 shrink-0 items-center justify-center rounded hover:bg-paper-2 focus-visible:outline-2 focus-visible:outline-focus"><X className="size-4" /></button>}
     </div>
-    <div data-browser-shell-meta className="col-start-1 row-start-2 flex h-5 min-w-0 items-center overflow-hidden px-2 text-meta text-ink-3">{slots.meta}</div>
+    <div data-browser-shell-meta className={`col-start-1 row-start-2 flex min-w-0 items-center px-2 text-meta text-ink-3 ${snapshot.kind==='browser'&&!landscape?'min-h-5':'h-5 overflow-hidden'}`}>{slots.meta}</div>
     <div className="relative col-start-1 row-start-3 min-h-0 min-w-0 overflow-hidden">
       <span tabIndex={0} data-ask-boundary className="sr-only" aria-label="Start of pane content" onFocus={e=>boundary(true,e.relatedTarget,e.currentTarget)} />
       <div ref={stage} className="h-full min-h-0 min-w-0">{slots.content}</div>
       <span tabIndex={0} data-ask-boundary className="sr-only" aria-label="End of pane content" onFocus={e=>boundary(false,e.relatedTarget,e.currentTarget)} />
     </div>
-    <div ref={actions} className={`min-h-0 min-w-0 ${landscape?'col-start-2 row-start-1 row-span-3 flex flex-col overflow-y-auto border-l':'col-start-1 row-start-4 flex h-14 items-center border-t'} border-rule [&_button]:min-h-12`}>
+    <div ref={actions} className={`min-h-0 min-w-0 ${landscape?'col-start-2 row-start-1 row-span-3 flex flex-col overflow-y-auto border-l':`col-start-1 row-start-4 flex items-center border-t ${snapshot.kind==='browser'?'min-h-14 max-h-[40dvh] overflow-y-auto':'h-14'}`} border-rule [&_button]:min-h-12`}>
       {slots.actions}
     </div>
   </section>;

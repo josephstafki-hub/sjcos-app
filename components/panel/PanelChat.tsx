@@ -186,7 +186,7 @@ export function PanelChat({
     },
   });
   const paneScope=useSharedPaneScope(chat.conversationId,!!chat.failureCode||!paneActive);
-  useBrowserFeed(paneScope,chat.agent,paneActive,browserVisible,()=>chat.selectAgent("claude"),()=>void onCanvasChat?.(),chat.ensureBrowserConversation);
+  useBrowserFeed(paneScope,chat.agent,paneActive,browserVisible,()=>chat.selectAgent("claude"),()=>void onCanvasChat?.(),chat.ensureBrowserConversation,chat.nextHome?.entity?.kind==='project'?chat.nextHome.entity.id:undefined);
   const [canvasHint,setCanvasHint]=useState<{id:string;version:number}|null>(null);
   const canvases=useCanvasFeed({changes:chat.canvasChanges,threadId:chat.conversationId,pending:chat.pending,activeRunId:chat.activeRunId,blocked:!!chat.failureCode,prefill:(text,id,version)=>{
     setPrompt(text);setCanvasHint(id&&version?{id,version}:null);void Promise.resolve(onCanvasChat?.()).then(()=>requestAnimationFrame(()=>inputRef.current?.focus()));

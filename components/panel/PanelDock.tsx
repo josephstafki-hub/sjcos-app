@@ -244,11 +244,11 @@ export function PanelDock({width,navigate,compact=false,inWindow=false,mode=inWi
           const attention=feed.snapshots.find(x=>x.kind===tab&&x.attention!=='none'&&seen.current.get(scopeKey+x.kind+x.id)!==x.revision);
           const label=tab[0].toUpperCase()+tab.slice(1);
           const accessible=attention?`${label}, ${tab==='canvas'?'new version':attention.attention==='needs_you'?'needs you':'new activity'}`:label;
-          return <button key={tab} role="tab" id={`${id}-tab-${tab}`} aria-label={accessible} aria-selected={tabValue===tab} aria-controls={tab==='queue'?queueId:tab==='chat'?chatId:paneId} tabIndex={tabValue===tab?0:-1}
+          return <button data-browser-ui={tab==='browser'?true:undefined} key={tab} role="tab" id={`${id}-tab-${tab}`} aria-label={accessible} aria-selected={tabValue===tab} aria-controls={tab==='queue'?queueId:tab==='chat'?chatId:paneId} tabIndex={tabValue===tab?0:-1}
             className={`relative inline-flex shrink-0 items-center whitespace-nowrap rounded-[5px] px-2.5 font-sans text-label font-medium transition-colors hover:text-ink focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-focus ${policy.landscape?'h-12 min-w-16':tabs.length===2?'h-11':'h-11 flex-1 min-w-0'} ${tabValue===tab?'bg-card text-ink shadow-card':'text-ink-3'}`}
             onClick={e=>void chooseTab(tab,e.currentTarget)}
             onKeyDown={e=>{const next=tabKey(tabs,tab,e.key,policy.landscape);if(next){e.preventDefault();const target=root.current?.querySelector<HTMLElement>(`[id="${id}-tab-${next}"]`);target?.focus();if(target)void chooseTab(next,target);}}}>
-            {label}{attention&&<span className="ml-0.5 inline-block size-1.5 rounded-full bg-ai" aria-hidden="true" />}
+            {label}{attention&&<span className="ml-0.5 inline-block shrink-0 size-1.5 rounded-full bg-ai" aria-hidden="true" />}
           </button>;
         })}
       </div>

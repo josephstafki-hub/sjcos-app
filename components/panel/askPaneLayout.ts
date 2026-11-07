@@ -6,7 +6,7 @@ export type PaneSnapshot = {
   label: string; attention: 'none' | 'new' | 'needs_you'; revision: string;
 } & (
   | { kind: 'canvas'; id: string; selected_version: number; latest_version: number; followLatest?: boolean }
-  | { kind: 'browser'; id: string; task_id: string; status: string; takeover: boolean }
+  | { kind: 'browser'; id: string; task_id: string; status: string; stateLabel?:string; takeover: boolean }
   | { kind: 'workbench'; id: string; subject_id: string }
 );
 export const clampChat = (width: number, min: number, max: number) => Math.min(max, Math.max(min, width));

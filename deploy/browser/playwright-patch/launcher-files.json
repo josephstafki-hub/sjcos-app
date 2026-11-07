@@ -113,7 +113,7 @@
   "lib/browser/timers.mjs": "f32232d1c4116f3807483469c1c1296b184dc2a30347cb94f5dae00bc5d30060",
   "lib/browser/vault-audit.mjs": "25f47b5d165376541ffa7b0575cf37393e2f9cff8cd7d3073384fd7f35e3a205",
   "lib/browser/vault.mjs": "1b62b6952cb5c352cb7e3e9f25613f44533e8adc3e58164281ccbd8b5a3a4f06",
-  "lib/browser/web-transport.mjs": "694d5e3ece08d3c6eb8074c83c62355bd3d91a92afdc041b96f67efb00b5fc27",
+  "lib/browser/web-transport.mjs": "e1a6031947cd0dde176a8282e785247b05e17219aed2835353a26e5005715d8b",
   "lib/browser/website-bridge.mjs": "23fb232c584a6f3983c1e4abaf0c373a11390768441fec7b49468239e6ff8478",
   "mcp/browser-profile-tools.mjs": "1f4e6009e60363ed23e32e439a55382f1e83b885259f704655ff5c0516332e59",
   "mcp/browser-tools.mjs": "a06cb8929ce876b85bb75c5a7caa36afeffd4219ae3845f451d5e143e1b6238e",

@@ -27,7 +27,7 @@
   "lib/browser/rendezvous-client.mjs": "a2a7cabe03cb04b9d63309ba3c583b5554e4db5b8b6118bf8db39e17fbec4b7c",
   "lib/browser/rendezvous.mjs": "b8e8ff3f0c602e9d5a2e7d2c86c2c8966422ff39809d6902fb1c87ce6cbdff71",
   "lib/browser/response-budget.mjs": "7b222d2f7e6b39856138ebd7dce3acc03c178c682aa4228ba39d259c9a67a110",
-  "lib/browser/root-fixture.mjs": "5f620114145ed70920cebe15e48c242583643b0db72748fa608bd515be21e87e",
+  "lib/browser/root-fixture.mjs": "62b418ebcfa9696546a96c7fab9ac617c1718b64a11d2064667edafe56454ce4",
   "lib/browser/root-runner.mjs": "fc37c96dc291496afa82f3efd9d4a9af21cc5d74219ef4c5d9a620ba8647f0cf",
   "lib/browser/runtime-pins.mjs": "c9e7cb68bb9cc6edcc1843f266bd6d4bbe1ff073838b6019f96ef4d8eacb7497",
   "lib/browser/runtime-readiness.mjs": "190765da2becba7d72c1c16a34444cb90d9e389052d2283c679b41fd85aeee28",

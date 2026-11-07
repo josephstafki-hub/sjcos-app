@@ -87,3 +87,19 @@ import {runCommand} from '../lib/browser/controller.mjs';
 test('fixture command errors preserve bounded stderr, argv and exit for coordinator diagnostics',async()=>{
  await assert.rejects(runCommand(process.execPath,['-e','process.stderr.write("fixture-diagnostic");process.exit(7)']),e=>e.message.includes('exit=7')&&e.message.includes('fixture-diagnostic')&&e.message.includes(process.execPath));
 });
+
+// Coordinator root-run fix: kernel IPv6 link-local NDP/MLD on a fresh fixture veth is link control,
+// not private traffic; any other IPv6 (even ICMPv6) remains private.
+test('fixturePacketMetrics: link-local MLD is link control; global IPv6 stays private', async () => {
+  const {fixturePacketMetrics} = await import('../lib/browser/root-fixture.mjs');
+  const pcap = (packets) => { const head = Buffer.alloc(24); head.writeUInt32LE(0xa1b2c3d4,0); head.writeUInt16LE(2,4); head.writeUInt16LE(4,6); head.writeUInt32LE(65535,16); head.writeUInt32LE(276,20);
+    return Buffer.concat([head, ...packets.flatMap(p => { const rec = Buffer.alloc(16); rec.writeUInt32LE(p.length,8); rec.writeUInt32LE(p.length,12); return [rec,p]; })]); };
+  const v6 = (src, dst, icmpType, hbh) => { const sll = Buffer.alloc(20); const ip = Buffer.alloc(40); ip[0]=0x60; ip[6]=hbh?0:58; ip[7]=1;
+    Buffer.from(src,'hex').copy(ip,8); Buffer.from(dst,'hex').copy(ip,24);
+    const ext = hbh ? Buffer.from([58,0,5,2,0,0,1,0]) : Buffer.alloc(0); const icmp = Buffer.from([icmpType,0,0,0,0,0,0,0]); return Buffer.concat([sll,ip,ext,icmp]); };
+  const ll='fe80000000000000d4f55ffffe09c92e', mld='ff020000000000000000000000000016', global='26064700470000000000000000001111';
+  const ok = fixturePacketMetrics(pcap([v6(ll,mld,143,true), v6(ll,'ff020000000000000000000000000002',133,false)]));
+  assert.equal(ok.linkControlPackets, 2); assert.equal(ok.privatePackets, 0);
+  const bad = fixturePacketMetrics(pcap([v6(ll,global,128,false), v6('fd420000000000000000000000000002',mld,143,true)]));
+  assert.equal(bad.privatePackets, 2); assert.equal(bad.linkControlPackets, 0);
+});

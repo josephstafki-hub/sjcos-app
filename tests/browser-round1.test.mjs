@@ -108,3 +108,22 @@ test('actual consume/checkpoint/sink binds the transport digest; substituted rec
  assert.throws(()=>verifyConsumeRecord(event,consume,checkpoint,keys.publicKey,{...record,id:'b'.repeat(64)}));
  assert.throws(()=>verifyConsumeRecord(event,consume,{...checkpoint,digest:'b'.repeat(64)},keys.publicKey,record));
 });
+
+// Coordinator root-run fix: the headless shell attaches popups as their own browser-level page target
+// (no child_target event). A distinct later page target still satisfies the paused-child evidence; the
+// opener's own target never does, and the full attach/guard/resume/Fetch/write ordering is still required.
+test('verifyChildBarrier accepts a distinct browser-level popup target with full ordering', async () => {
+  const {verifyChildBarrier} = await import('../lib/browser/root-fixture.mjs');
+  const name='popup-first-request', d='a'.repeat(64);
+  const ctl=[
+    {seq:1,event:'target_attached',targetId:'OPENER',type:'page'},{seq:2,event:'guard_registered',targetId:'OPENER'},{seq:3,event:'resume',targetId:'OPENER'},
+    {seq:4,event:'target_attached',targetId:'POPUP',type:'page'},{seq:5,event:'guard_registered',targetId:'POPUP'},{seq:6,event:'resume',targetId:'POPUP'},
+    {seq:7,event:'fetch_paused',targetId:'POPUP',url:'https://child.example/'+name}];
+  const gate=[{event:'flow_closed',targetId:'POPUP',upstreamPlaintextBytes:10,requestDigest:d}];
+  assert.equal(verifyChildBarrier(name,ctl,gate,[{requestDigest:d,path:'/'+name}]),true);
+  // Only the opener exists: refused.
+  assert.throws(()=>verifyChildBarrier(name,ctl.slice(0,3),gate,[{requestDigest:d,path:'/'+name}]),/missing paused child/);
+  // Popup resumed before its guard: refused.
+  const bad=ctl.map(e=>e.targetId==='POPUP'&&e.event==='guard_registered'?{...e,seq:8}:e);
+  assert.throws(()=>verifyChildBarrier(name,bad,gate,[{requestDigest:d,path:'/'+name}]),/child own/);
+});

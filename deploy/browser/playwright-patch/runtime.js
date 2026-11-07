@@ -21,7 +21,10 @@ function createSjcRuntime() {
     b.failReason = String(reason).slice(0, 80); // first cause only
     b.live = false; // synchronous fence before any asynchronous revocation
     await Promise.allSettled([...b.states].map(s=>s.guard?.fail()));
-    await b.policy.revokeListener(b.failReason); // fixed reason code, for root-run diagnostics
+    // fail() is often fired and forgotten (void fail(...)). The boot is already dead (live=false above) and the
+    // launcher's revokeListener closes the browser in its finally; a revoke that cannot reach a crashed gate
+    // must be recorded, not escape as an unhandled rejection that kills the controlling process.
+    try { await b.policy.revokeListener(b.failReason); } catch { b.revokeFailed = true; }
   }
   async function deny(browser,session,target,reason='deny') {
     try { await fail(browser, 'deny:' + reason); }

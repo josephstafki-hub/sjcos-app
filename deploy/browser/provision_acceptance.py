@@ -140,7 +140,7 @@ def provision():
     trusted(bundle)
     if json.loads((core/'package.json').read_text())['version']!='1.64.1': fail('BROWSER_PROVISION_CORE_VERSION')
     if digest(bundle.read_bytes()) not in (UPSTREAM,PATCHED): fail('BROWSER_PROVISION_CORE_HASH')
-    for p in [Path('/usr/bin/node'),RUNTIME/'unbound/sbin/unbound',RUNTIME/'browsers/chromium-1248/chrome-linux64/chrome']:
+    for p in [Path('/usr/bin/node'),RUNTIME/'unbound/sbin/unbound',RUNTIME/'browsers/chromium_headless_shell-1248/chrome-headless-shell-linux64/chrome-headless-shell']:
         trusted(p)
     if JOURNAL.exists():
         trusted(JOURNAL); state=json.loads(JOURNAL.read_text())
@@ -233,7 +233,7 @@ def provision():
     tx.write(Path('/etc/sjcos-browser/launch-broker.json'),json.dumps(broker,indent=2).encode()+b'\n',0o600)
     tx.write(Path('/etc/sjcos-browser/acceptance.json'),json.dumps(config,indent=2).encode()+b'\n',0o644)
     # Installed inventory proves byte integrity, NEVER review/acceptance.
-    inventory=['unbound/sbin/unbound','browsers/chromium-1248/chrome-linux64/chrome',*installs,
+    inventory=['unbound/sbin/unbound','browsers/chromium_headless_shell-1248/chrome-headless-shell-linux64/chrome-headless-shell',*installs,
                'fixtures/launcher-driver','node/node_modules/playwright-core/lib/coreBundle.js','node/node_modules/playwright-core/lib/sjc-patch.json']
     inventory += ['node/source/'+name for name in files]
     manifest={'format':1,'sourceLockSha256':digest(lock_bytes),'files':{name:digest((RUNTIME/name).read_bytes()) for name in inventory}}

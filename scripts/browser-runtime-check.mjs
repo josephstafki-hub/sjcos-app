@@ -16,7 +16,7 @@ let attestation,signatureError;
 try{
  attestation=await loadAttestation(sha256(await readFile('/opt/sjcos-browser/runtime-lock.json')));
  for(const key of ['parserPatchSha256','playwrightPatchSha256','patchedBundleSha256','pythonTransitiveLockSha256'])if(attestation[key]!==lock.acceptance[key])throw Error();
- if(attestation.chromiumSha256!==installed.hashes['/opt/sjcos-browser/browsers/chromium-1248/chrome-linux64/chrome'])throw Error();
+ if(attestation.chromiumSha256!==installed.hashes['/opt/sjcos-browser/browsers/chromium_headless_shell-1248/chrome-headless-shell-linux64/chrome-headless-shell'])throw Error();
 }catch{attestation=undefined;signatureError='BROWSER_INDEPENDENT_ATTESTATION_REQUIRED';}
 const readiness=runtimeReadiness(attestation,a=>a===attestation&&!!attestation);
 // --installation-only permits inspection BEFORE acceptance exists. It cannot

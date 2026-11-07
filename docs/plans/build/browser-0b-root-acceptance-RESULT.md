@@ -289,3 +289,31 @@ preallocation-backpressure repeatedly. Check that consume is followed by digest
 registration/server connect instead of revocation, both tail proof arrays
 survive the parent artifact pass, and independent release/zero survivors hold.
 No ROOT acceptance pass or promotion is claimed by this follow-up.
+
+## Round 1 — root re-acceptance (2026-11-07, run `final2` at `45982097`)
+
+Full root acceptance PASSED again under the round 1 (stricter) checks: network **28/28**, RSS **15/15**,
+realRuntime true, simulated false, releaseReady false. Evidence: `~/qa-sjcos/browser-acc/final2/`.
+The case that had been intermittent (preallocation-backpressure) passed 3/3 consecutive root repeats first.
+
+Coordinator changes during the round 1 root loop (each its own commit; reviewers please scrutinize the
+evidence-acceptance changes):
+- `49be0985` `--site-per-process`: the headless shell ran cross-site frames in-process; now each cross-site
+  frame is its own barrier-guarded target (security improvement).
+- `6d89bba1` popup paused-child evidence accepts a distinct browser-level page target (headless shell attaches
+  popups at browser level); full attach/guard/resume/Fetch/write ordering unchanged.
+- `91294c8a` OOPIF evidence follows Chromium's navigation model: the frame's document navigation is Fetch-paused
+  on the parent target before the frame process exists; the child then attaches paused, guard < resume; the
+  write is bound to the exact child.example consume digest. Popups stay strict.
+- `606e5bb3` + `8c4df81c` fetch-detach fault proof = ack OR a boot_revoked recorded after the detach attempt
+  (the barrier's revocation closes the session carrying the ack); neither still fails.
+- `8ee5ca3f` controller-loss case waits for the gate lease to record controller_lost before releasing the reader.
+  **Known window:** an already-authorized, already-buffered response can drain within the lease's <0.5 s
+  detection window after an abrupt controller death; no new authorization is possible in it.
+- `10bc5c9d` preallocation review hold stays inside the gate's 2 s decision bound (human review happens before
+  dispatch, never inside a gate decision).
+- `bf8bc51f` launcher pre-start refusal codes.
+Builder fixes found by these runs: `50a63f09` (bounded asynchronous terminal cleanup, distinct shutdown codes,
+controlled TCP-tail measurement) and `45982097` (gate control backlog 2→8: concurrent first requests exhausted the
+Unix control backlog → EAGAIN during digest registration → fatal revocation; RSS tail-hold samples preserved
+through artifact serialization).

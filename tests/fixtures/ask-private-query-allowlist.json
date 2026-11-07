@@ -259,14 +259,14 @@
     "lib/browser/repository.mjs": "c6f1149fddc88a0df338bc3efcedffb11a8f37eeb0ba5057a7b66301642b9940",
     "lib/browser/root-fixture.mjs": "53d15b2d9570bcad768e34fed730e7b3dc1d09ec48759e276d66de2bdb7af8c8",
     "db/migrations/0115_browser_phase1_runtime.sql": "9c32833548c67c87ea921bc3d87935c20e8ad10ed531e80d557fa5c134162281",
-    "lib/browser/web.ts": "f31d409dae74305c686e6b7f563b6bcb6596984fffa1638a5d4e22c92dffd926",
+    "lib/browser/web.ts": "12984f29b582089ef4d5e8a4db78f8e3750603aa5891842de8487ea78c9f5627",
     "lib/browser/production-bridge.mjs": "9d105379d4fe2fda50b69fce6b74d0412fec8fc32cfc9a29458869465a6a4283",
     "lib/browser/retention.mjs": "f848a6f1a9ea55131de309ebc6fc80b12b91e4237003f706c17de13fb3acde61",
     "lib/browser/web-transport.mjs": "e1a6031947cd0dde176a8282e785247b05e17219aed2835353a26e5005715d8b",
     "lib/browser/production-browser.mjs": "be8f7efb4d6714e2678cc0ed6429dbad62920cceecea50458d231a892d7e0afd",
     "lib/browser/record-projections.mjs": "6eaf8f982dd650e61dfbfb49f0b371462a7e2c1019b94b4be94bfa01eb87b5bd",
-    "scripts/qa-seed-browser.mjs": "76fb2f41a565bd5bf92a2eec6cea37ff7b6876e3b2ecbe434c6ada3a4636ffc3",
-    "scripts/qa-browser-fake-controller.mjs": "a127bc300e41d1231a147aa34a55d36c3451d5ed8a22ae58afdd2066e1e7f33f",
+    "scripts/qa-seed-browser.mjs": "0e9b86231f1b96fdbc9c5d491ca85e261cd245cf0d10680a42a296ff06eff385",
+    "scripts/qa-browser-fake-controller.mjs": "adafb7739aeaaece93c52416d6f8a15844abdef631ca9ad9e657844b08e37fef",
     "lib/browser/audit-service.mjs": "1cf4401533af45920409f7fb67f36d77f27cdc0bdb581b0db3efc8a426cab4c1"
   },
   "entries": [
@@ -7509,7 +7509,7 @@
       "function": "seedBrowser",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "R3 reviewed QA-only seed: explicit isolated QA DB, real LOGIN and private fixture/cluster guards; advisory seed lock. Retirement locks the task and checks scenario membership, exact QA principal, deterministic scenario thread and QA project before fencing attendance/stream/control/consent. Real guarded join/stop retires task/run; no extra viewer slot or production limit change. Expired deadlines set only on both selected fixture task IDs after admission. No unrelated person/task, live DB, send/grant/model path or ambient DSN.",
+      "explanation": "R4d re-reviewed QA-only seed: explicit client passes qaGuard/prepareQaLogins (connected sjcos_qa_* DB, non-production port/data directory, private cluster pin and real LOGIN identities), then advisory seed lock. make uses fixed QA person and deterministic thread/project plus guarded admit/join/control; retirement locks and requires scenario membership/person/thread/project before task/viewer/claim/run cleanup. Message insert is fixed fixture text in that QA thread; confirmed answer references that inserted message. Review/manifest/control/attendance SQL uses admitted task/command/viewer IDs, deadlines use only selected fixture task IDs. earlier_view now also enables fixture navigation; no SQL change. This trusted QA bootstrap can inspect fixture-person live tasks and changes isolated readiness/settings; it is not a general per-person authorization API and never reads arbitrary chat bodies or ambient production DSNs.",
       "queries": [
         "3e542302927c7c0d873e9cdfc28598b83674546d29575707ac3758710b42486d",
         "f62515345984737a62e59f4e2b3fc18bf178fef4907ca07332e963ec852210b6",
@@ -7522,7 +7522,7 @@
       "function": "make",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "R3 reviewed QA-only seed: explicit isolated QA DB, real LOGIN and private fixture/cluster guards; advisory seed lock. Retirement locks the task and checks scenario membership, exact QA principal, deterministic scenario thread and QA project before fencing attendance/stream/control/consent. Real guarded join/stop retires task/run; no extra viewer slot or production limit change. Expired deadlines set only on both selected fixture task IDs after admission. No unrelated person/task, live DB, send/grant/model path or ambient DSN.",
+      "explanation": "R4d re-reviewed QA-only seed: explicit client passes qaGuard/prepareQaLogins (connected sjcos_qa_* DB, non-production port/data directory, private cluster pin and real LOGIN identities), then advisory seed lock. make uses fixed QA person and deterministic thread/project plus guarded admit/join/control; retirement locks and requires scenario membership/person/thread/project before task/viewer/claim/run cleanup. Message insert is fixed fixture text in that QA thread; confirmed answer references that inserted message. Review/manifest/control/attendance SQL uses admitted task/command/viewer IDs, deadlines use only selected fixture task IDs. earlier_view now also enables fixture navigation; no SQL change. This trusted QA bootstrap can inspect fixture-person live tasks and changes isolated readiness/settings; it is not a general per-person authorization API and never reads arbitrary chat bodies or ambient production DSNs.",
       "queries": [
         "1f107fabe685a282b0851c3eee355107df9e445165a5e7ba214e7fad3c7cf168",
         "5a3da86d35e26d8493a4aa292bec2b201e3cb84e5b3eb2335619dd39bf8cb07b",
@@ -7550,7 +7550,7 @@
       "function": "get",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "R3 reviewed QA-only seed: explicit isolated QA DB, real LOGIN and private fixture/cluster guards; advisory seed lock. Retirement locks the task and checks scenario membership, exact QA principal, deterministic scenario thread and QA project before fencing attendance/stream/control/consent. Real guarded join/stop retires task/run; no extra viewer slot or production limit change. Expired deadlines set only on both selected fixture task IDs after admission. No unrelated person/task, live DB, send/grant/model path or ambient DSN.",
+      "explanation": "R4d re-reviewed QA-only seed: explicit client passes qaGuard/prepareQaLogins (connected sjcos_qa_* DB, non-production port/data directory, private cluster pin and real LOGIN identities), then advisory seed lock. make uses fixed QA person and deterministic thread/project plus guarded admit/join/control; retirement locks and requires scenario membership/person/thread/project before task/viewer/claim/run cleanup. Message insert is fixed fixture text in that QA thread; confirmed answer references that inserted message. Review/manifest/control/attendance SQL uses admitted task/command/viewer IDs, deadlines use only selected fixture task IDs. earlier_view now also enables fixture navigation; no SQL change. This trusted QA bootstrap can inspect fixture-person live tasks and changes isolated readiness/settings; it is not a general per-person authorization API and never reads arbitrary chat bodies or ambient production DSNs.",
       "queries": [
         "d02df7f0417a9581ba3343f1edafaf5b582de2d3ca06e62f785654600e8dd0ec"
       ]
@@ -7591,10 +7591,11 @@
       "function": "createQaWebsiteHooks",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "R2 reviewed QA-only overlay/tooling, unreachable from production entry graph. Actual QA database and non-production port + canonical private directory + explicit QA env required; pinned cluster and real website/service LOGIN identities remain checked. Scenario task/run/viewer/stream scopes precede fixed SQL. Local signed consent checkpoints are fixture evidence only, never independent production custody. Generic helpers take explicit clients; no ambient production connection.",
+      "explanation": "R4d reviewed QA-only overlay, absent from ordinary production entry graph. readScenario rechecks explicit side-build env, connected sjcos_qa_* DB/non-5432 port, private files and pinned cluster per hook. Website route supplies authorized task/session/viewer; projection additionally requires scenario.tasks[task.id]. Owner-view query returns only existence of a live claim for this task, not another person's thread or claim contents. Private-view predicate joins viewer to its task; caller supplies the authenticated task-bound viewer. Watch binds task/viewer/sid; classifier checks QA person/thread; start locks the supplied task and requires current approved unused next-document manifest. These are trusted QA adapters, not independently person-authorizing SQL helpers or production custody evidence.",
       "queries": [
         "d02df7f0417a9581ba3343f1edafaf5b582de2d3ca06e62f785654600e8dd0ec",
         "0cfc2b6d3e692c4bfda54c317f32adc2ec3229d1096a2c97cb1e6bce4c611b6e",
+        "4d786579ce5c14132b35897370f6356e669e07f0fb42051df3fe728f393c2fdd",
         "a104852751a818c6c9c84a1377fc34a2af398a10a8dcf8d4c17960dd3997b8e5",
         "e2f7cd682c0ac0e8e0c254a3b5f55756b79ba171fe830128f2bef20f400a79e5",
         "31cb26e1f49868c10f297b9203d3aa8d752e72503f8591b029c5e1174bb1a0b5"
@@ -7673,6 +7674,16 @@
       "explanation": "R2 owner-only website projection, after cookie/session/person/area/record authorization. Busy identity restricted to owner; no page text or transcript is exposed.",
       "queries": [
         "965477a58a0e1d7856e889b90e2f15fc6d02e55a37d3663813c9e27863d7b083"
+      ]
+    },
+    {
+      "file": "lib/browser/web.ts",
+      "function": "currentLoading",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "R4d reviewed: private helper reached through detail after route authorize validates uncached cookie/session, active person, task areas and owned non-deleted conversation; a different initiator requires owner plus live task/owner/sid/run-bound claim. loadViewer checks task/sid/person/device/attendance. currentLoading only probes public active/paused tasks, revalidates session/areas via presence proof and signed task-bound RPC, reloads that authorized task and queries viewer by exact id/task/sid/person with left_at IS NULL. Loading is only a boolean after matching task/run/boot/context/document/control and live viewer stream/generation; no chat/task text or arbitrary task selector is returned.",
+      "queries": [
+        "daf6409c65848359c49b8492566e1bb9914abe7d2a96ddce73106dd158cc5584"
       ]
     }
   ]

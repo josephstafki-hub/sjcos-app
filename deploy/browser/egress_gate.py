@@ -23,9 +23,11 @@ class EgressGate:
         self.dead = True
         if flow is not None:
             flow.kill()
-        if self.runtime is not None:
-            self.runtime.revoke_all()  # closes keepalive/TLS/upstream, durable unknown
-        ctx.master.shutdown()
+        try:
+            if self.runtime is not None:
+                self.runtime.revoke_all()  # closes keepalive/TLS/upstream, durable unknown
+        finally:
+            ctx.master.shutdown()
 
     async def guarded(self, name, flow):
         try:

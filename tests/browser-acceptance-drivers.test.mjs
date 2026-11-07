@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {readFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
 import {NETWORK_CASES,RSS_CASES,validateEvidence} from '../lib/browser/acceptance.mjs';
 for(const name of ['containment','rss'])test(name+' plan prints exact root command without side effects',()=>{
  const r=spawnSync(process.execPath,['scripts/browser-'+name+'-check.mjs','--plan','--tag','ncheck01','--joe-uid','1010'],{encoding:'utf8'});
@@ -15,6 +16,12 @@ for(const name of ['containment','rss'])test(name+' plan prints exact root comma
 for(const name of ['network','rss'])test(name+' driver has offline validation, rejects missing nonce without launching',()=>{
  const r=spawnSync('/opt/sjcos-browser/py/bin/python',['deploy/browser/fixtures/'+name+'-driver.py','--kind',name],{encoding:'utf8',env:{...process.env,PYTHONDONTWRITEBYTECODE:'1'}});
  assert.notEqual(r.status,0);assert.equal(r.stdout,'');assert.match(r.stderr,/arguments are required: --run-id/);
+});
+for(const name of ['containment','rss'])test(name+' plan resolves its checkout independently of caller cwd',()=>{
+ const r=spawnSync(process.execPath,[process.cwd()+'/scripts/browser-'+name+'-check.mjs','--plan','--tag','relcwd','--joe-uid','1010'],{encoding:'utf8',cwd:tmpdir()});
+ assert.equal(r.status,0,r.stderr);const p=JSON.parse(r.stdout);
+ assert.ok(p.sequence.every(c=>c.includes(process.cwd())));
+ assert.ok(p.command.includes(process.cwd()));
 });
 test('duplicate or extra evidence cases cannot hide an incomplete capture',()=>{
  const e={runId:'n',kind:'network',realRuntime:true,simulated:false,runtimeLockSha256:'a'.repeat(64),cases:NETWORK_CASES.map(name=>({name,passed:true})),unapprovedUpstreamBytes:0,privatePackets:0,captureIngressVerified:true,guardOrderingVerified:true};

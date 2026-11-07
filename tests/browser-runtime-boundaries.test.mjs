@@ -54,8 +54,25 @@ assert flow.killed
  // request re-raises by design: caller confirms kill before dispatcher fatal.
  const r=spawnSync('python3',['-B','-c',code],{encoding:'utf8',timeout:10000,maxBuffer:8192});assert.equal(r.status,0,r.stderr);
 });
+test('addon always shuts down after terminal receipt persistence failure',()=>{
+ const code=String.raw`
+import sys,types,importlib.util
+ctx=types.SimpleNamespace(master=types.SimpleNamespace(shutdown=lambda:closed.append(True)))
+sys.modules['mitmproxy']=types.SimpleNamespace(ctx=ctx)
+spec=importlib.util.spec_from_file_location('gate','deploy/browser/egress_gate.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
+closed=[]
+class Runtime:
+ def revoke_all(self):raise RuntimeError('BROWSER_DURABILITY_LOST')
+a=m.EgressGate();a.runtime=Runtime()
+try:a.fatal()
+except RuntimeError:pass
+else:raise AssertionError('durability failure swallowed')
+assert closed==[True] and a.dead
+`;
+ const r=spawnSync('python3',['-B','-c',code],{encoding:'utf8',timeout:10000});assert.equal(r.status,0,r.stderr);
+});
 test('timeout during final binding recheck cannot schedule a late resume',async()=>{const {args,calls}=barrier();let resolve,n=0;args.validateBinding=async()=>++n===1?true:await new Promise(r=>resolve=r);args.timeoutMs=5;assert.equal((await guardTarget(args)).ok,false);resolve(true);await new Promise(r=>setImmediate(r));assert.equal(calls.includes('Runtime.runIfWaitingForDebugger'),false);});
-test('versioned file manifest hashes the exact addon, dispatcher, gate and patch spec',async()=>{const lock=JSON.parse(await readFile('deploy/browser/runtime-lock.json','utf8'));assert.equal((await verifyRuntimeFiles(process.cwd(),lock)).ok,true);assert.equal(lock.acceptance.releaseReady,false);assert.equal(lock.acceptance.parserPatchSha256,null);});
+test('versioned file manifest hashes the exact addon, dispatcher, gate and patch spec',async()=>{const lock=JSON.parse(await readFile('deploy/browser/runtime-lock.json','utf8'));assert.equal((await verifyRuntimeFiles(process.cwd(),lock)).ok,true);assert.equal(lock.acceptance.releaseReady,false);assert.equal(lock.acceptance.parserPatchSha256,sha256(await readFile('deploy/browser/parser_adapter.py')));assert.equal(lock.acceptance.parserTransportIntegrated,false);const result=JSON.parse(await readFile('deploy/browser/playwright-patch/result.json'));assert.equal(lock.acceptance.playwrightPatchSha256,result.playwrightPatchSha256);assert.equal(lock.acceptance.patchedBundleSha256,result.patchedBundleSha256);});
 test('Python broker validates kernel identity before credential/claim access',()=>{const code=String.raw`
 import sys
 sys.path.insert(0,'deploy/browser')

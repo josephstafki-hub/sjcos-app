@@ -7,7 +7,7 @@
   "lib/browser/startup.mjs": "c809d06a68b05f0a996fe014aa8a30a0f9c02deef0c6404e94381d8691f44171",
   "lib/browser/contracts.mjs": "551ac1d48439bae32e159adcd1becb60ab8cecc86bd05aef6ea96bf197e0b339",
   "lib/browser/network-policy.mjs": "dbf4e620ea43a345d27d8072a0834436b034bd4f66823a3605707ab83cdfd69d",
-  "lib/browser/runtime-readiness.mjs": "38bc165ec71a85163f35f6bee126deec9588ec0b457e052f3fd35ed9fea2778f",
+  "lib/browser/runtime-readiness.mjs": "190765da2becba7d72c1c16a34444cb90d9e389052d2283c679b41fd85aeee28",
   "mcp/browser-tools.mjs": "a06cb8929ce876b85bb75c5a7caa36afeffd4219ae3845f451d5e143e1b6238e",
   "deploy/browser/launcher-driver.mjs": "d5dc574ff0bcf5ee1223523565aaf9c1ee581f81839531cee02c1567d617783d",
   "deploy/browser/mcp-entry.mjs": "a9e8c13004cc46d9269b16ac4ece88f3a87b9f222d855e4ceb5fda58d9af74e0",

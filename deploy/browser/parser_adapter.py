@@ -7,6 +7,7 @@ The dedicated TLS transport must use this boundary; stock DumpMaster is refused.
 import asyncio
 import importlib.metadata
 import json
+import math
 import re
 import socket
 import struct
@@ -41,6 +42,7 @@ class Reservation:
     body_deadline: float
     consumed: bool = False
     draining: bool = False
+    unknown_attempted: bool = False
     buffers: list = field(default_factory=list)
     parsers: list = field(default_factory=list)
 
@@ -50,6 +52,7 @@ class AllocationOwner:
 
     def __init__(self, clock=time.monotonic):
         self.clock = clock
+        self.persist_unknown = None
         self.flows = {}
         self.pools = dict.fromkeys(CAPS, 0)
         self.maxima = dict.fromkeys(CAPS, 0)
@@ -136,9 +139,29 @@ class AllocationOwner:
         return self.release(key, True)
 
     def release(self, key, success=False):
-        f = self.flows.pop(key, None)
+        f = self.flows.get(key)
         if f is None:
             return "failed"
+        # Every terminal path, including parser errors and deadline expiry,
+        # crosses this boundary. Keep the reservation until durable persistence
+        # has been attempted; failure must still zero and drop body storage.
+        try:
+            if not success:
+                self.persist_unknown_once(key)
+        finally:
+            self._release_storage(key, f)
+        return "succeeded" if success else "unknown" if f.consumed else "failed"
+
+    def persist_unknown_once(self, key):
+        f = self.flows.get(key)
+        if f and f.consumed and not f.unknown_attempted and self.persist_unknown is not None:
+            # A persistence error revokes the boot; never retry a consumed write
+            # or retry its terminal persistence implicitly during cleanup.
+            f.unknown_attempted = True
+            self.persist_unknown(key)
+
+    def _release_storage(self, key, f):
+        self.flows.pop(key, None)
         self.pools["request"] -= f.request
         self.pools["response"] -= 56 * MIB
         self.pools["transport"] -= 6 * QUEUE
@@ -153,10 +176,17 @@ class AllocationOwner:
         for parser in f.parsers:
             parser._drop()
         f.parsers.clear()
-        return "succeeded" if success else "unknown" if f.consumed else "failed"
 
     def revoke_all(self):
-        return {key: self.release(key) for key in tuple(self.flows)}
+        outcomes, error = {}, None
+        for key in tuple(self.flows):
+            try:
+                outcomes[key] = self.release(key)
+            except BaseException as exc:
+                error = error or exc
+        if error is not None:
+            raise error
+        return outcomes
 
 
 class BoundedIO:
@@ -420,6 +450,13 @@ class RuntimeAdapter:
         self.owner, self.policy, self.transport = owner, policy, transport
         self.verify_deployment, self.key = verify_deployment, key
         self.dead = False
+        def persist_unknown(key):
+            try:
+                self.transport.persist_unknown(key)
+            except BaseException:
+                self.dead = True
+                raise
+        self.owner.persist_unknown = persist_unknown
 
     def attested(self):
         return (not self.dead and importlib.metadata.version("mitmproxy") == "12.3.1"
@@ -435,12 +472,15 @@ class RuntimeAdapter:
             raise Refused("BROWSER_RUNTIME_OPTIONS")
 
     def remaining(self, flow):
-        if flow.id not in self.owner.flows:
-            # CONNECT precedes a request/body reservation. The transport starts
-            # its monotonic deadline at accept, never from client headers.
-            return min(60, self.transport.remaining(flow))
-        f = self.owner.live(flow.id)
-        return max(0, f.deadline - self.owner.clock())
+        # CONNECT precedes reservation. A new request must never restart its
+        # connection's original monotonic deadline (including on keepalive).
+        left = self.transport.remaining(flow)
+        if type(left) not in (float, int) or not math.isfinite(left) or left <= 0:
+            self.owner.release(flow.id)
+            raise Refused("BROWSER_DEADLINE")
+        if flow.id in self.owner.flows:
+            left = min(left, self.owner.live(flow.id).deadline - self.owner.clock())
+        return min(60, left)
 
     async def event(self, name, flow):
         if not self.attested():
@@ -462,22 +502,39 @@ class RuntimeAdapter:
         return await self.transport.server_connected(data, self.policy)
 
     def release(self, flow, success=False):
-        # Persist unknown BEFORE dropping references for consumed writes.
-        f = self.owner.flows.get(flow.id)
+        # A successful addon hook is not a downstream drain acknowledgment.
+        if success:
+            try:
+                drained = self.transport.close_flow(flow.id, True) is True
+            except BaseException:
+                self.owner.release(flow.id)
+                raise
+            if not drained:
+                # Keep BOTH representations and the response slot until an
+                # actual drain ACK, cancellation, or original deadline.
+                raise Refused("BROWSER_DRAIN_PENDING")
+            return self.owner.release(flow.id, True)
         try:
-            if f and f.consumed and not success:
-                self.transport.persist_unknown(flow.id)
+            self.owner.persist_unknown_once(flow.id)
         finally:
             try:
-                self.transport.close_flow(flow.id, success)
+                self.transport.close_flow(flow.id, False)
             finally:
-                outcome = self.owner.release(flow.id, success)
+                outcome = self.owner.release(flow.id)
         return outcome
 
     def revoke_all(self):
         self.dead = True
+        error = None
+        for key in tuple(self.owner.flows):
+            try:
+                self.owner.persist_unknown_once(key)
+            except BaseException as exc:
+                error = error or exc
         try:
             self.transport.revoke_all()  # persist unknown + close ACK, no reuse
         finally:
             outcomes = self.owner.revoke_all()
+        if error is not None:
+            raise error
         return outcomes

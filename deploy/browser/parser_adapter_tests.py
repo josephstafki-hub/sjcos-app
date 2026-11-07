@@ -144,6 +144,59 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(len(self.o.flows), 1)
         self.assertEqual(self.o.drained('a'), 'succeeded')
 
+    # Integration regressions FIRST; all flows/connections are real mitmproxy
+    # data classes, with no socket listener or browser launch.
+    def runtime(self, left=1):
+        from mitmproxy.test import tflow
+        flow = tflow.tflow()
+        t = Mock(); t.remaining.return_value = left
+        r = RuntimeAdapter(self.o, Mock(), t, lambda: True, b'x'*32)
+        return r, t, flow
+    def test_connect_deadline_not_refreshed_by_request(self):
+        r,t,f = self.runtime(0.25)
+        self.o.reserve(f.id,0,0)
+        self.assertEqual(r.remaining(f),0.25)
+    def test_expired_connect_refused_after_reservation(self):
+        r,t,f = self.runtime(-1)
+        self.o.reserve(f.id,0,0)
+        with self.assertRaises(Refused): r.remaining(f)
+    def test_nonfinite_connect_refused(self):
+        for left in (float('nan'),float('inf'),None,True):
+            r,t,f=self.runtime(left)
+            with self.assertRaises(Refused): r.remaining(f)
+    def test_original_deadline_bounds_owner(self):
+        r,t,f=self.runtime(500)
+        self.o.reserve(f.id,0,0); self.now+=59
+        self.assertEqual(r.remaining(f),1)
+    def test_expiry_persists_unknown_before_release(self):
+        r,t,f=self.runtime()
+        self.o.reserve(f.id,0,0);self.o.consume(f.id); self.now+=60
+        t.persist_unknown.side_effect=lambda key:self.assertIn(key,self.o.flows)
+        with self.assertRaises(Refused):r.remaining(f)
+        t.persist_unknown.assert_called_once_with(f.id)
+    def test_parser_error_persists_consumed_unknown(self):
+        r,t,f=self.runtime()
+        self.o.reserve(f.id,0,0); self.o.consume(f.id)
+        self.o.release(f.id)
+        t.persist_unknown.assert_called_once_with(f.id)
+    def test_success_requires_transport_drain_ack(self):
+        r,t,f=self.runtime()
+        self.o.reserve(f.id,0,0); self.o.consume(f.id)
+        t.close_flow.return_value=False
+        with self.assertRaises(Refused):r.release(f,True)
+        self.assertIn(f.id,self.o.flows)
+        t.persist_unknown.assert_not_called()
+        r.release(f,False)
+        t.persist_unknown.assert_called_once_with(f.id)
+        self.assertEqual(self.o.flows,{})
+    def test_unknown_persistence_failure_cleans_and_revokes(self):
+        r,t,f=self.runtime()
+        self.o.reserve(f.id,0,0); self.o.consume(f.id)
+        t.persist_unknown.side_effect=RuntimeError('fixture')
+        with self.assertRaises(RuntimeError):r.release(f)
+        self.assertTrue(r.dead)
+        self.assertEqual(self.o.flows,{})
+
 # _http1 is not included by wildcard imports.
 from parser_adapter import _http1
 if __name__ == '__main__': unittest.main()

@@ -1,13 +1,15 @@
 #!/usr/bin/env node
 // COORDINATOR ONLY. --plan has no side effects. --run creates disposable netns.
 import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
+const root=fileURLToPath(new URL('..',import.meta.url)).replace(/\/$/,'');
 import {createHash} from 'node:crypto';
 import {randomBytes,randomUUID} from 'node:crypto';
 import {readFile,writeFile,lstat} from 'node:fs/promises';
 import {namespacePlan} from '../deploy/browser/containment.mjs';
-import {validateEvidence,NETWORK_CASES,coordinatorCommand} from '../lib/browser/acceptance.mjs';
+import {validateEvidence,NETWORK_CASES,coordinatorCommand,coordinatorSequence} from '../lib/browser/acceptance.mjs';
 const tag=randomBytes(4).toString('hex'),plan=namespacePlan(tag),runId=randomUUID();
-if(!process.argv.includes('--run')){console.log(JSON.stringify({command:coordinatorCommand('network',{root:process.cwd(),uid:process.argv.includes('--joe-uid')?process.argv[process.argv.indexOf('--joe-uid')+1]:process.getuid(),tag:process.argv.includes('--tag')?process.argv[process.argv.indexOf('--tag')+1]:tag}),plan,requiredCases:NETWORK_CASES,caps:{child:'3G',gate:'384M',cpu:'150%',tasks:256},note:'No namespaces created. --run requires root, reviewed fixture driver and preexisting capped disposable cgroup.'},null,2));}
+if(!process.argv.includes('--run')){console.log(JSON.stringify({sequence:coordinatorSequence({root,uid:process.argv.includes('--joe-uid')?process.argv[process.argv.indexOf('--joe-uid')+1]:process.getuid(),tag:process.argv.includes('--tag')?process.argv[process.argv.indexOf('--tag')+1]:tag}),integrationReady:false,blockers:['mitmproxy TLS transport','controller authority and packet cases','RSS transport driver'],command:coordinatorCommand('network',{root,uid:process.argv.includes('--joe-uid')?process.argv[process.argv.indexOf('--joe-uid')+1]:process.getuid(),tag:process.argv.includes('--tag')?process.argv[process.argv.indexOf('--tag')+1]:tag}),plan,requiredCases:NETWORK_CASES,caps:{child:'3G',gate:'384M',gateCpu:'35%',dns:'64M',controllerHeap:'256M',contexts:2,tabs:4,cpu:'150%',tasks:256},note:'No namespaces created. --run requires root, reviewed fixture driver and preexisting capped disposable cgroup.'},null,2));}
 else {
  const arg=k=>process.argv[process.argv.indexOf(k)+1];
  const driver=arg('--driver'),output=arg('--output');

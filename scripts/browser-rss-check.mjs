@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 // COORDINATOR ONLY. Fresh delegated 3G root scope; helpers outside 384M gate.
 import {spawnSync} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
+const root=fileURLToPath(new URL('..',import.meta.url)).replace(/\/$/,'');
 import {createHash} from 'node:crypto';
 import {readFile,writeFile,lstat,mkdir,rmdir} from 'node:fs/promises';
 import {randomUUID} from 'node:crypto';
-import {RSS_CASES,validateEvidence,coordinatorCommand} from '../lib/browser/acceptance.mjs';
+import {RSS_CASES,validateEvidence,coordinatorCommand,coordinatorSequence} from '../lib/browser/acceptance.mjs';
 const arg=k=>process.argv.includes(k)?process.argv[process.argv.indexOf(k)+1]:undefined;
-if(!process.argv.includes('--run'))console.log(JSON.stringify({command:coordinatorCommand('rss',{root:process.cwd(),uid:arg('--joe-uid')??process.getuid(),tag:arg('--tag')??'acceptance'}),requiredCases:RSS_CASES,gateMemoryMax:384*1024**2,gateMemorySwapMax:0,baselineMax:144*1024**2,accountedMax:336*1024**2,headroom:48*1024**2,note:'No process launched. Root scope is 3G; helper and gate are sibling subcgroups, gate capped at 384M. Missing delegated cgroup or integrated parser fixture fails closed.'},null,2));
+if(!process.argv.includes('--run'))console.log(JSON.stringify({sequence:coordinatorSequence({root,uid:arg('--joe-uid')??process.getuid(),tag:arg('--tag')??'acceptance'}),integrationReady:false,blockers:['mitmproxy TLS transport','controller authority and packet cases','RSS transport driver'],command:coordinatorCommand('rss',{root,uid:arg('--joe-uid')??process.getuid(),tag:arg('--tag')??'acceptance'}),requiredCases:RSS_CASES,caps:{child:'3G',cpu:'150%',tasks:256,gateCpu:'35%',dns:'64M',controllerHeap:'256M',contexts:2,tabs:4},maxResponseSlots:2,maxDirectionalQueueBytes:65536,remainingFlows:0,remainingReservations:0,oomEvents:0,gateMemoryMax:384*1024**2,gateMemorySwapMax:0,baselineMax:144*1024**2,accountedMax:336*1024**2,headroom:48*1024**2,note:'No process launched. Root scope is 3G; helper and gate are sibling subcgroups, gate capped at 384M. Missing delegated cgroup or integrated parser fixture fails closed.'},null,2));
 else {
  const driver=arg('--driver'),output=arg('--output');
  if(process.getuid()!==0||!driver?.startsWith('/')||!/^\/tmp\/[a-zA-Z0-9_.-]+\.json$/.test(output??'')||!process.argv.includes('--disposable-only'))throw Error('BROWSER_FIXTURE_PATHS_REQUIRED');

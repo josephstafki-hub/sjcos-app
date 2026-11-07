@@ -2,7 +2,7 @@
 /** Explicit QA URL only; never reads .env.local or defaults to a Postgres port. */
 import {pathToFileURL} from 'node:url';
 import {randomBytes,randomUUID,createHmac,createHash,scryptSync} from 'node:crypto';
-import {mkdir,writeFile,readFile,chmod} from 'node:fs/promises';
+import {mkdir,writeFile,readFile,chmod,rm} from 'node:fs/promises';
 import {qaTarget,qaGuard,qaPrivatePath,prepareQaAuditKeys,QA_PEOPLE,PUBLIC_URLS,qaProof,qaAttachRun,qaIdentity,writeScenario} from './qa-browser-fake-controller.mjs';
 import {prepareQaLogins,qaLoginUrl,verifyQaLoginUrls,QA_LOGINS} from '../qa/browser/logins.mjs';
 import * as repo from '../lib/browser/repository.mjs';
@@ -10,6 +10,13 @@ import {buildReadManifest} from '../lib/browser/read-manifest.mjs';
 
 export const BASE_STATES=['empty','queue_full','queued','offer','offer_expired','queue_expired','starting','working','paused','paused_private','idle_warning','idle_closed','crashed','latched','absent','turn_ended','owner_paused','unknown','read_review','resource_review','write_blocked','final_blocked','auth_expired','access_removed','closed','service_unavailable','other_device'];
 export const RECIPES={
+ disconnected_public:['paused','Wait 3 seconds for stream drop; touch release-disconnect, then Reconnect → Resume.'],
+ disconnected_private:['paused_private','Wait 3 seconds for stream drop; touch release-disconnect, then Reconnect → Take over again (tablet/computer).'],
+ pause_fails_503:['working','Take over → confirm → Chat → Pause and return; signed pause refusal maps to HTTP 503.'],
+ earlier_view:['working','Receive a frame, then fake reports loading in navigation metadata; see UI contract limitation in QA doc.'],
+ resource_21_pending:['resource_review','21 pending resources; first page 20, Next files gives 1.'],
+ resource_expiring:['resource_review','20-second SQL deadlines; wait 21 seconds on the same page.'],
+ audit_pending_hold:['paused_private','Owner opens staff Watch → Show the page; touch release-audit to release the real local audit ACK.'],
  off:['empty','Owner: disable Browser in settings; restore after shot.'],unsupported:['empty','Select a non-Claude agent; return to Claude afterward.'],
  sites_empty:['empty','Open Browser, then Sites. Cancel without starting.'],sites_added:['working','Open Sites: city.example and county.example; exact approved addresses are listed.'],
 
@@ -35,7 +42,7 @@ export const RECIPES={
  settings:['empty','Owner: /settings/browser. Later flags remain off/disabled.'],
  disconnected:['working','Stop only the fake fixture, capture connection loss, then start it again.'],
  reconnected:['working','After fixture restart, explicitly reconnect and review.'],
- resource_20:['resource_review','Twenty resources; real GET paging limit 20.'],resource_21:['resource_review','SQL caps pending candidates at 20. Unsupported adversarial screenshot; see limits.'],
+ resource_20:['resource_review','Twenty resources; real GET paging limit 20.'],resource_21:['resource_review','21 pending candidates, paged 20 + 1.'],
  resource_expired:['resource_review','Wait 60 seconds; candidate deadlines are never extended by GET.'],
 };
 const idFor=text=>{const h=createHash('sha256').update('sjcos-browser-qa-v1:'+text).digest('hex');return `${h.slice(0,8)}-${h.slice(8,12)}-4${h.slice(13,16)}-a${h.slice(17,20)}-${h.slice(20,32)}`;};
@@ -48,7 +55,8 @@ const setting=async(c,k,v)=>c.query(`INSERT INTO app_settings(key,value) VALUES(
 export async function seedBrowser(c,{state='working',refresh=false,resourceCount=1}={}){
  const dir=await prepareQaLogins(c),database=(await c.query('SELECT current_database() name')).rows[0].name;
  if(!BASE_STATES.includes(state)&&!RECIPES[state])throw Error('Unknown QA Browser state');
- const requested=state,base=RECIPES[state]?.[0]??state;if(state==='resource_20')resourceCount=20;
+ const requested=state,base=RECIPES[state]?.[0]??state;if(state==='resource_20')resourceCount=20;if(['resource_21','resource_21_pending'].includes(state))resourceCount=21;
+ const deadlineMs=state==='resource_expiring'?20000:59000;
  await mkdir(dir,{recursive:true,mode:0o700});await qaPrivatePath(dir);
  await mkdir(dir+'/keys',{mode:0o700,recursive:true});await qaPrivatePath(dir+'/keys');
  const keys={};for(const name of ['request','response','frame']){const path=dir+'/keys/'+name+'.hex';try{await writeFile(path,randomBytes(32).toString('hex')+'\n',{flag:'wx',mode:0o600});}catch(e){if(e.code!=='EEXIST')throw e;}await qaPrivatePath(path,{file:true});const value=(await readFile(path,'utf8')).trim();if(!/^[a-f0-9]{64}$/.test(value))throw Error('Invalid QA key');keys[name]=Buffer.from(value,'hex');}
@@ -58,8 +66,8 @@ export async function seedBrowser(c,{state='working',refresh=false,resourceCount
  // Serialize all seed invocations; no disabling triggers/constraints or schema changes.
  await c.query('SELECT pg_advisory_lock(1150099)');
  try{
-  if(previous?.fixture_revision!==3)refresh=true;
-  const scenario=previous??{v:1,database,install_id:randomUUID(),tasks:{},states:{}};scenario.install_id??=randomUUID();scenario.fixture_revision=3;
+  if(previous?.fixture_revision!==4)refresh=true;
+  const scenario=previous??{v:1,database,install_id:randomUUID(),tasks:{},states:{}};scenario.install_id??=randomUUID();scenario.fixture_revision=4;
   const asWebsite=fn=>qaIdentity(c,website,fn),asService=fn=>qaIdentity(c,'sjcos_browser',fn);
   await asWebsite(async c=>{
    for(const [role,p] of Object.entries(QA_PEOPLE)){
@@ -128,11 +136,11 @@ export async function seedBrowser(c,{state='working',refresh=false,resourceCount
       const command=await asService(c=>repo.browserCommandBegin(c,{tid:task.id,rid:run.run_id,k:Buffer.from(cap.capability_hash,'hex'),i:randomUUID(),epoch:task.control_epoch,seq:1,op:'prepare',d:hash('QA prepare')}));task=await get();
       let reviewKind=kind==='read_review'?'public_read':kind==='resource_review'?'resource_read':kind;
       if(kind==='read_review'||kind==='resource_review'){
-       const candidates=Array.from({length:kind==='resource_review'?resourceCount:1},(_,i)=>({id:randomUUID(),url:kind==='resource_review'?`https://city.example/assets/public-${i+1}.css`:requested==='exact_path_review'?'https://city.example/permits/details':PUBLIC_URLS[1],role:kind==='resource_review'?'resource':'document',source:'page',code:'BROWSER_REVIEW_REQUIRED',server_deadline:new Date(Date.now()+59000).toISOString(),parent_document_epoch:task.document_epoch+1}));
+       const candidates=Array.from({length:kind==='resource_review'?resourceCount:1},(_,i)=>({id:randomUUID(),url:kind==='resource_review'?`https://city.example/assets/public-${i+1}.css`:requested==='exact_path_review'?'https://city.example/permits/details':PUBLIC_URLS[1],role:kind==='resource_review'?'resource':'document',source:'page',code:'BROWSER_REVIEW_REQUIRED',server_deadline:new Date(Date.now()+deadlineMs).toISOString(),parent_document_epoch:task.document_epoch+1}));
        if(requested==='exact_resource_review')candidates.unshift({...candidates[0],id:randomUUID(),url:PUBLIC_URLS[0],role:'document'});
        const p=await asWebsite(c=>qaProof(c,task,sid,vid,'review'));await asWebsite(c=>repo.browserWebReadCandidates(c,{tid:task.id,vid,expected_revision:1,proposal:{v:1,candidates},i:p.i,d:p.d}));
       }
-      task=await get();const review={id:command.command_id,task_id:task.id,original_run_id:run.run_id,revision:task.revision,kind:reviewKind,state:'pending',server_deadline:reviewKind.endsWith('read')?new Date(Date.now()+59000).toISOString():null,result_code:reviewKind.endsWith('blocked')?'BROWSER_PHASE1_READ_ONLY':null,read_revision:reviewKind.endsWith('read')?2:null};
+      task=await get();const review={id:command.command_id,task_id:task.id,original_run_id:run.run_id,revision:task.revision,kind:reviewKind,state:'pending',server_deadline:reviewKind.endsWith('read')?new Date(Date.now()+deadlineMs).toISOString():null,result_code:reviewKind.endsWith('blocked')?'BROWSER_PHASE1_READ_ONLY':null,read_revision:reviewKind.endsWith('read')?2:null};
       // SQL prepare creates the immutable task/run-bound notice. QA varies its
       // safe presentation kind; no external action/approval/grant is created.
       await asWebsite(c=>c.query(`UPDATE browser_commands SET safe_result=jsonb_set(safe_result,'{review}',$2::jsonb) WHERE id=$1`,[command.command_id,JSON.stringify(review)]));entry.reviews=[review];
@@ -164,6 +172,7 @@ export async function seedBrowser(c,{state='working',refresh=false,resourceCount
   // future invocations only replace the selected live task (or --refresh).
   if(!previous)for(const role of ['owner','staff'])for(const kind of BASE_STATES)await make(role,kind,{archive:true});
   if(!previous||previous.selected!==requested||refresh){
+   for(const file of ['release-disconnect','release-audit'])await rm(dir+'/'+file,{force:true});
    for(const role of ['owner','staff'])await make(role,base);
    // Expire only after both admissions/offers. Otherwise the second person's
    // real queue sweep closes the first person's task before QA can join it.
@@ -173,8 +182,8 @@ export async function seedBrowser(c,{state='working',refresh=false,resourceCount
   for(const role of ['owner','staff'])for(const [name,[kind,notes]] of Object.entries(RECIPES)){const original=scenario.states[role+'_'+kind];scenario.states[role+'_'+name]={...original,notes:`Select with --state ${name}. ${notes}`};}
   if(requested==='off')await asWebsite(c=>setting(c,'browser.enabled','false'));
   if(requested==='taking_over')for(const role of ['owner','staff'])scenario.tasks[scenario.states[role+'_working'].task_id].control_delay_ms=1000;
-  if(requested==='pause_failed')for(const role of ['owner','staff'])scenario.tasks[scenario.states[role+'_working'].task_id].pause_fails=true;
-  for(const role of ['owner','staff']){const entry=scenario.tasks[scenario.states[role+'_'+base]?.task_id];if(entry){entry.navigation=['guarded_menu','reload_confirm','exact_path_review','exact_resource_review'].includes(requested);entry.windows=entry.navigation?2:1;entry.audit_pending=requested==='watch_audit_pending';if(requested==='pre_frame_close')entry.no_frames=true;}}
+  if(['pause_failed','pause_fails_503'].includes(requested))for(const role of ['owner','staff'])scenario.tasks[scenario.states[role+'_working'].task_id].pause_fails=true;
+  for(const role of ['owner','staff']){const entry=scenario.tasks[scenario.states[role+'_'+base]?.task_id];if(entry){entry.navigation=['guarded_menu','reload_confirm','exact_path_review','exact_resource_review'].includes(requested);entry.windows=entry.navigation?2:1;entry.audit_pending=['watch_audit_pending','audit_pending_hold'].includes(requested);entry.audit_hold=requested==='audit_pending_hold';entry.disconnect=['disconnected_public','disconnected_private'].includes(requested);entry.earlier_view=requested==='earlier_view';if(entry.earlier_view)entry.navigation=true;if(requested==='pre_frame_close')entry.no_frames=true;}}
   scenario.states.owner_settings={url:'/settings/browser',as:'owner',notes:'Pilot list contains Taylor and Abigail. All four later flags off.'};
   await writeScenario(dir,scenario);
   return scenario;

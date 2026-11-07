@@ -1,4 +1,4 @@
-# Browser Phase 1 — QA-only overlay fixture (round 2)
+# Browser Phase 1 — QA-only overlay fixture (round 4)
 
 This is a screenshot fixture, not production runtime/release acceptance. The
 production website imports only `lib/browser/runtime-endpoints.ts`, whose
@@ -50,7 +50,7 @@ on first use. The seed pins the actual DB OID, server port and postmaster start
 in `keys/cluster.json` (0600); fake hooks check this binding on scenario reads.
 Use a new state directory after replacing/restarting that cluster. Never point
 the bootstrap URL at the live cluster. This implementation builder never
-connects to the coordinator's QA cluster (:5499).
+connects to the coordinator's QA clusters (:5498 and :5499).
 
 Real QA-cluster logins are `sjcos` (website), `sjcos_agent`, `sjcos_worker`,
 `sjcos_readonly`, `sjcos_backup`, and `sjcos_browser`. Each has a generated,
@@ -145,7 +145,7 @@ thread in Operator to test sheet/dock. Owner Watch uses the **staff** entry's
 | `fresh_confirm` | Private rest → menu → Fresh browser → cancel/confirm. Stable kernel boot and rotated context/listener generation use real SQL; a new pending read must be approved before Continue. |
 | `idle_warning`, `idle_closed`, `crashed`, `latched`, `absent`, `turn_ended`, `owner_paused`, `unknown` | Fixed reason projection; idle warning has60s remaining and becomes idle-closed presentation. Terminal/revoked presentation sends no new frames. These are screenshot projections, not physical runtime fault/idle acceptance. |
 | `auth_expired`, `access_removed`, `closed`, `service_unavailable` | Safe fixed error projection; not an actual revoked session/access mutation. |
-| `read_review`, `resource_review`, `resource_20`, `resource_expired` | SQL-staged candidates and original59s deadlines; 1 or20 exact resources. Expired: wait60s, don't reseed mid-shot. |
+| `read_review`, `resource_review`, `resource_20`, `resource_expired` | SQL-staged candidates and original59s deadlines; 1 or20 exact resources. Expired: wait60s, don't reseed mid-shot. Prefer `resource_expiring` below for a 20s deadline. |
 | `write_blocked`, `final_blocked` | Real SQL prepare notice, with QA presentation kind for write. Final copy: “This version stops here. Nothing was submitted.” Close only; no grant/action submitted. |
 | `owner_watch_before`, `owner_watch_after`, `public_watch`, `in_use` | Owner opens staff Watch URL. Private before: no image, even though canned private frame exists. After: explicitly Show the page (real POST + signed local QA checkpoint). In use: owner empty thread → In use → Watch. Staff watching indicator comes from real owner claims. |
 | `guarded_menu`, `reload_confirm` | Open ⋯: Back/Reload enabled, Forward disabled, two bounded QA targets. Capture keyboard/focus, reload warning, Cancel and explicit Reload. Fake validates current epoch/context/document/read revision but only acknowledges navigation; canned pixels do not change. |
@@ -220,11 +220,61 @@ independent production sink. Process bindings are inert, manual input never
 edits canned JPEGs, fault/idle states are safe presentation projections, and
 navigation ACKs do not drive real CDP/history. Do not count screenshots as
 runtime privacy, revocation, root installation or network containment evidence.
-`resource_21` still aliases the legal resource review (SQL max20); `loading`
-still aliases starting and cannot force Earlier view. A resource-only approval
+`resource_21` now stages 21 candidates through the real SQL function. `loading`
+still aliases starting. See the round 4 `earlier_view` integration limit below. A resource-only approval
 still requires an approved document through real policy. Settings conflict or
 backend failure needs a real concurrent edit/failure, not another fixture flag.
 
 Private-query and root source inventories must be reviewed/refreshed by their
 owners after all builders freeze, including these changed QA SQL/source hashes.
 This task owns no scanner allowlist or root source inventory and weakens no scan.
+
+
+## Round 4 recovery / missing-evidence recipes
+
+Use `--state NAME --refresh` and reload the new `urls.json` URL before each
+shoot. The scenario format is now revision 4; an older scenario gets one
+automatic refresh. Controls are files in the selected fixture directory, not
+query-string UI switches. A fresh selection/refresh removes old release files.
+The fake rereads these files without restarting. Scope UI locators to
+`[data-browser-ui]` and use the exact button/text names below.
+
+| `--state` | What to click / wait for |
+|---|---|
+| `disconnected_public` | Open own task → Browser. SQL task is **paused**, public. The fake emits two signed frames and drops the frame socket on its third tick (~2 seconds after stream open). Capture “Connection lost. Browser paused.” / **Reconnect** promptly (normal 5s status polling can replace a transient error). Run `touch "$SJC_QA_BROWSER_FAKE/release-disconnect"`, then **Reconnect**. Capture “Connected. Review the page before continuing.” with **Resume**, **Take over**, **Stop browser**. Capture before clicking Resume; it starts a real new QA run. |
+| `disconnected_private` | Open own task → Browser. SQL task is **paused**, private, with no synthetic competing device. Same two-frame/drop timing and release file. After **Reconnect**, capture **Take over again**, no Resume, at 820/1280. At 360 Take over is absent. If testing Done first, choose **Keep paused** before leaving/returning; do not reseed away the task in the middle of reconnect. |
+| `pause_fails_503` | Open own task → **Take over** → confirm **Take over** (tablet/computer), then **‹ Chat** (or leave for Canvas), then **Pause and return**. The signed fake control response is `BROWSER_SERVICE_UNAVAILABLE`, mapped to HTTP **503**, never 409. Capture “Couldn't pause the browser. Keep this screen open, or stop the browser.” with **Try again** / **Stop browser**. Try again keeps failing; Stop browser still works. The older `pause_failed` alias also now returns 503, but use the leave flow for this copy. |
+| `earlier_view` | Open own task → Browser; receive two signed frames, then after ~2s the fake retains the last frame and sends no replacement frames. Its signed `read_state` response reports `navigation.loading: true`; the QA navigation hook also reports loading. **Integration limit:** the current production `navigationProjection` discards loading and the UI's `browserModel` has no loading transition. The fixture alone therefore cannot yet render **Earlier view** through the current web contract. UI/server owners must wire a permitted loading signal without clearing the retained frame; then capture **Earlier view**, image name `Live view of city.example. Loading city.example….`. No forced UI state or product edit is included here. |
+| `resource_21_pending` (also corrected `resource_21`) | Open own task → Browser. 21 pending resource candidates are submitted through `browser_web_read_candidates`, with original 59s deadlines. First page has **20**, **Next files** gives **1**. Capture “Too many files to review at once.”, disabled **Allow these files once**, and **Next files** before paging. |
+| `resource_expiring` | Open own task → Browser immediately after refresh. Both real candidate and review notice deadlines are **20 seconds from seeding**; wait until 21 seconds after seed on the same page. Capture “These page addresses need a fresh review before they can be allowed.” and disabled **Allow these files once**. GET never extends the SQL manifest deadline. |
+| `audit_pending_hold` | Owner opens **staff** entry's `watch_url` → **Show the page**. Capture “Waiting to show the private page…” with no image at 360/820. Held indefinitely: do not refresh/reseed. Run `touch "$SJC_QA_BROWSER_FAKE/release-audit"`; within the next normal 5s detail poll the website sends a signed presence proof to the fake, which writes the real local QA audit checkpoint/ACK. Consent stays bound to that same task/viewer; private image can then appear. This is local QA custody, not an independent production sink. |
+
+`owner_queued` means the `owner_queued` URL-map entry selected by `--state queued`;
+`--state queue_expired` supplies `owner_queue_expired`. Neither has a controller
+boot or run before acceptance. The regression verifies successful joins and
+queue projections for both people, and verifies an attempted owner events GET
+fails **in the website before any fake socket call**, including after join.
+Thus events 503 is not emitted by the fake. Opening SSE merely after join is
+still too early for queued tasks; wait until active/paused. The parallel UI
+builder now guards SSE by task state, stream ID/generation and enabled status.
+Re-shoot the owner queue states using that UI update. No invented queue boot or
+SQL admission bypass was added to this fixture.
+
+Other Required 1 shots remain coordinator UI actions: at 820 on /today click
+the Operator pill by its accessible name matching `/Operator/` (exclude the mic),
+then **Browser**, and capture In use / **Watch**. For compact keyboard evidence,
+use 820 landscape or 1180 and confirm
+`[data-browser-compact-capture="true"]`, **Address ▸**, **Type it**. No browser,
+Next process or screenshot was run by this implementation builder.
+
+Round 4 fixture verification: **19/19 passed**, zero failed/skipped. The single
+fixture file ran under unique `browser-p1-r4q-<nonce>` harness tags, with ambient
+`DATABASE_URL` / `SJC_TEST_DATABASE_URL` unset. The after-hook stopped each
+cluster and removed its private fixture/overlay directories. Coverage includes
+real website 20+1 candidate pagination, actual 20-second expiration observed by
+GET without deadline extension, paused public/private signed stream drop and
+release, signed 503 pause refusal, local audit hold/release, and queued events
+rejection before fake IO. Locked `tsc --noEmit -p .`: **exit 0**. No browsers,
+Next commands, socket listeners, QA coordinator clusters, live services or
+product-code edits were used by this builder. The Earlier view integration
+limit above remains unresolved within fixture ownership.

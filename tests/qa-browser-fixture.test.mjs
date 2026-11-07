@@ -14,7 +14,7 @@ import {createOverlay,overlayCommands} from '../scripts/qa-browser-overlay.mjs';
 import pg from 'pg';
 import {qaTarget,qaGuard,qaPrivatePath,QA_ROOT,QA_PEOPLE,cannedFrame,createFakeProtocol,createQaWebsiteHooks,qaIdentity,qaProof,readScenario,writeScenario} from '../scripts/qa-browser-fake-controller.mjs';
 import {seedBrowser,writeQaEnvironment,BASE_STATES,RECIPES,QA_PROJECT} from '../scripts/qa-seed-browser.mjs';
-import {canonical,digest,metadataBytes,verifyRpcResponse,collectMetadataPages} from '../lib/browser/web-transport.mjs';
+import {canonical,digest,metadataBytes,verifyRpcResponse,collectMetadataPages,errorResponse} from '../lib/browser/web-transport.mjs';
 import {decodeBinaryFrame,binaryReader} from '../lib/browser/live-view.mjs';
 import {appHooks} from './phase0a-fixtures.mjs';
 import {withTestDb,stopCluster} from './_harness/testdb.mjs';
@@ -196,14 +196,14 @@ test('real harness seed idempotence, all recipes, signed fake RPC and frames',as
  // Renewing consent invalidates the old checkpoint until a new exact binding is anchored.
  await joinOwner(true);await assert.rejects(protocol.frame(ownerHello(),0));
  const renewed=await qaIdentity(c,website,c=>qaProof(c,privateTask,ownerSid,ov.id,'presence',{}, {qa_private_watch:true}));
- const pendingScenario=await readScenario(c,env.SJC_QA_BROWSER_FAKE);pendingScenario.tasks[t.id].audit_pending=true;await writeScenario(env.SJC_QA_BROWSER_FAKE,pendingScenario);
+ const pendingScenario=await readScenario(c,env.SJC_QA_BROWSER_FAKE);pendingScenario.tasks[t.id].audit_pending=true;pendingScenario.tasks[t.id].audit_hold=true;await writeScenario(env.SJC_QA_BROWSER_FAKE,pendingScenario);
  await client.call('presence',{...binding,viewer_id:ov.id},{proof_id:renewed.id,body:{viewer_id:ov.id,visible:true,generation:Number(ov.stream_generation),idempotency_key:randomUUID()}});
  await assert.rejects(protocol.frame(ownerHello(),0));
  assert.equal((await c.query('SELECT browser_p1_private_view(t,v) allowed FROM browser_tasks t JOIN browser_viewers v ON v.task_id=t.id WHERE v.id=$1',[ov.id])).rows[0].allowed,false);
- pendingScenario.tasks[t.id].audit_pending=false;await writeScenario(env.SJC_QA_BROWSER_FAKE,pendingScenario);
+ await writeFile(env.SJC_QA_BROWSER_FAKE+'/release-audit','',{mode:0o600});
  const recovery=await qaProof(c,privateTask,ownerSid,ov.id,'presence',{}, {qa_private_watch:true});
  await client.call('presence',{...binding,viewer_id:ov.id},{proof_id:recovery.id,body:{viewer_id:ov.id,visible:true,generation:Number(ov.stream_generation),idempotency_key:randomUUID()}});
- assert.ok(await protocol.frame(ownerHello(),0));
+ assert.ok(await protocol.frame(ownerHello(),0));await rm(env.SJC_QA_BROWSER_FAKE+'/release-audit');
  // R3 expectation: refresh works with both attended slots occupied, and
  // retires exact old stream/consent/control bindings without another slot.
  await c.query('UPDATE browser_viewers SET left_at=now() WHERE task_id=$1',[t.id]);
@@ -255,17 +255,26 @@ test('real harness seed idempotence, all recipes, signed fake RPC and frames',as
    const ctx=await adapter.authorize({request,session:qs,path:'/tasks/'+queueTask.id+'/join'});
    const joined=await adapter.execute({operation:'join',request,session:qs,context:ctx,body:{mode:'initiator',device_id:randomUUID(),idempotency_key:randomUUID()},flags:{}});
    assert.equal(joined.task.state,'queued');assert.equal(joined.offer_status,state==='queued'?'waiting':state==='offer_expired'?'expired':'queue_expired');
+   // Queued tasks have no controller boot. An attempted events request fails
+   // in the website before any fake RPC, even after successful attendance.
+   if(role==='owner'&&['queued','queue_expired'].includes(state)){
+    const v=(await c.query('SELECT * FROM browser_viewers WHERE id=$1',[joined.viewer_id])).rows[0],before=connected.length;
+    await assert.rejects(adapter.execute({operation:'events',request,session:qs,context:{...ctx,viewer:v},body:{},flags:{}}),e=>{assert.equal(errorResponse(e).status,503);assert.match(e.message,/BROWSER_SERVICE_UNAVAILABLE/);return true;});
+    assert.equal(connected.length,before,'queued events must not reach fake');
+   }
   }
   if(['empty','unsupported','settings'].includes(state))assert.equal((await c.query("SELECT count(*)::int n FROM browser_tasks WHERE initiator_user_id IN ($1,$2) AND state IN ('queued','starting','active','paused')",[QA_PEOPLE.owner.id,QA_PEOPLE.staff.id])).rows[0].n,0);
   if(['guarded_menu','reload_confirm'].includes(state))assert.equal(entry.navigation,true);
   if(state==='pre_frame_close')assert.equal(entry.no_frames,true);
   if(state==='watch_audit_pending')assert.equal(entry.audit_pending,true);
-  if(state==='pre_frame_close'||state==='guarded_menu'){
+  if(['pre_frame_close','guarded_menu','disconnected_public','disconnected_private','earlier_view','pause_fails_503'].includes(state)){
    const st=(await c.query('SELECT * FROM browser_tasks WHERE id=$1',[row.task_id])).rows[0],dev=Buffer.alloc(32,11),jp=await qaProof(c,st,st.initiating_web_session_id,null,'join',{}, {device_secret_hash:dev.toString('hex')});
    const joined=await repo.browserWebJoin(c,{tid:st.id,session:st.initiating_web_session_id,device_hash:dev,role:'initiator',private_view:false,i:jp.i,d:jp.d});
    const sv=(await c.query('SELECT * FROM browser_viewers WHERE id=$1',[joined.viewer_id])).rows[0],sb={task_id:st.id,original_run_id:st.current_run_id,viewer_id:sv.id,boot_id:st.controller_boot_id};
    const call=async(method,body)=>{const p=await qaProof(c,st,st.initiating_web_session_id,sv.id,'presence');return client.call(method,sb,{proof_id:p.id,body});};
-   if(state==='guarded_menu'){
+   if(state==='pause_fails_503'){
+    await assert.rejects(call('control',{action:'pause',viewer_id:sv.id,device_secret:'a'.repeat(43),idempotency_key:randomUUID(),expected_epoch:Number(st.control_epoch)}),e=>{assert.equal(errorResponse(e).status,503);return e.message==='BROWSER_SERVICE_UNAVAILABLE';});
+   }else if(state==='guarded_menu'){
     const revision=Number((await c.query('SELECT max(revision) revision FROM browser_read_manifests WHERE task_id=$1',[st.id])).rows[0].revision);
     const body={action:'reload',viewer_id:sv.id,device_secret:'a'.repeat(43),idempotency_key:randomUUID(),expected_epoch:Number(st.control_epoch),expected_document_epoch:Number(st.document_epoch),context_generation:Number(st.context_generation),read_manifest_revision:revision};
     assert.equal((await call('control',body)).qa_navigation_only,true);
@@ -273,15 +282,31 @@ test('real harness seed idempotence, all recipes, signed fake RPC and frames',as
    }else{
     const stream={stream_id:sv.stream_id,stream_generation:Number(sv.stream_generation)};
     await call('stream_open',{...stream,expires_at:new Date(Date.now()+60000).toISOString()});
-    const h={...helloUnsigned,task_id:st.id,viewer_id:sv.id,boot_id:st.controller_boot_id,...stream,context_generation:Number(st.context_generation),nonce:randomUUID()};
-    assert.equal(await protocol.frame({...h,signature:digest(keys.request,h)},0),null);
+    const h={...helloUnsigned,issued_at:new Date().toISOString(),expires_at:new Date(Date.now()+5000).toISOString(),task_id:st.id,viewer_id:sv.id,boot_id:st.controller_boot_id,...stream,context_generation:Number(st.context_generation),nonce:randomUUID()};
+    const signed={...h,signature:digest(keys.request,h)};
+    if(state==='pre_frame_close')assert.equal(await protocol.frame(signed,0),null);
+    else {
+     assert.ok(await protocol.frame(signed,0));assert.ok(await protocol.frame(signed,1));
+     if(state.startsWith('disconnected_')){
+      assert.equal(st.state,'paused');assert.equal(st.private,state==='disconnected_private');
+      await assert.rejects(protocol.frame(signed,2),/BROWSER_STREAM_STALE/);
+      await writeFile(env.SJC_QA_BROWSER_FAKE+'/release-disconnect','',{mode:0o600});
+      assert.ok(await protocol.frame(signed,3));await rm(env.SJC_QA_BROWSER_FAKE+'/release-disconnect');
+     }else {assert.equal(await protocol.frame(signed,2),null);assert.equal((await call('read_state',{scope:'task'})).navigation.loading,true);const hooks=await createQaWebsiteHooks({db:c,key:keys.request,dir:env.SJC_QA_BROWSER_FAKE});assert.equal((await hooks.navigation({task:st})).loading,true);assert.equal((await readScenario(c,env.SJC_QA_BROWSER_FAKE)).tasks[st.id].loading,true);}
+    }
     await assert.rejects(call('stream_close',{...stream,stream_generation:stream.stream_generation+1,planned:true}),/BROWSER_STREAM_STALE/);
     assert.equal((await call('stream_close',{...stream,planned:true})).ok,true);
     const closed={...h,nonce:randomUUID()};await assert.rejects(protocol.frame({...closed,signature:digest(keys.request,closed)},0));
-    assert.equal((await c.query('SELECT state FROM browser_tasks WHERE id=$1',[st.id])).rows[0].state,'active');
+    assert.equal((await c.query('SELECT state FROM browser_tasks WHERE id=$1',[st.id])).rows[0].state,state.startsWith('disconnected_')?'paused':'active');
    }
   }
 
+  if(['resource_21_pending','resource_21','resource_expiring'].includes(state)){
+   const st=await projectTask(row.task_id),bind={task_id:st.id,original_run_id:st.current_run_id,viewer_id:null,boot_id:st.controller_boot_id};
+   const pages=[];await collectMetadataPages(async page=>{const p=await qaProof(c,st,st.initiating_web_session_id,null,'presence');const {ok,...r}=await client.call('read_manifest',bind,{proof_id:p.id,body:page});pages.push(r.items);return r;},{limit:20});
+   if(state==='resource_expiring'){const m=(await c.query('SELECT expires_at,public_entries FROM browser_read_manifests WHERE task_id=$1 ORDER BY revision DESC LIMIT 1',[st.id])).rows[0];assert.ok(new Date(m.expires_at)-Date.now()>0);assert.ok(new Date(m.expires_at)-Date.now()<=20000);assert.equal(new Date(m.public_entries.candidates[0].server_deadline).getTime(),new Date(m.expires_at).getTime());assert.equal((await execute('reads_get',st,staff)).candidates_status,'pending');await new Promise(resolve=>setTimeout(resolve,Math.max(0,new Date(m.expires_at)-Date.now())+100));const expired=await execute('reads_get',st,staff);assert.equal(expired.candidates_status,'expired');assert.equal(new Date(expired.expires_at).getTime(),new Date(m.expires_at).getTime());}
+   else {assert.deepEqual(pages.map(p=>p.length),[20,1]);const first=await execute('reads_get',st,staff);assert.equal(first.candidates.length,20);assert.ok(first.next_cursor);const second=await adapter.execute({operation:'reads_get',request:new Request('https://qa.example.test/api/agent-browser?cursor='+encodeURIComponent(first.next_cursor)),session:{...session,userId:staff.id},context:{user:staff,task:st,viewer:null,claim:null,objectId:null},flags:{}});assert.equal(second.candidates.length,1);assert.equal(second.next_cursor,null);}
+  }
   if(['exact_path_review','exact_resource_review'].includes(state)){
    const m=(await c.query('SELECT public_entries FROM browser_read_manifests WHERE task_id=$1 ORDER BY revision DESC LIMIT 1',[row.task_id])).rows[0].public_entries;
    assert.ok(m.candidates.some(e=>e.role==='document'));

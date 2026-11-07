@@ -51,3 +51,26 @@ accounted <=336 MiB, RSS/cgroup <=384 MiB with 48 MiB untouched headroom.
 This slice supplies addon/dispatcher/policy and acceptance driver protocol, NOT
 this mitmproxy internal parser patch or a production Unix RPC adapter. Until a
 reviewed implementation and measured tests exist, runtime preflight MUST fail.
+
+## Acceptance implementation boundary (2026-11-06, network builder)
+
+`parser_adapter.py` now implements the bounded pinned head/body parser, reserved
+collection/frozen copy owner, fixed recv_into/write transport primitives and
+root-peer length-framed metadata RPC. Offline tests import the installed
+12.3.1 parser classes, not doubles for those classes. `RuntimeAdapter` exposes
+the addon ABI but deliberately requires an actual reviewed transport implementing
+`attested`, `event_metadata`, `apply_verified`, `server_connect`,
+`server_connected`, `persist_unknown`, `close_flow`, `revoke_all`.
+This is NOT yet a patch to stock mitmproxy's TLS/ConnectionHandler/HttpStream.
+No stock master can attest by attaching this object alone. The private TLS and
+kernel-listener/target binding, signed verifier, DNS proof and durable controller
+integration remain required. `parserPatchSha256` identifies the adapter source,
+not a declaration that the full transport is accepted; readiness additionally
+requires `parserTransportIntegrated:true` in reviewed signed evidence.
+
+No driver may set `realRuntime:true` based only on `AllocationOwner`/RequestGate
+counters. `network-driver` has real direct packet probes; its launcher scenarios
+must supply the independent origin/parser measurements. `rss-driver` refuses
+until an integrated `/opt/sjcos-browser/fixtures/parser-transport-driver` exists.
+That integrated driver is NOT implemented by this change. This is a named
+remaining implementation blocker, not a coordinator install-only step.

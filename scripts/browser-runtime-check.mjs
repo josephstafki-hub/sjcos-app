@@ -1,12 +1,13 @@
 #!/usr/bin/env node
-// Metadata/files only. No executable imports, DNS, DB, browsers or services.
+// Installed runtime only. No browser, socket, DB or service launch.
 import {readFile} from 'node:fs/promises';
 import path from 'node:path';
-import {verifyRuntimeFiles,runtimeReadiness} from '../lib/browser/runtime-readiness.mjs';
-import {RUNTIME_PINS} from '../lib/browser/runtime-pins.mjs';
+import {verifyRuntimeFiles,runtimeReadiness,inspectInstalledRuntime} from '../lib/browser/runtime-readiness.mjs';
 const root=process.cwd(),lock=JSON.parse(await readFile(path.join(root,'deploy/browser/runtime-lock.json'),'utf8'));
 const files=await verifyRuntimeFiles(root,lock);
-let installedVersion=null;try{installedVersion=JSON.parse(await readFile(path.join(root,'node_modules/playwright-core/package.json'),'utf8')).version;}catch{}
-const readiness=runtimeReadiness(null);
-console.log(JSON.stringify({files,playwright:{expected:RUNTIME_PINS.playwrightCore.version,installed:installedVersion,ok:installedVersion===RUNTIME_PINS.playwrightCore.version},readiness,releaseReady:false},null,2));
-if(!files.ok||installedVersion!==RUNTIME_PINS.playwrightCore.version||!readiness.ok)process.exitCode=1;
+const installed=await inspectInstalledRuntime('/opt/sjcos-browser',lock);
+// A root-owned JSON object alone is not a signature. Independent root trust-key
+// verification is deliberately absent until the acceptance reviewer supplies it.
+const readiness=runtimeReadiness(lock.acceptance);
+console.log(JSON.stringify({files,installed,readiness,releaseReady:false},null,2));
+if(!files.ok||!installed.ok||!readiness.ok)process.exitCode=1;

@@ -33,3 +33,13 @@ test('decision expiry while connecting blocks first HTTP byte release',()=>{cons
 test('failed listener close acknowledgement prevents generation reassignment',()=>{const g=new RequestGate({config:appConfig,now:()=>1000,closeListener:()=>false});const b={listener:18081,generation:1,contextId:'joe',taskId:'task',bootId:'boot',manifest};g.bind(b);assert.throws(()=>g.bind({...b,generation:2}));assert.equal(g.stats().dead,true);});
 test('body timeout housekeeping releases a stalled collection without another hook',()=>{const {g,time}=setup();g.headers(base());time(16000);assert.equal(g.tick().length,1);assert.equal(g.stats().flows,0);assert.deepEqual(g.stats().pools,{request:0,response:0,transport:0});});
 test('canonical IDNA allowlist through gate still cannot release without proof',()=>{const g=new RequestGate({config:appConfig,now:()=>1000,closeListener:()=>true});g.bind({listener:18081,generation:1,contextId:'joe',taskId:'task',bootId:'boot',manifest:{revision:1,origins:[{origin:'https://xn--bcher-kva.example',role:'document'}]}});assert.equal(g.headers(base({url:'https://BÜCHER.example/',headers:[['host','xn--bcher-kva.example']],hostAuthority:'xn--bcher-kva.example',connectAuthority:'xn--bcher-kva.example:443',sni:'xn--bcher-kva.example',resolution:dns('xn--bcher-kva.example')})).ok,true);assert.equal(g.takeRequest('f1').ok,false);});
+// Expectations before drain fix: successful completion must retain its response
+// reservation while either transport direction still holds charged bytes.
+test('premature success cannot release a slow response slot before drain',()=>{
+ const {g}=setup();g.headers(base());const f=g.body('f1',Buffer.alloc(0));g.dispatch('f1',proof(f),()=>true);
+ g.peer('f1',{hostname:'permit.example',address:'8.8.8.8',listenerGeneration:1});g.takeRequest('f1');g.responseHeaders('f1',{length:0});
+ assert.equal(g.transport('f1',65536,'outgoing').ok,true);
+ assert.equal(g.finish('f1',true).code,'BROWSER_DRAIN_PENDING');assert.equal(g.stats().flows,1);
+ g.drain('f1',65536,'outgoing');assert.equal(g.finish('f1',true).outcome,'succeeded');
+ assert.deepEqual(g.stats().pools,{request:0,response:0,transport:0});
+});

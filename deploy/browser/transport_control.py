@@ -64,6 +64,10 @@ class ControlServer:
             if set(x)!={'op','port','binding'} or type(x['port'])!=int or x['port'] not in self.ports:raise Refused('BROWSER_CONTROL')
             sock=socket.socket(socket.AF_INET,socket.SOCK_STREAM)
             try:
+                # A fresh per-case gate rebinds the same port while the previous boot's closed
+                # connections sit in TIME_WAIT. SO_REUSEADDR only skips TIME_WAIT on Linux; it never
+                # lets two live listeners share the port.
+                sock.setsockopt(socket.SOL_SOCKET,socket.SO_REUSEADDR,1)
                 sock.bind((self.host,x['port']));sock.listen(2)
                 cookie=self.runtime.bind_listener(sock,x['binding'])
             except BaseException:sock.close();raise

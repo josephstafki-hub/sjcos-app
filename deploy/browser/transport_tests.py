@@ -30,9 +30,10 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         s=socket.socket(); s.bind(('127.0.0.1',0)); s.listen(2); self.sockets.append(s)
         b={**BINDING, **changes}; cookie=self.runtime.bind_listener(s,b)
         return s,cookie
-    async def connection(self, **changes):
+    async def connection(self, receive_size=None, **changes):
         s,cookie=self.listener(**changes)
         c=socket.socket(); c.setblocking(False); self.sockets.append(c)
+        if receive_size:c.setsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF,receive_size)
         await asyncio.get_running_loop().sock_connect(c,s.getsockname())
         a,_=s.accept(); self.sockets.append(a)
         return self.runtime.adopt(a,cookie),c,cookie
@@ -353,7 +354,7 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
     # RSS lifecycle expectations: real ConnectionHandler, HTTPFlow, HTTP hooks,
     # h11 parsers and TLS layers. Only DNS/policy authority and the dial address
     # are fixtures; every byte travels over loopback sockets.
-    async def rss_fixture(self, policy=None):
+    async def rss_fixture(self, policy=None, responder=None, write=False):
         import ssl
         import time
         await self.certs()
@@ -365,7 +366,8 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
             result=base(meta,remaining)
             if meta['event']=='request':
                 if policy:policy(meta,remaining)
-                result.update(allow=True,requestDigest=meta['requestDigest'],decisionId=meta['id'],expiresInMs=2000,pin=dict(hostname='permit.example',address='93.184.216.34'),kind='read')
+                result.update(allow=True,requestDigest=meta['requestDigest'],decisionId=meta['id'],expiresInMs=2000,pin=dict(hostname='permit.example',address='93.184.216.34'),kind='write' if write else 'read')
+                if write:result.update(consumed=True,unknownToken='receipt-'+meta['id'])
             return result
         self.policy.call.side_effect=authorize
         real_apply=self.runtime.apply_verified
@@ -376,11 +378,20 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         origin_context=ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         origin_context.load_cert_chain(self.cert_file,self.key_file)
         origin_tasks=set()
+        self.rss_origins=[]
         async def origin(reader,writer):
             task=asyncio.current_task();origin_tasks.add(task)
             try:
                 await writer.start_tls(origin_context)
-                await reader.readuntil(b'\r\n\r\n')
+                head=await reader.readuntil(b'\r\n\r\n')
+                fields=dict((k.lower(),v) for k,v in (line.split(b': ',1) for line in head.split(b'\r\n')[1:] if b': ' in line))
+                left=int(fields.get(b'content-length',b'0'));digest=hashlib.sha256();size=left
+                while left:
+                    part=await reader.readexactly(min(left,16384));digest.update(part);left-=len(part)
+                request=dict(head=head,bodyBytes=size,bodySha256=digest.hexdigest())
+                self.rss_origins.append(request)
+                if responder:
+                    await responder(request,writer);return
                 writer.write(b'HTTP/1.1 200 OK\r\nContent-Length: 2097152\r\n\r\n')
                 for _ in range(128):
                     if writer.is_closing():break
@@ -492,6 +503,318 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
             finally:release.set()
             await asyncio.sleep(0.01) # let the bounded fixture RPC thread return
 
+    # Expectations written before the fixes: two 25MiB raw TLS responses stay
+    # charged throughout a 2s no-read window AND a final 16KiB TCP tail pause.
+    # All 15 RSS case names below run independently, not a loop hiding failures.
+    async def rss_response(self, request, writer):
+        mode=request['head'].split(b' ')[1].decode().strip('/')
+        length=25*1048576 if mode in ('two-contexts-eight-candidates','two-25MiB-slow-readers','fair-contention-completion','preallocation-backpressure','disconnect-finally','declared-length') else 256
+        extra=b''
+        if mode=='oversize-body':length=25*1048576+1
+        if mode=='compressed-bomb-no-decode':extra=b'Content-Encoding: gzip\r\n'
+        if mode=='chunked-response':extra+=b'Transfer-Encoding: chunked\r\n'
+        elif mode!='unknown-length':extra+=b'Content-Length: '+str(length).encode()+b'\r\n'
+        writer.write(b'HTTP/1.1 200 OK\r\n'+extra+b'Connection: close\r\n\r\n');await writer.drain()
+        if mode=='slow-body-deadline':await asyncio.sleep(61);return
+        if mode=='short-body':writer.write(b'short');await writer.drain();return
+        if mode=='chunked-response':writer.write(b'4\r\ntest\r\n0\r\n\r\n');await writer.drain();return
+        if mode=='compressed-bomb-no-decode':
+            import gzip
+            writer.write(gzip.compress(b'x'*1048576));await writer.drain();return
+        block=b'x'*16384
+        while length:
+            n=min(length,len(block));writer.write(block[:n]);await writer.drain();length-=n
+            await asyncio.sleep(0)
+
+    def rss_raw_client(self, c, ctx, path, *, sent=None, read=None, tail=None, finish_tail=None, body_size=0, abort=False, abort_tail=False):
+        # Blocking stdlib TLS deliberately performs NO background reads. Async
+        # StreamReader clients read ahead even when the test awaits no read().
+        c.settimeout(70)
+        try:
+            c.sendall(b'CONNECT permit.example:443 HTTP/1.1\r\nHost: permit.example:443\r\n\r\n')
+            head=b''
+            while not head.endswith(b'\r\n\r\n'):
+                part=c.recv(1)
+                if not part:raise ConnectionError('CONNECT refused')
+                head+=part
+            with ctx.wrap_socket(c,server_hostname='permit.example') as tls:
+                method='POST' if body_size else 'GET'
+                fields=('Content-Length: '+str(body_size)+'\r\n') if body_size else ''
+                tls.sendall((method+' /'+path+' HTTP/1.1\r\nHost: permit.example\r\nAccept-Encoding: identity\r\n'+fields+'\r\n').encode())
+                block=b'x'*16384;left=body_size
+                while left:
+                    n=min(left,len(block));tls.sendall(block[:n]);left-=n
+                if sent:sent.set()
+                if read and not read.wait(8):raise TimeoutError('reader hold not released')
+                if abort:return dict(head=b'',received=0,digest=None)
+                head=bytearray()
+                while not head.endswith(b'\r\n\r\n'):
+                    part=tls.recv(1)
+                    if not part:return dict(head=bytes(head),received=0,digest=None)
+                    head.extend(part)
+                    if len(head)>HEADER:raise AssertionError('response header bound')
+                length=int(dict(line.split(b': ',1) for line in bytes(head).split(b'\r\n')[1:] if b': ' in line)[b'content-length'])
+                received=0;digest=hashlib.sha256()
+                while received<length:
+                    if tail and received==length-16384:
+                        tail.set()
+                        if not finish_tail.wait(8):raise TimeoutError('tail hold not released')
+                        if abort_tail:break
+                    n=min(16384,length-received)
+                    if tail and received<length-16384:n=min(n,length-16384-received)
+                    part=tls.recv(n)
+                    if not part:break
+                    received+=len(part);digest.update(part)
+                if received==length:self.assertEqual(tls.recv(1),b'')
+                return dict(head=bytes(head),received=received,digest=digest.hexdigest())
+        finally:c.close()
+
+    async def rss_start_raw(self, ctx, name, *, second=False, **client_options):
+        changes=dict(contextId='context2',guardId='guard2',targetId='target2') if second else {}
+        h,c,ck=await self.connection(receive_size=8192,**changes)
+        self.runtime.register_guard(ck,h.binding['guardId'],h.binding['targetId'])
+        run=asyncio.create_task(h.run());self.addAsyncCleanup(self.cancel_runs,[run])
+        client=asyncio.create_task(asyncio.to_thread(self.rss_raw_client,c,ctx,name,**client_options))
+        return h,run,client
+
+    def assert_slot_stats(self, stats, count):
+        self.assertEqual(stats['activeResponseSlots'],count)
+        self.assertEqual(stats['flows'],count)
+        self.assertEqual(stats['pools']['response'],count*56*1048576)
+        self.assertEqual(stats['maxResponseSlots'],self.runtime.owner.max_slots)
+
+    async def rss_multi_case(self, name):
+        import threading,time
+        from transport_control import ControlServer
+        ctx=await self.rss_fixture(responder=self.rss_response)
+        control=ControlServer(self.runtime,'127.0.0.1',[])
+        read=threading.Event();finish_tails=[threading.Event(),threading.Event()]
+        sent=[threading.Event(),threading.Event()];tails=[threading.Event(),threading.Event()]
+        self.addCleanup(read.set)
+        for release in finish_tails:self.addCleanup(release.set)
+        group=[await self.rss_start_raw(ctx,name,second=bool(i),sent=sent[i],read=read,tail=tails[i],finish_tail=finish_tails[i]) for i in range(2)]
+        await self.wait_state(lambda:all(x.is_set() for x in sent))
+        await self.wait_state(lambda:all(h.client_io.pending_write for h,_,_ in group),timeout=4)
+        end=time.monotonic()+2;sample_count=0
+        while time.monotonic()<end:
+            self.assert_slot_stats(await control.dispatch(dict(op='stats')),2)
+            for h,_,_ in group:
+                self.assertTrue(self.runtime.owner.flows[h.flow.id].draining)
+                self.assertFalse(h.drained)
+            sample_count+=1;await asyncio.sleep(.02)
+        self.assertGreaterEqual(sample_count,50)
+        if name in ('two-contexts-eight-candidates','preallocation-backpressure','fair-contention-completion'):
+            accepts=[asyncio.create_task(self.runtime.serve_listener(h.listener.cookie)) for h,_,_ in group]
+            self.addAsyncCleanup(self.cancel_runs,accepts)
+            before={k:len(v.buffers) for k,v in self.runtime.owner.flows.items()}
+            for i in range(6):
+                c=socket.socket();c.setblocking(False);self.sockets.append(c)
+                await asyncio.get_running_loop().sock_connect(c,group[i%2][0].listener.address)
+                await asyncio.get_running_loop().sock_sendall(c,b'CONNECT permit.example:443 HTTP/1.1\r\nHost: permit.example:443\r\n\r\n')
+                c.close()
+            await self.wait_state(lambda:sum(e['event']=='admission_refused' for e in self.runtime.event_log)==6)
+            self.assertEqual({k:len(v.buffers) for k,v in self.runtime.owner.flows.items()},before)
+            self.assertEqual(len(self.runtime.owner.transport_reservations),2)
+        read.set()
+        await self.wait_state(lambda:all(x.is_set() for x in tails),timeout=8)
+        # send() acceptance is not a TCP drain ACK: a small tail still fills the
+        # raw clients' receive windows. This was the missing terminal boundary.
+        await asyncio.sleep(.3)
+        self.assert_slot_stats(await control.dispatch(dict(op='stats')),2)
+        finish_tails[0].set()
+        await asyncio.wait_for(group[0][2],3);await asyncio.wait_for(group[0][1],3)
+        self.assert_slot_stats(await control.dispatch(dict(op='stats')),1)
+        self.assertIn(group[1][0].flow.id,self.runtime.owner.flows)
+        finish_tails[1].set()
+        results=await asyncio.wait_for(asyncio.gather(*(client for _,_,client in group)),5)
+        await asyncio.wait_for(asyncio.gather(*(run for _,run,_ in group)),5)
+        for result in results:
+            self.assertEqual(result['received'],25*1048576)
+            digest=hashlib.sha256()
+            for _ in range(25*64):digest.update(b'x'*16384)
+            self.assertEqual(result['digest'],digest.hexdigest())
+        self.assert_finalized([h.flow.id for h,_,_ in group])
+        self.assert_slot_stats(await control.dispatch(dict(op='stats')),0)
+        self.assertEqual(self.runtime.owner.max_slots,2)
+        self.assertLessEqual(self.runtime.max_queue,QUEUE)
+        if name=='fair-contention-completion':
+            # Both contexts must admit and finish a new request after losers
+            # were refused; no starvation or retained body/admission queue.
+            for h,_,_ in group:
+                c=socket.socket();c.setblocking(False);self.sockets.append(c)
+                await asyncio.get_running_loop().sock_connect(c,h.listener.address)
+                reader,writer=await self.rss_client(c,ctx,'/completion')
+                response=await asyncio.wait_for(reader.read(),3)
+                self.assertIn(b'200 OK',response)
+                await self.wait_state(lambda:not self.runtime.handlers)
+                writer.close()
+            self.assertEqual(len(self.rss_origins),4)
+
+    async def rss_single_case(self, name):
+        import threading,time
+        entered=threading.Event();review=threading.Event();self.addCleanup(review.set)
+        def policy(meta,remaining):
+            if name=='held-request-review':
+                entered.set()
+                if not review.wait(1.5):raise TimeoutError('review not released')
+        ctx=await self.rss_fixture(policy,responder=self.rss_response,write=name=='held-request-review')
+        options=dict(body_size=25*1048576) if name=='held-request-review' else {}
+        if name=='disconnect-finally':
+            read=threading.Event();self.addCleanup(read.set);options.update(read=read,abort=True)
+        h,run,client=await self.rss_start_raw(ctx,name,**options)
+        if name=='held-request-review':
+            await self.wait_state(entered.is_set)
+            f=self.runtime.owner.flows[h.flow.id]
+            self.assertEqual(self.runtime.owner.pools['request'],50*1048576+4096)
+            self.assertEqual([len(b) for d,b in f.buffers if d=='request'],[25*1048576]*2)
+            self.assertIsInstance(h.flow.request.raw_content,bytes)
+            self.assertEqual(self.rss_origins,[])
+            await asyncio.sleep(.15);review.set()
+        if name=='disconnect-finally':
+            await self.wait_state(lambda:bool(h.client_io.pending_write),timeout=4)
+            read.set() # actual client disconnect, not a server-side close
+        started=time.monotonic()
+        result=await asyncio.wait_for(client,65)
+        await asyncio.wait_for(run,3)
+        if name in ('short-body','oversize-body','slow-body-deadline','compressed-bomb-no-decode','disconnect-finally'):
+            self.assertEqual(result['received'],0)
+            if name!='disconnect-finally':self.assertEqual(h.downstream_plaintext_bytes,0)
+        else:
+            expected=b'test' if name=='chunked-response' else b'x'*(25*1048576 if name=='declared-length' else 256)
+            self.assertEqual(result['received'],len(expected))
+            self.assertEqual(result['digest'],hashlib.sha256(expected).hexdigest())
+        if name=='slow-body-deadline':
+            self.assertGreaterEqual(time.monotonic()-started,59)
+            self.assertLess(time.monotonic()-started,62)
+            self.assertTrue(any(e['event']=='socket_closed' and e.get('reason')=='TimeoutError' or e['event']=='refused' and e.get('reason')=='BROWSER_DEADLINE' for e in self.runtime.event_log))
+        if name=='compressed-bomb-no-decode':
+            self.assertTrue(any(e['event']=='refused' and e.get('reason')=='BROWSER_ENCODING' for e in self.runtime.event_log))
+            self.assertEqual(self.runtime.owner.maxima['response'],56*1048576)
+        self.assertEqual(len(self.rss_origins),1)
+        self.assert_finalized([h.flow.id])
+        self.assertEqual(self.runtime.owner.pools,dict(request=0,response=0,transport=0))
+
+    async def rss_consumed_case(self, name):
+        import tempfile
+        from pathlib import Path
+        ctx=await self.rss_fixture(responder=self.rss_response,write=True)
+        base=self.policy.call.side_effect;receipts=[]
+        with tempfile.TemporaryDirectory() as directory:
+            def policy(meta,remaining):
+                result=base(meta,remaining)
+                if meta['event']=='persist_unknown':
+                    record=dict(outcome='unknown',retry=False,id=meta['id'])
+                    with open(Path(directory)/'unknown.json','x') as out:
+                        json.dump(record,out);out.flush();__import__('os').fsync(out.fileno())
+                    receipts.append(record)
+                return result
+            self.policy.call.side_effect=policy
+            if name=='consumed-write-no-retry':self.runtime.fault=dict(point='after_consume',action='revoke_all')
+            else:
+                original=self.runtime.adapter.event
+                async def loss(event,flow):
+                    result=await original(event,flow)
+                    if event=='request':
+                        # Model controller EOF AFTER its durable consume reply;
+                        # transport closes before an upstream connect/write.
+                        self.runtime.revoke_all()
+                    return result
+                self.runtime.adapter.event=loss
+            h,run,client=await self.rss_start_raw(ctx,name,body_size=13)
+            result=await asyncio.wait_for(client,3);await asyncio.wait_for(run,3)
+            self.assertEqual(result['received'],0)
+            self.assertEqual(self.rss_origins,[])
+            self.assertEqual(h.upstream_plaintext_bytes,0)
+            self.assertEqual(receipts,[dict(outcome='unknown',retry=False,id=h.flow.id)])
+            self.assertEqual(json.loads((Path(directory)/'unknown.json').read_text()),receipts[0])
+            self.assertEqual(sum(c.args[0]['event']=='request' for c in self.policy.call.call_args_list),1)
+            self.assert_finalized([h.flow.id])
+            self.runtime.revoke_all()
+            self.assertEqual(len(receipts),1)
+
+    async def test_response_slot_stats_exclude_transport_only_connections(self):
+        from transport_control import ControlServer
+        control=ControlServer(self.runtime,'127.0.0.1',[])
+        h,_,_=await self.connection()
+        self.assert_slot_stats(await control.dispatch(dict(op='stats')),0)
+        self.runtime.owner.reserve(h.flow.id,0,0)
+        self.assert_slot_stats(await control.dispatch(dict(op='stats')),1)
+        self.runtime.owner.response_complete(h.flow.id)
+        self.assert_slot_stats(await control.dispatch(dict(op='stats')),1)
+        self.runtime.finish(h)
+        self.assert_slot_stats(await control.dispatch(dict(op='stats')),0)
+        self.assertEqual((await control.dispatch(dict(op='stats')))['maxResponseSlots'],1)
+
+    async def test_controller_socket_eof_after_consume_does_not_retry(self):
+        # Actual UnixPolicy framing/peer credentials + an EOF, not an allow
+        # boolean. Controller already wrote unknown before losing the channel.
+        import os,struct,tempfile,threading
+        from pathlib import Path
+        from parser_adapter import UnixPolicy
+        ctx=await self.rss_fixture(responder=self.rss_response,write=True)
+        base=self.policy.call.side_effect;messages=[];stop=threading.Event()
+        with tempfile.TemporaryDirectory() as directory:
+            path=str(Path(directory)/'policy.sock');journal=Path(directory)/'unknown.json'
+            listener=socket.socket(socket.AF_UNIX);listener.bind(path);listener.listen(2);listener.settimeout(.1)
+            def serve():
+                while not stop.is_set():
+                    try:peer,_=listener.accept()
+                    except socket.timeout:continue
+                    with peer:
+                        peer.settimeout(2)
+                        def exact(n):
+                            data=b''
+                            while len(data)<n:
+                                part=peer.recv(n-len(data))
+                                if not part:raise ConnectionError('policy request EOF')
+                                data+=part
+                            return data
+                        n,=struct.unpack('!I',exact(4));meta=json.loads(exact(n));messages.append(meta['event'])
+                        if meta['event']=='server_connect':continue # real reply EOF
+                        if meta['event'] in ('persist_unknown','close_flow'):continue
+                        result=base(meta,2)
+                        if meta['event']=='request':
+                            with journal.open('x') as out:
+                                json.dump(dict(outcome='unknown',retry=False,id=meta['id']),out);out.flush();os.fsync(out.fileno())
+                        raw=json.dumps(result).encode();peer.sendall(struct.pack('!I',len(raw))+raw)
+            worker=threading.Thread(target=serve);worker.start()
+            unix=UnixPolicy(path,peer_uid=os.getuid()) # test peer only, production requires uid 0
+            self.runtime.policy=unix;self.runtime.adapter.policy=unix
+            try:
+                h,run,client=await self.rss_start_raw(ctx,'controller-loss-unknown',body_size=13)
+                result=await asyncio.wait_for(client,4);await asyncio.wait_for(run,4)
+                self.assertEqual(result['received'],0);self.assertEqual(h.upstream_plaintext_bytes,0)
+                self.assertEqual(self.rss_origins,[])
+                self.assertEqual(json.loads(journal.read_text()),dict(outcome='unknown',retry=False,id=h.flow.id))
+                self.assertEqual(messages.count('request'),1)
+                self.assertEqual(messages.count('persist_unknown'),1)
+                self.assertTrue(self.runtime.dead);self.assertTrue(self.runtime.adapter.dead)
+                self.assert_finalized([h.flow.id])
+                self.assertEqual(self.runtime.owner.pools,dict(request=0,response=0,transport=0))
+            finally:
+                stop.set();await asyncio.to_thread(worker.join,3);listener.close()
+                self.assertFalse(worker.is_alive())
+
+    async def rss_tcp_drain_terminal(self, expire):
+        import threading,time
+        ctx=await self.rss_fixture(responder=self.rss_response)
+        tail=threading.Event();release=threading.Event();self.addCleanup(release.set)
+        h,run,client=await self.rss_start_raw(ctx,'declared-length',tail=tail,finish_tail=release,abort_tail=not expire)
+        await self.wait_state(tail.is_set,timeout=8)
+        await self.wait_state(lambda:h.client_io.pending_write==0)
+        await asyncio.sleep(.1)
+        self.assertIn(h.flow.id,self.runtime.owner.flows)
+        if expire:self.runtime.clock=lambda:time.monotonic()+60
+        else:release.set() # peer closes while TCP drain is pending
+        await asyncio.wait_for(run,1)
+        self.assert_finalized([h.flow.id])
+        self.assertFalse(h.drained)
+        self.assertEqual(self.runtime.owner.pools,dict(request=0,response=0,transport=0))
+        release.set();await asyncio.wait_for(client,3)
+
+    async def test_original_deadline_during_tcp_drain(self):await self.rss_tcp_drain_terminal(True)
+    async def test_disconnect_during_tcp_drain(self):await self.rss_tcp_drain_terminal(False)
+
     async def test_request_decision_deadline_bounds_parked_policy(self):
         import threading
         entered=threading.Event();release=threading.Event()
@@ -572,6 +895,11 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         async def write(channel,data):
             if stage=='drain' and channel.io is h.client_io:await park()
             return await real_write(channel,data)
+        real_drain=h.client_io.drain
+        async def drain():
+            if stage=='tcp_drain':await park()
+            await real_drain()
+        h.client_io.drain=drain
         with patch.object(TLSChannel,'handshake',handshake),patch.object(TLSChannel,'write',write):
             task=asyncio.create_task(h.run());self.addAsyncCleanup(self.cancel_runs,[task])
             client=asyncio.create_task(self.rss_client(c,ctx));self.addAsyncCleanup(self.cancel_runs,[client])
@@ -657,7 +985,21 @@ def cancellation_test(route,stage):
 
 for route in ('revoke_all','listener','cancelled_error'):
     for stage in ('http_connect','tls','request_parse','requestheaders','request',
-                  'server_connect','server_connected','response_parse','responseheaders','response','drain'):
+                  'server_connect','server_connected','response_parse','responseheaders','response','drain','tcp_drain'):
         setattr(TransportTests,'test_'+route+'_parked_at_'+stage,cancellation_test(route,stage))
+
+# Inventory mirrors lib/browser/acceptance.mjs; one named loopback test per case.
+RSS_CASES = ('two-contexts-eight-candidates','two-25MiB-slow-readers','held-request-review',
+             'fair-contention-completion','declared-length','unknown-length','chunked-response',
+             'short-body','oversize-body','slow-body-deadline','compressed-bomb-no-decode',
+             'preallocation-backpressure','disconnect-finally','controller-loss-unknown','consumed-write-no-retry')
+def rss_case_test(name):
+    async def test(self):
+        if name in ('two-contexts-eight-candidates','two-25MiB-slow-readers','fair-contention-completion','preallocation-backpressure'):
+            await self.rss_multi_case(name)
+        elif name in ('controller-loss-unknown','consumed-write-no-retry'):await self.rss_consumed_case(name)
+        else:await self.rss_single_case(name)
+    return test
+for name in RSS_CASES:setattr(TransportTests,'test_rss_case_'+name.replace('-','_'),rss_case_test(name))
 
 if __name__=='__main__':unittest.main()

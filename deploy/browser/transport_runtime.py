@@ -13,6 +13,7 @@ import json
 import math
 import socket
 import struct
+import fcntl
 import time
 from dataclasses import dataclass
 from mitmproxy import connection, http, options
@@ -59,7 +60,7 @@ def validate_connect_headers(fields,authority):
 
 class AsyncSocket:
     """Single scratch allocation, no concurrent receive/read-ahead/send queue.
-    Kernel send completion (nonblocking send) is the drain ACK, not an addon return.
+    send() only hands bytes to the kernel. drain() waits for TCP acknowledgment.
     """
     def __init__(self,sock,remaining):
         self.sock=sock;sock.setblocking(False);self.remaining=remaining
@@ -100,6 +101,16 @@ class AsyncSocket:
                 if n<=0:raise Refused('BROWSER_DISCONNECTED')
                 self.bytes_written+=n;self.pending_write-=n;view=view[n:]
         finally:self.pending_write=0
+    async def drain(self):
+        # Linux SIOCOUTQ includes unsent AND unacknowledged TCP bytes. A final
+        # send() can succeed while a slow peer's receive window is still full.
+        # Keep the response reservation through this bounded terminal wait.
+        # TCP ACK proves network delivery, not the peer application's recv().
+        while True:
+            self.remaining()
+            pending=struct.unpack('=i',fcntl.ioctl(self.sock,0x5411,struct.pack('=i',0)))[0]
+            if pending==0:return
+            await asyncio.sleep(min(.01,self.remaining()))
     def close(self):
         try:self.sock.shutdown(socket.SHUT_RDWR)
         except OSError:pass
@@ -504,6 +515,11 @@ class TransportHandler(ConnectionHandler):
             async def watch_client():
                 try:await self.client_io.read(1)
                 except asyncio.CancelledError:return
+                except asyncio.TimeoutError:
+                    # This observer shares the original deadline with parser
+                    # IO. Let the owning operation report its timeout; racing
+                    # it with cancellation hides BROWSER_DEADLINE/TimeoutError.
+                    return
                 except Exception:
                     if self.closed:return
                 self.close_sockets()
@@ -538,6 +554,7 @@ class TransportHandler(ConnectionHandler):
             self.runtime.owner.response_complete(self.flow.id)
             await self.client_tls.write(head)
             await self.client_tls.write(response.raw_content)
+            await self.client_io.drain()
             self.downstream_plaintext_bytes=len(head)+len(response.raw_content)
             self.runtime.observe('drained',self,bytes=self.downstream_plaintext_bytes)
             self.drained=True;success=True

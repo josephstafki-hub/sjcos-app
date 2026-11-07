@@ -238,3 +238,122 @@ byte-identical; runtime-lock updates only the transport source hash. Parser
 adapter/patch/hash, lib/browser and raw fixture client are unchanged. No DB,
 browser, root acceptance, installed runtime or live services were used. Coordinator
 must rerun real root RSS acceptance; offline passes do not claim measured RSS.
+
+## 2026-11-06 — RSS slot accounting and all 15 transport scenarios
+
+Expectations were written before implementation in
+`/tmp/browser-rss-expectations-cf34.txt` and in the loopback tests: two raw TLS
+clients, SO_RCVBUF=8192 before connect, two fully collected 25 MiB responses,
+continuous slots=2 / response=112 MiB throughout a >=2s no-read window; keep each
+56 MiB reservation through downstream TCP drain, including a final unread tail.
+Every named RSS scenario gets an independent real-mitmproxy test; malformed or
+late responses forward zero plaintext, consumed interrupted writes never retry,
+and every terminal path settles all handlers, flows, reservations and pools.
+No browser, root, DB, external network, installed-runtime mutation or live service
+was used. All temporary loopback listeners/threads are closed by test cleanup.
+
+### Answers and production fixes
+
+**Q1:** The initial 2-second hold already retained both reservations, but a real
+terminal accounting defect existed: nonblocking `send()` completion only means
+kernel acceptance, not downstream drain. At a final 16 KiB raw-reader pause the
+old transport released BOTH slots while TCP bytes were still outstanding. The
+expectations-first `test_rss_case_two_25MiB_slow_readers` failed `0 != 2` at this
+boundary before the fix. `AsyncSocket.drain()` now waits for Linux SIOCOUTQ=0
+(unsent + unacknowledged bytes), bounded by the original deadline, before marking
+`h.drained` or releasing storage. The test now samples slots=2 / 112 MiB every
+20 ms throughout the >=2s hold, retains both through the tail pause, releases
+one client to observe slots=1 / 56 MiB, then releases the other and requires zero.
+It checks exact 25 MiB payloads/digests. TCP ACK is the observable network-drain
+boundary: no HTTP/TCP transport can establish the instant of the application's
+last `recv()` without a separate application acknowledgment. This does not claim
+that impossible stronger property.
+
+**Q2:** `len(owner.flows)` IS the live response-reservation count: reserve()
+creates one entry charging 56 MiB and release() removes that entry and charge.
+There is no separate response queue or uncharged live response slot. Existing
+`activeResponseSlots` and `maxResponseSlots` already measure the same quantity;
+`test_response_slot_stats_exclude_transport_only_connections` checks 0 before
+request admission (despite a charged transport), 1 during collection/drain, 0
+on release, and high-water 1. All four multi-client tests use the actual
+`ControlServer.dispatch(stats)` result, not invented slot counters. Neither the
+control stats nor root-fixture sampler/check was changed or weakened.
+
+A second defect affected `slow-body-deadline`: the disconnect monitor's read
+shares the parser's original deadline. Its timeout could cancel the owner first,
+turning the expected timeout into `CancelledError`. The monitor now returns on
+its timeout and lets the owning parser/IO report its original deadline. The
+real 60-second loopback case reproduced the missing timeout event before this
+fix; it requires >=59 seconds, zero downstream plaintext, a TimeoutError or
+BROWSER_DEADLINE, and complete cleanup.
+
+### a26 root failure: coordinator action still required (outside ownership)
+
+Read a26 and a23 `rss-diagnostics/.../last-observations.json`, including actual
+controller events. In a26 both requests have the SAME canonical request digest,
+reach the request policy hook, then the controller emits `boot_revoked`; neither
+reaches `server_connect`. Both close with upstreamPlaintextBytes=0. Their
+response reservations existed for only about 7 ms, so the 100 ms sampler
+correctly records zero despite a high-water of 2. Those clients never entered a
+slow response drain. This is not a sampler defect; sampling a brief revoked
+request would not satisfy the intended slow-reader measurement.
+
+A separate non-root Node reproduction using the REAL createAuthority,
+DurableJournal, Ed25519 manifests, fsynced files and temporary directory confirms
+why repeated identical fixture requests fail: admit manifest A, authorize R,
+admit fresh manifest B for the same R, authorize R again -> EEXIST on A's consume
+file. `createAuthority.authorizeRequest()` always selects the FIRST matching
+admitted manifest. `prepareFixtureController.authorizeRequest()` discards the
+new token returned by admit() and calls that first-match lookup. With concurrent
+requests, duplicate consume fails and revokes the boot, including the first
+request still awaiting checkpoint. Coordinator should consume the newly admitted
+fixture token (or otherwise fix exact token selection without replaying claims).
+Do not relax production one-use authority or the RSS live-slot check. No controller,
+launcher, Playwright patch, or root client changes were made here. Root acceptance
+will still need that controller fix before the multi-request cases can pass.
+
+### Per-case loopback results
+
+All names below are `TransportTests.test_rss_case_<name with hyphens as underscores>`
+in `deploy/browser/transport_tests.py` and are checked by the Node wrapper against
+the canonical `RSS_CASES` inventory.
+
+| RSS case | Transport result / proof |
+| --- | --- |
+| two-contexts-eight-candidates | Fixed final TCP drain; two charged responses + six admission refusals before any extra body/transport allocation. Root fixture also needs the controller fix above. |
+| two-25MiB-slow-readers | Fixed final TCP drain; >=2s continuous two-slot samples, final-tail retention, independent 2 -> 1 -> 0 release, exact 25 MiB digests. |
+| held-request-review | Holds: frozen 25 MiB upload and 50 MiB+4096 request charge during withheld review, zero origin requests until release, complete upload/response. |
+| fair-contention-completion | Fixed final TCP drain; six refusals, both original responses complete, then each context admits and completes a new request. Root fixture also needs the controller fix. |
+| declared-length | Holds: exact 25 MiB response and SHA-256 through real bounded TLS/parsers. |
+| unknown-length | Holds: real EOF-delimited body normalized to exact length/digest before downstream. |
+| chunked-response | Holds: real chunked body becomes exact `test` payload, no chunk framing downstream. |
+| short-body | Holds: declared 256 bytes / actual 5, zero downstream plaintext and no retained allocations. |
+| oversize-body | Holds: declared 25 MiB+1 refused before payload collection, zero downstream plaintext. |
+| slow-body-deadline | Fixed timeout-vs-disconnect-monitor race; real original 60s deadline, zero downstream plaintext, timeout evidence and complete cleanup. |
+| compressed-bomb-no-decode | Holds: gzip response refused with BROWSER_ENCODING at headers; no decoded content or downstream plaintext. |
+| preallocation-backpressure | Fixed final TCP drain; two reservations retain their buffers while six candidates get admission_refused before allocation. Root fixture also needs the controller fix. |
+| disconnect-finally | Holds: actual raw TLS client disconnect while response write blocked, finally zeros all pools/reservations. |
+| controller-loss-unknown | Holds for transport with controller-owned durable unknown/no retry; additional REAL UnixPolicy EOF test verifies fail-closed cleanup when terminal RPC also loses its channel. |
+| consumed-write-no-retry | Holds: consumed write fault revokes before upstream dial, exactly one durable unknown/retry=false record, no origin request or retry. |
+
+The loopback authority/DNS/dial fixtures explicitly substitute policy grants,
+public DNS and the public peer check so these tests need no root. TLS verification,
+ConnectionHandler, HTTP hooks, HTTPFlow, h11, allocation ownership and actual
+socket IO remain real. `test_controller_socket_eof_after_consume_does_not_retry`
+uses real UnixPolicy framing and SO_PEERCRED (test peer UID only), writes/fsyncs
+unknown before losing the response channel, then requires zero upstream bytes,
+exactly one request and persist attempt, dead runtime and zero storage even when
+terminal persistence cannot ACK. Additional TCP-drain abort/expiry tests and all
+36 cancellation-stage cells (12 stages x 3 sources) verify the new wait unwinds.
+Root cgroup RSS peaks/OOM/packet namespaces/CDP authority are NOT proved by
+loopback; coordinator must run the real root gate after fixing the authority.
+
+Validation: transport **108/108** (Node transport wrapper **1/1**, checks every
+canonical RSS case name); parser wrapper **44/44**. `/home/joe/qa-sjcos/browser-acc/relock.sh`
+passed frozen source/hash/pin verification plus root-runner **17/17**,
+runtime-boundaries **19/19**, acceptance-integration **33/33**. It refreshed
+`runtime-lock.json` for the changed transport source; `launcher-files.json` is
+byte-identical (no launcher edits). Parser adapter/hash remain unchanged. No DB
+cluster was needed or started. All loopback helpers stopped; no push or root
+acceptance run. Root network's earlier 28/28 is coordinator evidence, not a rerun
+of this final transport revision.

@@ -130,9 +130,11 @@ class ControlServer:
                     await io.write(struct.pack('!I',len(raw))+raw)
                 except asyncio.CancelledError:
                     self.runtime.revoke_all();raise
-                except Exception:
+                except Exception as error:
                     self.runtime.revoke_all()
-                    raw=b'{"ok":false}'
+                    # Root-only socket: return the fixed Refused code (never exception text) for diagnostics.
+                    code=error.args[0] if isinstance(error,Refused) and error.args and isinstance(error.args[0],str) and error.args[0].isupper() else None
+                    raw=json.dumps(dict(ok=False,code=code[:60]) if code else dict(ok=False),separators=(',',':')).encode()
                     try:await io.write(struct.pack('!I',len(raw))+raw)
                     except Exception:pass
                 finally:io.close()

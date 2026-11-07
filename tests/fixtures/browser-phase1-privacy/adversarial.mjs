@@ -1,0 +1,33 @@
+// Expectations frozen before slice D implementation. Real request/control shapes.
+export const outboundCases = [
+ ['anonymous reviewed document',{},true],
+ ['unreviewed same-origin path',{url:'https://portal.example/public/other'},false],
+ ['query edit',{url:'https://portal.example/public?address=12+Main'},false],
+ ['cookie',{headers:[['cookie','session=opaque']]},false],
+ ['referrer',{headers:[['referer','https://sjcos.example/client/12']]},false],
+ ['authorization',{headers:[['authorization','Bearer opaque']]},false],
+ ['custom header',{headers:[['x-client','Larson']]},false],
+ ['encoded path exfil',{url:'https://portal.example/LGFyc29u'},false],
+ ['unknown provenance',{provenance:null},false],
+ ['company lookup',{provenance:{classification:'company'}},false],
+ ['unreviewed resource',{kind:'resource'},false],
+ ['OPTIONS fixture read',{method:'OPTIONS'},false],
+ ['POST anonymous search',{method:'POST'},false],
+ ['beacon GET',{kind:'beacon'},false],
+ ['popup GET',{kind:'popup'},false],
+ ['iframe GET',{kind:'subframe'},false],
+];
+export const submitCases = [
+ ['Submit',{type:'click',label:'Submit application'}],
+ ['Pay',{type:'click',label:'Pay $0.00'}],
+ ['Sign',{type:'click',label:'Sign agreement'}],
+ ['Enter',{type:'key',key:'Enter'}],
+ ['hidden JS',{type:'click',label:'',hidden:true}],
+ ['misspelling',{type:'click',label:'Submti'}],
+ ['non-English',{type:'click',label:'Enviar solicitud'}],
+ ['autosave',{type:'fill',value:'scope'}],
+ ['mutating GET',{type:'navigate',url:'https://portal.example/delete?id=41'}],
+ ['future timer',{type:'timer'}],
+ ['iframe',{type:'iframe'}],
+ ['popup',{type:'popup'}],
+];

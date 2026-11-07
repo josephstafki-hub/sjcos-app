@@ -400,3 +400,7 @@ Result: unprovision → provision → AppArmor → installation-only runtime che
 - **p1c-rss** (`35feb203`, RSS only, idle box): **RSS 15/15**.
 
 Result for candidate `35feb203`: network 28/28 (p1c) + RSS 15/15 (p1c-rss), `realRuntime: true`, `simulated: false`, `releaseReady: false`. Evidence `~/qa-sjcos/browser-acc/{p1c,p1c-rss}/`. Operating note: never run heavy work on the box during root RSS runs.
+
+## Phase 1 round 2 fixes — root re-acceptance (run p1d, 2026-11-07 06:50–07:05)
+
+Candidate `faee0245` (round 2 server/factory/QA/UI fixes; QA hooks removed from the production module graph; inventories refreshed). Single uninterrupted run: **network 28/28**, **RSS 15/15**, `realRuntime: true`, `simulated: false`, `releaseReady: false`. Evidence `~/qa-sjcos/browser-acc/p1d/`.

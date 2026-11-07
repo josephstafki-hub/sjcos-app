@@ -124,3 +124,16 @@ test('A0 complete client fixtures, exact RPC reads and bounded frame bytes',()=>
  assert.throws(()=>P1.WebEnvelopeV1.parse({...phase1Envelope,payload:{proof_id:null,body:{authorized:true}}}));
  assert.throws(()=>P1.Frame.parse({...phase1Frame,jpeg_base64:Buffer.alloc(160*1024+1).toString('base64')}));
 });
+
+// R4c expectations first: loading is typed metadata, never a truthy value.
+test('R4c navigation loading validators accept booleans only and refuse page fields',()=>{
+ for(const loading of [true,false]){
+  assert.equal(P1.ControllerNavigation.parse({loading}).loading,loading);
+  assert.equal(P1.NavigationProjection.parse({context_generation:1,document_epoch:2,read_manifest_revision:3,target_ids:[],loading}).loading,loading);
+ }
+ for(const loading of ['true',1,null,{},[]]){
+  assert.throws(()=>P1.ControllerNavigation.parse({loading}));
+  assert.throws(()=>P1.NavigationProjection.parse({context_generation:1,document_epoch:2,read_manifest_revision:3,target_ids:[],loading}));
+ }
+ for(const extra of [{url:'https://city.example'}, {title:'loading'}, {text:'loading'}])assert.throws(()=>P1.ControllerNavigation.parse({loading:true,...extra}));
+});

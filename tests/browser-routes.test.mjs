@@ -168,3 +168,28 @@ test('R2 task create accepts optional job and refuses project access before clas
  let classified=false;const p=await productionAdapter(()=>[{id}],{websiteHooks:{classifyTask:async()=>{classified=true;return {task_kind:'public_research',catalog_version:1};}}});
  await assert.rejects(p.adapter.execute({operation:'create',request:req('/tasks'),session:user,context:{user:{id,role:'staff',permissions:['ai']}},body:{conversation_id:id,project_id:id},flags:{}}),/BROWSER_FORBIDDEN/);assert.equal(classified,false);
 });
+
+// R4c expectations first: exercise the actual authenticated detail adapter.
+test('R4c detail only carries controller loading for the current public task and stream',async()=>{
+ for(const scenario of ['current','epoch','generation','boot','run','stream_id','stream_generation','private','private_mode','missing','nonboolean','no_controller_loading','epoch_after','generation_after','private_after','no_hook']){
+  const t={id,initiator_user_id:id,current_run_id:id,controller_boot_id:id,state:'active',private:false,privacy_mode:'public',vault_dependency:'none',context_generation:1,document_epoch:2,control_epoch:0,revision:1,manifest_revision:1,read_manifest_revision:3,attention:'none',origins:{entries:[{origin:'https://city.example'}]},required_areas:['ai']};
+  const v={id,stream_id:id,stream_generation:1,visible_until:new Date(Date.now()+60000)};
+  if(scenario==='private')t.private=true,t.privacy_mode='private';
+  if(scenario==='private_mode')t.private=true,t.privacy_mode='delegated_secret';
+  const remote={...t};if(scenario==='epoch')remote.document_epoch++;if(scenario==='generation')remote.context_generation++;if(scenario==='boot')remote.controller_boot_id=randomUUID();if(scenario==='run')remote.current_run_id=randomUUID();
+  let reads=0;
+  const rows=sql=>sql.includes('FROM users')?[{id,role:'owner',active:true}]:sql.includes('FROM browser_tasks')?[t]:sql.includes('FROM browser_viewers')?[v]:[];
+  const client={query:async(sql)=>({rows:sql.includes('INSERT INTO browser_web_commands')?[{id}]:rows(sql)}),release:()=>{}};
+  const {adapter}=await productionAdapter(rows,{db:{query:client.query,connect:async()=>client},websiteHooks:{navigation:async()=>scenario==='no_hook'?null:({guarded:true,reload:true,targets:[],loading:true})},controller:{call:async(method)=>{
+   assert.equal(method,'read_state');reads++;
+   if(scenario==='epoch_after')t.document_epoch++;if(scenario==='generation_after')t.context_generation++;if(scenario==='private_after')t.private=true,t.privacy_mode='private';
+   if(scenario==='stream_id')v.stream_id=randomUUID();if(scenario==='stream_generation')v.stream_generation++;
+   const {current_run_id,id:taskId,origins,required_areas,...rest}=remote;
+   const safe=Object.fromEntries(Object.keys((await import('../lib/browser/phase1-contracts.mjs')).TaskSafe.shape).map(k=>[k,k==='id'?taskId:k==='current_run_id'?current_run_id:rest[k]]));
+   return {ok:true,task:safe,...(scenario==='missing'||scenario==='no_controller_loading'?{}:{navigation:{loading:scenario==='nonboolean'?'true':true}})};
+  }}});
+  const result=await adapter.execute({operation:'status',request:req(`/tasks/${id}`),session:user,context:{user:{id,role:'owner'},task:t,viewer:{...v},claim:null},body:null,flags:{}});
+  assert.equal(result.navigation?.loading??false,['current','no_hook'].includes(scenario),scenario);
+  if(['private','private_mode'].includes(scenario))assert.equal(reads,0);
+ }
+});

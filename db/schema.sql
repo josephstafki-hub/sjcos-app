@@ -4590,3 +4590,9 @@ CREATE POLICY browser_settings_private ON app_settings AS RESTRICTIVE FOR SELECT
 ALTER TABLE browser_audit ADD COLUMN IF NOT EXISTS phase1_binding jsonb;
 ALTER TABLE browser_audit_outbox DROP CONSTRAINT IF EXISTS browser_audit_outbox_event_check;
 ALTER TABLE browser_audit_outbox ADD CONSTRAINT browser_audit_outbox_event_check CHECK(event IN ('action_prepared','action_approved','action_denied','action_consumed','action_result','action_stale','vault_changed','file_changed','handoff_changed','task_admitted','run_attached','run_ended','task_transition','viewer_joined','viewer_left','manifest_published','command_begin','command_finish','read_consumed','maintenance'));
+
+-- Phase 1 payload tombstone (0115 owns function/trigger integration).
+ALTER TABLE browser_read_manifests ADD COLUMN IF NOT EXISTS payload_purged_at timestamptz;
+ALTER TABLE browser_task_runs ADD COLUMN IF NOT EXISTS model_active_ms bigint NOT NULL DEFAULT 0 CHECK(model_active_ms BETWEEN 0 AND 1200000);
+ALTER TABLE browser_task_runs ADD COLUMN IF NOT EXISTS model_turns integer NOT NULL DEFAULT 0 CHECK(model_turns BETWEEN 0 AND 60);
+ALTER TABLE browser_task_runs ADD COLUMN IF NOT EXISTS model_cost_micros bigint NOT NULL DEFAULT 0 CHECK(model_cost_micros BETWEEN 0 AND 10000000);

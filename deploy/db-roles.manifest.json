@@ -3348,6 +3348,12 @@
       "sjcos_browser": [
         "EXECUTE"
       ]
+    },
+    "browser_web_read_candidates(uuid,uuid,integer,jsonb,uuid,bytea)": {
+      "note": "Website session_user only; pending human review; no narrow EXECUTE."
+    },
+    "browser_web_model_budget(uuid,uuid,bigint,integer,bigint)": {
+      "note": "Website only; monotonic cumulative model work, no narrow EXECUTE."
     }
   }
 }

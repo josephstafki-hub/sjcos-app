@@ -248,8 +248,14 @@ BEGIN
  IF p.session_id<>v.web_session_id OR generation<>v.stream_generation OR (v.joined_role='initiator' AND p.safe_result->>'conversation_id' IS DISTINCT FROM t.conversation_id::text) OR (v.joined_role='owner_review' AND NOT EXISTS(SELECT 1 FROM browser_owner_views WHERE claim_id=(p.safe_result->>'claim_id')::uuid AND task_id=t.id AND web_session_id=v.web_session_id AND revoked_at IS NULL AND expires_at>clock_timestamp())) THEN RAISE EXCEPTION 'BROWSER_STREAM_STALE' USING ERRCODE='42501'; END IF;
  until_at:=least(clock_timestamp()+CASE WHEN visible THEN interval '15 seconds' ELSE interval '0 seconds' END,(SELECT expires_at FROM web_sessions WHERE id=v.web_session_id));
  UPDATE browser_viewers SET visible_until=until_at,control_expires_at=CASE WHEN control_expires_at>clock_timestamp() THEN until_at ELSE control_expires_at END WHERE id=vid;
+ -- Renew the exclusive task holder only, never an expired control or another
+ -- device. Stream generation + current viewer epoch bind every heartbeat.
+ UPDATE browser_tasks SET control_expires_at=until_at WHERE id=t.id
+ AND controller_user_id=v.user_id AND controller_device_hash=v.device_hash
+ AND control_epoch=v.control_epoch AND control_expires_at>clock_timestamp();
  UPDATE browser_web_commands SET state='succeeded' WHERE id=p.id;
- RETURN browser_p1_done(p.id,jsonb_build_object('present_until',browser_p1_iso(until_at)));
+ RETURN browser_p1_done(p.id,jsonb_build_object('present_until',browser_p1_iso(until_at),
+ 'control_expires_at',CASE WHEN t.controller_user_id=v.user_id AND t.controller_device_hash=v.device_hash AND t.control_epoch=v.control_epoch AND t.control_expires_at>clock_timestamp() THEN browser_p1_iso(until_at) ELSE NULL END));
 END $$;
 
 CREATE OR REPLACE FUNCTION browser_web_owner_view(tid uuid,aid uuid,session uuid,local_thread uuid,i uuid) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
@@ -354,6 +360,7 @@ SELECT * INTO t FROM browser_tasks WHERE id=tid FOR UPDATE; IF t.id IS NULL THEN
  IF op='take_over' THEN
   IF NOT t.private OR t.vault_dependency<>'none' OR (v.joined_role='owner_review' AND (v.owner_private_view_authorized_at IS NULL OR v.owner_private_context_generation<>t.context_generation)) OR NOT coalesce(p.safe_result->>'control_token_hash' ~ '^[0-9a-f]{64}$',false) THEN RAISE EXCEPTION 'BROWSER_PRIVATE_INPUT_REQUIRED' USING ERRCODE='42501'; END IF;
   UPDATE browser_tasks SET state='paused',controller_user_id=v.user_id,controller_device_hash=v.device_hash,control_token_hash=decode(p.safe_result->>'control_token_hash','hex'),control_expires_at=least(v.visible_until,clock_timestamp()+interval '15 seconds'),control_epoch=control_epoch+1,revision=revision+1 WHERE id=tid;
+ UPDATE browser_viewers SET control_epoch=t.control_epoch+1,control_expires_at=least(v.visible_until,clock_timestamp()+interval '15 seconds') WHERE id=vid;
  ELSIF op='fresh_browser' THEN
   IF t.state<>'paused' OR p.safe_result->>'fenced' IS DISTINCT FROM 'true' OR p.safe_result->>'old_generation' IS DISTINCT FROM t.context_generation::text THEN RAISE EXCEPTION 'BROWSER_REVIEW_STALE' USING ERRCODE='42501'; END IF;
   UPDATE browser_task_runs SET capability_revoked_at=coalesce(capability_revoked_at,clock_timestamp()),disposition=CASE WHEN disposition='running' THEN 'stopped' ELSE disposition END,ended_at=coalesce(ended_at,clock_timestamp()) WHERE task_id=tid;
@@ -545,6 +552,11 @@ BEGIN
  PERFORM browser_p1_website();PERFORM browser_p1_person(t,sid);
  SELECT coalesce(max(revision),0) INTO current_revision FROM browser_read_manifests WHERE task_id=t.id;
  IF t.private OR current_revision<>expected_revision OR j IS NULL OR octet_length(j::text)>65536 OR (j-ARRAY['v','revision','initial_entry_id','entries','digest'])<>'{}' OR NOT j ?& ARRAY['v','revision','initial_entry_id','entries','digest'] OR j->>'v'<>'1' OR (j->>'revision')::integer<>current_revision+1 OR jsonb_typeof(j->'entries')<>'array' OR jsonb_array_length(j->'entries') NOT BETWEEN 1 AND 192 THEN RAISE EXCEPTION 'BROWSER_REVIEW_STALE' USING ERRCODE='42501'; END IF;
+ IF EXISTS(SELECT 1 FROM browser_read_manifests WHERE task_id=t.id AND revision=current_revision AND public_entries ? 'candidates') THEN
+  IF NOT EXISTS(SELECT 1 FROM browser_read_manifests m WHERE m.task_id=t.id AND m.revision=current_revision AND m.authorization_state='pending' AND m.revoked_at IS NULL AND m.expires_at>clock_timestamp()
+   AND (SELECT jsonb_agg(jsonb_build_object('url',c->>'url','role',c->>'role','source',c->>'source') ORDER BY c->>'url',c->>'role') FROM jsonb_array_elements(m.public_entries->'candidates') c)
+   = (SELECT jsonb_agg(jsonb_build_object('url',e->>'canonical_url','role',e->>'role','source',e->'provenance'->>'source') ORDER BY e->>'canonical_url',e->>'role') FROM jsonb_array_elements(j->'entries') e)) THEN RAISE EXCEPTION 'BROWSER_REVIEW_STALE' USING ERRCODE='42501';END IF;
+ END IF;
  exp:=least(clock_timestamp()+interval '5 minutes',(SELECT expires_at FROM web_sessions WHERE id=sid));
  FOR e IN SELECT value FROM jsonb_array_elements(j->'entries') LOOP
   IF (e-ARRAY['id','role','method','canonical_url','headers_schema_id','value_schema','provenance','approved_by','approved_session_id','approved_at','expires_at','max_uses','parent_document_epoch','release_action_id'])<>'{}' OR NOT e ?& ARRAY['id','role','method','canonical_url','headers_schema_id','value_schema','provenance','approved_by','approved_session_id','approved_at','expires_at','max_uses','parent_document_epoch','release_action_id'] OR e->>'role' NOT IN ('document','resource') OR e->>'method' NOT IN ('GET','HEAD') OR e->>'headers_schema_id'<>'anonymous_public_v1' OR e->'release_action_id'<>'null'::jsonb
@@ -819,3 +831,94 @@ BEGIN
  RETURN result;
 END $$;
 REVOKE ALL ON FUNCTION browser_p1_replay(uuid,uuid,text,uuid,bytea),browser_p1_done(uuid,jsonb) FROM PUBLIC;
+
+-- A2a: candidate proposals are pending human-only immutable revisions. No
+-- service grant, approval identity, active authorization or action is created.
+CREATE OR REPLACE FUNCTION browser_web_read_candidates(tid uuid,vid uuid,expected_revision integer,proposal jsonb,i uuid,d bytea) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+#variable_conflict use_column
+DECLARE t browser_tasks;v browser_viewers;p browser_web_commands;c jsonb;exp timestamptz;result jsonb;cached jsonb;
+BEGIN
+ PERFORM browser_p1_website();
+ cached:=browser_p1_replay(tid,vid,'review',i,d);IF cached IS NOT NULL THEN RETURN cached;END IF;
+ SELECT * INTO t FROM browser_tasks WHERE id=tid FOR UPDATE;
+ IF t.id IS NULL THEN RAISE EXCEPTION 'BROWSER_NOT_FOUND' USING ERRCODE='42501';END IF;
+ v:=browser_p1_viewer(t,vid);p:=browser_p1_proof(tid,vid,'review',i,d);
+ IF v.joined_role<>'initiator' OR v.user_id<>t.initiator_user_id OR p.session_id<>v.web_session_id OR t.private OR t.privacy_mode<>'public' OR t.state NOT IN ('active','paused') OR expected_revision<>coalesce((SELECT max(revision) FROM browser_read_manifests WHERE task_id=tid),0) THEN RAISE EXCEPTION 'BROWSER_REVIEW_STALE' USING ERRCODE='42501'; END IF;
+ IF proposal IS NULL OR (proposal-ARRAY['v','candidates'])<>'{}' OR NOT proposal ?& ARRAY['v','candidates'] OR proposal->>'v'<>'1' OR jsonb_typeof(proposal->'candidates') IS DISTINCT FROM 'array' OR jsonb_array_length(proposal->'candidates') NOT BETWEEN 1 AND 20 OR octet_length(proposal::text)>65536 THEN RAISE EXCEPTION 'BROWSER_BAD_INPUT' USING ERRCODE='22023';END IF;
+ exp:=clock_timestamp()+interval '60 seconds';
+ FOR c IN SELECT value FROM jsonb_array_elements(proposal->'candidates') LOOP
+  IF jsonb_typeof(c)<>'object' OR (c-ARRAY['id','url','role','source','code','server_deadline','parent_document_epoch'])<>'{}' OR NOT c ?& ARRAY['id','url','role','source','code','server_deadline','parent_document_epoch'] OR c->>'role' NOT IN ('document','resource') OR c->>'source' NOT IN ('person','agent','page') OR c->>'code' NOT IN ('BROWSER_REVIEW_REQUIRED','BROWSER_REVIEW_PENDING','BROWSER_READ_PROVENANCE_UNKNOWN') OR c->>'id' !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' OR (c->>'parent_document_epoch')::bigint<>t.document_epoch+1 OR c->>'server_deadline' IS NULL OR (c->>'server_deadline')::timestamptz<=clock_timestamp() OR (c->>'server_deadline')::timestamptz>clock_timestamp()+interval '60 seconds' OR jsonb_typeof(c->'url')<>'string' OR octet_length(c->>'url')>2048 OR c->>'url' !~ '^https://[a-z0-9][a-z0-9.-]*/' OR c->>'url' ~ '[#@\\\x00-\x20]' OR NOT EXISTS(SELECT 1 FROM jsonb_array_elements(t.origins->'entries') a WHERE c->>'url' LIKE (a->>'origin')||'/%' AND (c->>'role'='resource' OR a->>'role'='document')) THEN RAISE EXCEPTION 'BROWSER_READ_PROVENANCE_UNKNOWN' USING ERRCODE='42501';END IF;
+  exp:=least(exp,(c->>'server_deadline')::timestamptz);
+ END LOOP;
+ IF (SELECT count(DISTINCT value->>'id') FROM jsonb_array_elements(proposal->'candidates'))<>jsonb_array_length(proposal->'candidates') THEN RAISE EXCEPTION 'BROWSER_BAD_INPUT' USING ERRCODE='22023';END IF;
+ INSERT INTO browser_read_manifests(task_id,revision,task_origins_revision,public_entries,manifest_hmac,initial_entry_id,expires_at)
+ VALUES(tid,expected_revision+1,t.manifest_revision,proposal,d,(proposal->'candidates'->0->>'id')::uuid,exp);
+ UPDATE browser_tasks SET revision=revision+1,attention='person' WHERE id=tid;
+ result:=jsonb_build_object('revision',expected_revision+1,'candidates',proposal->'candidates');
+ RETURN browser_p1_done(p.id,result);
+END $$;
+REVOKE ALL ON FUNCTION browser_web_read_candidates(uuid,uuid,integer,jsonb,uuid,bytea) FROM PUBLIC;
+DO $$ DECLARE r text; BEGIN FOREACH r IN ARRAY ARRAY['sjcos_browser','sjcos_agent','sjcos_worker','sjcos_readonly'] LOOP
+ IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=r) THEN EXECUTE format('REVOKE ALL ON FUNCTION browser_web_read_candidates(uuid,uuid,integer,jsonb,uuid,bytea) FROM %I',r);END IF;
+END LOOP;END $$;
+-- Pending candidate payload and identity never mutate, including on denial.
+CREATE OR REPLACE FUNCTION guard_browser_pending_candidates() RETURNS trigger LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+BEGIN
+ IF OLD.public_entries ? 'candidates' AND ROW(NEW.public_entries,NEW.manifest_hmac,NEW.initial_entry_id,NEW.task_origins_revision,NEW.expires_at,NEW.task_id,NEW.revision) IS DISTINCT FROM ROW(OLD.public_entries,OLD.manifest_hmac,OLD.initial_entry_id,OLD.task_origins_revision,OLD.expires_at,OLD.task_id,OLD.revision) THEN RAISE EXCEPTION 'BROWSER_REVIEW_STALE' USING ERRCODE='42501';END IF;
+ IF OLD.public_entries ? 'candidates' AND (NEW.authorization_state='approved' OR NEW.approved_by_user_id IS NOT NULL OR NEW.approved_by_session_id IS NOT NULL OR NEW.release_action_id IS NOT NULL) THEN RAISE EXCEPTION 'BROWSER_PHASE1_READ_ONLY' USING ERRCODE='42501';END IF;
+ RETURN NEW;
+END $$;
+DROP TRIGGER IF EXISTS guard_browser_pending_candidates ON browser_read_manifests;
+CREATE TRIGGER guard_browser_pending_candidates BEFORE UPDATE ON browser_read_manifests FOR EACH ROW EXECUTE FUNCTION guard_browser_pending_candidates();
+REVOKE ALL ON FUNCTION guard_browser_pending_candidates() FROM PUBLIC;
+
+-- Payload scrub retains immutable IDs, digests, counters, outcomes and audit.
+ALTER TABLE browser_read_manifests ADD COLUMN IF NOT EXISTS payload_purged_at timestamptz;
+CREATE OR REPLACE FUNCTION browser_p1_retention_read(o jsonb,n jsonb) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $$
+ SELECT browser_schema_website() AND (o->>'created_at')::timestamptz<clock_timestamp()-interval '30 days'
+ AND o->>'payload_purged_at' IS NULL AND n->>'payload_purged_at' IS NOT NULL
+ AND n->'public_entries'='{}'::jsonb AND n->'private_entries_ciphertext'='null'::jsonb AND n->'envelope'='null'::jsonb AND n->>'revoked_at' IS NOT NULL
+ AND (o-ARRAY['public_entries','private_entries_ciphertext','envelope','payload_purged_at','revoked_at','updated_at'])=(n-ARRAY['public_entries','private_entries_ciphertext','envelope','payload_purged_at','revoked_at','updated_at'])
+ AND EXISTS(SELECT 1 FROM browser_tasks t WHERE t.id=(o->>'task_id')::uuid AND t.state IN ('closed','failed') AND coalesce(t.closed_at,t.updated_at)<clock_timestamp()-interval '30 days')
+$$;
+CREATE OR REPLACE FUNCTION browser_p1_retention_task(o jsonb,n jsonb) RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER SET search_path=public,pg_temp AS $$
+ SELECT browser_schema_website() AND o->>'state' IN ('closed','failed') AND coalesce((o->>'closed_at')::timestamptz,(o->>'updated_at')::timestamptz)<clock_timestamp()-interval '30 days'
+ AND n->'confirmed_answers'='[]'::jsonb AND (o-ARRAY['confirmed_answers','updated_at'])=(n-ARRAY['confirmed_answers','updated_at'])
+$$;
+REVOKE ALL ON FUNCTION browser_p1_retention_read(jsonb,jsonb),browser_p1_retention_task(jsonb,jsonb) FROM PUBLIC;
+DO $patch$ DECLARE b text; BEGIN
+ b:=pg_get_functiondef('guard_browser_core_write()'::regprocedure);
+ b:=replace(b,'IF OLD.authorization_state=''approved'' AND','IF OLD.authorization_state=''approved'' AND NOT browser_p1_retention_read(to_jsonb(OLD),to_jsonb(NEW)) AND');
+ b:=replace(b,'IF s.user_id IS DISTINCT FROM NEW.initiator_user_id OR s.revoked_at IS NOT NULL OR s.expires_at<=now() THEN',
+ 'IF (s.user_id IS DISTINCT FROM NEW.initiator_user_id OR s.revoked_at IS NOT NULL OR s.expires_at<=now()) AND NOT (TG_OP=''UPDATE'' AND browser_p1_retention_task(to_jsonb(OLD),to_jsonb(NEW))) THEN');
+ EXECUTE b;
+ b:=pg_get_functiondef('guard_browser_pending_candidates()'::regprocedure);
+ b:=replace(b,'IF OLD.public_entries ? ''candidates'' AND ROW(', 'IF OLD.public_entries ? ''candidates'' AND NOT browser_p1_retention_read(to_jsonb(OLD),to_jsonb(NEW)) AND ROW(');
+ EXECUTE b;
+END $patch$;
+-- Generator output: node scripts/db-roles-sql.mjs browser_read_manifests
+-- (empty: website-only maintenance; no narrow table grant).
+
+-- Persist cumulative task work across immutable Browser turns. Owner bridge
+-- alone charges; totals include failed/interrupted turns and never decrease.
+ALTER TABLE browser_task_runs ADD COLUMN IF NOT EXISTS model_active_ms bigint NOT NULL DEFAULT 0 CHECK(model_active_ms BETWEEN 0 AND 1200000);
+ALTER TABLE browser_task_runs ADD COLUMN IF NOT EXISTS model_turns integer NOT NULL DEFAULT 0 CHECK(model_turns BETWEEN 0 AND 60);
+ALTER TABLE browser_task_runs ADD COLUMN IF NOT EXISTS model_cost_micros bigint NOT NULL DEFAULT 0 CHECK(model_cost_micros BETWEEN 0 AND 10000000);
+CREATE OR REPLACE FUNCTION browser_web_model_budget(tid uuid,rid uuid,elapsed_ms bigint,turn_count integer,cost_micros bigint) RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path=public,pg_temp AS $$
+#variable_conflict use_column
+DECLARE t browser_tasks;r browser_task_runs;ms bigint;turns bigint;cost bigint;
+BEGIN
+ PERFORM browser_p1_website();SELECT * INTO t FROM browser_tasks WHERE id=tid FOR UPDATE;
+ SELECT * INTO r FROM browser_task_runs WHERE task_id=tid AND run_id=rid FOR UPDATE;
+ IF t.id IS NULL OR r.run_id IS NULL OR elapsed_ms<r.model_active_ms OR turn_count<r.model_turns OR cost_micros<r.model_cost_micros OR elapsed_ms NOT BETWEEN 0 AND 1200000 OR turn_count NOT BETWEEN 0 AND 60 OR cost_micros NOT BETWEEN 0 AND 10000000 THEN RAISE EXCEPTION 'BROWSER_BAD_INPUT' USING ERRCODE='22023';END IF;
+ SELECT coalesce(sum(model_active_ms),0)-r.model_active_ms+elapsed_ms,coalesce(sum(model_turns),0)-r.model_turns+turn_count,coalesce(sum(model_cost_micros),0)-r.model_cost_micros+cost_micros INTO ms,turns,cost FROM browser_task_runs WHERE task_id=tid;
+ -- Charge first, including the final exhausted sample. A lost reply cannot reset it.
+ UPDATE browser_task_runs SET model_active_ms=elapsed_ms,model_turns=turn_count,model_cost_micros=cost_micros WHERE task_id=tid AND run_id=rid;
+ RETURN jsonb_build_object('active_ms',ms,'turns',turns,'cost_micros',cost,'exhausted',ms>=1200000 OR turns>=60 OR cost>=2000000);
+END $$;
+REVOKE ALL ON FUNCTION browser_web_model_budget(uuid,uuid,bigint,integer,bigint) FROM PUBLIC;
+DO $$ DECLARE r text;BEGIN FOREACH r IN ARRAY ARRAY['sjcos_browser','sjcos_agent','sjcos_worker','sjcos_readonly'] LOOP
+ IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname=r) THEN EXECUTE format('REVOKE ALL ON FUNCTION browser_web_model_budget(uuid,uuid,bigint,integer,bigint) FROM %I',r);END IF;
+END LOOP;END $$;
+-- Generator output: node scripts/db-roles-sql.mjs browser_task_runs
+-- (empty: website-only cumulative charge; no narrow table grants).

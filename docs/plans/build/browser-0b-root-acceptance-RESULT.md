@@ -386,3 +386,9 @@ realRuntime true, simulated false, releaseReady false. Evidence: `~/qa-sjcos/bro
 Covers the new dispatch fence (controller killed between consume and dispatch → zero upstream request bytes,
 durable unknown/no-retry), the OOPIF child's own guarded subresource Fetch→consume→write, session-bound
 detach evidence and independently recomputed capture/RSS artifacts.
+
+## Phase 1 candidate — root re-acceptance (run p1a, 2026-11-07 04:37–04:44)
+
+Candidate `386ad6cf` on `t3/browser-phase1`: the Phase 1 integration (A0–A3b, B/B2, C/C2, D) including the guarded target-barrier lifecycle release (patch `fb71a7f9…`, bundle `5c72f2b3…`). Coordinator source fixes before the run: provisioner and `runtime-readiness` source allowlists admit exactly `scripts/browser-retention.mjs`; provisioner patch pins updated; source inventories refreshed (`refresh-production-sources.mjs --check` + `provision_acceptance.py --check-sources` pass).
+
+Result: unprovision → provision → AppArmor → installation-only runtime check → **network 28/28** → **RSS 15/15**, `realRuntime: true`, `simulated: false`, `releaseReady: false` (signed independent attestation still required). Evidence `~/qa-sjcos/browser-acc/p1a/`. This re-attests the 0b containment/RSS gates for the changed runtime only; production Phase 1 units, bridges, privacy canary, devices and SSE remain coordinator gates.

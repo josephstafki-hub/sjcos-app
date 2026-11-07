@@ -11,7 +11,7 @@
   "lib/browser/cli-launch.mjs": "cdfb5da6bca4ebfbbf9dea218e6857fbbaa3d4d7de1d7ebe7f96f15670fcb407",
   "lib/browser/contracts.mjs": "551ac1d48439bae32e159adcd1becb60ab8cecc86bd05aef6ea96bf197e0b339",
   "lib/browser/controller-adapter.mjs": "fa4b1fd4c0b01d92d4fb88a8286152e5aa7fe4901e930b9c8806dc6c51b11aab",
-  "lib/browser/controller-authority.mjs": "bd4c9675921a0f7cf020707b018b742d3719410d744128ffd1975ec5fb7ccc05",
+  "lib/browser/controller-authority.mjs": "de67723f1affa6b2c97f57db6ae4b65cd76f61247f4547647b48f38759b324c8",
   "lib/browser/controller-gate.mjs": "ce64ad93f55f39f3907a395f1780213554685b782b3cafddad8ecef362dc9db4",
   "lib/browser/controller-mcp.mjs": "0c421be12407729cf1766b1490d260aee0568f20be13ba0dc10e189f055dbd15",
   "lib/browser/controller-network.mjs": "ff81d5c69eb922333d1bb7a77c1f553befc6c8e27020d52363cc6c31a5ba4bee",

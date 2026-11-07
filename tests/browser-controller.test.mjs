@@ -91,3 +91,26 @@ function gateFixture({write=false}={}){const b={listener:18081,generation:1,list
 test('gate full exact-digest dispatch and independent terminal unknown survive binding revoke',async()=>{const f=gateFixture({write:true});assert.equal((await f.handle(f.meta('http_connect',{authority:'permit.example:443'}))).ok,true);assert.equal((await f.handle(f.meta('requestheaders',f.req))).ok,true);const decision=await f.handle(f.meta('request',{...f.req,bodyBytes:0,bodySha256:hash,requestDigest:f.digest}));assert.equal(decision.allow,true);assert.equal(decision.consumed,true);assert.deepEqual(f.calls.map(c=>c[0]),['consume','register']);f.loseBinding();const terminal=await f.handle(f.meta('persist_unknown',{unknownToken:hash}));assert.equal(terminal.durable,true);assert.equal(f.calls.at(-1)[0],'unknown');});
 test('gate rejects altered frozen request digest without consume',async()=>{const f=gateFixture();await f.handle(f.meta('http_connect',{authority:'permit.example:443'}));await f.handle(f.meta('requestheaders',f.req));assert.equal((await f.handle(f.meta('request',{...f.req,bodyBytes:0,bodySha256:hash,requestDigest:'b'.repeat(64)}))).ok,false);assert.equal(f.calls.length,0);});
 test('gate rejects mixed-private DNS before consume',async()=>{const f=gateFixture();await f.handle(f.meta('http_connect',{authority:'permit.example:443'}));assert.equal((await f.handle(f.meta('requestheaders',{...f.req,dns:{...f.req.dns,addresses:['8.8.8.8','127.0.0.1']}}))).ok,false);assert.equal(f.calls.length,0);});
+
+// Coordinator root-run fix: authorizeRequest picked the FIRST matching admitted manifest even when its
+// one-use (manifest, request) pair was already spent, so a second identical request failed with EEXIST
+// and revoked the boot. It must select an unspent manifest; one-use stays strict.
+const docWithId=id=>({...document(),manifestId:id});
+test('identical requests each consume their own fresh manifest (sequential)',()=>temporary(async dir=>{
+  const a=authority(new DurableJournal(dir));
+  await a.admit(signed(docWithId('44444444-4444-4444-8444-444444444444')));const r1=await a.authorizeRequest(request());
+  await a.admit(signed(docWithId('55555555-5555-4555-8555-555555555555')));const r2=await a.authorizeRequest(request());
+  assert.notEqual(r1.manifestDigest,r2.manifestDigest);
+  await assert.rejects(a.authorizeRequest(request()));
+}));
+test('identical concurrent requests take distinct manifests',()=>temporary(async dir=>{
+  const a=authority(new DurableJournal(dir));
+  await a.admit(signed(docWithId('44444444-4444-4444-8444-444444444444')));await a.admit(signed(docWithId('55555555-5555-4555-8555-555555555555')));
+  const [x,y]=await Promise.all([a.authorizeRequest(request()),a.authorizeRequest(request())]);
+  assert.notEqual(x.manifestDigest,y.manifestDigest);
+}));
+test('one manifest, two concurrent identical requests: exactly one is authorized',()=>temporary(async dir=>{
+  const a=authority(new DurableJournal(dir));await a.admit(signed());
+  const results=await Promise.allSettled([a.authorizeRequest(request()),a.authorizeRequest(request())]);
+  assert.equal(results.filter(r=>r.status==='fulfilled').length,1);
+}));

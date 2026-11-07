@@ -7,7 +7,7 @@ import os, sys, json, socket, struct, subprocess, time, signal, re, datetime
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 from launch_broker import protected_json, register as register_mcp
 from peercred import proc_record, peer_proof, digest
-NODE='/opt/sjcos-browser/node/bin/node'
+NODE='/usr/bin/node'
 RUNNER='/opt/sjcos-browser/node/source/scripts/run-browser-agent.mjs'
 SOCKET='/run/sjcos-browser/broker.sock'
 REGISTRY='/run/sjcos-browser/registry'

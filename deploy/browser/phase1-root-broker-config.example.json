@@ -5,7 +5,7 @@
   "runnerUid": "REPLACE_WITH_SJCOS_BROWSER_RUNNER_UID_INTEGER",
   "runnerGid": "REPLACE_WITH_SJCOS_BROWSER_RUNNER_GID_INTEGER",
   "cgroup": "/user.slice/user-REPLACE.slice/user-REPLACE-sjcosbrowser.slice/sjcos-browser-root-broker.service",
-  "nodeDigest": "REPLACE_WITH_FIXED_OPT_NODE_SHA256",
+  "nodeDigest": "REPLACE_WITH_USR_BIN_NODE_SHA256",
   "runnerDigest": "REPLACE_WITH_INSTALLED_RUN_BROWSER_AGENT_SHA256",
   "executables": {"browser": "REPLACE_WITH_BROWSER_MCP_SHA256", "sjcos": "REPLACE_WITH_SJCOS_MCP_SHA256", "interact": "REPLACE_WITH_INTERACT_MCP_SHA256"},
   "credentialFiles": {"browser": "/etc/sjcos-browser/credentials/browser-database", "sjcos": "REPLACE_WITH_ROOT0600_AGENT_DSN_PATH", "interact": "REPLACE_WITH_ROOT0600_AGENT_DSN_PATH"}

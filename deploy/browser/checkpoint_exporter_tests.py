@@ -6,12 +6,14 @@ assert pub.hex()=='d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f7075
 assert m.sign(seed,b'').hex()=='e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b'
 t=m.now();install='11111111-1111-4111-8111-111111111111';c={'controller_uid':777,'install_id':install,'endpoint':'https://s3.us-west-004.backblazeb2.com','pinned_ips':['8.8.8.8'],'bucket':'sjcos-audit','region':'us-west-004','retention_days':731}
 case=sys.argv[1];objects={};calls=[]
+lost=False
 class Response:
  def __init__(self,headers,data=b''):self.headers=headers;self.data=data;self.status=200
  def read(self,_):return self.data
  def __enter__(self):return self
  def __exit__(self,*_):pass
 def transport(req,timeout):
+ global lost
  assert req.host=='s3.us-west-004.backblazeb2.com';assert req.full_url.startswith(c['endpoint']+'/sjcos-audit/');calls.append(req)
  key=req.full_url.split('/sjcos-audit/')[1];headers={k.lower():v for k,v in req.headers.items()};method=req.method
  assert 'AWS4-HMAC-SHA256' in headers['authorization']
@@ -23,7 +25,9 @@ def transport(req,timeout):
   hh={'x-amz-version-id':str(len(calls)),'x-amz-object-lock-mode':headers['x-amz-object-lock-mode'],'x-amz-object-lock-retain-until-date':headers['x-amz-object-lock-retain-until-date'],'etag':'"'+str(len(calls))+'"'}
   if case=='missing-lock':hh.pop('x-amz-object-lock-mode')
   if case=='missing-version':hh.pop('x-amz-version-id')
-  objects[key]=(hh,req.data);return Response(hh)
+  objects[key]=(hh,req.data)
+  if case=='replay-lost-sink-ack' and key.endswith('/10.json') and not lost:lost=True;raise ValueError('SINK')
+  return Response(hh)
  if key not in objects:raise urllib.error.HTTPError(req.full_url,404,'missing',{},io.BytesIO())
  hh,data=objects[key];return Response(hh,data if method=='GET' else b'')
 def record(seq=10,digest='a'*64,when=t):
@@ -32,10 +36,35 @@ def denied(fn):
  try:fn()
  except (ValueError,KeyError):return
  raise AssertionError('accepted forbidden export')
+def replay(original,when=t,**changes):
+ r={**json.loads(original),'replay_at':m.iso(when),**changes};r['replay_sig']=base64.b64encode(m.sign(seed,m.jcs(r))).decode();return m.jcs(r)+b'\n'
 if case=='wrong-host':denied(lambda:m.S3({**c,'endpoint':'https://evil.example/path'},{}));denied(lambda:m.PinnedHTTPS('s3.us-west-004.backblazeb2.com',['8.8.8.8']).https_open(m.urllib.request.Request('https://evil.example/')));assert not calls
 else:
  sink=m.S3(c,{'access_key':'test','secret_key':'test'},transport=transport,clock=lambda:t);e=m.Exporter(c,pub,seed,sink,clock=lambda:t)
- if case=='valid':
+ if case=='wire':
+  payload=json.load(sys.stdin);t=m.utc(payload['now']);e=m.Exporter(c,base64.b64decode(payload['public']),seed,sink,clock=lambda:t)
+  ack=e.accept(m.jcs(payload['wire'])+b'\n',777);print(json.dumps({'ack':ack,'stored':json.loads(objects[ack['object_key']][1])}))
+ elif case.startswith('replay-'):
+  original=record(seq=1 if case=='replay-head-jump' else 10,when=t-datetime.timedelta(seconds=181));wire=replay(original)
+  if case=='replay-stale':denied(lambda:e.accept(replay(original,t-datetime.timedelta(seconds=121)),777));assert not calls
+  elif case=='replay-forged':denied(lambda:e.accept(wire.replace(b'"replay_at":"',b'"replay_at":"1'),777));assert not calls
+  elif case=='replay-original-forged':denied(lambda:e.accept(replay(original,digest='b'*64),777));assert not calls
+  elif case=='replay-future-original':denied(lambda:e.accept(replay(record(when=t+datetime.timedelta(seconds=1))),777));assert not calls
+  elif case=='replay-extra-field':denied(lambda:e.accept(replay(original,extra=True),777));assert not calls
+  else:
+   if case=='replay-lost-sink-ack':denied(lambda:e.accept(wire,777))
+   ack=e.accept(wire,777);key=ack['object_key'];stored=objects[key][1];assert json.loads(stored)==json.loads(original)
+   # Restart all exporter state; SQL ACK loss must reconcile immutable object.
+   e=m.Exporter(c,pub,seed,sink,clock=lambda:t)
+   if case=='replay-head-jump':
+    advanced=e.accept(replay(record(seq=100,when=t-datetime.timedelta(seconds=181))),777);assert advanced['seq']==100
+    assert json.loads(objects['checkpoints/'+install+'/highest.json'][1])=={'seq':100,'digest':'a'*64}
+    denied(lambda:e.accept(wire,777))
+   elif case=='replay-conflict':denied(lambda:e.accept(replay(record(digest='b'*64,when=t-datetime.timedelta(seconds=181))),777))
+   else:
+    assert e.accept(replay(original,t+datetime.timedelta(seconds=1)),777)==ack;assert objects[key][1]==stored
+    assert sum(req.method=='PUT' and req.full_url.endswith('/10.json') for req in calls)==1
+ elif case=='valid':
   ack=e.accept(record(),777);sig=base64.b64decode(ack.pop('ack_sig'));assert m.verify(pub,m.jcs(ack),sig);assert len(objects)==2;print(json.dumps({'ack':ack,'sig':base64.b64encode(sig).decode(),'public':base64.b64encode(pub).decode()}))
  elif case=='forged-signature':denied(lambda:e.accept(record().replace(b'"digest":"a',b'"digest":"b'),777));assert not calls
  elif case=='stale-signature':denied(lambda:e.accept(record(when=t-datetime.timedelta(seconds=121)),777));assert not calls

@@ -119,19 +119,35 @@ class Exporter:
     r[k]=v
    return r
   r=json.loads(data,object_pairs_hook=unique)
-  if set(r)!={'v','seq','digest','time','install_id','boot_id','sig'} or type(r['v'])!=int or r['v']!=1 or type(r['seq'])!=int or not 0<r['seq']<=9007199254740991 or not isinstance(r['digest'],str) or not re.fullmatch('[0-9a-f]{64}',r['digest']) or not all(isinstance(r[k],str) and UUID.fullmatch(r[k]) for k in ('install_id','boot_id')) or r['install_id']!=self.c['install_id']:raise ValueError('RECORD')
-  sig=base64.b64decode(r.pop('sig'),validate=True)
+  fields={'v','seq','digest','time','install_id','boot_id','sig'}
+  if not isinstance(r,dict) or set(r) not in (fields,fields|{'replay_at','replay_sig'}) or type(r['v'])!=int or r['v']!=1 or type(r['seq'])!=int or not 0<r['seq']<=9007199254740991 or not isinstance(r['digest'],str) or not re.fullmatch('[0-9a-f]{64}',r['digest']) or not all(isinstance(r[k],str) and UUID.fullmatch(r[k]) for k in ('install_id','boot_id')) or r['install_id']!=self.c['install_id']:raise ValueError('RECORD')
+  def signature(value):
+   if not isinstance(value,str) or not re.fullmatch(r'[A-Za-z0-9+/]{86}==',value):raise ValueError('SIGNATURE')
+   raw=base64.b64decode(value,validate=True)
+   if base64.b64encode(raw).decode()!=value:raise ValueError('SIGNATURE')
+   return raw
+  # The original signature/evidence is immutable. Refresh authenticates the
+  # entire original record, including sig; it never replaces its signed time.
+  if 'replay_at' in r:
+   replay_sig=signature(r.pop('replay_sig'))
+   if not verify(self.pub,jcs(r),replay_sig):raise ValueError('SIGNATURE')
+   replay_at=utc(r.pop('replay_at'))
+   if utc(r['time'])>replay_at or abs((self.clock()-replay_at).total_seconds())>120:raise ValueError('STALE')
+  elif abs((self.clock()-utc(r['time'])).total_seconds())>120:raise ValueError('STALE')
+  original=dict(r);sig=signature(r.pop('sig'))
   if not verify(self.pub,jcs(r),sig):raise ValueError('SIGNATURE')
-  if abs((self.clock()-utc(r['time'])).total_seconds())>120:raise ValueError('STALE')
   prefix='checkpoints/'+r['install_id']+'/';highest=prefix+'highest.json';hh,hb=self.s3.request('GET',highest)
   prior=json.loads(hb) if hh else None
   if hh:self.s3.locked(hh,self.clock())
   if prior and (type(prior.get('seq'))!=int or prior['seq']>r['seq'] or prior['seq']==r['seq'] and prior.get('digest')!=r['digest']):raise ValueError('ROLLBACK')
+  # seq is the audit head, not a consecutive checkpoint counter. Exported heads
+  # may jump after 100 events/a minute; stored outbox records are drained in
+  # order by the controller. Never permit rollback or a conflicting same head.
   until=utc(iso(self.clock()+datetime.timedelta(days=self.c['retention_days'])));key=prefix+str(r['seq'])+'.json'
   eh,eb=self.s3.request('GET',key)
   if eh:
    existing=json.loads(eb)
-   if any(existing.get(k)!=r[k] for k in ('seq','digest','install_id','boot_id')):raise ValueError('CONFLICT')
+   if existing!=original:raise ValueError('CONFLICT')
    self.s3.locked(eh,self.clock());head=eh
   elif prior and prior['seq']==r['seq']:raise ValueError('SINK_DIVERGED')
   else:head=self.s3.put_locked(key,jcs({**r,'sig':base64.b64encode(sig).decode()}),until,{'if-none-match':'*'})

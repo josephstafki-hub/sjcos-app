@@ -11,13 +11,19 @@ import {fileURLToPath} from 'node:url';
 import {readFile,writeFile,lstat,mkdir,rename,open,unlink,rmdir,chmod,chown} from 'node:fs/promises';
 import {createHash,verify as verifySignature} from 'node:crypto';
 import {productionLaunchSpec} from '../../lib/browser/production-browser.mjs';
+import {validateProductionBootstrapConfig} from '../../lib/browser/protected-bootstrap.mjs';
 const SOURCE=fileURLToPath(new URL('../../',import.meta.url));
 const JOURNAL='/var/lib/sjcos-browser-supervisor/install-journal.json';
 const STATE='/var/lib/sjcos-browser-supervisor/phase1-install';
 const hash=b=>createHash('sha256').update(b).digest('hex');
 const error=c=>{throw Error('BROWSER_INSTALL_'+c);};
 const credentials=['browser-database','web-rpc','web-response','frame','read-dispatch','request-hmac','manifest-hmac','audit','read-dispatch-public','gate-ca-key','peer-key','checkpoint-key','checkpoint-public','exporter-key','exporter-public','sink-writer','retention-database'];
-const requiredBundle=['phase1-bridge.mjs','supervisor-bridge.py','production.json','supervisor.json','namespace.json','phase1-gate.json','root-broker.json','exporter.json','ca-public.pem',...credentials.map(n=>'credentials/'+n)];
+const requiredBundle=['phase1-bridge.mjs','supervisor-bridge.py','phase1.json','supervisor.json','namespace.json','phase1-gate.json','root-broker.json','exporter.json','ca-public.pem',...credentials.map(n=>'credentials/'+n)];
+export function bundleArtifact(name,data){
+ if(!requiredBundle.includes(name))error('BUNDLE');
+ if(name==='phase1.json')validateProductionBootstrapConfig(JSON.parse(data.toString('utf8')));
+ return {path:'/etc/sjcos-browser/'+name,data,mode:name.startsWith('credentials/')||['supervisor.json','root-broker.json','exporter.json'].includes(name)?0o600:0o644};
+}
 const missing=async f=>{try{return await lstat(f);}catch(e){if(e.code==='ENOENT')return null;throw e;}};
 function accountCheck(a){
  if(!Number.isSafeInteger(a?.joe)||a.joe<=0||a.browser?.name!=='sjcos-browser'||a.browser.uid!==998)error('ACCOUNT');
@@ -55,6 +61,10 @@ async function verifiedBundle(bundle,root){
  const installed=JSON.parse(await readFile('/opt/sjcos-browser/installed-hashes.json','utf8'));
  if(installed.sourceLockSha256!==hash(lock))error('RUNTIME_LOCK');
  for(const name of requiredBundle){const data=await readFile(await resolveSafe(bundle.directory,'/'+name));if(hash(data)!==p.bundleHashes?.[name])error('BUNDLE_HASH');}
+ const config=validateProductionBootstrapConfig(JSON.parse(await readFile(path.join(bundle.directory,'phase1.json'),'utf8')));
+ if(config.adapterSha256!==hash(await readFile(path.join(SOURCE,'deploy/browser/production-adapter.mjs')))||config.bridgeSha256!==hash(await readFile(path.join(bundle.directory,'phase1-bridge.mjs'))))error('BUNDLE_HASH');
+ const broker=JSON.parse(await readFile(path.join(bundle.directory,'root-broker.json'),'utf8'));
+ if(broker.nodeDigest!==hash(await readFile('/usr/bin/node'))||broker.runnerDigest!==p.scriptHashes?.['scripts/run-browser-agent.mjs'])error('EXECUTABLE');
  const exporter=JSON.parse(await readFile(path.join(bundle.directory,'exporter.json'),'utf8'));exporter.retention_days??=731;
  if(!Array.isArray(exporter.pinned_ips)||!exporter.pinned_ips.length||exporter.pinned_ips.some(ip=>!isIP(ip)||!classifyAddress(ip).global)||!Number.isInteger(exporter.retention_days)||exporter.retention_days<731||exporter.retention_days>3650)error('EXPORTER');
  for(const key of ['privateCanaryEvidenceSha256','publicReadEvidenceSha256','staffParityEvidenceSha256','transportEvidenceSha256','supervisorEvidenceSha256'])if(!/^[a-f0-9]{64}$/.test(p[key]??''))error('EVIDENCE');
@@ -75,7 +85,7 @@ export async function applyPlan(plan,{root='/',apply=false,fixture=false,bundle}
   const broker=JSON.parse(await readFile(path.join(bundle.directory,'root-broker.json'),'utf8'));
   if(exporter.controller_uid!==plan.accounts.controller.uid||broker.controllerUid!==plan.accounts.controller.uid||broker.runnerUid!==plan.accounts.runner.uid||broker.websiteUid!==plan.accounts.joe)error('ACCOUNT');
   frozen.push({path:'/etc/systemd/system/sjcos-browser-checkpoint-exporter.service.d/egress.conf',data:Buffer.from('[Service]\n'+exporter.pinned_ips.map(ip=>'IPAddressAllow='+ip+'/'+(isIP(ip)===4?'32':'128')).join('\n')+'\n'),mode:0o644});
-  for(const name of requiredBundle){const data=await readFile(path.join(bundle.directory,name));if(hash(data)!==ev.bundleHashes[name])error('BUNDLE_HASH');frozen.push({path:'/etc/sjcos-browser/'+name,data,mode:name.startsWith('credentials/')||['supervisor.json','root-broker.json','exporter.json','production.json'].includes(name)?0o600:0o644});}
+  for(const name of requiredBundle){const data=await readFile(path.join(bundle.directory,name));if(hash(data)!==ev.bundleHashes[name])error('BUNDLE_HASH');frozen.push(bundleArtifact(name,data));}
   frozen.push({path:'/etc/sjcos-browser/phase1-accepted',data:Buffer.from(hash(lockBytes)+'\n'),mode:0o644});
  }
  const journalFile=await resolveSafe(root,JOURNAL);if(await missing(journalFile))error('JOURNAL_EXISTS');

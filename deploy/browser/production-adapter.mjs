@@ -13,10 +13,13 @@ async function bridge(config){
  if(!/^[0-9a-f]{64}$/.test(config.bridgeSha256??'')||sha256(await readFile(file))!==config.bridgeSha256)throw Error('BROWSER_BOOTSTRAP_REFUSED');
  return import(pathToFileURL(file).href);
 }
-export async function serviceDependencies(config){
- const installed=await bridge(config),deps=await installed.serviceDependencies(config);
+export function validateServiceDependencies(deps){
  for(const name of ['verifyReadiness','verifyAccounting','handlers'])if(typeof deps[name]!=='function')throw Error('BROWSER_BOOTSTRAP_REFUSED');
- for(const name of ['runEnd','browser','authorize','transition','fence','reconcile','audit','release','privacyIO','resolveInput','deliverInput','begin','finish','commandResult','confirmFresh'])if(typeof deps.io?.[name]!=='function')throw Error('BROWSER_BOOTSTRAP_REFUSED');
+ for(const name of ['runEnd','browser','authorize','transition','fence','reconcile','audit','release','privacyIO','resolveInput','deliverInput','begin','finish','commandResult','confirmFresh','navigationState','prepareNavigation','guardedNavigation','pausePublic','resumePublic'])if(typeof deps.io?.[name]!=='function')throw Error('BROWSER_BOOTSTRAP_REFUSED');
+ return deps;
+}
+export async function serviceDependencies(config){
+ const installed=await bridge(config),deps=validateServiceDependencies(await installed.serviceDependencies(config));
  const verify=deps.verifyReadiness;
  return {...deps,verifyReadiness:async()=>{
   const evidence=await verify();

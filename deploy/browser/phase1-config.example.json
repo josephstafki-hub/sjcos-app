@@ -1,0 +1,7 @@
+{
+  "v": 1,
+  "phase": 1,
+  "adapter": "/opt/sjcos-browser/node/source/deploy/browser/production-adapter.mjs",
+  "adapterSha256": "REPLACE_WITH_EXACT_PRODUCTION_ADAPTER_SHA256",
+  "bridgeSha256": "REPLACE_WITH_EXACT_PHASE1_BRIDGE_SHA256"
+}

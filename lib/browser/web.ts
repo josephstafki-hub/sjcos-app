@@ -3,7 +3,8 @@ import {randomBytes,randomUUID,createHash,createHmac} from 'node:crypto';
 import type {Pool,PoolClient} from 'pg';
 import {pool} from '@/lib/db';
 import {readBrowserCookieSession,validateWebSession,browserSessionSecretReady,type WebSessionIdentity} from '@/lib/web-sessions';
-import {evaluatePhase1Flags} from './phase-flags.mjs';
+import {createQaWebsiteHooks} from '../../scripts/qa-browser-fake-controller.mjs';
+import {evaluatePhase1Flags,qaBrowserDirectory} from './phase-flags.mjs';
 import {TaskUI,ReviewNotice,OriginManifest,UUID,ConfirmedAnswer,ReadManifestV1,ReadCandidate,ControlMessage,ManualInput} from './phase1-contracts.mjs';
 import * as repo from './repository.mjs';
 import {loadWebsiteBridge,navigationControls,navigationProjection} from './website-bridge.mjs';
@@ -197,14 +198,16 @@ export function createWebsiteAdapter({db,controller,key,websiteHooks={}}:{db:Poo
  return {session:async()=>readBrowserCookieSession(),authorize,flags,execute};
 }
 let handler:((request:Request)=>Promise<Response>)|null=null;
+let handlerQaDir:string|null=null;
 /** One route entry point: never DAL React cache, redirects, bearer or legacy JWT. */
 export async function requireBrowserWebRequest(request:Request):Promise<Response>{
  if(!browserSessionSecretReady())return new Response(JSON.stringify({ok:false,code:'BROWSER_DISABLED',message:'BROWSER_DISABLED',retryable:false}),{status:503,headers:{...PRIVATE_HEADERS,'Content-Type':'application/json'}});
  if(!handler){const key=Buffer.from(process.env.SJC_BROWSER_WEB_RPC_KEY??'','hex'),responseKey=Buffer.from(process.env.SJC_BROWSER_WEB_RESPONSE_KEY??'','hex'),frameKey=Buffer.from(process.env.SJC_BROWSER_FRAME_KEY??'','hex');
   if([key,responseKey,frameKey].some(k=>k.length!==32))return new Response(JSON.stringify({ok:false,code:'BROWSER_DISABLED',message:'BROWSER_DISABLED',retryable:false}),{status:503,headers:{...PRIVATE_HEADERS,'Content-Type':'application/json'}});
   const origin=new URL(process.env.NEXT_PUBLIC_APP_URL??'https://os.sjcarpentryllc.com').origin;
-  try{const websiteHooks=await loadWebsiteBridge({db:pool,key});handler=createBrowserWebHandler({origin,csrfKey:process.env.SESSION_SECRET,...createWebsiteAdapter({db:pool,controller:new UnixWebController(key,responseKey,frameKey),key,websiteHooks})});}
+  try{const qaDir=await qaBrowserDirectory(pool);handlerQaDir=qaDir;const websiteHooks=qaDir?await createQaWebsiteHooks({db:pool,key,dir:qaDir}):await loadWebsiteBridge({db:pool,key});handler=createBrowserWebHandler({origin,csrfKey:process.env.SESSION_SECRET,...createWebsiteAdapter({db:pool,controller:new UnixWebController(key,responseKey,frameKey,pool),key,websiteHooks})});}
   catch{return new Response(JSON.stringify({ok:false,code:'BROWSER_DISABLED',message:'BROWSER_DISABLED',retryable:false}),{status:503,headers:{...PRIVATE_HEADERS,'Content-Type':'application/json'}});}
  }
+ try{if(await qaBrowserDirectory(pool)!==handlerQaDir)fail('BROWSER_DISABLED');}catch{return new Response(null,{status:503,headers:PRIVATE_HEADERS});}
  return handler!(request);
 }

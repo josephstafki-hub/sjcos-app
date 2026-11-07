@@ -5,6 +5,7 @@ import {randomUUID,createHash,createHmac} from 'node:crypto';
 import type {z} from 'zod';
 import {WebEnvelopeV1,RPCPayloads,UUID} from './phase1-contracts.mjs';
 import {canonical,digest,fail,metadataBytes,verifyRpcResponse,collectMetadataPages} from './web-transport.mjs';
+import {qaBrowserDirectory} from './phase-flags.mjs';
 import {binaryReader} from './live-view.mjs';
 export type RpcMethod=keyof typeof RPCPayloads;
 export type RpcPayload<M extends RpcMethod>=z.infer<(typeof RPCPayloads)[M]>;
@@ -24,14 +25,23 @@ async function trustedSocket(path:string){
 }
 export class UnixWebController implements WebController {
  private sequence=0;
- constructor(private requestKey:Buffer,private responseKey:Buffer,private frameKey:Buffer){if([requestKey,responseKey,frameKey].some(k=>k.length!==32))fail('BROWSER_DISABLED');if(requestKey.equals(responseKey)||requestKey.equals(frameKey)||responseKey.equals(frameKey))fail('BROWSER_DISABLED');}
+ constructor(private requestKey:Buffer,private responseKey:Buffer,private frameKey:Buffer,private qaDb?:{query:Function}){if([requestKey,responseKey,frameKey].some(k=>k.length!==32))fail('BROWSER_DISABLED');if(requestKey.equals(responseKey)||requestKey.equals(frameKey)||responseKey.equals(frameKey))fail('BROWSER_DISABLED');}
+ private async socketPath(kind:'control'|'frames'){
+  const dir=this.qaDb?await qaBrowserDirectory(this.qaDb):null;
+  if(!dir){const path=`/run/sjcos-browser/${kind}.sock`;await trustedSocket(path);return path;}
+  const path=`${dir}/${kind}.sock`;
+  for(const part of ['/home','/home/joe','/home/joe/qa-sjcos',...dir.slice('/home/joe/qa-sjcos/'.length).split('/').map((_,i,a)=>'/home/joe/qa-sjcos/'+a.slice(0,i+1).join('/')),path]){
+   const s=await lstat(part);if(s.isSymbolicLink()||(s.mode&(part.startsWith('/home/joe/qa-sjcos/')?0o022:0o002))||(part===path?(!s.isSocket()||s.uid!==process.getuid?.()):!s.isDirectory()))fail('BROWSER_DISABLED');
+  }
+  return path;
+ }
  async call<M extends RpcMethod>(method:M,binding:RpcBinding,payload:RpcPayload<M>):Promise<Record<string,unknown>>{
   const now=Date.now();RPCPayloads[method].parse(payload);UUID.parse(binding.boot_id);
   const unsigned={v:1 as const,method,...binding,command_id:randomUUID(),sequence:++this.sequence,issued_at:new Date(now).toISOString(),expires_at:new Date(now+5000).toISOString(),nonce:randomUUID(),body_digest:createHash('sha256').update(canonical(payload)).digest('hex'),payload};
   const envelope=WebEnvelopeV1.parse({...unsigned,signature:createHmac('sha256',this.requestKey).update('browser-phase1-web-rpc\0').update(canonical(unsigned)).digest('hex')});
   metadataBytes(envelope);
-  await trustedSocket('/run/sjcos-browser/control.sock');
-  const response=await socketCall('/run/sjcos-browser/control.sock',envelope);
+  const path=await this.socketPath('control');
+  const response=await socketCall(path,envelope);
   return verifyRpcResponse(response,envelope,this.responseKey);
  }
  async pages(method:PagedRpcMethod,binding:RpcBinding,nextPayload:PagePayload){
@@ -39,8 +49,8 @@ export class UnixWebController implements WebController {
   return collectMetadataPages(async(page:{cursor?:string;limit:number})=>{const payload=await nextPayload(page);const result=await this.call(method,binding,{...payload,body:{...payload.body,...page}} as RpcPayload<typeof method>);const {ok,...data}=result;void ok;return data;});
  }
  async frames(binding:FrameBinding,onFrame:(frame:unknown)=>void,onError:()=>void):Promise<()=>void>{
-  await trustedSocket('/run/sjcos-browser/frames.sock');
-  const socket=connect('/run/sjcos-browser/frames.sock');const issued_at=new Date().toISOString(),expires_at=new Date(Date.now()+5000).toISOString();
+  const path=await this.socketPath('frames');
+  const socket=connect(path);const issued_at=new Date().toISOString(),expires_at=new Date(Date.now()+5000).toISOString();
   const unsigned={v:1,purpose:'browser-web-frame-open',...binding,issued_at,expires_at,nonce:randomUUID()};
   const hello=Buffer.from(canonical({...unsigned,signature:digest(this.requestKey,unsigned)})),length=Buffer.alloc(4);length.writeUInt32BE(hello.length);
   let ended=false;const failed=()=>{if(ended)return;ended=true;socket.destroy();onError();};

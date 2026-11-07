@@ -41,3 +41,52 @@ test('kernel-proof rendezvous slots are one-shot, descendant/start/cgroup/digest
 });
 import {connectRendezvous} from '../lib/browser/rendezvous-client.mjs';
 test('stdio rendezvous refuses HTTP/custom sockets and copied malformed identity before I/O',async()=>{await assert.rejects(connectRendezvous({runId:'copied',kind:'browser'}));await assert.rejects(connectRendezvous({runId:randomUUID(),kind:'browser',socketPath:'/tmp/forged.sock'}));await assert.rejects(connectRendezvous({runId:randomUUID(),kind:'owner'}));});
+// Fresh expectations: browser MCP must receive only the browser DSN through
+// its authenticated socket; no registry request may smuggle principal/DSN.
+import {startupFromRegistration,validateRegistration} from '../lib/browser/rendezvous-client.mjs';
+test('browser wrapper selects narrow browser role before any registration',async()=>{
+ const ids={runId:randomUUID(),taskId:randomUUID(),principalId:randomUUID(),profile:'browser',capability:'x'.repeat(43),dsn:'postgresql://sjcos_browser@invalid/unused'};let actual;
+ const r=await startupFromRegistration({registration:ids,runId:ids.runId,taskId:ids.taskId,kind:'browser',connectDb:async dsn=>{actual=dsn;return {query:async()=>({rows:[{session_user:'sjcos_browser',current_user:'sjcos_browser',rolsuper:false,rolbypassrls:false}]})};}});
+ assert.equal(actual,ids.dsn);assert.equal(r.verifiedRun.dsn,undefined);
+ for(const change of [{runId:randomUUID()},{taskId:randomUUID()},{capability:'short'},{dsn:'postgresql://owner@invalid/unused'},{extra:'secret'}])await assert.rejects(startupFromRegistration({registration:{...ids,...change},runId:ids.runId,taskId:ids.taskId,kind:'browser',connectDb:async()=>{throw Error('must not connect');}}));
+});
+for(const changes of [{session_user:'owner'},{current_user:'owner'},{rolsuper:true},{rolbypassrls:true}])test('strict browser DB rejects '+JSON.stringify(changes),async()=>{let ended=false;await assert.rejects(strictStartup('browser',{env:{DATABASE_URL_BROWSER:'postgresql://sjcos_browser@invalid/unused'},connect:async()=>({query:async()=>({rows:[{session_user:'sjcos_browser',current_user:'sjcos_browser',rolsuper:false,rolbypassrls:false,...changes}]}),end:async()=>{ended=true;}})}));assert.equal(ended,true);});
+
+test('real fake CLI → MCP, kernel peer registration, protected delivery, actual narrow DB and replay refusal',async()=>{
+ const {withTestDb,stopCluster,assertNotProduction}=await import('./_harness/testdb.mjs');
+ const {spawn}=await import('node:child_process');const {once}=await import('node:events');
+ const {fileURLToPath}=await import('node:url');const pg=(await import('pg')).default;
+ const repo=fileURLToPath(new URL('..',import.meta.url));const root=await mkdtemp(path.join(os.tmpdir(),'browser-two-hop-'));
+ let broker,brokerExit,launcherChild;
+ try{await withTestDb(async(url,admin)=>{
+  assertNotProduction(url);await admin.query('CREATE ROLE sjcos_browser LOGIN NOSUPERUSER NOBYPASSRLS');
+  const dbUrl=new URL(url);dbUrl.username='sjcos_browser';const dsn=dbUrl.href;
+  const credential=path.join(root,'credential');await writeFile(credential,dsn,{mode:0o600});
+  const socket=path.join(root,'launch.sock'),registry=path.join(root,'registry');await (await import('node:fs/promises')).mkdir(registry,{mode:0o700});
+  const launcher=path.join(root,'launcher.mjs'),mcp=path.join(root,'mcp.mjs'),fake=path.join(root,'fake-cli');
+  await writeFile(mcp,`import {exchangeRendezvous,validateRegistration,startupFromRegistration} from '${repo}lib/browser/rendezvous-client.mjs';\nimport {parseMcpIdentity} from '${repo}lib/browser/cli-launch.mjs';\nimport pg from '${repo}node_modules/pg/lib/index.js';\nconst {runId,taskId,kind}=parseMcpIdentity(process.argv.slice(2));const options={socketPath:${JSON.stringify(socket)},request:{runId,kind},validate:x=>validateRegistration(x,{runId,taskId})};\nconst registration=await exchangeRendezvous(options);\nconst {client,verifiedRun}=await startupFromRegistration({registration,runId,taskId,kind,connectDb:async dsn=>{const c=new pg.Client({connectionString:dsn});await c.connect();return c;}});await client.end();\nlet replay=false;try{await exchangeRendezvous(options);}catch{replay=true;}\nconsole.log(JSON.stringify({verifiedRun,replay}));`);
+  await writeFile(fake,`#!/usr/bin/node\nconst {spawn}=require('node:child_process'),fs=require('node:fs');process.stdin.once('data',()=>{const args=process.argv.slice(2),config=JSON.parse(fs.readFileSync(args[args.indexOf('--mcp-config')+1]));const s=config.mcpServers.browser;const c=spawn(s.command,s.args,{stdio:'inherit'});c.on('exit',code=>process.exit(code??1));});`,{mode:0o700});
+  const ids={root:path.join(root,'history'),userId:randomUUID(),taskId:randomUUID(),runId:randomUUID(),conversationId:randomUUID(),sessionId:randomUUID(),model:'sonnet',servers:{browser:mcp,sjcos:mcp,interact:mcp}};
+  const launch=await buildBrowserLaunch(ids);
+  await writeFile(launcher,`import {spawn} from 'node:child_process';import {once} from 'node:events';import {exchangeRendezvous} from '${repo}lib/browser/rendezvous-client.mjs';const launch=${JSON.stringify(launch)};const c=spawn(${JSON.stringify(fake)},launch.args,{cwd:launch.cwd,env:launch.env,stdio:['pipe','inherit','inherit']});await once(c,'spawn');await exchangeRendezvous({socketPath:${JSON.stringify(socket)},request:{op:'register',runId:${JSON.stringify(ids.runId)},taskId:${JSON.stringify(ids.taskId)},principalId:${JSON.stringify(ids.userId)},pid:c.pid},validate:x=>{if(!x.registered)throw Error();}});c.stdin.end('confirmed facts only\\n');const [code]=await once(c,'exit');process.exit(code??1);`);
+  const python=String.raw`
+import sys,os,socket,hashlib,json
+sys.path.insert(0,sys.argv[1]+'/deploy/browser')
+from launch_broker import exchange
+root=sys.argv[2]
+h=lambda p:hashlib.sha256(open(p,'rb').read()).hexdigest()
+policy={'launcherUid':os.getuid(),'launcherDigests':[h(root+'/launcher.mjs')],'launcherNodeDigest':h(sys.argv[3]),'cliDigest':h(sys.argv[3]),'nodeDigest':h(sys.argv[3]),'executables':{k:h(root+'/mcp.mjs') for k in ('browser','sjcos','interact')},'credentialFiles':{k:root+'/credential' for k in ('browser','sjcos','interact')}}
+s=socket.socket(socket.AF_UNIX);s.bind(root+'/launch.sock');s.listen(3);print('READY',flush=True)
+try:
+ for _ in range(3):
+  c,_=s.accept()
+  with c:exchange(c,root+'/registry','test-boot',policy,owner_uid=os.getuid())
+finally:s.close()
+`;
+  broker=spawn('python3',['-B','-u','-c',python,repo,root,process.execPath],{stdio:['ignore','pipe','pipe']});brokerExit=once(broker,'exit');let errors='';broker.stderr.on('data',x=>errors+=x);
+  await Promise.race([once(broker.stdout,'data'),brokerExit.then(()=>{throw Error(errors);}),new Promise((_,reject)=>setTimeout(()=>reject(Error('broker timeout')),5000).unref())]);
+  const child=launcherChild=spawn(process.execPath,[launcher],{stdio:['ignore','pipe','pipe'],detached:true});let out='',err='';child.stdout.on('data',x=>out+=x);child.stderr.on('data',x=>err+=x);const [code]=await Promise.race([once(child,'exit'),new Promise((_,reject)=>setTimeout(()=>reject(Error('CLI timeout')),5000).unref())]);assert.equal(code,0,err+errors);
+  const result=JSON.parse(out);assert.equal(result.replay,true);assert.equal(result.verifiedRun.taskId,ids.taskId);assert.equal(result.verifiedRun.dsn,undefined);assert.equal(out.includes(dsn),false);
+  const [brokerCode]=await brokerExit;assert.equal(brokerCode,0,errors);
+ },{fresh:true});}finally{try{if(launcherChild?.pid)process.kill(-launcherChild.pid,'SIGKILL');}catch{}broker?.kill('SIGKILL');stopCluster();await rm(root,{recursive:true,force:true});}
+});

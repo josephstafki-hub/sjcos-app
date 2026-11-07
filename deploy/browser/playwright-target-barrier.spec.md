@@ -1,6 +1,7 @@
 # Playwright 1.64.1 SJC target barrier patch specification v1
 
-Static work only; NOT an applied/reviewed executable patch. Core bundle SHA256:
+Executable candidate now lives in `playwright-patch/` (implementation notes below).
+Not installed, reviewed or accepted. Upstream core bundle SHA256:
 `829521b67ed7be90c7d6d6098ff39f2241562d47e4ad7ccab13710924a56001d`.
 Source: local cached exact package, never mutate live node_modules (1.61.1).
 `playwright-resume-census.json` inventories every debugger-resume string and
@@ -57,3 +58,38 @@ Before activation: produce actual patch SHA, resulting bundle SHA, reviewer
 approval and signed real revision1248 event/packet evidence. Re-run census over
 patched tree: every resume must be guarded or unreachable denial. Metadata and
 this spec cannot satisfy that runtime gate; pins retain null result digests.
+
+## Implemented candidate (2026-11-06; no acceptance claim)
+
+`playwright-patch/apply.mjs` now verifies the upstream hash AND every original
+census row before any transformation. `target-barrier.patch.json` is an ordered
+exact-text patch (each operation records its expected match count and replaces
+only its first occurrence); `runtime.js` is embedded verbatim into the bundle.
+`playwrightPatchSha256` hashes UTF-8 patch JSON + NUL + UTF-8 runtime.js. The
+result bundle hash and exhaustive after census are in `playwright-patch/result.json`.
+The result is isolated-runtime-only: ordinary Chromium APIs cannot opt around
+it. Private `core.sjcBrowser.connect(parent,transport,options)` requires
+`options.__sjcBarrier` and a fresh empty nonpersistent boot. Public CDP reconnect,
+DevTools, workers and extension relay autoattach fail. No env/argv enables it.
+
+All seven upstream resume calls are removed, not merely hidden behind a toggle.
+The only executable resume lives in the separately source-hashed root-installed
+`lib/browser/target-barrier.mjs`: prepare (Fetch + recursive handlers + autoattach
+ACK), initialization, guarded single resume, then navigation-commit wait. The
+original 2s guard deadline remains active across initialization. Both binding
+and every asynchronous continuation must still be live. Unknown startup targets,
+workers, detach/dispose/crash/reload, duplicate reattach and context loss revoke
+the whole boot. A listener cannot be used for two contexts; context slots and
+per-context tab slots reserve synchronously before asynchronous callbacks.
+Root/page and recursive OOPIF sessions are Playwright's own sessions. Playwright
+network Fetch listeners/toggles are removed; route/auth interception refuses.
+Controller request callbacks must consult their supplied liveness function on
+every continuation; authRequired is always CancelAuth in the patch itself.
+
+The in-process trusted policy supplies `bindTarget`, `validateBinding`,
+`registerFetch(session,binding,isLive)`, and boot-wide `revokeListener()`; it must
+perform the independent gate/controller/read-manifest verification. The launcher
+supplies guardTarget and shuts down Chromium on revocation. The controller
+adapter is NOT implemented by this patch. Syntax, string census, AST command
+census and executable module/helper tests do not replace real revision1248
+packet/event acceptance or independent review. Flags remain OFF.

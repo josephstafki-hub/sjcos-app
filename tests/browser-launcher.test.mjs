@@ -1,0 +1,14 @@
+// Expectations first: fail before spawn on absent readiness, host namespace or mutable runtime.
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {chromiumArguments,validateNamespace,launchBrowser} from '../lib/browser/launcher.mjs';
+const ns={name:'b0b-1234abcd-b',current:'net:[123]',host:'net:[456]'};
+test('exact namespace-only CDP / no ambient configuration arguments',()=>{const args=chromiumArguments('/private/profile');assert.ok(args.includes('--remote-debugging-port=0'));assert.ok(args.includes('--remote-debugging-address=127.0.0.1'));assert.ok(args.includes('--no-startup-window'));assert.equal(args.some(x=>x==='--no-sandbox'),false);assert.equal(args.some(x=>x.includes('ignore-certificate-errors')),false);});
+for(const value of [{...ns,current:ns.host},{...ns,name:'sjcos-browser'},{...ns,name:'b0b-1234abcd-g'},{...ns,current:''}])test('refuse unsafe namespace '+JSON.stringify(value),()=>{assert.throws(()=>validateNamespace(value));});
+test('missing readiness blocks before spawn',async()=>{await assert.rejects(launchBrowser({namespace:ns,attestation:{},verifySignature:()=>true}),/BROWSER_RUNTIME_NOT_READY/);});
+test('unsigned readiness blocks before filesystem / spawn',async()=>{await assert.rejects(launchBrowser({namespace:ns,attestation:{},verifySignature:()=>false}),/BROWSER_RUNTIME_NOT_READY/);});
+import {spawnSync} from 'node:child_process';
+import {parseMcpIdentity} from '../lib/browser/cli-launch.mjs';
+for(const args of [[],['--browser-run','copied','--browser-task','copied','--server-kind','browser'],['--browser-run','11111111-1111-4111-8111-111111111111','--browser-task','22222222-2222-4222-8222-222222222222','--server-kind','browser','--dsn','owner']])test('MCP argv refuses missing/forged/extra identity '+args.length,()=>{assert.throws(()=>parseMcpIdentity(args));});
+test('installed launcher entry refuses missing protected authority with no evidence stdout',()=>{const r=spawnSync(process.execPath,['deploy/browser/launcher-driver.mjs','--kind','network','--run-id','11111111-1111-4111-8111-111111111111','--browser-ns','b0b-1234abcd-b','--gate-ns','b0b-1234abcd-g','--fixture-ns','b0b-1234abcd-f'],{encoding:'utf8',timeout:5000,env:{PATH:'/usr/bin:/bin'}});assert.equal(r.status,1);assert.equal(r.stdout,'');assert.equal(r.stderr,'BROWSER_ACCEPTANCE_LAUNCH_REFUSED\n');});
+test('dedicated MCP entry refuses malformed model argv with no registration stdout',()=>{const r=spawnSync(process.execPath,['deploy/browser/mcp-entry.mjs','--dsn','owner'],{encoding:'utf8',timeout:5000,env:{PATH:'/usr/bin:/bin'}});assert.equal(r.status,1);assert.equal(r.stdout,'');assert.equal(r.stderr,'BROWSER_MCP_STARTUP_REFUSED\n');});

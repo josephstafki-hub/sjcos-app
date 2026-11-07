@@ -1,0 +1,132 @@
+[
+  {
+    "before": "  clientEventEmitter: () => EventEmitter2,",
+    "after": "  sjcBrowser: () => __sjc,\n  clientEventEmitter: () => EventEmitter2,",
+    "matches": 1
+  },
+  {
+    "before": "        await this._sendMayFail(\"Runtime.runIfWaitingForDebugger\");\n        await this._parentSession.send(\"Target.detachFromTarget\", { sessionId: this._sessionId });",
+    "after": "        return await __sjc.detach(this);\n        await this._parentSession.send(\"Target.detachFromTarget\", { sessionId: this._sessionId });",
+    "matches": 1
+  },
+  {
+    "before": "          eventsHelper.addEventListener(session, \"Fetch.requestPaused\", this._onRequestPaused.bind(this, sessionInfo)),\n          eventsHelper.addEventListener(session, \"Fetch.authRequired\", this._onAuthRequired.bind(this, sessionInfo)),",
+    "after": "          // SJC: Fetch handlers belong exclusively to the controller barrier.",
+    "matches": 1
+  },
+  {
+    "before": "      async authenticate(credentials) {\n        this._credentials = credentials;",
+    "after": "      async authenticate(credentials) {\n        if (credentials?.length) throw new Error(\"SJC_FETCH_OWNED\");\n        this._credentials = credentials;",
+    "matches": 1
+  },
+  {
+    "before": "      async setRequestInterception(value2) {\n        this._userRequestInterceptionEnabled = value2;\n        await this._updateProtocolRequestInterception();\n      }\n      async _updateProtocolRequestInterception() {",
+    "after": "      async setRequestInterception(value2) {\n        if (value2) throw new Error(\"SJC_FETCH_OWNED\");\n        this._userRequestInterceptionEnabled = value2;\n        await this._updateProtocolRequestInterception();\n      }\n      async _updateProtocolRequestInterception() {",
+    "matches": 1
+  },
+  {
+    "before": "      async _updateProtocolRequestInterceptionForSession(info, initial) {\n        const enabled = this._protocolRequestInterceptionEnabled;\n        if (initial && !enabled)\n          return;\n        const cachePromise = info.session.send(\"Network.setCacheDisabled\", { cacheDisabled: enabled });\n        let fetchPromise = Promise.resolve(void 0);\n        if (!info.workerFrame) {\n          if (enabled)\n            fetchPromise = info.session.send(\"Fetch.enable\", { handleAuthRequests: true, patterns: [{ urlPattern: \"*\", requestStage: \"Request\" }] });\n          else\n            fetchPromise = info.session.send(\"Fetch.disable\");\n        }\n        await Promise.all([cachePromise, fetchPromise]);\n      }\n",
+    "after": "      async _updateProtocolRequestInterceptionForSession(info, initial) {\n        __sjc.prepared(info.session);\n        if (this._protocolRequestInterceptionEnabled) throw new Error(\"SJC_FETCH_OWNED\");\n      }\n",
+    "matches": 1
+  },
+  {
+    "before": "          eventsHelper.addEventListener(this._client, \"Target.attachedToTarget\", (event) => this._onAttachedToTarget(this._client, event)),\n          eventsHelper.addEventListener(this._client, \"Target.detachedFromTarget\", (event) => this._onDetachedFromTarget(this._client, event)),",
+    "after": "          // SJC: recursive autoattach handlers installed before Fetch ACK.",
+    "matches": 1
+  },
+  {
+    "before": "      async _initialize(hasUIWindow) {\n        const browserOptions",
+    "after": "      async _initialize(hasUIWindow) {\n        __sjc.prepared(this._client);\n        const browserOptions",
+    "matches": 1
+  },
+  {
+    "before": "            this._bufferedAttachedToTargetEvents = void 0;",
+    "after": "            this._bufferedAttachedToTargetEvents = void 0;\n            __sjc.ready(this._client, event => this._onAttachedToTarget(this._client, event));",
+    "matches": 1
+  },
+  {
+    "before": "          this._crPage._networkManager.addSession(this._client, void 0, this._isMainFrame()),\n          this._client.send(\"Target.setAutoAttach\", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true })",
+    "after": "          this._crPage._networkManager.addSession(this._client, void 0, this._isMainFrame())",
+    "matches": 1
+  },
+  {
+    "before": "        promises2.push(this._client.send(\"Runtime.runIfWaitingForDebugger\"));\n        promises2.push(this._firstNonInitialNavigationCommittedPromise);\n        await Promise.all(promises2);",
+    "after": "        await Promise.all(promises2);\n        await __sjc.resume(this._client);\n        await this._firstNonInitialNavigationCommittedPromise;",
+    "matches": 1
+  },
+  {
+    "before": "      _onAttachedToTarget(parentSession, event) {\n        if (this._bufferedAttachedToTargetEvents) {\n          this._bufferedAttachedToTargetEvents.push(event);\n          return;\n        }\n        const session = parentSession.createChildSession(event.sessionId);\n        if (event.targetInfo.type === \"iframe\") {\n          const targetId = event.targetInfo.targetId;\n          let frame = this._page.frameManager.frame(targetId);\n          if (!frame && event.targetInfo.parentFrameId) {\n            const parentFrame = this._page.frameManager.frame(event.targetInfo.parentFrameId) ?? this._page.mainFrame();\n            frame = this._page.frameManager.frameAttached(targetId, parentFrame._id);\n          }\n          if (!frame)\n            return;\n          this._page.frameManager.removeChildFramesRecursively(frame);\n          for (const [contextId4, context] of this._contextIdToContext) {\n            if (context.frame === frame)\n              this._onExecutionContextDestroyed(contextId4);\n          }\n          const frameSession = new _FrameSession(this._crPage, session, targetId, this);\n          this._crPage._sessions.set(targetId, frameSession);\n          frameSession._initialize(false).catch((e) => e);\n          return;\n        }\n        if (event.targetInfo.type !== \"worker\") {\n          session.detach().catch(() => {\n          });\n          return;\n        }\n        const url3 = event.targetInfo.url;\n        const worker = new Worker(this._page, url3);\n        this._page.addWorker(event.sessionId, worker);\n        this._workerSessions.set(event.sessionId, session);\n        session.once(\"Runtime.executionContextCreated\", async (event2) => {\n          worker.createExecutionContext(new CRExecutionContext(session, event2.context));\n        });\n        if (this._crPage._browserContext._browser.majorVersion() >= 143)\n          session.on(\"Inspector.workerScriptLoaded\", () => worker.workerScriptLoaded());\n        else\n          worker.workerScriptLoaded();\n        session._sendMayFail(\"Runtime.enable\");\n        this._crPage._networkManager.addSession(session, this._page.frameManager.frame(event.targetInfo.parentFrameId ?? this._targetId) ?? void 0).catch(() => {\n        });\n        session._sendMayFail(\"Runtime.runIfWaitingForDebugger\");\n        session._sendMayFail(\"Target.setAutoAttach\", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });\n        session.on(\"Target.attachedToTarget\", (event2) => this._onAttachedToTarget(session, event2));\n        session.on(\"Target.detachedFromTarget\", (event2) => this._onDetachedFromTarget(session, event2));\n        session.on(\"Runtime.consoleAPICalled\", (event2) => {\n          const args = event2.args.map((o) => createHandle(worker.existingExecutionContext, o));\n          this._page.addConsoleMessage(worker, event2.type, args, stackTraceToLocation(event2.stackTrace), void 0, event2.timestamp);\n        });\n        session.on(\"Runtime.exceptionThrown\", (exception) => this._page.addPageError(exceptionToError(exception.exceptionDetails), stackTraceToLocation(exception.exceptionDetails.stackTrace)));\n      }\n",
+    "after": "      _onAttachedToTarget(parentSession, event) {\n        const session = event.__sjcSession;\n        const browser = this._crPage._browserContext._browser;\n        try {\n          __sjc.prepared(session);\n          if (event.targetInfo.type !== \"iframe\") throw new Error(\"SJC_WORKER_FORBIDDEN\");\n          const targetId = event.targetInfo.targetId;\n          let frame = this._page.frameManager.frame(targetId);\n          if (!frame && event.targetInfo.parentFrameId) {\n            const parent = this._page.frameManager.frame(event.targetInfo.parentFrameId);\n            if (parent) frame = this._page.frameManager.frameAttached(targetId, parent._id);\n          }\n          if (!frame) throw new Error(\"SJC_FRAME_SWAP_FORBIDDEN\");\n          const child = new _FrameSession(this._crPage, session, targetId, this);\n          this._crPage._sessions.set(targetId, child);\n          child._initialize(false).catch(()=>__sjc.fail(browser));\n        } catch { void __sjc.deny(browser, session || parentSession, event.targetInfo).catch(()=>{}); }\n      }\n",
+    "matches": 1
+  },
+  {
+    "before": "      _onTargetCrashed() {\n        this._client._markAsCrashed();",
+    "after": "      _onTargetCrashed() {\n        void __sjc.fail(this._crPage._browserContext._browser);\n        this._client._markAsCrashed();",
+    "matches": 1
+  },
+  {
+    "before": "        this._session = session;\n        this.browserContext = browserContext;\n        if (!process.env.PLAYWRIGHT_DISABLE_SERVICE_WORKER_NETWORK)\n          this._networkManager = new CRNetworkManager(null, this);\n        session.on(\"Inspector.targetCrashed\", () => this.destroyExecutionContext(\"Service worker restarted\"));\n        session.on(\"Runtime.executionContextCreated\", (event) => {\n          this.createExecutionContext(new CRExecutionContext(session, event.context));\n          if (this.browserContext._browser.majorVersion() < 143)\n            this.workerScriptLoaded();\n        });\n        if (this.browserContext._browser.majorVersion() >= 143)\n          session.on(\"Inspector.workerScriptLoaded\", () => this.workerScriptLoaded());\n        if (this._networkManager && this._isNetworkInspectionEnabled()) {\n          this.updateRequestInterception();\n          this.updateExtraHTTPHeaders();\n          this.updateHttpCredentials();\n          this.updateOffline();\n          this.updateUserAgent();\n          this._networkManager.addSession(\n            session,\n            void 0,\n            true\n            /* isMain */\n          ).catch(() => {\n          });\n        }\n        session.on(\"Runtime.consoleAPICalled\", (event) => {\n          if (!this.existingExecutionContext || process.env.PLAYWRIGHT_DISABLE_SERVICE_WORKER_CONSOLE)\n            return;\n          const args = event.args.map((o) => createHandle(this.existingExecutionContext, o));\n          const message = new ConsoleMessage(null, this, event.type, void 0, args, stackTraceToLocation(event.stackTrace), event.timestamp);\n          this.browserContext.emit(BrowserContext.Events.Console, message);\n        });\n        session.send(\"Runtime.enable\", {}).catch((e) => {\n        });\n        session.send(\"Runtime.runIfWaitingForDebugger\").catch((e) => {\n        });\n        session.on(\"Inspector.targetReloadedAfterCrash\", () => {\n          session._sendMayFail(\"Runtime.runIfWaitingForDebugger\", {});\n        });\n      }\n",
+    "after": "        throw new Error(\"SJC_SERVICE_WORKER_FORBIDDEN\");\n      }\n",
+    "matches": 1
+  },
+  {
+    "before": "        options = { ...options };\n        const connection = new CRConnection(parent, transport, options.protocolLogger, options.browserLogsCollector);",
+    "after": "        options = { ...options };\n        if (options.persistent) throw new Error(\"SJC_PERSISTENT_FORBIDDEN\");\n        if (!options.__sjcBarrier || devtools) throw new Error(\"SJC_BARRIER_REQUIRED\");\n        const connection = new CRConnection(parent, transport, options.protocolLogger, options.browserLogsCollector);",
+    "matches": 1
+  },
+  {
+    "before": "        browser._devtools = devtools;",
+    "after": "        __sjc.boot(browser);",
+    "matches": 1
+  },
+  {
+    "before": "        if (!options.persistent) {\n          await session.send(\"Target.setAutoAttach\", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });\n          return browser;\n        }\n        browser._defaultContext = new CRBrowserContext(browser, void 0, options.persistent);\n        browser._isConnecting = true;\n        try {\n          await Promise.all([\n            session.send(\"Target.setAutoAttach\", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true }).then(async () => {\n              await session.send(\"Target.getTargetInfo\");\n            }),\n            browser._defaultContext.initialize()\n          ]);\n          await browser._waitForAllPagesToBeInitialized();\n        } finally {\n          browser._isConnecting = false;\n        }\n        return browser;\n      }\n",
+    "after": "        await session.send(\"Target.setAutoAttach\", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });\n        return browser;\n      }\n",
+    "matches": 1
+  },
+  {
+    "before": "      _onAttachedToTarget({ targetInfo, sessionId, waitingForDebugger }) {\n        if (targetInfo.type === \"browser\")\n          return;\n        const session = this._session.createChildSession(sessionId);\n        assert(targetInfo.browserContextId, \"targetInfo: \" + JSON.stringify(targetInfo, null, 2));\n        let context = this._contexts.get(targetInfo.browserContextId) || null;\n        if (!context) {\n          context = this._defaultContext;\n        }\n        if (targetInfo.type === \"other\" && targetInfo.url.startsWith(\"devtools://devtools\") && this._devtools) {\n          this._devtools.install(session);\n          return;\n        }\n        const treatOtherAsPage = targetInfo.type === \"other\" && process.env.PW_CHROMIUM_ATTACH_TO_OTHER;\n        if (!context || targetInfo.type === \"other\" && !treatOtherAsPage) {\n          session.detach().catch(() => {\n          });\n          return;\n        }\n        assert(!this._crPages.has(targetInfo.targetId), \"Duplicate target \" + targetInfo.targetId);\n        assert(!this._serviceWorkers.has(targetInfo.targetId), \"Duplicate target \" + targetInfo.targetId);\n        if (targetInfo.type === \"page\" || treatOtherAsPage) {\n          const opener = targetInfo.openerId ? this._crPages.get(targetInfo.openerId) || null : null;\n          const crPage = new CRPage(session, targetInfo.targetId, context, opener, { hasUIWindow: targetInfo.type === \"page\" });\n          this._crPages.set(targetInfo.targetId, crPage);\n          return;\n        }\n        if (targetInfo.type === \"service_worker\") {\n          const serviceWorker = new CRServiceWorker(context, session, targetInfo.url);\n          this._serviceWorkers.set(targetInfo.targetId, serviceWorker);\n          context.emit(CRBrowserContext.CREvents.ServiceWorker, serviceWorker);\n          return;\n        }\n        session.detach().catch(() => {\n        });\n      }\n",
+    "after": "      _onAttachedToTarget(event) {\n        const session = this._session.createChildSession(event.sessionId);\n        void __sjc.attach(this,session,event).then(()=>{\n          if (event.targetInfo.type !== \"page\") return __sjc.deny(this,session,event.targetInfo);\n          const target = event.targetInfo, context = this._contexts.get(target.browserContextId);\n          if (!context) return __sjc.deny(this,session,target);\n          const opener = target.openerId ? this._crPages.get(target.openerId) : null;\n          if (target.openerId && (!opener || opener._browserContext !== context)) return __sjc.deny(this,session,target);\n          const page = new CRPage(session,target.targetId,context,opener,{hasUIWindow:true});\n          this._crPages.set(target.targetId,page);\n        }).catch(()=>__sjc.fail(this));\n      }\n",
+    "matches": 1
+  },
+  {
+    "before": "      async doCreateNewContext(options) {\n        const proxy = options.proxyOverride || options.proxy;",
+    "after": "      async doCreateNewContext(options) {\n        __sjc.reserveContext(this,options);\n        const proxy = options.proxyOverride || options.proxy;",
+    "matches": 3
+  },
+  {
+    "before": "      _onDetachedFromTarget(payload) {\n        const targetId = payload.targetId;",
+    "after": "      _onDetachedFromTarget(payload) {\n        void __sjc.fail(this);\n        const targetId = payload.targetId;",
+    "matches": 1
+  },
+  {
+    "before": "      _didDisconnect() {\n        for (const crPage of this._crPages.values())",
+    "after": "      _didDisconnect() {\n        void __sjc.fail(this);\n        for (const crPage of this._crPages.values())",
+    "matches": 1
+  },
+  {
+    "before": "      async newBrowserCDPSession() {\n        return await this._connection.createBrowserSession();",
+    "after": "      async newBrowserCDPSession() {\n        throw new Error(\"SJC_RAW_CDP_FORBIDDEN\");",
+    "matches": 1
+  },
+  {
+    "before": "      install(session) {\n        session.on(\"Runtime.bindingCalled\", async (event) => {\n          if (event.name !== kBindingName2)\n            return;\n          const parsed = JSON.parse(event.payload);\n          let result2 = void 0;\n          if (parsed.method === \"getPreferences\") {\n            if (this._prefs === void 0) {\n              try {\n                const json = await import_fs25.default.promises.readFile(this._preferencesPath, \"utf8\");\n                this._prefs = JSON.parse(json);\n              } catch (e) {\n                this._prefs = {};\n              }\n            }\n            result2 = this._prefs;\n          } else if (parsed.method === \"setPreference\") {\n            this._prefs[parsed.params[0]] = parsed.params[1];\n            this._save();\n          } else if (parsed.method === \"removePreference\") {\n            delete this._prefs[parsed.params[0]];\n            this._save();\n          } else if (parsed.method === \"clearPreferences\") {\n            this._prefs = {};\n            this._save();\n          }\n          session.send(\"Runtime.evaluate\", {\n            expression: `window.DevToolsAPI.embedderMessageAck(${parsed.id}, ${JSON.stringify(result2)})`,\n            contextId: event.executionContextId\n          }).catch((e) => null);\n        });\n        Promise.all([\n          session.send(\"Runtime.enable\"),\n          session.send(\"Runtime.addBinding\", { name: kBindingName2 }),\n          session.send(\"Page.enable\"),\n          session.send(\"Page.addScriptToEvaluateOnNewDocument\", { source: `\n        (() => {\n          const init = () => {\n            // Lazy init happens when InspectorFrontendHost is initialized.\n            // At this point DevToolsHost is ready to be used.\n            const host = window.DevToolsHost;\n            const old = host.sendMessageToEmbedder.bind(host);\n            host.sendMessageToEmbedder = message => {\n              if (['getPreferences', 'setPreference', 'removePreference', 'clearPreferences'].includes(JSON.parse(message).method))\n                window.${kBindingName2}(message);\n              else\n                old(message);\n            };\n          };\n          let value;\n          Object.defineProperty(window, 'InspectorFrontendHost', {\n            configurable: true,\n            enumerable: true,\n            get() { return value; },\n            set(v) { value = v; init(); },\n          });\n        })()\n      ` }),\n          session.send(\"Runtime.runIfWaitingForDebugger\")\n        ]).catch((e) => null);\n      }\n",
+    "after": "      install(session) { throw new Error(\"SJC_DEVTOOLS_FORBIDDEN\"); }\n",
+    "matches": 1
+  },
+  {
+    "before": "      async _connectOverCDPInternal(progress2, endpointURL, options, onClose) {\n        let headersMap;\n        if (options.headers)\n          headersMap = headersArrayToObject(options.headers, false);\n        if (!headersMap)\n          headersMap = { \"User-Agent\": getUserAgent() };\n        else if (headersMap && !Object.keys(headersMap).some((key) => key.toLowerCase() === \"user-agent\"))\n          headersMap[\"User-Agent\"] = getUserAgent();\n        const channel = isChromiumChannelName(endpointURL) ? endpointURL : void 0;\n        if (channel)\n          endpointURL = await resolveChannelEndpoint(progress2, endpointURL);\n        let wsEndpoint;\n        let chromeTransport;\n        try {\n          wsEndpoint = await urlToWSEndpoint(progress2, endpointURL, headersMap);\n          chromeTransport = await WebSocketTransport.connect(progress2, wsEndpoint, { headers: headersMap, followRedirects: true, debugLogHeader: \"x-playwright-debug-log\" });\n        } catch (e) {\n          if (channel)\n            throw new Error(`Could not connect to ${channel}.\n${remoteDebuggingHint(channel)}`);\n          throw e;\n        }\n        const closeAndWait = async () => await chromeTransport.closeAndWait();\n        return this._connectOverCDPImpl(progress2, chromeTransport, closeAndWait, options, onClose);\n      }\n      async _connectOverCDPImpl(progress2, transport, closeAndWait, options, onClose) {\n        let artifactsDir;\n        const tempDirectories = [];\n        if (options.artifactsDir) {\n          artifactsDir = options.artifactsDir;\n        } else {\n          artifactsDir = await progress2.race(import_fs26.default.promises.mkdtemp(ARTIFACTS_FOLDER2));\n          tempDirectories.push(artifactsDir);\n        }\n        const doCleanup = async () => {\n          await removeFolders(tempDirectories);\n          const cb = onClose;\n          onClose = void 0;\n          await cb?.();\n        };\n        const doClose = async () => {\n          await closeAndWait();\n          await doCleanup();\n        };\n        try {\n          const browserProcess = { close: doClose, kill: doClose };\n          const persistent = {\n            noDefaultViewport: true,\n            ...options.noDefaults ? { acceptDownloads: \"internal-browser-default\" } : {}\n          };\n          const browserOptions = {\n            slowMo: options.slowMo,\n            name: \"chromium\",\n            browserType: \"chromium\",\n            persistent,\n            browserProcess,\n            protocolLogger: helper.debugProtocolLogger(),\n            browserLogsCollector: new RecentLogsCollector(),\n            artifactsDir,\n            downloadsPath: options.downloadsPath || artifactsDir,\n            tracesDir: options.tracesDir || artifactsDir,\n            originalLaunchOptions: {},\n            noDefaults: options.noDefaults,\n            isWebView: options.isWebView\n          };\n          validateBrowserContextOptions(persistent, browserOptions);\n          const browser = await progress2.race(CRBrowser.connect(this.attribution.playwright, transport, browserOptions));\n          if (!options.isLocal)\n            browser._isBrowserCollocatedWithServer = false;\n          browser.on(Browser.Events.Disconnected, doCleanup);\n          return browser;\n        } catch (error) {\n          await progress2.race(doClose().catch(() => {\n          }));\n          throw error;\n        }\n      }\n      async connectToWorker(progress2, endpoint) {\n        const wsEndpoint = await urlToWSEndpoint(progress2, endpoint, {});\n        const transport = await WebSocketTransport.connect(progress2, wsEndpoint);\n        try {\n          const connection = new CRConnection(this, transport, helper.debugProtocolLogger(), new RecentLogsCollector());\n          const session = connection.rootSession;\n          const worker = new Worker(this, \"\", () => transport.closeAndWait());\n          session.on(\"Runtime.executionContextCreated\", (event) => {\n            const isDefault = event.context.auxData?.isDefault;\n            if (isDefault === false) {\n              return;\n            }\n            worker.workerScriptLoaded();\n            worker.createExecutionContext(new CRExecutionContext(session, event.context));\n          });\n          session.on(\"Runtime.executionContextDestroyed\", () => worker.destroyExecutionContext(\"Execution context was destroyed\"));\n          session.on(\"Runtime.consoleAPICalled\", (event) => {\n            if (!worker.existingExecutionContext)\n              return;\n            const args = event.args.map((o) => createHandle(worker.existingExecutionContext, o));\n            const message = new ConsoleMessage(null, worker, event.type, void 0, args, stackTraceToLocation(event.stackTrace), event.timestamp);\n            worker.emit(Worker.Events.Console, message);\n          });\n          connection.on(ConnectionEvents.Disconnected, () => worker.didClose());\n          session._sendMayFail(\"Runtime.enable\");\n          session._sendMayFail(\"Runtime.runIfWaitingForDebugger\");\n          return worker;\n        } catch (error) {\n          await progress2.race(transport.closeAndWait().catch(() => {\n          }));\n          throw error;\n        }\n      }\n",
+    "after": "      async _connectOverCDPInternal() { throw new Error(\"SJC_CDP_RECONNECT_FORBIDDEN\"); }\n      async _connectOverCDPImpl() { throw new Error(\"SJC_CDP_RECONNECT_FORBIDDEN\"); }\n      async connectToWorker() { throw new Error(\"SJC_WORKER_TRANSPORT_FORBIDDEN\"); }\n",
+    "matches": 1
+  },
+  {
+    "before": "          case \"Target.setAutoAttach\": {\n            if (sessionId)",
+    "after": "          case \"Target.setAutoAttach\": {\n            throw new Error(\"SJC_EXTENSION_FORBIDDEN\");\n            if (sessionId)",
+    "matches": 1
+  },
+  {
+    "before": "      dispose() {\n        this._closed = true;",
+    "after": "      dispose() {\n        __sjc.lost(this);\n        this._closed = true;",
+    "matches": 1
+  }
+]

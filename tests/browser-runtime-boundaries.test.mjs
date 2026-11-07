@@ -70,3 +70,25 @@ assert not validate_peer(r,{**q,'capability':'forged'},p)
 `;
  const r=spawnSync('python3',['-B','-c',code],{encoding:'utf8',timeout:10000,maxBuffer:8192});assert.equal(r.status,0,r.stderr);
 });
+
+test('durable broker refuses PID reuse even with forged matching historical ancestry, before DSN access',()=>{
+ const code=String.raw`
+import sys,os,tempfile,json
+sys.path.insert(0,'deploy/browser')
+from launch_broker import register
+from peercred import proc_record
+from uuid import uuid4
+with tempfile.TemporaryDirectory() as d:
+ run=str(uuid4());start=proc_record(os.getpid())['startTime']
+ r={'runId':run,'bootId':'boot','uid':os.getuid(),'pid':os.getpid(),'startTime':str(int(start)-1),'cgroup':open('/proc/self/cgroup').read(),'nodeDigest':'node','executables':{'browser':'script'},'credentialFiles':{'browser':'/MUST-NOT-READ'}}
+ p={'uid':os.getuid(),'pid':os.getpid(),'startTime':start,'ancestors':[{'pid':os.getpid(),'startTime':r['startTime']}],'cgroup':r['cgroup'],'executableDigest':'node','scriptDigest':'script'}
+ file=d+'/'+run+'.json'
+ with open(file,'w') as f:json.dump(r,f)
+ os.chmod(file,0o600)
+ try:register({'runId':run,'kind':'browser'},p,d,'boot',owner_uid=os.getuid())
+ except ValueError as e:assert str(e)=='BROWSER_RENDEZVOUS_REFUSED'
+ else:raise AssertionError('historical PID allowed')
+ assert len(os.listdir(d))==1
+`;
+ const r=spawnSync('python3',['-B','-c',code],{encoding:'utf8',timeout:10000,maxBuffer:8192});assert.equal(r.status,0,r.stderr);
+});

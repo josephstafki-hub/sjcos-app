@@ -16,7 +16,7 @@ ALTER TABLE browser_commands ADD CONSTRAINT browser_commands_viewer_uuid_binding
  (viewer_id IS NULL AND web_session_id IS NULL AND frame_uuid IS NULL) OR
  (viewer_id IS NOT NULL AND web_session_id IS NOT NULL AND body_digest IS NOT NULL AND stream_id IS NOT NULL AND stream_generation>0 AND frame_uuid IS NOT NULL AND document_epoch>=0 AND control_epoch>=0));
 ALTER TABLE browser_web_commands DROP CONSTRAINT IF EXISTS browser_web_commands_operation_check;
-ALTER TABLE browser_web_commands ADD CONSTRAINT browser_web_commands_operation_check CHECK(operation IN ('admit','join','leave','presence','takeover','release','pause','resume','close','review','watch','publish_manifest','fresh_browser','input','attach_run','capability','queue','offer','accept_offer'));
+ALTER TABLE browser_web_commands ADD CONSTRAINT browser_web_commands_operation_check CHECK(operation IN ('admit','join','leave','presence','takeover','release','pause','resume','close','review','watch','publish_manifest','fresh_browser','input','attach_run','capability','queue','offer','accept_offer','navigation'));
 ALTER TABLE ai_messages ADD COLUMN IF NOT EXISTS trust_profile text NOT NULL DEFAULT 'ordinary' CHECK(trust_profile IN ('ordinary','browser'));
 ALTER TABLE ai_messages ADD COLUMN IF NOT EXISTS browser_task_id uuid REFERENCES browser_tasks(id) ON DELETE RESTRICT;
 ALTER TABLE ai_messages DROP CONSTRAINT IF EXISTS ai_messages_browser_provenance;
@@ -922,3 +922,10 @@ DO $$ DECLARE r text;BEGIN FOREACH r IN ARRAY ARRAY['sjcos_browser','sjcos_agent
 END LOOP;END $$;
 -- Generator output: node scripts/db-roles-sql.mjs browser_task_runs
 -- (empty: website-only cumulative charge; no narrow table grants).
+
+-- A3a initiator-bound question adapter writes through the owner website bridge;
+-- FORCE RLS still forbids private Ask reads/writes by narrow identities.
+-- Actual output: node scripts/db-roles-sql.mjs agent_interactions
+SELECT sjcos_grant('sjcos_agent', 'SELECT, INSERT, UPDATE', 'agent_interactions');
+SELECT sjcos_grant('sjcos_worker', 'SELECT', 'agent_interactions');
+SELECT sjcos_grant('sjcos_readonly', 'SELECT', 'agent_interactions');

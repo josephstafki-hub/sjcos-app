@@ -86,7 +86,7 @@
       "sjcos_readonly": [
         "SELECT"
       ],
-      "note": "Worker UPDATE intentionally withheld: private Ask recovery/purge is website-only; imported journal code does not grant worker execution."
+      "note": "Worker UPDATE intentionally withheld: private Ask recovery/purge is website-only; imported journal code does not grant worker execution. A3a record-projections questions also use an actual-owner-checked website transaction; sjcos_agent reads only shared business record projections, never private Ask rows."
     },
     "agent_memories": {
       "sjcos_agent": [

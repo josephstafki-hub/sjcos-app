@@ -37,6 +37,7 @@ export const ENTRY_POINTS = {
   sjcos_agent: [
     "mcp/sjcos-mcp.mjs",
     "mcp/interact-mcp.mjs",
+    "lib/browser/record-projections.mjs",
     "scripts/run-business-agent.mjs",
   ],
   sjcos_worker: ["scripts/sjcos-worker.mjs", "lib/worker/telnyx-processor.ts", "lib/worker/square-processor.ts", "lib/worker/esign-processor.ts", "lib/runbook-engine.ts"],

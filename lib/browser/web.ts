@@ -6,6 +6,7 @@ import {readBrowserCookieSession,validateWebSession,browserSessionSecretReady,ty
 import {evaluatePhase1Flags} from './phase-flags.mjs';
 import {TaskUI,ReviewNotice,OriginManifest,UUID,ConfirmedAnswer,ReadManifestV1,ReadCandidate,ControlMessage,ManualInput} from './phase1-contracts.mjs';
 import * as repo from './repository.mjs';
+import {loadWebsiteBridge,navigationControls,navigationProjection} from './website-bridge.mjs';
 import {authorizeManualInput} from './privacy.mjs';
 import {buildReadManifest,validateReadProposal,publishReadManifest} from './read-manifest.mjs';
 import {createBrowserWebHandler,digest,equal,fail,InputDedupe,RateWindow,PRIVATE_HEADERS,PREPARED_ANSWER_SOURCE_SQL,availableControls,pageQuery,projectMetadataPage,StatusProjection,acknowledgePlannedClose} from './web-transport.mjs';
@@ -17,12 +18,13 @@ type Row=Record<string,any>;
 type Session=WebSessionIdentity;
 type Context={user:Row;task:Row|null;viewer:Row|null;claim:Row|null;objectId:string|null};
 type Call={operation:string;request:Request;session:Session;context:Context;body:Row|null;flags:Row};
-type ConfirmedPublicFacts={values:string[];classifyPublicUrl:(url:string,context:unknown)=>boolean};
+type ConfirmedPublicFacts={values:readonly string[];classifyPublicUrl:(url:string,context:unknown)=>boolean};
 /** All callbacks are trusted installation/catalog adapters, never route data. */
 export type WebsiteHooks={
  classifyTask?:(input:{conversation_id:string;project_id:string|null;lead_slug:string|null;user_id:string})=>Promise<{task_kind:'public_research'|'permit'|'invoice'|'purchase';catalog_version:number}>;
  confirmedFacts?:(task:Row)=>Promise<ConfirmedPublicFacts>;
  start?:(input:{task:Row;viewer:Row;session:Session;idempotency_key:string})=>Promise<{run_id:string}>;
+ navigation?:(input:{task:Row;viewer:Row|null;session:Session})=>Promise<unknown>;
  projection?:(input:{task:Row;viewer:Row|null;session:Session})=>Promise<unknown>;
 };
 const tokenHash=(secret:string)=>createHash('sha256').update(secret).digest();
@@ -98,7 +100,7 @@ export function createWebsiteAdapter({db,controller,key,websiteHooks={}}:{db:Poo
   const offer=epoch(t.queue_offer_expires_at),expiry=epoch(t.queue_expires_at);
   return {queue_position:row?.queue_position?Number(row.queue_position):null,queue_expires_at:iso(t.queue_expires_at),offer_expires_at:t.state==='queued'?iso(t.queue_offer_expires_at):null,offer_status:t.state==='queued'?(offer?(offer>Date.now()?'offered':'expired'):expiry>Date.now()?'waiting':'queue_expired'):['closed','failed'].includes(t.state)&&t.failure_code==='BROWSER_OFFER_EXPIRED'?(offer?'expired':'queue_expired'):'none'};
  }
- async function detail(t:Row,v:Row|null,session:Session){return {task:asTask(t),...metadata(t),active_run_id:t.current_run_id??null,available_controls:availableControls(t),pending_action:await review(t),downloads:[],...await queueProjection(t),...await safeProjection(t,v,session),server_time:new Date().toISOString()};}
+ async function detail(t:Row,v:Row|null,session:Session){const projection=await safeProjection(t,v,session);const navigation=websiteHooks.navigation?await websiteHooks.navigation({task:t,viewer:v,session}):null;return {task:asTask(t),...metadata(t),active_run_id:t.current_run_id??null,available_controls:[...availableControls(t),...navigationControls(t,navigation)],navigation:navigationProjection(t,navigation),pending_action:await review(t),downloads:[],...await queueProjection(t),...projection,server_time:new Date().toISOString()};}
  function snapshot(t:Row){return {kind:'browser',id:t.id,task_id:t.id,thread_id:t.conversation_id,user_id:t.initiator_user_id,run_id:t.current_run_id??null,revision:String(t.revision),label:t.origins.entries[0]?.origin??'Browser',status:t.state,takeover:!!t.controller_user_id,attention:t.attention==='none'?'none':'needs_you'};}
  async function review(t:Row,objectId?:string|null){const row=await one(`SELECT safe_result->'review' review FROM browser_commands WHERE task_id=$1 AND operation='prepare' AND ($2::text IS NULL OR safe_result->'review'->>'id'=$2) ORDER BY created_at DESC LIMIT 1`,[t.id,objectId??null]);if(row?.review)return ReviewNotice.parse(row.review);if(!objectId)return null;const retained=await one('SELECT id,run_id FROM browser_actions WHERE id=$1 AND task_id=$2',[objectId,t.id]);return retained?ReviewNotice.parse({id:retained.id,task_id:t.id,original_run_id:retained.run_id??t.current_run_id,revision:Number(t.revision),kind:'final_blocked',state:'closed',server_deadline:null,result_code:'BROWSER_PHASE1_READ_ONLY',read_revision:null}):null;}
  async function execute(call:Call):Promise<Row|Response>{const {operation,request,session,context:ctx,flags:effective}=call,b=call.body??{},t=ctx.task!,now=()=>new Date().toISOString();
@@ -141,6 +143,10 @@ export function createWebsiteAdapter({db,controller,key,websiteHooks={}}:{db:Poo
    }
    case 'control':{
     const v=await viewerFor(call);if(Number(t.control_epoch)!==b.expected_epoch)fail('BROWSER_REVIEW_STALE');if(b.action==='give_back'||b.action==='resume'&&t.private)fail('BROWSER_PHASE1_READ_ONLY');
+    if(['back','forward','reload','switch_tab'].includes(b.action)){
+     const p=await transaction(c=>proof(c,ctx,session,'navigation',b,v));
+     await rpc('control',t,v,{proof_id:p.id,body:ControlMessage.parse(b)});return detail((await loadTask(t.id))!,v,session);
+    }
     const {confirmed,...wire}=b;const op=({take_over:'takeover',done:'release',stop:'close'} as Row)[b.action]??b.action;
     const p=await transaction(c=>proof(c,ctx,session,op,b,v,{confirmed:b.confirmed===true}));
     const result=await rpc('control',t,v,{proof_id:p.id,body:ControlMessage.parse(wire)}); // A must execute D's enterPrivate / drain before returning ACK.
@@ -155,7 +161,7 @@ export function createWebsiteAdapter({db,controller,key,websiteHooks={}}:{db:Poo
     if(!equal(t.control_token_hash?.toString('hex'),tokenHash(b.control_token).toString('hex'))||t.controller_user_id!==session.userId||!equal(t.controller_device_hash?.toString('hex'),v.device_hash.toString('hex')))fail('BROWSER_CONTROL_EXPIRED');
     return inputDedupe.run(session.sid+':'+v.id+':'+b.stream_generation,b,async()=>{
      const barrier=await one(`SELECT safe_result FROM browser_web_commands WHERE task_id=$1 AND session_id=$2 AND viewer_id=$3 AND operation='takeover' AND state='succeeded' AND safe_result->>'control_token_hash'=$4 AND safe_result->>'context_generation'=$5 ORDER BY created_at DESC LIMIT 1`,[t.id,session.sid,v.id,tokenHash(b.control_token).toString('hex'),String(t.context_generation)]);
-     authorizeManualInput({task:t,viewer:{id:v.id,web_session_id:session.sid,present_until:epoch(v.visible_until),expires_at:session.exp*1000,consented:v.joined_role==='initiator'||!!v.owner_private_view_authorized_at,session_valid:true,stream_id:v.stream_id,stream_generation:Number(v.stream_generation),last_frame_uuid:v.last_frame_uuid},control:{drained:barrier?.safe_result?.drained===true,context_generation:Number(t.context_generation),control_epoch:Number(t.control_epoch),holder_viewer_id:v.id,web_session_id:session.sid,expires_at:epoch(t.control_expires_at),claimSequence:()=>b.seq>Number(v.input_seq)},frame:{id:b.frame_id,viewer_id:v.id,context_generation:Number(t.context_generation),document_epoch:b.document_epoch,control_epoch:b.control_epoch,stream_id:b.stream_id,stream_generation:b.stream_generation,expires_at:epoch(v.visible_until)},event:b.event,now:Date.now()});
+     authorizeManualInput({task:t,viewer:{id:v.id,task_id:t.id,web_session_id:session.sid,present_until:epoch(v.visible_until),expires_at:session.exp*1000,consented:v.joined_role==='initiator'||!!v.owner_private_view_authorized_at,session_valid:true,stream_id:v.stream_id,stream_generation:Number(v.stream_generation),last_frame_uuid:v.last_frame_uuid},control:{drained:barrier?.safe_result?.drained===true,context_generation:Number(t.context_generation),control_epoch:Number(t.control_epoch),holder_viewer_id:v.id,web_session_id:session.sid,expires_at:epoch(t.control_expires_at),claimSequence:()=>b.seq>Number(v.input_seq)},frame:{id:b.frame_id,task_id:t.id,viewer_id:v.id,context_generation:Number(t.context_generation),document_epoch:b.document_epoch,control_epoch:b.control_epoch,stream_id:b.stream_id,stream_generation:b.stream_generation,expires_at:epoch(v.visible_until)},event:b.event,now:Date.now()});
      const p=await transaction(async c=>{const p=await proof(c,ctx,session,'input',b,v,{control_token_hash:tokenHash(b.control_token).toString('hex')});await repo.browserWebInput(c,{tid:t.id,vid:v.id,frame:b.frame_id,epochs:{control_epoch:b.control_epoch,document_epoch:b.document_epoch,stream_id:b.stream_id,stream_generation:b.stream_generation},seq:b.seq,i:b.idempotency_key,d:p.d});return p;});
      await rpc('manual_input',t,v,{proof_id:p.id,body:ManualInput.parse(b)});return {accepted_seq:b.seq};
     });
@@ -197,7 +203,8 @@ export async function requireBrowserWebRequest(request:Request):Promise<Response
  if(!handler){const key=Buffer.from(process.env.SJC_BROWSER_WEB_RPC_KEY??'','hex'),responseKey=Buffer.from(process.env.SJC_BROWSER_WEB_RESPONSE_KEY??'','hex'),frameKey=Buffer.from(process.env.SJC_BROWSER_FRAME_KEY??'','hex');
   if([key,responseKey,frameKey].some(k=>k.length!==32))return new Response(JSON.stringify({ok:false,code:'BROWSER_DISABLED',message:'BROWSER_DISABLED',retryable:false}),{status:503,headers:{...PRIVATE_HEADERS,'Content-Type':'application/json'}});
   const origin=new URL(process.env.NEXT_PUBLIC_APP_URL??'https://os.sjcarpentryllc.com').origin;
-  handler=createBrowserWebHandler({origin,csrfKey:process.env.SESSION_SECRET,...createWebsiteAdapter({db:pool,controller:new UnixWebController(key,responseKey,frameKey),key})});
+  try{const websiteHooks=await loadWebsiteBridge({db:pool,key});handler=createBrowserWebHandler({origin,csrfKey:process.env.SESSION_SECRET,...createWebsiteAdapter({db:pool,controller:new UnixWebController(key,responseKey,frameKey),key,websiteHooks})});}
+  catch{return new Response(JSON.stringify({ok:false,code:'BROWSER_DISABLED',message:'BROWSER_DISABLED',retryable:false}),{status:503,headers:{...PRIVATE_HEADERS,'Content-Type':'application/json'}});}
  }
  return handler!(request);
 }

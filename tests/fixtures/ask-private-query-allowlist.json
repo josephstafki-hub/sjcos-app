@@ -207,7 +207,7 @@
     "db/migrations/0062_portal_telegram.sql": "85878f8cf90c1ec4731c51ec5cd45ff1409ebc1ef3a5bf9e902394e90780155e",
     "db/migrations/0100_ask_launch_sessions_browser_core.sql": "dd0deca0d6bc5ec0ea573fe6214d62889d238027e5d91a69256d0b4aa2d99f04",
     "db/migrations/0105_ask_thread_ownership.sql": "3a105fc3041b26f3ef73d7796bf7cdf4aff6dae3bfa5df9d4d8e9bcf85311cf3",
-    "db/schema.sql": "c33a0eaa7f488d9ad4759394b3e21f42a3c7f6e989bc64f35771135e2ded461e",
+    "db/schema.sql": "4c1c3bcb459de60f65a25027b23568695186ba13ccd6da6f25d418964bda4819",
     "db/seed-workflow-runbooks.mjs": "8f1b9e05bbb08312b1e81fd90aa1b852ce33b53367880dad4b4f3883281c0a29",
     "db/seed.sql": "fe0fa36f0ade311fe5d64ae7d878e249977ab3f653e29d9b24178dba87745400",
     "db/apply-push-outbox.mjs": "3466c5e4f0dbaecf175fd55c31de18a7a989a8972e399b86bdf05771c5739627",
@@ -258,12 +258,13 @@
     "lib/browser/model-history.mjs": "aea1e1c897ca3dfa1ba17879c46a24f60d3169814e787230dc9cda9901849dd8",
     "lib/browser/repository.mjs": "a63a056bee29897766dca68534b16a413096761ee26f71d872e6af87f1403bbf",
     "lib/browser/root-fixture.mjs": "fff1835c62526e0d71c3a76ddcb6175aa171eb4bcfdba7223b4190998d3b1994",
-    "db/migrations/0115_browser_phase1_runtime.sql": "9a7e396049255ddf718062e76d365f22bcafbf6936eb7daa2c83f8dd185d4017",
-    "lib/browser/web.ts": "cfe16086626749bfc0c629a84b1de226aab883fc146137337c38b00d046bf3bb",
-    "lib/browser/production-bridge.mjs": "1daea4b884eefd44b0e2271cf8b3b16e76b451440396775460bc934c725dc7a5",
+    "db/migrations/0115_browser_phase1_runtime.sql": "dd123ff23c2e061409c478a9947b1553cc0a8975b29f0f752b7940d3925d9f2b",
+    "lib/browser/web.ts": "4ed50804b0d8892f5312ee69ae63aae8b2ed345daf814f2050983061da643a3e",
+    "lib/browser/production-bridge.mjs": "7cfbf77e27b28d853f99d53236de51c5abbd78745de33a1982b83ac687b9ee1e",
     "lib/browser/retention.mjs": "d10c521ee6b6ed78494aff0237d9f821c582a8418155341282c71eb940d4466e",
     "lib/browser/web-transport.mjs": "73a57a0ac06daecc07913a0c0a1e217c9af1c6556f295541ca39ab44643ea1a5",
-    "lib/browser/production-browser.mjs": "9cefe7229ea4d63090ec3d35912009bf3bda2e30359b17bc45c87175cce4a8ff"
+    "lib/browser/production-browser.mjs": "a90420be71ecb4de91cce31f2be5a607db840013e07fc60701e42f1e89d1cab1",
+    "lib/browser/record-projections.mjs": "6eaf8f982dd650e61dfbfb49f0b371462a7e2c1019b94b4be94bfa01eb87b5bd"
   },
   "entries": [
     {
@@ -7394,7 +7395,7 @@
       "reason": "fenced-by-helper",
       "explanation": "A2a extension of the sole unapplied Phase1 migration: website-only pending candidate revisions/exact-set publication and monotonic model budget; exclusive viewer+device+epoch control heartbeat; narrowly bounded terminal retention exceptions. Definers use protected search_path, revoke PUBLIC/narrow candidate/budget EXECUTE, never broaden table grants or approvals. Existing read consume requires independent ACK.",
       "queries": [
-        "9a7e396049255ddf718062e76d365f22bcafbf6936eb7daa2c83f8dd185d4017"
+        "dd123ff23c2e061409c478a9947b1553cc0a8975b29f0f752b7940d3925d9f2b"
       ]
     },
     {
@@ -7404,7 +7405,50 @@
       "reason": "fenced-by-helper",
       "explanation": "Phase1 baseline payload tombstone and per-run cumulative budget columns only; 0115 supplies definer/guard/LOGIN integration. Does not grant any authority or enable flags.",
       "queries": [
-        "c33a0eaa7f488d9ad4759394b3e21f42a3c7f6e989bc64f35771135e2ded461e"
+        "4c1c3bcb459de60f65a25027b23568695186ba13ccd6da6f25d418964bda4819"
+      ]
+    },
+    {
+      "file": "lib/browser/record-projections.mjs",
+      "function": "read",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "A3a explicit task-bound confirmed projection; real sjcos_agent business reads only. Private questions use separately checked actual owner transaction with actor, immutable Browser run/task/conversation/initiator association and fresh authorization before/after delivery. No private Ask raw read through a narrow login. Internal denial values never enter model outputs.",
+      "queries": [
+        "cdfffcfc2fbbce312be409772c3016930245d25a5086b58df7751a3e4016e8e6"
+      ]
+    },
+    {
+      "file": "lib/browser/record-projections.mjs",
+      "function": "workItem",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "A3a explicit task-bound confirmed projection; real sjcos_agent business reads only. Private questions use separately checked actual owner transaction with actor, immutable Browser run/task/conversation/initiator association and fresh authorization before/after delivery. No private Ask raw read through a narrow login. Internal denial values never enter model outputs.",
+      "queries": [
+        "631d40841e1a533ce9b73f1a7553e055fc0c808223e64284ba38c40640c97d0a"
+      ]
+    },
+    {
+      "file": "lib/browser/record-projections.mjs",
+      "function": "scoped",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "A3a explicit task-bound confirmed projection; real sjcos_agent business reads only. Private questions use separately checked actual owner transaction with actor, immutable Browser run/task/conversation/initiator association and fresh authorization before/after delivery. No private Ask raw read through a narrow login. Internal denial values never enter model outputs.",
+      "queries": [
+        "48f7f2953c76127719ea03eb91eeea706857a17c3f5559829f183dda80a70623",
+        "421f046794a9b5fedcc4bbcd5292c97d95d847a7065df3843bcbd4e7d37593f7"
+      ]
+    },
+    {
+      "file": "lib/browser/record-projections.mjs",
+      "function": "question",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "A3a explicit task-bound confirmed projection; real sjcos_agent business reads only. Private questions use separately checked actual owner transaction with actor, immutable Browser run/task/conversation/initiator association and fresh authorization before/after delivery. No private Ask raw read through a narrow login. Internal denial values never enter model outputs.",
+      "queries": [
+        "72b8ce8d6984e5b7b09fe98216a3d06edf86aa3c05f5301c757c610826c2517f",
+        "668838894e66d3e92cea6be60b5e7c11fcc2f4339d45d0e5d46df4e490f49566",
+        "765dd8a9bbd0616b1d2a260375417709fa75c8598f20baddb8b84167e95cb5fb"
       ]
     }
   ]

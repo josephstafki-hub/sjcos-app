@@ -15,6 +15,7 @@ if(process.argv.length===3&&process.argv[2]==='--mcp-peer-relay'){
  try{
   if(process.getuid()===0||process.argv.length!==2)throw Error();
   const {adapter,config}=await loadProductionBootstrap(),deps=await adapter.serviceDependencies(config);
+  for(const k of ['boot','tick','shutdown','beforeEffect'])if(typeof deps.io?.checkpoints?.[k]!=='function')throw Error('BROWSER_BOOTSTRAP_REFUSED');
   client=await strictStartup('controller',deps.database);
   service=new BrowserService({io:{...deps.io,hooks:await phase1Hooks()}});
   await deps.verifyReadiness();await deps.verifyAccounting();await service.start();

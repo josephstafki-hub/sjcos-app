@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "note": "Manually reviewed privacy inventory. Query and full source hashes require explicit review on changes. No file-wide query wildcard. not-private entries explain business metadata/aggregate/conservative non-SQL matches. R3 includes shared reply fan-out/status columns, runtime execution/trigger/receipt carriers and all browser_* schema carriers. Removed storage is distinct from per-person private storage; a green scanner is only a reviewed-source change detector. R4 explicitly inventories push_outbox producers/persistence/drain and immutable erasure; private_ask_push_sources stores only opaque associations. Merge audit: phone messages/actions/devices, SMS/phone lines and non-SQL APNs/phone serializers are explicitly inventoried; private Ask phone copies are fixed status under 0112, business-line summaries are explicit communications. Round 1 getIn review: floor can_edit comes only from readFloorCanvas.canEdit (missing means false); all existing load/current-person/owned-thread/current-scope/availability fences remain before serialization. No query changes. Browser A1: explicit owned-source/history and A0 catalog audit refreshed; B web SQL remains a separate integration review. B website query census reviewed at the current source snapshot; coordinator must refresh after subsequent fixes.",
+  "note": "Manually reviewed privacy inventory. Query and full source hashes require explicit review on changes. No file-wide query wildcard. not-private entries explain business metadata/aggregate/conservative non-SQL matches. R3 includes shared reply fan-out/status columns, runtime execution/trigger/receipt carriers and all browser_* schema carriers. Removed storage is distinct from per-person private storage; a green scanner is only a reviewed-source change detector. R4 explicitly inventories push_outbox producers/persistence/drain and immutable erasure; private_ask_push_sources stores only opaque associations. Merge audit: phone messages/actions/devices, SMS/phone lines and non-SQL APNs/phone serializers are explicitly inventoried; private Ask phone copies are fixed status under 0112, business-line summaries are explicit communications. Round 1 getIn review: floor can_edit comes only from readFloorCanvas.canEdit (missing means false); all existing load/current-person/owned-thread/current-scope/availability fences remain before serialization. No query changes. Browser A1: explicit owned-source/history and A0 catalog audit refreshed; B web SQL remains a separate integration review. B website query census reviewed at the current source snapshot; coordinator must refresh after subsequent fixes. A2a snapshot audit: guarded launch/retention/candidate/budget SQL and B2 paging/projection/answer-source changes reviewed explicitly; runtime extraction match classified as static non-SQL. No wildcard or removed guard.",
   "sources": {
     "lib/accounting/qbo/https.ts": "afb9c1021ccce50aa049de389b602e14d114283ef9748cde733d7d49374725e1",
     "lib/actions/ai-chat.ts": "3fc8090bfa56e326ddd0a99b9b282a9288a94599b00d7f5883450a329c439778",
@@ -207,7 +207,7 @@
     "db/migrations/0062_portal_telegram.sql": "85878f8cf90c1ec4731c51ec5cd45ff1409ebc1ef3a5bf9e902394e90780155e",
     "db/migrations/0100_ask_launch_sessions_browser_core.sql": "dd0deca0d6bc5ec0ea573fe6214d62889d238027e5d91a69256d0b4aa2d99f04",
     "db/migrations/0105_ask_thread_ownership.sql": "3a105fc3041b26f3ef73d7796bf7cdf4aff6dae3bfa5df9d4d8e9bcf85311cf3",
-    "db/schema.sql": "7818232f2f060f9f70e71e3cd6bd4b7bf7500491b6ccffe896728562915d878a",
+    "db/schema.sql": "c33a0eaa7f488d9ad4759394b3e21f42a3c7f6e989bc64f35771135e2ded461e",
     "db/seed-workflow-runbooks.mjs": "8f1b9e05bbb08312b1e81fd90aa1b852ce33b53367880dad4b4f3883281c0a29",
     "db/seed.sql": "fe0fa36f0ade311fe5d64ae7d878e249977ab3f653e29d9b24178dba87745400",
     "db/apply-push-outbox.mjs": "3466c5e4f0dbaecf175fd55c31de18a7a989a8972e399b86bdf05771c5739627",
@@ -256,10 +256,14 @@
     "db/migrations/0103_browser_file_provenance.sql": "d11dc01762025309fa978b790ae3687f9837cda11ec666d0f141209fd81cc02c",
     "db/migrations/0104_browser_rollout_catalog.sql": "933d805150678178e9e37c0dcfca13b1c5df5ac7dcd603da9a013daba8ada691",
     "lib/browser/model-history.mjs": "aea1e1c897ca3dfa1ba17879c46a24f60d3169814e787230dc9cda9901849dd8",
-    "lib/browser/repository.mjs": "0332921da517b6ed374712d567cabd839dd6228d4e6e094abc521577d80e9fc0",
+    "lib/browser/repository.mjs": "a63a056bee29897766dca68534b16a413096761ee26f71d872e6af87f1403bbf",
     "lib/browser/root-fixture.mjs": "fff1835c62526e0d71c3a76ddcb6175aa171eb4bcfdba7223b4190998d3b1994",
-    "db/migrations/0115_browser_phase1_runtime.sql": "df89cc47067a829cf383972dbce855e04c60a3dec5f7a71c8d731e4952ff6034",
-    "lib/browser/web.ts": "871394feb60dc51212b046dbdfca7045ed0ba1b86fd753c5c42aec41c5b787a6"
+    "db/migrations/0115_browser_phase1_runtime.sql": "9a7e396049255ddf718062e76d365f22bcafbf6936eb7daa2c83f8dd185d4017",
+    "lib/browser/web.ts": "cfe16086626749bfc0c629a84b1de226aab883fc146137337c38b00d046bf3bb",
+    "lib/browser/production-bridge.mjs": "1daea4b884eefd44b0e2271cf8b3b16e76b451440396775460bc934c725dc7a5",
+    "lib/browser/retention.mjs": "d10c521ee6b6ed78494aff0237d9f821c582a8418155341282c71eb940d4466e",
+    "lib/browser/web-transport.mjs": "73a57a0ac06daecc07913a0c0a1e217c9af1c6556f295541ca39ab44643ea1a5",
+    "lib/browser/production-browser.mjs": "9cefe7229ea4d63090ec3d35912009bf3bda2e30359b17bc45c87175cce4a8ff"
   },
   "entries": [
     {
@@ -5158,7 +5162,7 @@
       "function": "mutation",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain. Phase 2 review: page preview and exports repeat source validation; source/code flag is separate from preview; immutable Save keeps existing audience and provenance checks. QA seeding remains restricted to explicit sjcos_qa_* databases. Phase 3: floor_plan no-op path updates only the caller’s own canvas policy and records an unchanged request inside the same fenced mutation transaction.",
+      "explanation": "R1 server audit: failed admitted mutations reauthorize under journal/global/thread locks before persisting only the fixed refusal reason; success clears it. Existing private own-thread/area/run/session predicates remain. Phase 2 review: page preview and exports repeat source validation; source/code flag is separate from preview; immutable Save keeps existing audience and provenance checks. QA seeding remains restricted to explicit sjcos_qa_* databases. Phase 3: floor_plan no-op path updates only the caller\u2019s own canvas policy and records an unchanged request inside the same fenced mutation transaction.",
       "queries": [
         "652106ad89a8c5e2f0ca781f1bcf86820ee9d38a7df6bb3a0ba1d9ca29ec5c01",
         "7ee1761e152bbeb99bdc3a1d5d303c8394ffdd45308db5a142663b4d7fb70c8e",
@@ -6431,7 +6435,7 @@
       "function": "availability",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Owner Canvas transaction supplies current person, owned live thread, admitted run and current area checks (readFloorCanvas also rechecks canvas owner, design scope and areas); deletion preflight returns links only when every reference is the caller’s own live canvas with current areas, otherwise a fixed generic refusal. Floor MCP uses captured currentPrincipal and rereads active area permissions.",
+      "explanation": "Owner Canvas transaction supplies current person, owned live thread, admitted run and current area checks (readFloorCanvas also rechecks canvas owner, design scope and areas); deletion preflight returns links only when every reference is the caller\u2019s own live canvas with current areas, otherwise a fixed generic refusal. Floor MCP uses captured currentPrincipal and rereads active area permissions.",
       "queries": [
         "271146abab64d78b6c03b97d39856699b6568ed6e50e42940cf93c812233ee80"
       ]
@@ -6650,40 +6654,6 @@
       "explanation": "Explicit caller-owned client only. Model filtering excludes unknown and cross-task provenance. Tainted ordinary conversation only returns a boolean. Website-only tagged insert is additionally checked by immutable task/thread/run SQL trigger; narrow service/agent cannot tag.",
       "queries": [
         "acf68fdbcc3e41eb7cf9543c15e6a37cb1453732dd185a2219a3ed4211275e37"
-      ]
-    },
-    {
-      "file": "lib/browser/repository.mjs",
-      "function": "<module>",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Strict A0 argument/result schemas and parameterized calls to explicit function-only SQL catalog. No default DB or authority inferred from IDs; each SQL function rechecks session_user and persisted proof.",
-      "queries": [
-        "c40155e342c3b92d035dba85498daacf6aeec7164a0b8340d683ee906bcf5eaa",
-        "b537a201655b094c0d587868b3a1d68a6394352f53c6948f622622760f4aee5d",
-        "f19ba859d075172638c8b25e5c9e53e460d92cf60d84d252d481913b63ae7c9a",
-        "4186d2efdaac023c56345efe9f9383e574d00c39d284a78862fd258684089ea3",
-        "244db5859668983a6c03914d408ef5292ee916392b1511f6d278324ce8ffa5e1",
-        "3311755164736cee90a7b03ef666a7b50cf4e468778c5ca00ad84c9733f7f325",
-        "fc007609e1e907f346f6b388e1a44bcf68cc8acb707a1755a84996c874caf3c1",
-        "0bff15ea87f755e541459a43d84d0f0ded4125b297edc8e941741c162cca66e4",
-        "f551c5642402d8cbd8b5f00d4e0f3718d879157280ab165bf508bb251539d551",
-        "8b7151d95418eb3460bf8e7d06146a7464af5010365cca8e328d2ba3e9a8ce12",
-        "b32fd1858d6aca3472b622087217f1e30aa2bc87e677be4df2770932c57aa960",
-        "6b09ad5a80c69de7034fd9fb1aa93d4e94ac96a0dfe49752cfcf0f5bfaa0f15d",
-        "ae5890b33089a351285daade17e5bf3ad7497c621a5a6cd497fb58f45d918eb5",
-        "a0c48d56b8c6e4863407085bc3748df84fccebadb381c7ba8e8217eac8cf0ab2",
-        "aa14bfa92efbc44143926123d4412eacf48fde29ae734f3ce4137e18646c784a",
-        "cb9686bbceb9f07314e86fa5d33329aad919a8624233ed02c654cf40b7d4efea",
-        "c33705fe3110303869faeeda8cf0eedd7720c72dcdb1dd072c1bd99adde4a2a9",
-        "231ca0ea5fb4421637cf1ac934b0d57545bfa8cc5f92a6ba7ae58d348d319200",
-        "b2f5d8d1b1d24bb90d31275d8c1b5db2ac142e49793daf8fc35a418f2077be5a",
-        "63fc59b7a4296a20feba94480abb9852f1d825e30e0a5a18d8b94c16f33486d3",
-        "bc8c865afc232296d6428b5143b7479666d648855792d7b1c594db7301b9e5ea",
-        "a52380451e8b7be628f7db80add8862d02c52af9c02ba6fca056bda91b462cd2",
-        "3ff411522e2bc96dbc5341f0ea3a10b687f85b422c2acb064dd31241105bdf5a",
-        "e886e70d6c300e2826a8d2461a3d727ffbe16f8aa26a103b88e9510afc6fc2fa",
-        "0c303c8df8a2921c04a426c77a33e3ff38c3b9cc3518bde595fbf2fe5515f6d2"
       ]
     },
     {
@@ -7182,23 +7152,103 @@
       ]
     },
     {
-      "file": "db/migrations/0115_browser_phase1_runtime.sql",
-      "function": "<sql>",
+      "file": "lib/browser/production-bridge.mjs",
+      "function": "transactionTask",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "A0 single migration adds definer catalog, strict session_user website/service boundary, immutable task/run/message trust, one-use read consumption and separate verified checkpoint. No production keys/approval grants in SQL. Actual-login and upgrade/replay gates passed.",
+      "explanation": "A2a trusted website launch/projection only: explicit owner transactions; fresh task + browser_p1_viewer session/role/record checks, fixed Browser/panel_web run, short purpose-HMAC proof, guarded catalog attach and capability. Compensating failure revokes task runs; owner label from configured active owner ID. No callback or DSN from route/model input. Runtime and public facts hooks are protected installation adapters; absent refuses.",
       "queries": [
-        "df89cc47067a829cf383972dbce855e04c60a3dec5f7a71c8d731e4952ff6034"
+        "e2f7cd682c0ac0e8e0c254a3b5f55756b79ba171fe830128f2bef20f400a79e5",
+        "6f496a643fcd77b5a3b7a981f618d314b304d0f1436c13fa42c4df93cfb0c1c3"
       ]
     },
     {
-      "file": "db/schema.sql",
-      "function": "<sql>",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Canonical A0 schema mirrors migration 0115 including explicit protected function grants and provenance guards; schema snapshot is deployment/harness input, not model-visible data.",
+      "file": "lib/browser/production-bridge.mjs",
+      "function": "proof",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "A2a trusted website launch/projection only: explicit owner transactions; fresh task + browser_p1_viewer session/role/record checks, fixed Browser/panel_web run, short purpose-HMAC proof, guarded catalog attach and capability. Compensating failure revokes task runs; owner label from configured active owner ID. No callback or DSN from route/model input. Runtime and public facts hooks are protected installation adapters; absent refuses.",
       "queries": [
-        "7818232f2f060f9f70e71e3cd6bd4b7bf7500491b6ccffe896728562915d878a"
+        "fa40e5792726aa15daa44dac36eb9233ba54cbce0e9ead5895d597f9fdb39dd5"
+      ]
+    },
+    {
+      "file": "lib/browser/production-bridge.mjs",
+      "function": "createWebsiteStart",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "A2a trusted website launch/projection only: explicit owner transactions; fresh task + browser_p1_viewer session/role/record checks, fixed Browser/panel_web run, short purpose-HMAC proof, guarded catalog attach and capability. Compensating failure revokes task runs; owner label from configured active owner ID. No callback or DSN from route/model input. Runtime and public facts hooks are protected installation adapters; absent refuses.",
+      "queries": [
+        "a9a07d54909083aa714d52dbf7dc157adbeecce088747ab45c993c611438343e",
+        "e2f7cd682c0ac0e8e0c254a3b5f55756b79ba171fe830128f2bef20f400a79e5",
+        "23d8adc9a200b02b49cd03341dc87ee645d6113410b39cc3df5d6bb3fc9a577e",
+        "2ed1c7b59a724cd07310825def7e9cae770856cd3423df6bbd35956225029dbb"
+      ]
+    },
+    {
+      "file": "lib/browser/production-bridge.mjs",
+      "function": "createWebsiteProjection",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "A2a trusted website launch/projection only: explicit owner transactions; fresh task + browser_p1_viewer session/role/record checks, fixed Browser/panel_web run, short purpose-HMAC proof, guarded catalog attach and capability. Compensating failure revokes task runs; owner label from configured active owner ID. No callback or DSN from route/model input. Runtime and public facts hooks are protected installation adapters; absent refuses.",
+      "queries": [
+        "d02df7f0417a9581ba3343f1edafaf5b582de2d3ca06e62f785654600e8dd0ec",
+        "db23e8056a70e3ed6355a3dfd1b06dca15587365e11c810c2880d922ad146975",
+        "39891d92fd745d2dde900258b480eadb507b057af95d5a2de62dd2fa5111f500"
+      ]
+    },
+    {
+      "file": "lib/browser/retention.mjs",
+      "function": "runBrowserRetention",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "A2a owner-only retention transaction checks actual session_user=current_user=table owner before SQL, bounded task locks; payload scrub only terminal tasks older than 30d, preserves evidence/digests. Pending expiry grants no authority. Claims expire+24h; app_settings delete only expired verifier attestations. Durable journal tombstone/invalidate/purge precede committed completion; no Ask deletion or broad narrow grant.",
+      "queries": [
+        "3a6aea0b87ac55d45f6dd27ab1f0f9114d63177a0c455cbf46ae147d611451db",
+        "af52dc15696822d29783803a53dc219323952b8cd144691c6a3d2a2b109d2d34",
+        "2e791b2c21b3fd46681871e28652a15b30600e17de55775ac0a329b1ddf85213",
+        "935430ee6360c67c6667c2e1126c131cd62af72d4f703ca77e2a02028323c8cf",
+        "4dc913e460133011bfded1d20c29bc6157bb88ab4e4e9b64a6f52ded505f9c5b",
+        "4cbb7b51cf74862ffa07a589c9d64d885f33791309671bf7fc9b8cfc96f58622",
+        "6a36d3609bf5ce9d6278ea2248a95458b77fe3cca4cc517e93804b13f1eb7daa",
+        "21885ba79ac14c23e28a7a6978717d416529c9984ffb0d7620808e3829cf7b55",
+        "c2239a2f2b6f4f4948c45767739354c18ed92b26f4e748cc2d24c4fd0454807e"
+      ]
+    },
+    {
+      "file": "lib/browser/repository.mjs",
+      "function": "<module>",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Strict parameterized function-only catalog on explicit client; website-only pending candidate staging and cumulative budget wrappers added, strict outputs. SQL rechecks actual login/current session/task/proof; no default pool, grant or implicit approval.",
+      "queries": [
+        "c40155e342c3b92d035dba85498daacf6aeec7164a0b8340d683ee906bcf5eaa",
+        "b537a201655b094c0d587868b3a1d68a6394352f53c6948f622622760f4aee5d",
+        "f19ba859d075172638c8b25e5c9e53e460d92cf60d84d252d481913b63ae7c9a",
+        "4186d2efdaac023c56345efe9f9383e574d00c39d284a78862fd258684089ea3",
+        "244db5859668983a6c03914d408ef5292ee916392b1511f6d278324ce8ffa5e1",
+        "3311755164736cee90a7b03ef666a7b50cf4e468778c5ca00ad84c9733f7f325",
+        "fc007609e1e907f346f6b388e1a44bcf68cc8acb707a1755a84996c874caf3c1",
+        "cbc7df9ee126da24c650b5baaef592a1eb9447610ce301398c2fe663d5797047",
+        "a22259f42e52e31d645cfa83839fd7684bf5c6ffd13a8feca12e3c618adeb73a",
+        "0bff15ea87f755e541459a43d84d0f0ded4125b297edc8e941741c162cca66e4",
+        "f551c5642402d8cbd8b5f00d4e0f3718d879157280ab165bf508bb251539d551",
+        "8b7151d95418eb3460bf8e7d06146a7464af5010365cca8e328d2ba3e9a8ce12",
+        "b32fd1858d6aca3472b622087217f1e30aa2bc87e677be4df2770932c57aa960",
+        "6b09ad5a80c69de7034fd9fb1aa93d4e94ac96a0dfe49752cfcf0f5bfaa0f15d",
+        "ae5890b33089a351285daade17e5bf3ad7497c621a5a6cd497fb58f45d918eb5",
+        "a0c48d56b8c6e4863407085bc3748df84fccebadb381c7ba8e8217eac8cf0ab2",
+        "aa14bfa92efbc44143926123d4412eacf48fde29ae734f3ce4137e18646c784a",
+        "cb9686bbceb9f07314e86fa5d33329aad919a8624233ed02c654cf40b7d4efea",
+        "c33705fe3110303869faeeda8cf0eedd7720c72dcdb1dd072c1bd99adde4a2a9",
+        "231ca0ea5fb4421637cf1ac934b0d57545bfa8cc5f92a6ba7ae58d348d319200",
+        "b2f5d8d1b1d24bb90d31275d8c1b5db2ac142e49793daf8fc35a418f2077be5a",
+        "63fc59b7a4296a20feba94480abb9852f1d825e30e0a5a18d8b94c16f33486d3",
+        "bc8c865afc232296d6428b5143b7479666d648855792d7b1c594db7301b9e5ea",
+        "a52380451e8b7be628f7db80add8862d02c52af9c02ba6fca056bda91b462cd2",
+        "3ff411522e2bc96dbc5341f0ea3a10b687f85b422c2acb064dd31241105bdf5a",
+        "e886e70d6c300e2826a8d2461a3d727ffbe16f8aa26a103b88e9510afc6fc2fa",
+        "0c303c8df8a2921c04a426c77a33e3ff38c3b9cc3518bde595fbf2fe5515f6d2"
       ]
     },
     {
@@ -7206,7 +7256,7 @@
       "function": "loadTask",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Phase 1 B website SQL reviewed for this source snapshot: current cookie/sid and active user precede route handling; authorize gates own task or explicit session-bound owner claim plus areas/record/thread. Internal task/viewer rows are projected before response, public URLs and confirmed answers remain human-only. Proof creation binds task/session/viewer/HMAC with five-second expiry in the mutation transaction; service calls use scoped catalog. Stream freshness rechecks task/privacy/stream epochs and session. Owner-only in-use/settings do not expose staff thread bodies. This inventory is a source-change detector, not runtime readiness; unfinished admission/classifier/input integration and answer source column defect are recorded in A handoff.",
+      "explanation": "B2 website cookie/uncached person+task/areas/record/claim checks before every route; strict body CSRF+proof; same-transaction SQL mutations; authenticated stream/frame/session/epoch checks. Task classification and public facts/start require trusted hooks (no default caller label). Pending candidates human-only; no executable action. Queue projection returns own position; fixed status and owner-only In use. Source review is snapshot-specific; integration callbacks still required.",
       "queries": [
         "f817378366ae646840cbb7d81354763653f44607981005c831340010c3c8e316"
       ]
@@ -7216,7 +7266,7 @@
       "function": "ownThread",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Phase 1 B website SQL reviewed for this source snapshot: current cookie/sid and active user precede route handling; authorize gates own task or explicit session-bound owner claim plus areas/record/thread. Internal task/viewer rows are projected before response, public URLs and confirmed answers remain human-only. Proof creation binds task/session/viewer/HMAC with five-second expiry in the mutation transaction; service calls use scoped catalog. Stream freshness rechecks task/privacy/stream epochs and session. Owner-only in-use/settings do not expose staff thread bodies. This inventory is a source-change detector, not runtime readiness; unfinished admission/classifier/input integration and answer source column defect are recorded in A handoff.",
+      "explanation": "B2 website cookie/uncached person+task/areas/record/claim checks before every route; strict body CSRF+proof; same-transaction SQL mutations; authenticated stream/frame/session/epoch checks. Task classification and public facts/start require trusted hooks (no default caller label). Pending candidates human-only; no executable action. Queue projection returns own position; fixed status and owner-only In use. Source review is snapshot-specific; integration callbacks still required.",
       "queries": [
         "66cfcf228a268d5aad2faaa08daff06a57f36f8da2e41536827004729bbf7782"
       ]
@@ -7226,7 +7276,7 @@
       "function": "authorize",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Phase 1 B website SQL reviewed for this source snapshot: current cookie/sid and active user precede route handling; authorize gates own task or explicit session-bound owner claim plus areas/record/thread. Internal task/viewer rows are projected before response, public URLs and confirmed answers remain human-only. Proof creation binds task/session/viewer/HMAC with five-second expiry in the mutation transaction; service calls use scoped catalog. Stream freshness rechecks task/privacy/stream epochs and session. Owner-only in-use/settings do not expose staff thread bodies. This inventory is a source-change detector, not runtime readiness; unfinished admission/classifier/input integration and answer source column defect are recorded in A handoff.",
+      "explanation": "B2 website cookie/uncached person+task/areas/record/claim checks before every route; strict body CSRF+proof; same-transaction SQL mutations; authenticated stream/frame/session/epoch checks. Task classification and public facts/start require trusted hooks (no default caller label). Pending candidates human-only; no executable action. Queue projection returns own position; fixed status and owner-only In use. Source review is snapshot-specific; integration callbacks still required.",
       "queries": [
         "5347720c6579a338791dadd8dac8d836432fd57e68e28763faf205c7b36f0ab0",
         "af8b3775de3abdb525c95363b26d5d848276df4ac311846d42902d82cc43fe6f"
@@ -7237,7 +7287,7 @@
       "function": "loadViewer",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Phase 1 B website SQL reviewed for this source snapshot: current cookie/sid and active user precede route handling; authorize gates own task or explicit session-bound owner claim plus areas/record/thread. Internal task/viewer rows are projected before response, public URLs and confirmed answers remain human-only. Proof creation binds task/session/viewer/HMAC with five-second expiry in the mutation transaction; service calls use scoped catalog. Stream freshness rechecks task/privacy/stream epochs and session. Owner-only in-use/settings do not expose staff thread bodies. This inventory is a source-change detector, not runtime readiness; unfinished admission/classifier/input integration and answer source column defect are recorded in A handoff.",
+      "explanation": "B2 website cookie/uncached person+task/areas/record/claim checks before every route; strict body CSRF+proof; same-transaction SQL mutations; authenticated stream/frame/session/epoch checks. Task classification and public facts/start require trusted hooks (no default caller label). Pending candidates human-only; no executable action. Queue projection returns own position; fixed status and owner-only In use. Source review is snapshot-specific; integration callbacks still required.",
       "queries": [
         "165a6d6c66d0c39452f6f070d5441f74f5865822ca37a4081129770eb3cabf4f"
       ]
@@ -7247,7 +7297,7 @@
       "function": "proof",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Phase 1 B website SQL reviewed for this source snapshot: current cookie/sid and active user precede route handling; authorize gates own task or explicit session-bound owner claim plus areas/record/thread. Internal task/viewer rows are projected before response, public URLs and confirmed answers remain human-only. Proof creation binds task/session/viewer/HMAC with five-second expiry in the mutation transaction; service calls use scoped catalog. Stream freshness rechecks task/privacy/stream epochs and session. Owner-only in-use/settings do not expose staff thread bodies. This inventory is a source-change detector, not runtime readiness; unfinished admission/classifier/input integration and answer source column defect are recorded in A handoff.",
+      "explanation": "B2 website cookie/uncached person+task/areas/record/claim checks before every route; strict body CSRF+proof; same-transaction SQL mutations; authenticated stream/frame/session/epoch checks. Task classification and public facts/start require trusted hooks (no default caller label). Pending candidates human-only; no executable action. Queue projection returns own position; fixed status and owner-only In use. Source review is snapshot-specific; integration callbacks still required.",
       "queries": [
         "38fbb5c91c653885637a6f4d923343165c8b8117fb2c3f041ec2724adfa9e73f",
         "e226dc72a3842ddf53c74bf6974fcf0d42f79a870c400561d6005c1b83c7b226",
@@ -7259,9 +7309,19 @@
       "function": "currentManifest",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Phase 1 B website SQL reviewed for this source snapshot: current cookie/sid and active user precede route handling; authorize gates own task or explicit session-bound owner claim plus areas/record/thread. Internal task/viewer rows are projected before response, public URLs and confirmed answers remain human-only. Proof creation binds task/session/viewer/HMAC with five-second expiry in the mutation transaction; service calls use scoped catalog. Stream freshness rechecks task/privacy/stream epochs and session. Owner-only in-use/settings do not expose staff thread bodies. This inventory is a source-change detector, not runtime readiness; unfinished admission/classifier/input integration and answer source column defect are recorded in A handoff.",
+      "explanation": "B2 website cookie/uncached person+task/areas/record/claim checks before every route; strict body CSRF+proof; same-transaction SQL mutations; authenticated stream/frame/session/epoch checks. Task classification and public facts/start require trusted hooks (no default caller label). Pending candidates human-only; no executable action. Queue projection returns own position; fixed status and owner-only In use. Source review is snapshot-specific; integration callbacks still required.",
       "queries": [
-        "5ce36780031473292e59e93c795c25d03e50a9ef2ddb81fdf5cf5ce10a6650ff"
+        "31246915d8fbae0d1a8654a1ab8d1bbf0cc9a210ef6b550357c875b370a307a5"
+      ]
+    },
+    {
+      "file": "lib/browser/web.ts",
+      "function": "queueProjection",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "B2 website cookie/uncached person+task/areas/record/claim checks before every route; strict body CSRF+proof; same-transaction SQL mutations; authenticated stream/frame/session/epoch checks. Task classification and public facts/start require trusted hooks (no default caller label). Pending candidates human-only; no executable action. Queue projection returns own position; fixed status and owner-only In use. Source review is snapshot-specific; integration callbacks still required.",
+      "queries": [
+        "b72d61cd8b92e97b9ad5bfa9db86932498b7331f4a2f75ea6c30f5f3ffcdafa9"
       ]
     },
     {
@@ -7269,7 +7329,7 @@
       "function": "review",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Phase 1 B website SQL reviewed for this source snapshot: current cookie/sid and active user precede route handling; authorize gates own task or explicit session-bound owner claim plus areas/record/thread. Internal task/viewer rows are projected before response, public URLs and confirmed answers remain human-only. Proof creation binds task/session/viewer/HMAC with five-second expiry in the mutation transaction; service calls use scoped catalog. Stream freshness rechecks task/privacy/stream epochs and session. Owner-only in-use/settings do not expose staff thread bodies. This inventory is a source-change detector, not runtime readiness; unfinished admission/classifier/input integration and answer source column defect are recorded in A handoff.",
+      "explanation": "B2 website cookie/uncached person+task/areas/record/claim checks before every route; strict body CSRF+proof; same-transaction SQL mutations; authenticated stream/frame/session/epoch checks. Task classification and public facts/start require trusted hooks (no default caller label). Pending candidates human-only; no executable action. Queue projection returns own position; fixed status and owner-only In use. Source review is snapshot-specific; integration callbacks still required.",
       "queries": [
         "12f9a736f54704bb8f055b7719459fb6f65902f3a111aff0a894ea0bd06b475f",
         "2246aa9c6feac74c105655465688548d29d8e740f5ebbcc09f505a10d2b0ec7b"
@@ -7280,14 +7340,14 @@
       "function": "execute",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Phase 1 B website SQL reviewed for this source snapshot: current cookie/sid and active user precede route handling; authorize gates own task or explicit session-bound owner claim plus areas/record/thread. Internal task/viewer rows are projected before response, public URLs and confirmed answers remain human-only. Proof creation binds task/session/viewer/HMAC with five-second expiry in the mutation transaction; service calls use scoped catalog. Stream freshness rechecks task/privacy/stream epochs and session. Owner-only in-use/settings do not expose staff thread bodies. This inventory is a source-change detector, not runtime readiness; unfinished admission/classifier/input integration and answer source column defect are recorded in A handoff.",
+      "explanation": "B2 website cookie/uncached person+task/areas/record/claim checks before every route; strict body CSRF+proof; same-transaction SQL mutations; authenticated stream/frame/session/epoch checks. Task classification and public facts/start require trusted hooks (no default caller label). Pending candidates human-only; no executable action. Queue projection returns own position; fixed status and owner-only In use. Source review is snapshot-specific; integration callbacks still required.",
       "queries": [
         "0167ef9da2c8db7c4f0c9203b5a2e14ab0dd3f0f7046dfcd37d86df70eacd7ae",
         "dddfdd2d8938bda475c9920b7c0fa98d006205995b5e7e0dc939fcd79c741a4a",
+        "b666a504ac154f7f9afff7070687fe633987503b2908c9b935e25b94f0432208",
         "34a3fcedb88f18d9818a01e23f83dfce1a22e93044d79374416bf1fd0b55673f",
-        "70d57aff22d2662680db5a6c322356a38dbc6c867cdbc6f9d58f578d0c6b7c5c",
+        "dea03c641af7dbb4edae821bdff90a2df9323633ab9e20a7f5de400f35741e0a",
         "e2f7cd682c0ac0e8e0c254a3b5f55756b79ba171fe830128f2bef20f400a79e5",
-        "cd3e058f3fcc342e3de73382c7191c974474de0218bc8297915e3a154a4e7ddc",
         "08ef275a04e10601eb62eaab0178568b090a78e568b7b59c2115930166830575",
         "16c7c6c0e355834c24a27268f27321384dbd812b83290d3d69b4e997f55a71af",
         "937a269c22dbc680663022bcaf1fe36f580c10b188b13d2a319afb6d29dbf654",
@@ -7295,6 +7355,56 @@
         "c5656a0094713fb6b92a3e4041c38047c5993387a3b4668b7a72838b63f7d831",
         "58c98c1d2789847181efe7269b540d7e0b2021b74f2a5840364da9e3b900c45d",
         "457983fd8b16b86c1c44300802b47ea894285a2fe9d6c55607e5dddd16e1a6c7"
+      ]
+    },
+    {
+      "file": "lib/browser/web.ts",
+      "function": "recordFrame",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "B2 website cookie/uncached person+task/areas/record/claim checks before every route; strict body CSRF+proof; same-transaction SQL mutations; authenticated stream/frame/session/epoch checks. Task classification and public facts/start require trusted hooks (no default caller label). Pending candidates human-only; no executable action. Queue projection returns own position; fixed status and owner-only In use. Source review is snapshot-specific; integration callbacks still required.",
+      "queries": [
+        "e65c98b11c8c98d1c61013877b5264fda248922aba1842b0316feb35d56ad5d9"
+      ]
+    },
+    {
+      "file": "lib/browser/web-transport.mjs",
+      "function": "<module>",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "B2 prepared-answer source SQL selects body from task-owned user message/conversation; consumed only after route cookie/person/record checks and explicit confirmation. Metadata paging checks signed revision/scope; no public raw input persistence.",
+      "queries": [
+        "a9a4ad3f945d52bdc8f079e76439811dbf9c74cb816e96bb23e7773442d354d7"
+      ]
+    },
+    {
+      "file": "lib/browser/production-browser.mjs",
+      "function": "<module>",
+      "classification": "not-private",
+      "reason": "fenced-by-helper",
+      "explanation": "A2b static trusted DOM extraction expression, conservative scanner match inside extraction string, not DB SQL. Visibility/sensitive field filtering and post-await generation fence; never owner DB credentials or arbitrary page-provided JSON flags.",
+      "queries": [
+        "b1818e07fbd52f60e46b72be4e262a48a9ee97e2ea9b25e1553dca986ece1259"
+      ]
+    },
+    {
+      "file": "db/migrations/0115_browser_phase1_runtime.sql",
+      "function": "<sql>",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "A2a extension of the sole unapplied Phase1 migration: website-only pending candidate revisions/exact-set publication and monotonic model budget; exclusive viewer+device+epoch control heartbeat; narrowly bounded terminal retention exceptions. Definers use protected search_path, revoke PUBLIC/narrow candidate/budget EXECUTE, never broaden table grants or approvals. Existing read consume requires independent ACK.",
+      "queries": [
+        "9a7e396049255ddf718062e76d365f22bcafbf6936eb7daa2c83f8dd185d4017"
+      ]
+    },
+    {
+      "file": "db/schema.sql",
+      "function": "<sql>",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Phase1 baseline payload tombstone and per-run cumulative budget columns only; 0115 supplies definer/guard/LOGIN integration. Does not grant any authority or enable flags.",
+      "queries": [
+        "c33a0eaa7f488d9ad4759394b3e21f42a3c7f6e989bc64f35771135e2ded461e"
       ]
     }
   ]

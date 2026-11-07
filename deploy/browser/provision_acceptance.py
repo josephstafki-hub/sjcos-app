@@ -22,8 +22,8 @@ HOME = Path('/var/lib/sjcos-browser')
 STATE = HOME / 'acceptance-provision'
 JOURNAL = STATE / 'journal.json'
 UPSTREAM = '829521b67ed7be90c7d6d6098ff39f2241562d47e4ad7ccab13710924a56001d'
-PATCHED = '6bc58b6114a672650d0de61d0d0f308668064207163e9fc5d40783c68d728e92'
-PATCH = '2baf950834b51b299bae8efba5d8931283d5f15157fd143740a6a1b597a9f6aa'
+PATCHED = '5c72f2b33ee33b4f5f1282d5dc3a5a4a5370679d5fed3059ba7a1c7ee61bcf06'
+PATCH = 'fb71a7f96c43a0bdfae75536afdfb6f07887c73c46542d71384b25ebbf36e1e8'
 
 def fail(code):
     raise RuntimeError(code)
@@ -62,7 +62,7 @@ def verified_sources():
     lock = json.loads(lock_bytes)
     files = {}
     for name, expected in lock['files'].items():
-        if not (name.startswith(('deploy/browser/','lib/browser/')) or name in ('mcp/browser-tools.mjs','mcp/browser-profile-tools.mjs')) or '..' in name:
+        if not (name.startswith(('deploy/browser/','lib/browser/')) or name in ('mcp/browser-tools.mjs','mcp/browser-profile-tools.mjs','scripts/browser-retention.mjs')) or '..' in name:
             fail('BROWSER_PROVISION_SOURCE_PATH')
         p = SOURCE/name
         if p.is_symlink(): fail('BROWSER_PROVISION_SOURCE_SYMLINK')

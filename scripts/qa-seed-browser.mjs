@@ -69,7 +69,7 @@ export async function seedBrowser(c,{state='working',refresh=false,resourceCount
     await c.query(`INSERT INTO users(id,email,name,role,permissions,password_hash,initials) VALUES($1,$2,$3,$4,ARRAY['ai','projects','compliance'],$6,$5) ON CONFLICT(id) DO NOTHING`,[p.id,p.email,p.name,role,p.name.slice(0,2),passwordHash]);
     const u=(await c.query('SELECT * FROM users WHERE id=$1',[p.id])).rows[0];if(u.role!==role||!u.active||role==='staff'&&!['ai','projects','compliance'].every(a=>u.permissions.includes(a)))throw Error('QA principal collision or missing permissions');
    }
-   await c.query(`INSERT INTO projects(id,slug,name,client_name,address) VALUES($1,$2,$3,'Morgan Reed','124 Maple Avenue') ON CONFLICT(id) DO NOTHING`,[QA_PROJECT.id,QA_PROJECT.slug,QA_PROJECT.name]);
+   await c.query(`INSERT INTO projects(id,slug,name,client_name,address,status) VALUES($1,$2,$3,'Morgan Reed','124 Maple Avenue','construction') ON CONFLICT(id) DO NOTHING`,[QA_PROJECT.id,QA_PROJECT.slug,QA_PROJECT.name]);
    for(const [k,v] of Object.entries({'browser.enabled':'true','browser.staff_enabled':'true','browser.pilot_user_ids':JSON.stringify(Object.values(QA_PEOPLE).map(p=>p.id)),'browser.vault_enabled':'false','browser.files_enabled':'false','browser.final_steps_enabled':'false','browser.permit_handoff_enabled':'false'}))await setting(c,k,v);
    // Same disposable recovery readiness convention as the existing QA seeds.
    await c.query('UPDATE ask_canvas_maintenance SET recovery_ready=true WHERE NOT recovery_ready');

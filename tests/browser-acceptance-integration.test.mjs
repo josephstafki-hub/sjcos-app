@@ -74,3 +74,12 @@ test('installed controller wrapper binds its entire source graph before evaluati
  for(const name of ['controller-authority','controller-gate','controller-rpc','controller-network','controller-mcp','controller-scenarios','protected-bootstrap','acceptance-attestation','response-budget'])assert.ok(source.includes('lib/browser/'+name+'.mjs'));
  assert.ok(source.indexOf('for(const [name,hash]')<source.indexOf('const implementation=await import'));
 });
+
+// Coordinator root-run fix: a detach whose ack is lost because the barrier revoked the boot is accepted only
+// with bootRevokedAfter===true; neither an ack nor a recorded revocation still fails.
+test('fetch-detach evidence: ack OR recorded boot revocation; neither fails', () => {
+  const base = network();
+  const withProof = proof => ({...base, cases: base.cases.map(c => c.name === 'fetch-detach-buffered-write' ? {...c, measurement: {...c.measurement, faultProof: proof}} : c)});
+  assert.doesNotThrow(() => validateEvidence(withProof({sessionId:'S', acknowledged:false, bootRevokedAfter:true}), {kind:'network', runId:'nonce'}));
+  assert.throws(() => validateEvidence(withProof({sessionId:'S', acknowledged:false, bootRevokedAfter:false}), {kind:'network', runId:'nonce'}), /actual detach ack/);
+});

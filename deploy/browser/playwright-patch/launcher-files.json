@@ -7,7 +7,7 @@
   "deploy/browser/mcp-entry.mjs": "e94fa38b74953a4d7f2ae11158957f82f3e6f223e0812b4e1bb64be586660c12",
   "deploy/browser/peercred.py": "2734fbe1d7d29eb90ccd6c940b93b46592fd31a1e6540a3f90411b7ec131a81a",
   "lib/browser/acceptance-attestation.mjs": "411dcac9ab93eef9633af7ad6037543f7f87444ac34695d567c4e8e9bab25460",
-  "lib/browser/acceptance.mjs": "4c88ae47345690252a7ae3f5b2a8cb14943687a494142c1aa9b1ba24d37718f5",
+  "lib/browser/acceptance.mjs": "22bc048b2e709d02e2a11d5618103f3e4619d83fc8b5046c6ca6b59917988694",
   "lib/browser/cli-launch.mjs": "cdfb5da6bca4ebfbbf9dea218e6857fbbaa3d4d7de1d7ebe7f96f15670fcb407",
   "lib/browser/contracts.mjs": "551ac1d48439bae32e159adcd1becb60ab8cecc86bd05aef6ea96bf197e0b339",
   "lib/browser/controller-adapter.mjs": "fa4b1fd4c0b01d92d4fb88a8286152e5aa7fe4901e930b9c8806dc6c51b11aab",

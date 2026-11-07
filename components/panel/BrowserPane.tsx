@@ -38,18 +38,18 @@ export function useBrowserFeed(scope:AskPaneScope|null,agent:string,active=true,
  useLayoutEffect(()=>{listeners.current.forEach(fn=>fn());},[session]);
  useEffect(()=>{setTaskId(null);if(!scope)return;let disposed=false;const c=new AbortController();
   const poll=async()=>{if(document.hidden||!active)return;try{
-   const a=await browserAPI.availability(c.signal);if(disposed||getAskPaneFeed().scope!==scope)return;setAvailability(a.can_start);
-   if(!a.can_start){publishAskPaneKind(scope,'browser',[]);return;}
+   const a=await browserAPI.availability(c.signal);if(disposed||getAskPaneFeed().scope!==scope)return;setAvailability(a.enabled===true&&a.can_start===true);
+   if(a.enabled!==true||a.can_start!==true){publishAskPaneKind(scope,'browser',[]);return;}
    const list=scope.threadId==='new-chat'?{tasks:[],snapshots:[]}:await browserAPI.tasks(scope.threadId,c.signal);
    if(disposed||getAskPaneFeed().scope!==scope)return;
    const selected=list.tasks.find(t=>!['closed','failed'].includes(t.state))??list.tasks[0];setTaskId(selected?.task_id??null);
-   const rows:PaneSnapshot[]=list.snapshots.filter(x=>x.kind==='browser');
+   const rows:PaneSnapshot[]=(list.snapshots??[]).filter(x=>x.kind==='browser');
    if(!rows.length)rows.push({kind:'browser',id:'empty',task_id:'empty',thread_id:scope.threadId,user_id:scope.userId,run_id:null,label:'Browser',status:'empty',takeover:false,attention:'none',revision:String(a.revision)});
    publishAskPaneKind(scope,'browser',rows);
   }catch{if(!disposed){setAvailability(false);publishAskPaneKind(scope,'browser',[]);}}};
   void poll();const timer=setInterval(poll,5000);return ()=>{disposed=true;c.abort();clearInterval(timer);publishAskPaneKind(scope,'browser',[]);};
  },[scope,active]);
- useEffect(()=>{if(!scope)return;void import('./BrowserIdentity').then(m=>m.browserPaneIdentity(scope.threadId==='new-chat'?null:scope.threadId)).then(x=>{if(x.ok&&getAskPaneFeed().scope===scope){setIdentity({personName:x.name??'You',ownerName:x.isOwner?(x.name??'Owner'):'Joe',isOwner:x.isOwner});if(x.isOwner)void browserAPI.settings().then(s=>{if(getAskPaneFeed().scope===scope)current.current.patch({ownConfirmSuppressed:s.takeover_confirm_suppressed_user_ids.includes(scope.userId)});}).catch(()=>{});if(x.isOwner)void browserAPI.inUse().then(r=>{if(getAskPaneFeed().scope===scope)current.current.patch({inUse:r.items});}).catch(()=>{});}}).catch(()=>{});},[scope]);
+ useEffect(()=>{if(!scope)return;void import('./BrowserIdentity').then(m=>m.browserPaneIdentity(scope.threadId==='new-chat'?null:scope.threadId)).then(x=>{if(x.ok&&getAskPaneFeed().scope===scope){setIdentity({personName:x.name??'You',ownerName:x.isOwner?(x.name??'Owner'):'Owner',isOwner:x.isOwner});if(x.isOwner)void browserAPI.settings().then(s=>{if(getAskPaneFeed().scope===scope)current.current.patch({ownConfirmSuppressed:s.takeover_confirm_suppressed_user_ids.includes(scope.userId)});}).catch(()=>{});if(x.isOwner)void browserAPI.inUse().then(r=>{if(getAskPaneFeed().scope===scope)current.current.patch({inUse:r.items});}).catch(()=>{});}}).catch(()=>{});},[scope]);
  useEffect(()=>{
   if(!availability||!scope)return;
   return registerAskPane({id:'browser',focusEntry:root=>root.querySelector<HTMLElement>('[data-browser-title]')?.focus(),beforeLeave:(_s,reason)=>current.current.beforeLeave(reason==='navigation'?'app':reason==='switch'?'Canvas':'Chat'),render:context=>({title:<BrowserPane context={context} slot="title" handle={handle}/>,meta:<BrowserPane context={context} slot="meta" handle={handle}/>,content:<BrowserPane context={context} slot="content" handle={handle}/>,actions:<BrowserPane context={context} slot="actions" handle={handle}/>})});

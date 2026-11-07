@@ -1,10 +1,14 @@
 import test from 'node:test';
+import {registerHooks} from 'node:module';
 import assert from 'node:assert/strict';
 import {unlink} from 'node:fs/promises';
 import path from 'node:path';
 import {withTestDb,withSessionIdentity} from './_harness/testdb.mjs';
 import {appHooks,seedPeople} from './phase0a-fixtures.mjs';
 appHooks();
+// The same harness-backed DB seam, with queryOne for the real file route adapters.
+registerHooks({resolve(s,c,n){if(s==='@/lib/db')return {url:'canvas-export-db:db',shortCircuit:true};if(s==='next/navigation')return n('next/navigation.js',c);return n(s,c);},load(u,c,n){if(u==='canvas-export-db:db')return {format:'module',shortCircuit:true,source:'export const pool={query:(...a)=>globalThis.__phase0aDb.query(...a),connect:async()=>({query:(...a)=>globalThis.__phase0aDb.query(...a),release(){}})};export const queryOne=async(...a)=>(await pool.query(...a)).rows[0]??null;'};return n(u,c);}});
+
 const core=await import('../lib/ask-canvases.ts'),exports=await import('../lib/canvas-exports.ts');
 const uuid=()=>crypto.randomUUID(),svg='<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100"><text x="10" y="20">Permit</text></svg>';
 test('immutable SVG and saved snapshot policy, real session identities',()=>withTestDb(async(url,admin)=>{
@@ -114,4 +118,46 @@ test('tracked staff save derives only content areas, never held areas or owner c
  const {conversationProvenance}=await import('../lib/ask-context-provenance.mjs');
  const corrected=await conversationProvenance({client:db,threadId:thread});assert.ok(corrected.areas.includes('leads'));assert.ok(corrected.areas.includes('subs'));
  });}finally{if(file)await unlink(path.join(process.cwd(),'uploads',file+'.html')).catch(()=>{});}
+}));
+
+// Phase 2 expectations: same immutable audience flow, no derivative needed, no bridge.
+test('page versions, restores, static downloads and saved files revalidate original bytes',()=>withTestDb(async(url,admin)=>{
+ const people=await seedPeople(admin);process.env.SJC_CANVAS_ENABLED='1';process.env.SESSION_SECRET='canvas-pages-test-secret-32-characters';const files=[];
+ try{await withSessionIdentity(url,'sjcos_test_website',async db=>{
+ globalThis.__phase0aDb=db;const {encrypt}=await import('../lib/session.ts');globalThis.__phase0aCookies={get:()=>({value:awaitToken})};const awaitToken=await encrypt({userId:people.owner.id,role:'owner',authAt:Math.floor(Date.now()/1000)});
+ await db.query("INSERT INTO app_settings(key,value) VALUES('canvas.pages_enabled','true'),('canvas.exports_enabled','true') ON CONFLICT(key) DO UPDATE SET value='true'");
+ await db.query("UPDATE app_settings SET value='false' WHERE key='canvas.diagrams_enabled'");
+ const project=(await db.query("INSERT INTO projects(slug,name) VALUES('zz-canvas-pages','Page project') RETURNING *")).rows[0];
+ const run=(await db.query("INSERT INTO dev_agent_runs(prompt,profile,principal_user_id,conversation_id,launch_source,with_mcp) VALUES('page','operator',$1,$2,'panel_web',true) RETURNING *,extract(epoch FROM created_at)::bigint AS started",[people.owner.id,people.thread])).rows[0];
+ const ctx={run_id:run.id,principal_user_id:people.owner.id,run_profile:'operator',run_started_s:Number(run.started),transport:'runner_stdio'};
+ const {layouts}=await import('./fixtures/canvas-page-layouts.mjs');const {readFile}=await import('node:fs/promises');
+ const id=(await core.canvasInternal('show',{request_id:uuid(),project_slug:project.slug,title:'Weekly board',summary:'Cards, a table, and a drawing.',required_areas:[],content:{kind:'page',source:layouts[0]}},ctx)).canvas.id;
+ const read=await core.canvasGet(id,{include_source:true});assert.equal(read.preview.mode,'static_page');assert.equal(read.availability.pages,true);assert.equal(read.availability.diagrams,false);assert.deepEqual(read.capabilities.download_formats,['html']);
+ await db.query("INSERT INTO app_settings(key,value) VALUES('canvas.source_enabled','false') ON CONFLICT(key) DO UPDATE SET value='false'");assert.ok((await core.canvasPagePreview(id,1)).source);assert.equal((await core.canvasGet(id)).capabilities.code,false);await assert.rejects(core.canvasGet(id,{include_source:true}),e=>e.code==='CANVAS_DISABLED');await db.query("UPDATE app_settings SET value='true' WHERE key='canvas.source_enabled'");
+ const row=(await db.query('SELECT source_text,canonical_content FROM ask_canvas_versions WHERE canvas_id=$1',[id])).rows[0];assert.equal(row.source_text,layouts[0]);assert.equal(row.canonical_content.validator_version,2);
+ await core.canvasInternal('update',{request_id:uuid(),canvas_id:id,base_version:1,summary:'Drawing',change_note:'Added process drawing',content:{kind:'page',source:layouts[1]}},ctx);
+ await core.canvasRestore(id,{request_id:uuid(),base_version:2,restore_version:1});assert.equal((await core.canvasGet(id)).selected.version,3);
+ for(const n of [1,2,3]){
+ const d=await exports.canvasPageFile(id,n);assert.doesNotMatch(d.html,/<script|canvas-ready|MessageChannel/);assert.match(d.html,/script-src &#39;none&#39;/);
+ const p=await exports.canvasSavePolicy(id,n,project.slug),saved=await exports.canvasSave(id,n,{request_id:uuid(),project_slug:project.slug,expected_policy_revision:p.policy_revision,audience:{kind:'owner_only'}});files.push(saved.file.id);
+ const bytes=await readFile(path.join(process.cwd(),'uploads',saved.file.id+'.html'),'utf8');assert.equal(bytes,d.html);
+ const access=await import('../lib/canvas-file-access.ts');const f=await access.resolveCanvasFilePolicy({principal:{id:people.owner.id},fileId:saved.file.id,operation:'read'});assert.equal(f.profile,'canvas_static_v1');
+ for(const route of ['/api/files/','/api/mobile/files/'])for(const query of ['','?download=1']){
+ const adapter=await import(route==='/api/files/'?'../app/api/files/[id]/route.ts':'../app/api/mobile/files/[id]/route.ts');
+ const response=await adapter.GET(new Request('https://app.test'+route+saved.file.id+query,{headers:{Authorization:'Bearer '+awaitToken}}),{params:Promise.resolve({id:saved.file.id})});assert.equal(response.status,200);assert.equal(await response.text(),bytes);assert.match(response.headers.get('content-security-policy'),/^sandbox; default-src 'none'; script-src 'none'/);assert.equal(response.headers.get('x-content-type-options'),'nosniff');assert.equal(response.headers.get('cache-control'),'private, no-store');
+ }
+
+ }
+ await assert.rejects(exports.canvasRender(id,1,{svg}),/UNSUPPORTED_KIND/);
+ // Simulate stored content accepted by an older sanitizer, through the real version loader.
+ const bad='<script>window.bad=true</script>';
+ globalThis.__phase0aDb={query:async(sql,args)=>{const result=await db.query(sql,args);if(/SELECT v\.\*/.test(sql))return {...result,rows:result.rows.map(r=>({...r,source_text:bad}))};return result;}};
+ assert.equal((await core.canvasGet(id,{include_source:true})).code.code,bad);
+ await assert.rejects(core.canvasPagePreview(id,1),e=>e.code==='UNSAFE_CONTENT');
+ await assert.rejects(exports.canvasPageFile(id,1),e=>e.code==='UNSAFE_CONTENT');
+ await assert.rejects(core.canvasRestore(id,{request_id:uuid(),base_version:3,restore_version:1}),e=>e.code==='UNSAFE_CONTENT');
+ const oldPolicy=await exports.canvasSavePolicy(id,1,project.slug);await assert.rejects(exports.canvasSave(id,1,{request_id:uuid(),project_slug:project.slug,expected_policy_revision:oldPolicy.policy_revision}),e=>e.code==='UNSAFE_CONTENT');
+ globalThis.__phase0aDb=db;
+ await db.query("UPDATE app_settings SET value='false' WHERE key='canvas.pages_enabled'");assert.equal((await core.canvasGet(id)).capabilities.preview,false);await assert.rejects(exports.canvasPageFile(id,1),e=>e.code==='CANVAS_DISABLED');
+ });}finally{for(const file of files)await unlink(path.join(process.cwd(),'uploads',file+'.html')).catch(()=>{});}
 }));

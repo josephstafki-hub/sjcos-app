@@ -59,8 +59,8 @@ test('fixed bridge pins strict Mermaid options and exposes no business or networ
         assert.match(script, /nonce/);
     }
 });
-test('fixed bootstraps execute and enforce the one-shot parent/nonce/port boundary', () => {
-    for (const script of [CANVAS_BOOTSTRAP, CANVAS_PREVIEW_BOOTSTRAP]) {
+test('diagram bootstrap enforces its render/dispose protocol (page protocol has its own sandbox tests)', () => {
+    for (const script of [CANVAS_BOOTSTRAP]) {
         const listeners = new Map(), announcements = [], messages = [];
         let config = null, cleared = false, closed = false, disconnected = false;
         const parent = { postMessage: (m) => announcements.push(m) };

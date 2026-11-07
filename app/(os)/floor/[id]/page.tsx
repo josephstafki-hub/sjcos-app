@@ -2,16 +2,7 @@ import { notFound } from "next/navigation";
 import { Shell } from "@/components/shell/Shell";
 import { Designer } from "@/components/floor/Designer";
 import { requireAccess } from "@/lib/dal";
-import {
-  getPlaceableCatalog,
-  getPlanCostRules,
-  getPlanDesign,
-  listPlanDesignComments,
-  listPlanDesignFiles,
-  listPlanDesignVersions,
-} from "@/lib/plan-designs";
-import { listEstimateTargets } from "@/lib/actions/plan-estimate";
-
+import {loadPlanDesigner} from '@/lib/plan-designer-loader';
 // The floor-plan designer (docs/floor-plan-designer-plan.md §2). Server page
 // loads the live design + everything the inspector needs; the Designer is a
 // client component (the 3D scene inside it is loaded client-only).
@@ -28,17 +19,9 @@ export default async function FloorDesignerPage({
   const designId = Number(id);
   if (!Number.isFinite(designId)) notFound();
 
-  const design = await getPlanDesign(designId);
-  if (!design) notFound();
-
-  const [catalog, rules, comments, files, versions, estimateTargets] = await Promise.all([
-    getPlaceableCatalog(),
-    getPlanCostRules(),
-    listPlanDesignComments(designId),
-    listPlanDesignFiles(designId),
-    listPlanDesignVersions(designId),
-    user.role === "owner" || user.permissions.includes("estimates") ? listEstimateTargets(designId) : Promise.resolve([]),
-  ]);
+  const loaded = await loadPlanDesigner(user,designId).catch(()=>null);
+  if(!loaded)notFound();
+  const {design}=loaded;
 
   const crumb = design.projectName
     ? `FLOOR PLAN › ${design.projectName.toUpperCase()} › ${design.name.toUpperCase()}`
@@ -49,15 +32,7 @@ export default async function FloorDesignerPage({
   return (
     <Shell breadcrumb={crumb}>
       <Designer
-        design={design}
-        catalog={catalog}
-        costRuleKeys={rules.filter((r) => r.enabled).map((r) => r.measure)}
-        comments={comments}
-        files={files}
-        versions={versions}
-        estimateTargets={estimateTargets}
-        readOnly={false}
-        isOwner={user.role === "owner"}
+        {...loaded}
         initialPanel={sp.comments ? "comments" : (sp.panel as "properties" | undefined) ?? undefined}
       />
     </Shell>

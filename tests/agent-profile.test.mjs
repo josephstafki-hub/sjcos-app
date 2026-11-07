@@ -165,3 +165,13 @@ test('every actual sjcos registration is classified, including canvas and server
  console.log(`classification registered=${names.length} classified=${names.filter(n=>Object.hasOwn(CLASSIFICATION_REGISTRY.tools,n)).length} registry=${Object.keys(CLASSIFICATION_REGISTRY.tools).length}`);
  await server.close();
 });
+
+// Phase 3 does not create an editing/sending authority from a Canvas renderer.
+test("floor preview permission requires projects and leads independently",async()=>{
+ const {assertFloorAccess}=await import('../lib/canvas-floor.ts');
+ const staff=permissions=>({id:'staff',role:'staff',permissions,active:true});
+ assert.throws(()=>assertFloorAccess(staff(['ai']),{project_id:'job'}),/CANVAS_UNAVAILABLE/);
+ assert.throws(()=>assertFloorAccess(staff(['ai','projects']),{lead_slug:'lead'}),/CANVAS_UNAVAILABLE/);
+ assert.doesNotThrow(()=>assertFloorAccess(staff(['ai','projects','leads']),{lead_slug:'lead'}));
+ assert.throws(()=>assertFloorAccess({...staff(['projects']),active:false},{project_id:'job'}),/CANVAS_UNAVAILABLE/);
+});

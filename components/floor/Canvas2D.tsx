@@ -66,6 +66,7 @@ export interface Canvas2DHandle {
   cancel(): void;
   finish(): void;
   zoom(factor: number): void;
+  resetZoom(): void;
 }
 
 /** What a press needs, so a touch tap can be replayed on lift-off. */
@@ -129,7 +130,7 @@ function defaultKeyFor(tool: ToolId): string | null {
   }
 }
 
-export const Canvas2D = forwardRef<Canvas2DHandle, { ctx: DesignerContext; className?: string }>(function Canvas2D({ ctx, className = "" }, ref) {
+export const Canvas2D = forwardRef<Canvas2DHandle, { ctx: DesignerContext; className?: string; embeddedPreview?: boolean }>(function Canvas2D({ ctx, className = "", embeddedPreview = false }, ref) {
   const { d, view, setView } = ctx;
   /** A paint key is a finish preset key or "catalog-<id>" (a catalog material). */
   const resolvePaint = useCallback(
@@ -509,6 +510,9 @@ export const Canvas2D = forwardRef<Canvas2DHandle, { ctx: DesignerContext; class
       finish() {
         finishPoly();
       },
+      resetZoom() {
+        zoomAt(1 / vpRef.current.k, size.w / 2, size.h / 2);
+      },
       zoom(factor) {
         zoomAt(factor, size.w / 2, size.h / 2);
       },
@@ -557,7 +561,7 @@ export const Canvas2D = forwardRef<Canvas2DHandle, { ctx: DesignerContext; class
       const sx = e.clientX - r.left;
       const sy = e.clientY - r.top;
       const raw = toPlan(e.clientX, e.clientY);
-      const isPan = d.tool === "pan" || spaceDown.current || e.button === 1;
+      const isPan = ctx.readOnly || d.tool === "pan" || spaceDown.current || e.button === 1;
       if (isPan) {
         autoFit.current = false;
         drag.current = { kind: "pan", sx, sy, tx: vpRef.current.tx, ty: vpRef.current.ty };
@@ -994,6 +998,7 @@ export const Canvas2D = forwardRef<Canvas2DHandle, { ctx: DesignerContext; class
 
   const onDoubleClick = useCallback(
     (e: React.MouseEvent<SVGSVGElement>) => {
+      if (ctx.readOnly) { fit(); return; }
       if (d.tool === "wall" || d.tool === "counter") {
         finishPoly();
         return;
@@ -1006,7 +1011,7 @@ export const Canvas2D = forwardRef<Canvas2DHandle, { ctx: DesignerContext; class
         }
       }
     },
-    [d, finishPoly, hitTest, setView, toPlan],
+    [d, finishPoly, hitTest, setView, toPlan, ctx.readOnly, fit],
   );
 
   // Wheel: pinch / ctrl+wheel and a mouse wheel zoom about the cursor; a
@@ -1037,6 +1042,7 @@ export const Canvas2D = forwardRef<Canvas2DHandle, { ctx: DesignerContext; class
 
   const onPhotoPicked = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (ctx.readOnly) return;
       const file = e.target.files?.[0];
       const at = pendingPhotoAt.current;
       e.target.value = "";
@@ -1051,7 +1057,7 @@ export const Canvas2D = forwardRef<Canvas2DHandle, { ctx: DesignerContext; class
         router.refresh();
       }
     },
-    [ctx.design.id, d, levelId, router],
+    [ctx.design.id, ctx.readOnly, d, levelId, router],
   );
 
   // ── overlays ──
@@ -1346,6 +1352,7 @@ export const Canvas2D = forwardRef<Canvas2DHandle, { ctx: DesignerContext; class
       )}
 
       <ScaleControl
+        raised={embeddedPreview && ctx.readOnly}
         k={vp.k}
         onScale={(kk) => {
           autoFit.current = false;
@@ -1384,13 +1391,13 @@ export function kForScale(inPerFt: number): number {
 
 /** Bottom-right scale bar (always true to the drawing, whatever the zoom)
  *  plus a menu to jump to a standard drawing scale or fit. */
-function ScaleControl({ k, onScale, onFit }: { k: number; onScale: (k: number) => void; onFit: () => void }) {
+function ScaleControl({ k, onScale, onFit, raised = false }: { raised?: boolean; k: number; onScale: (k: number) => void; onFit: () => void }) {
   const [open, setOpen] = useState(false);
   const barIn = BAR_STEPS_IN.find((s) => s * k >= 70) ?? BAR_STEPS_IN[BAR_STEPS_IN.length - 1];
   const barPx = barIn * k;
   const current = SCALES.find((s) => Math.abs(kForScale(s.inPerFt) - k) / k < 0.02);
   return (
-    <div className="absolute bottom-2 right-2 flex flex-col items-end gap-1">
+    <div className={`absolute ${raised ? "bottom-16 max-w-[calc(100%_-_1rem)]" : "bottom-2"} right-2 flex flex-col items-end gap-1`}>
       {open && (
         <div className="flex flex-col rounded-md border border-rule bg-card p-1 text-[11px] shadow-lg">
           {SCALES.map((s) => (

@@ -1,8 +1,9 @@
 import 'server-only';
+import {buildCanvasPageFile} from './canvas-renderer.mjs';
 import {createHmac, timingSafeEqual, randomUUID} from 'node:crypto';
 import {z} from 'zod';
 import {canvasFileTransaction} from './ask-canvases';
-import {validateCanvasSvg} from './canvas-content.mjs';
+import {validatePageSource,validateCanvasSvg} from './canvas-content.mjs';
 import {conversationProvenance} from './ask-context-provenance.mjs';
 import {CLASSIFICATION_REGISTRY} from './canvas-classification.mjs';
 import {hasAccess} from './area-access';
@@ -69,6 +70,7 @@ export async function canvasAcknowledge(id:string,n:number,input:unknown){const 
 });}
 function verify(token:string|undefined,expected:unknown){try{if(!token)throw 0;const [payload,mac,...rest]=token.split('.'),actual=Buffer.from(mac,'base64url'),wanted=sign(payload);if(rest.length||actual.length!==wanted.length||!timingSafeEqual(actual,wanted))throw 0;const [b,expiry]=JSON.parse(Buffer.from(payload,'base64url').toString());if(digest(b)!==digest(expected)||!Number.isFinite(expiry)||expiry<Date.now())throw 0;}catch{fail('SAVE_FAILED');}}
 export async function canvasRender(id:string,n:number,input:unknown){const b=parse(z.object({svg:z.string()}).strict(),input);return canvasFileTransaction(id,n,async(db,a,c,v)=>{
+ if(c.kind!=='diagram')fail('UNSUPPORTED_KIND');
  const valid=validateCanvasSvg(b.svg),svg=valid.svg,sha256=digest(svg);
  const old=(await db.query('SELECT sha256 FROM ask_canvas_derivatives WHERE canvas_id=$1 AND version=$2 AND renderer_version=$3',[id,n,v.renderer_version])).rows[0];
  if(old&&old.sha256!==sha256)fail('RENDERER_HASH_CONFLICT');
@@ -76,10 +78,21 @@ export async function canvasRender(id:string,n:number,input:unknown){const b=par
  return {ok:true,canvas_id:id,version:n,renderer_version:v.renderer_version,sha256};
 });}
 async function drawing(db:PoolClient,id:string,v:any){const d=(await db.query('SELECT * FROM ask_canvas_derivatives WHERE canvas_id=$1 AND version=$2 AND renderer_version=$3 AND purged_at IS NULL',[id,v.version,v.renderer_version])).rows[0];if(!d)fail('EXPORT_NOT_READY');const svg=validateCanvasSvg(d.svg).svg;if(digest(svg)!==d.sha256)fail('SAVE_FAILED');return {...d,svg};}
-export async function canvasDrawing(id:string,n:number){return canvasFileTransaction(id,n,async(db,a,c,v)=>({svg:(await drawing(db,id,v)).svg,title:v.title,version:n}));}
+async function staticSnapshot(db:PoolClient,c:any,v:any){
+ if(c.kind==='page'){
+  const page=validatePageSource(v.source_text);
+  return {html:buildCanvasPageFile(page.source,v.title,v.version,v.summary,v.created_at),sha256:digest(page.source)};
+ }
+ const d=await drawing(db,c.id,v);return {html:snapshotHtml(v,d.svg),sha256:d.sha256};
+}
+export async function canvasPageFile(id:string,n:number){return canvasFileTransaction(id,n,async(db,a,c,v)=>{
+ if(c.kind!=='page')fail('UNSUPPORTED_KIND');return {html:(await staticSnapshot(db,c,v)).html,title:v.title,version:n};
+});}
+export async function canvasDrawing(id:string,n:number){return canvasFileTransaction(id,n,async(db,a,c,v)=>(c.kind!=='diagram'?fail('UNSUPPORTED_KIND'):{svg:(await drawing(db,id,v)).svg,title:v.title,version:n}));}
 export async function canvasSave(id:string,n:number,input:unknown){
  const b=parse(saveSchema,input),auth=await epoch();
  const reserved=await canvasFileTransaction(id,n,async(db,a,c,v)=>{
+ if(c.kind==='page')await staticSnapshot(db,c,v);
  const p=await policy(db,a,c,v,b.project_slug);if(p.policy_revision!==b.expected_policy_revision)changed(p);
  if(a.person.role!=='owner'&&(b.audience!==undefined||b.declassification_ack!==undefined))fail('INVALID_INPUT');
  const audience=b.audience??(a.person.role==='owner'?{kind:'owner_only' as const}:{kind:'staff' as const,required_areas:p.baseline_areas});
@@ -93,7 +106,7 @@ export async function canvasSave(id:string,n:number,input:unknown){
  let failedReadmit=false;const live=prior.find(r=>['pending','ready','failed'].includes(r.state));
  if(live?.state==='failed'){await db.query("UPDATE ask_canvas_file_saves SET state='removed',updated_at=now() WHERE reserved_file_id=$1",[live.reserved_file_id]);failedReadmit=true;}else if(live){if(live.policy_hash!==policyHash||live.filename!==filename||live.saver_user_id!==a.person.id)fail('SAVE_POLICY_CONFLICT');await db.query('INSERT INTO ask_canvas_file_requests(saver_user_id,request_id,input_hash,reserved_file_id) VALUES($1,$2,$3,$4)',[a.person.id,b.request_id,inputHash,live.reserved_file_id]);return live;}
  if(prior.length&&!b.save_another_copy&&!failedReadmit)fail('SAVE_POLICY_CONFLICT');
- const d=await drawing(db,id,v),html=snapshotHtml(v,d.svg);if(Buffer.byteLength(html)>1048576)fail('CONTENT_TOO_LARGE');
+ const d=await staticSnapshot(db,c,v),html=d.html;if(Buffer.byteLength(html)>1048576)fail('CONTENT_TOO_LARGE');
  const fileId='canvas-'+randomUUID(),generation=(prior[0]?.generation??0)+1;
  await db.query(`INSERT INTO ask_canvas_rate_windows VALUES($1,'save',to_timestamp(floor(extract(epoch FROM clock_timestamp())/60)*60),1) ON CONFLICT(actor_user_id,action_bucket,window_start) DO UPDATE SET accepted_count=ask_canvas_rate_windows.accepted_count+1`,[a.person.id]);
  const reserved=(await db.query(`INSERT INTO ask_canvas_file_saves(canvas_id,version,project_id,generation,reserved_file_id,saver_user_id,request_id,input_hash,policy,policy_hash,policy_revision,filename,storage_path,file_hash,source_hash,renderer_version,render_hash,removed_areas,ack_hash,ack_at,auth_epoch,state) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,CASE WHEN $19::text IS NULL THEN NULL ELSE now() END,$20,'pending') RETURNING *`,[id,n,p.project_id,generation,fileId,a.person.id,b.request_id,inputHash,JSON.stringify(effective),policyHash,p.policy_revision,filename,fileId+'.html',digest(html),v.source_sha256,v.renderer_version,d.sha256,removed,ackHash,auth])).rows[0];
@@ -101,10 +114,11 @@ export async function canvasSave(id:string,n:number,input:unknown){
  return reserved;
  });
  if(reserved.state==='ready')return saveResult(reserved,b.project_slug,true);
- const html=await canvasFileTransaction(id,n,async(db,a,c,v)=>{const p=await policy(db,a,c,v,b.project_slug);if(p.policy_revision!==reserved.policy_revision)changed(p);return snapshotHtml(v,(await drawing(db,id,v)).svg);});
+ const html=await canvasFileTransaction(id,n,async(db,a,c,v)=>{const p=await policy(db,a,c,v,b.project_slug);if(p.policy_revision!==reserved.policy_revision)changed(p);return (await staticSnapshot(db,c,v)).html;});
  await writeImmutableBlob(UPLOAD_DIR,reserved.storage_path,html,reserved.file_hash);
  return canvasFileTransaction(id,n,async(db,a,c,v)=>{
  const p=await policy(db,a,c,v,b.project_slug);if(p.policy_revision!==reserved.policy_revision)changed(p);
+ if(digest((await staticSnapshot(db,c,v)).html)!==reserved.file_hash)fail('SAVE_FAILED');
  const s=(await db.query('SELECT * FROM ask_canvas_file_saves WHERE reserved_file_id=$1 FOR UPDATE',[reserved.reserved_file_id])).rows[0];if(s.state==='ready')return saveResult(s,b.project_slug,true);if(s.state!=='pending')fail('SAVE_POLICY_CONFLICT');
  await db.query("SELECT set_config('sjcos.canvas_file_command','yes',true)");
  await db.query(`INSERT INTO files(id,project_key,type,name,tag,ai_origin,modified_label,size_label,subtitle,ai_tags,storage_path,mime_type,sha256,client_visible,security_profile,canvas_policy,canvas_version) VALUES($1,$2,'doc',$3,'Canvas',true,'Just now',$4,$5,'{}',$6,'text/html',$7,false,'canvas_static_v1',$8,$9)`,[s.reserved_file_id,b.project_slug,s.filename,`${Buffer.byteLength(html)} B`,`Made by Claude · Version ${n} · Internal draft`,s.storage_path,s.file_hash,JSON.stringify(s.policy),n]);
@@ -123,15 +137,15 @@ export async function canvasFileMaintenance(store:any,lease:any,checkLease:any,d
  recipe=await transaction(async db=>{
  const s=(await db.query("SELECT * FROM ask_canvas_file_saves WHERE reserved_file_id=$1 AND state='pending' FOR UPDATE",[row.reserved_file_id])).rows[0];if(!s)return null;
  const a=(await db.query(`SELECT *,EXISTS(SELECT 1 FROM session_revocations WHERE user_id=u.id AND revoked_before>to_timestamp($2)) AS revoked FROM users u WHERE id=$1`,[s.saver_user_id,Number(s.auth_epoch)])).rows[0];
- const flags=(await db.query("SELECT key,value FROM app_settings WHERE key IN ('canvas.diagrams_enabled','canvas.exports_enabled','canvas.staff_enabled')")).rows;
+ const flags=(await db.query("SELECT key,value FROM app_settings WHERE key IN ('canvas.diagrams_enabled','canvas.pages_enabled','canvas.exports_enabled','canvas.staff_enabled')")).rows;
  const enabled=(key:string)=>flags.some(r=>r.key===key&&(r.value===true||r.value==='true'));
- if(!a?.active||!['owner','staff'].includes(a.role)||a.revoked||process.env.SJC_CANVAS_ENABLED!=='1'||!enabled('canvas.diagrams_enabled')||!enabled('canvas.exports_enabled')||(a.role==='staff'&&(!enabled('canvas.staff_enabled')||!a.permissions.includes('ai'))))fail('CANVAS_UNAVAILABLE');
+ if(!a?.active||!['owner','staff'].includes(a.role)||a.revoked||process.env.SJC_CANVAS_ENABLED!=='1'||!enabled('canvas.exports_enabled')||(a.role==='staff'&&(!enabled('canvas.staff_enabled')||!a.permissions.includes('ai'))))fail('CANVAS_UNAVAILABLE');
  const c=(await db.query('SELECT c.* FROM ask_canvases c JOIN ai_conversations t ON t.id=c.conversation_id WHERE c.id=$1 AND c.deleted_at IS NULL AND t.deleted_at IS NULL AND c.owner_user_id=$2 AND t.owner_user_id=$2 FOR UPDATE OF c,t',[s.canvas_id,a.id])).rows[0];if(!c)fail('CANVAS_UNAVAILABLE');
- const v=(await db.query('SELECT * FROM ask_canvas_versions WHERE canvas_id=$1 AND version=$2 AND purged_at IS NULL',[s.canvas_id,s.version])).rows[0];if(!v)fail('CANVAS_UNAVAILABLE');
+ const v=(await db.query('SELECT * FROM ask_canvas_versions WHERE canvas_id=$1 AND version=$2 AND purged_at IS NULL',[s.canvas_id,s.version])).rows[0];if(!v)fail('CANVAS_UNAVAILABLE');if(!enabled(c.kind==='page'?'canvas.pages_enabled':'canvas.diagrams_enabled'))fail('CANVAS_UNAVAILABLE');
  const project=(await db.query('SELECT slug FROM projects WHERE id=$1',[s.project_id])).rows[0];if(!project)fail('CANVAS_UNAVAILABLE');
  const p=await policy(db,{person:a},c,v,project.slug);if(p.policy_revision!==s.policy_revision)fail('SAVE_POLICY_CHANGED');
  if(s.removed_areas.length&&Date.now()-Date.parse(s.ack_at)>300000)fail('SAVE_FAILED');
- const d=await drawing(db,s.canvas_id,v);html=snapshotHtml(v,d.svg);if(digest(html)!==s.file_hash||d.sha256!==s.render_hash||v.source_sha256!==s.source_hash)fail('SAVE_FAILED');
+ const d=await staticSnapshot(db,c,v);html=d.html;if(digest(html)!==s.file_hash||d.sha256!==s.render_hash||v.source_sha256!==s.source_hash)fail('SAVE_FAILED');
  await db.query("UPDATE ask_canvas_file_saves SET attempts=attempts+1,retry_at=now()+interval '1 minute' WHERE reserved_file_id=$1",[s.reserved_file_id]);
  return {...s,slug:project.slug};
  });if(!recipe)continue;
@@ -142,9 +156,9 @@ export async function canvasFileMaintenance(store:any,lease:any,checkLease:any,d
  const person=(await db.query('SELECT * FROM users WHERE id=$1 AND active AND NOT EXISTS(SELECT 1 FROM session_revocations WHERE user_id=$1 AND revoked_before>to_timestamp($2))',[s.saver_user_id,Number(s.auth_epoch)])).rows[0];
  const c=(await db.query('SELECT c.* FROM ask_canvases c JOIN ai_conversations t ON t.id=c.conversation_id WHERE c.id=$1 AND c.deleted_at IS NULL AND t.deleted_at IS NULL FOR UPDATE OF c,t',[s.canvas_id])).rows[0];
  const v=(await db.query('SELECT * FROM ask_canvas_versions WHERE canvas_id=$1 AND version=$2 AND purged_at IS NULL',[s.canvas_id,s.version])).rows[0];
- const flags=(await db.query("SELECT key,value FROM app_settings WHERE key IN ('canvas.diagrams_enabled','canvas.exports_enabled','canvas.staff_enabled')")).rows;const enabled=(key:string)=>flags.some(r=>r.key===key&&(r.value===true||r.value==='true'));
- if(process.env.SJC_CANVAS_ENABLED!=='1'||!enabled('canvas.diagrams_enabled')||!enabled('canvas.exports_enabled')||(person?.role==='staff'&&(!enabled('canvas.staff_enabled')||!person.permissions.includes('ai'))))fail('CANVAS_UNAVAILABLE');
- if(!person||!c||!v||(await policy(db,{person},c,v,recipe.slug)).policy_revision!==s.policy_revision)fail('SAVE_POLICY_CHANGED');
+ const flags=(await db.query("SELECT key,value FROM app_settings WHERE key IN ('canvas.diagrams_enabled','canvas.pages_enabled','canvas.exports_enabled','canvas.staff_enabled')")).rows;const enabled=(key:string)=>flags.some(r=>r.key===key&&(r.value===true||r.value==='true'));
+ if(process.env.SJC_CANVAS_ENABLED!=='1'||!enabled('canvas.exports_enabled')||(person?.role==='staff'&&(!enabled('canvas.staff_enabled')||!person.permissions.includes('ai'))))fail('CANVAS_UNAVAILABLE');
+ if(!person||!c||!v||!enabled(c.kind==='page'?'canvas.pages_enabled':'canvas.diagrams_enabled')||(await policy(db,{person},c,v,recipe.slug)).policy_revision!==s.policy_revision)fail('SAVE_POLICY_CHANGED');
  await db.query("SELECT set_config('sjcos.canvas_file_command','yes',true)");
  await db.query(`INSERT INTO files(id,project_key,type,name,tag,ai_origin,modified_label,size_label,subtitle,ai_tags,storage_path,mime_type,sha256,client_visible,security_profile,canvas_policy,canvas_version) VALUES($1,$2,'doc',$3,'Canvas',true,'Just now',$4,$5,'{}',$6,'text/html',$7,false,'canvas_static_v1',$8,$9)`,[s.reserved_file_id,recipe.slug,s.filename,`${Buffer.byteLength(html!)} B`,`Made by Claude · Version ${s.version} · Internal draft`,s.storage_path,s.file_hash,JSON.stringify(s.policy),s.version]);
  await db.query("UPDATE ask_canvas_file_saves SET state='ready',file_id=reserved_file_id,updated_at=now() WHERE reserved_file_id=$1",[s.reserved_file_id]);

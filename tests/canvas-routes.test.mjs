@@ -26,9 +26,9 @@ const root=new URL('../',import.meta.url);
 const seams=new Map([
  ['next/navigation',`export function notFound(){throw Object.assign(new Error('Not found'),{digest:'NEXT_HTTP_ERROR_FALLBACK;404'});}export function redirect(path){throw Object.assign(new Error('Redirect'),{path});}`],
  ['@/components/panel/canvas/CanvasViewer',`export const CanvasViewer=()=>null;`],
- ['@/lib/canvas-exports',`export async function canvasRender(id,n,input){return {ok:true,canvas_id:id,version:n,renderer_version:'1',sha256:'a'.repeat(64)};} export async function canvasDrawing(id,n){return {svg:'<svg/>',title:'Drawing',version:n};}`],
+ ['@/lib/canvas-exports',`export async function canvasPageFile(id,n){return {html:'<!doctype html><p>Static</p>',title:'Page',version:n};} export async function canvasRender(id,n,input){return {ok:true,canvas_id:id,version:n,renderer_version:'1',sha256:'a'.repeat(64)};} export async function canvasDrawing(id,n){return {svg:'<svg/>',title:'Drawing',version:n};}`],
  ['server-only','export {};'],
- ['@/lib/ask-canvases',`export async function canvasGet(id,input){globalThis.__canvasCalls.push([id,input]);if(globalThis.__canvasFailure)throw {code:globalThis.__canvasFailure};return globalThis.__canvasData;}
+ ['@/lib/ask-canvases',`export async function canvasPagePreview(){return {source:globalThis.__canvasData.code.code};} export async function canvasGet(id,input){globalThis.__canvasCalls.push([id,input]);if(globalThis.__canvasFailure)throw {code:globalThis.__canvasFailure};return globalThis.__canvasData;}
  export function canvasFailure(e){const code=e?.code??'INTERNAL_ERROR';return {ok:false,code,message:'Fixed error',retryable:false};}
  export function canvasStatus(e){return ({AUTH_REQUIRED:401,CANVAS_UNAVAILABLE:404,INVALID_INPUT:400,CANVAS_DISABLED:503,UNSUPPORTED_KIND:422,ASK_PAUSED:503})[e.code]??500;}
  export async function canvasBody(req){return req.json();} export function canvasSameOrigin(req){if(req.headers.get('origin')!==new URL(req.url).origin)throw {code:'CANVAS_UNAVAILABLE'};}`],
@@ -86,4 +86,16 @@ test('unavailable wrapper invokes the 404 boundary and renders only generic pape
  const html=renderToStaticMarkup(React.createElement(NotFound));
  assert.match(html,/This canvas isn&#x27;t available to this account./);assert.match(html,/href="\/panel"/);assert.match(html,/min-h-11/);assert.match(html,/‹ Chat/);assert.match(html,/bg-paper/);assert.doesNotMatch(html,/foreign|Drawing|Joe|Abigail/);
  delete globalThis.__canvasFailure;
+});
+
+test('page preview route carries opaque HTTP sandbox and exact bridge hash; no cookies',async()=>{
+ reset();globalThis.__canvasData.canvas.kind='page';globalThis.__canvasData.availability.pages=true;globalThis.__canvasData.code.code='<h1>Weekly board</h1>';
+ const r=await preview.GET(new Request('https://app.test/preview'),ctx);assert.equal(r.status,200);assert.match(r.headers.get('content-security-policy'),/^sandbox allow-scripts; default-src 'none'; script-src 'sha256-/);assert.equal(r.headers.get('set-cookie'),null);assert.equal(r.headers.get('access-control-allow-origin'),null);assert.equal(r.headers.get('cache-control'),'private, no-store');const body=await r.text();assert.match(body,/<h1>Weekly board<\/h1>/);assert.equal(body.match(/<script>/g).length,1);
+ globalThis.__canvasData.availability.pages=false;assert.equal((await preview.GET(new Request('https://app.test/preview'),ctx)).status,503);
+});
+test('page downloads use static HTML attachment or original plain text only',async()=>{
+ reset();globalThis.__canvasData.canvas.kind='page';globalThis.__canvasData.availability.exports=true;
+ const r=await download.GET(new Request('https://app.test/?format=html'),ctx);assert.equal(r.status,200);assert.match(r.headers.get('content-disposition'),/attachment; filename="page-v2.html"/);assert.equal(r.headers.get('content-security-policy'),CANVAS_ERROR_CSP);assert.doesNotMatch(await r.text(),/<script/);
+ const text=await download.GET(new Request('https://app.test/?format=txt'),ctx);assert.match(text.headers.get('content-type'),/^text\/plain/);assert.equal(await text.text(),globalThis.__canvasData.code.code);
+ for(const format of ['svg','mmd'])assert.equal((await download.GET(new Request('https://app.test/?format='+format),ctx)).status,400);
 });

@@ -90,3 +90,10 @@ test("finishes and switch legs", () => {
   assert.deepEqual(d.electrical.find((e) => e.id === "sw").switchLegTo, ["lt"]);
   assert.ok(parseDoc(d).ok);
 });
+
+// Phase 3: editing a new live revision never mutates an already pinned doc.
+test("real op edits leave the selected saved geometry immutable",()=>{
+ const saved=room(),bytes=JSON.stringify(saved);
+ const latest=applyOps(saved,[{op:'placeItem',libraryKey:'base-SB36',at:{x:48,y:12}},{op:'addNote',at:{x:12,y:12},text:'Revision'}]);
+ assert.equal(JSON.stringify(saved),bytes);assert.equal(saved.items.length,0);assert.equal(latest.items.length,1);assert.ok(parseDoc(latest).ok);
+});

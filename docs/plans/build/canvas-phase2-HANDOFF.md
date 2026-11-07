@@ -1,0 +1,279 @@
+# Canvas Phase 2 implementation handoff
+
+Branch `t3/canvas-phase2-3`, starting at `1ace8ae8`. Phase 2 owns shared Canvas files; Phase 3 files and migration 0114 were not edited or staged.
+
+## Purpose and build items
+
+1. `lib/canvas-content.mjs`: dependency-free, closed HTML fragment parser, reconstructing canonical bytes rather than repairing malformed HTML. Strict per-property finite CSS grammars; responsive flex/grid, cards/tables, inline SVG through the existing independent drawing validator. Rejects scripts, handlers, all navigation, external resources, namespaces/integration points, custom properties, CSS escapes/comments/functions, overlay positioning, animation, malformed nesting and unresolved SVG fragment references. Innocuous `doctype/html/head/title/body` envelopes are extracted; meta/style/resources in head remain forbidden. HTML id/class/data attributes are deliberately refused. Original source stays in `source_text`; canonical `{html,validator_version:2}` lives in the predeclared `canonical_content`. Existing DB `content_policy_version=1` remains its envelope version.
+2. `lib/canvas-renderer.mjs`, `components/panel/canvas/page-bridge.ts`: separate fixed source-independent page bridge. Parent authenticates current frame, null origin, random 128-bit instance and nonce, exact shapes and one transferred MessagePort. Child accepts its parent's one-shot handshake, then only bound print-layout commands. Source is never transmitted to or interpolated into the script. Ready/height/error/focus/Escape/Tab boundary messages only. Measurement limited to 8192 px and normally 5/s. Print toggles a trusted layout attribute and remeasures. No source execution, clicks, fetching, navigation or credentials.
+3. `components/panel/canvas/server.ts`: authenticated selected-version preview route returns a complete HTTP document with independent opaque sandbox CSP, no CORS or Set-Cookie. Public Code access is independent: preview obtains private bytes through `canvasPagePreview`, not the public source endpoint. Failed revalidation never falls back to old bytes.
+4. `lib/ask-canvases.ts`, `mcp/canvas-tools.mjs`: page availability/mutations/version restore/read through existing private journal, actor, provenance and CAS checks. Existing strict tool schemas already predeclared `{kind:'page',source:string}`. Page capability advertises `static_page` preview, HTML download, Save and restore. Diagram/floor permissions remain separate. Tool help includes exactly “Static HTML with inline styles and SVG. No scripts, links, or external files.”
+5. `lib/canvas-exports.ts`: pages generate static HTML directly, without a client SVG derivative. Original source is revalidated for download/Save (including replay)/restore/maintenance. Same immutable audience, acknowledgement, provenance and crash-recovery flow as diagrams. Saved bytes include title/summary/date/version/Internal draft and a strict file meta CSP, no script or bridge. Existing `canvas_static_v1` file-serving policy is reused. Human-only original-source download is `.txt` and `text/plain`, gated by Code access; it is not advertised as a second page export in the menu.
+6. `CanvasPane`, `CanvasCard`, `PageStage`, `PagePrint`, empty availability/feed/store: routed page iframe, page labels/About/help, escaped Code, responsive scrollable stage, trusted Fit/100%/zoom, compact touch controls, existing pane layout/Save dialog and standalone wrapper. Trusted print wrapper waits for ready, expands the bounded frame, prints the outer window only, hides controls in print, and offers HTML fallback. Over-limit height disables Print. No iframe same-origin/modals privilege.
+
+## Limits and intentional parser choices
+
+Up to 256 KiB source and canonical storage envelope, 5,000 aggregate HTML/SVG elements, HTML depth 24 (stricter than plan's 32), at most 32 SVG roots, existing SVG depth 32/path budget 100,000/dimension 8192. CSS declarations ≤4096 characters, tracks/repeat ≤24, lengths ≤8192px/100%/64rem/64em. SVG ids are consistently prefixed per drawing, with integral local references only. Numeric SVG drawing attributes follow the existing finite drawing grammar; CSS styles go on surrounding HTML. Raster images, stylesheet blocks and arbitrary author JavaScript remain unsupported by design.
+
+The parser is a small explicit grammar rather than htmlparser2 repair plus sanitize-html: this keeps the factory executable in the existing diagram sandbox with no new dependency, and makes nesting/namespace rejection and canonical idempotence explicit. Unknown/unsupported syntax fails closed. Fixtures are realistic model-written responsive cards/tables and an SVG drawing with markers, viewBox, transforms, strokes, dash arrays and text, not toy strings. Expectations for 25 fresh adversarial inputs were written before implementation/execution.
+
+## Routes, schemas and flags
+
+- `GET /api/canvas/:id/versions/:version/preview`: page document, normal session/ownership/area/recovery/kind checks, `sandbox="allow-scripts"` in every frame.
+- `GET .../download?format=html`: static attachment with strict HTTP CSP; `format=txt` returns original source as text, subject to source flag. Mixed pages do not offer SVG extraction.
+- Existing show/update/get/list schemas, version/restore routes, save-policy/acknowledge/save routes and private file adapters unchanged in shape. No new MCP registration.
+- `GET /panel/canvas/:id?v=n`: existing trusted new-tab wrapper. `GET /panel/canvas/:id/print?v=n`: trusted page print wrapper, independently authenticated.
+- Production configuration unchanged: `canvas.pages_enabled` stays false. Runtime requires `SJC_CANVAS_ENABLED=1`, page flag true, existing staff/area/launch/privacy gates; exports additionally require `canvas.exports_enabled`. Source kill switch remains separate. QA seed script enables pages only in its explicitly named `sjcos_qa_*` target.
+- No migration 0113, dependency install, new table or narrow-login write path. No manifest/grant changes and no registration handoff needed for Phase 2.
+
+## Validation
+
+All commands ran single test files, using unique `SJC_TEST_CLUSTER_TAG` values; DB work used only `tests/_harness/testdb.mjs`. All Phase 2 test clusters stopped. No live database, browser, server, build, service restart, push or deploy.
+
+| Test file | Result |
+|---|---|
+| canvas-content | 58 passed |
+| canvas-page-sandbox | 9 passed |
+| canvas-exports-db | Initially 3/3 passed. Latest combined schema: 1 passed, 2 failed because of Phase 3's new trigger; page case separately rerun and passed. |
+| canvas-routes | 22 passed |
+| canvas-mcp | 40 passed |
+| canvas-ui | 39 passed |
+| canvas-commands-db | 21 passed before the later Phase 3 trigger edit |
+| canvas-renderer | 7 passed |
+| canvas-render-bridge | 29 passed |
+| canvas-rollout-db | 7 passed |
+| canvas-save-dialog | 30 passed |
+| ask-private-query-scan | 10 passed, 1 failed: only Phase 3's new private-query inventory is outstanding |
+
+`flock /tmp/sjcos-tsc.lock nice -n 19 npx tsc --noEmit -p .`: exit **0**. No Next build requested or run. Test logs are `/tmp/canvas-p2-*.log` for this session. Early failures (old unsupported-page expectation, literal HTML comment opener in stringified validator, reused test-DB slug collisions) were corrected or rerun with fresh isolated clusters; there was no resource kill.
+
+### Coordinator integration blockers (outside ownership)
+
+1. **0114 `canvas_floor_payload_lifecycle`**: the final combined IF uses `NEW.source_text::jsonb` in the same boolean expression as the floor-kind check. PostgreSQL can evaluate that cast for diagram rows. Latest full exports run fails two diagram tests with `22P02 invalid input syntax for type json` at transaction COMMIT; the page test passes because page canonical_content is non-null. Put the JSON cast inside a separate nested procedural IF entered only for `floor_plan` (do not rely on SQL AND short-circuit ordering). Phase 2 did not edit 0114. Rerun exports-db and commands-db after that fix on a fresh tagged harness cluster.
+2. **Private inventory**: Phase 2 updated the allowlist for its own `lib/ask-canvases.ts`, `lib/canvas-exports.ts`, `scripts/qa-seed-canvas.mjs` only. Remaining scan errors name `lib/canvas-floor.ts` and `db/migrations/0114_canvas_floor_refs.sql`; the coordinator must review/audit Phase 3 files. Do not approve their hashes mechanically.
+3. Phase 3 shared-file wiring remains the coordinator's work. No Phase 3 branch was enabled here.
+
+## Visual release checks and how to seed
+
+Coordinator only: use existing isolated QA build/identity protocol; run `scripts/qa-seed-canvas.mjs` with an explicit **sjcos_qa_*** URL, never a live/test default. It now emits `joe_page_v1`, `joe_page_v2`, `abigail_page_v1`, `abigail_page_v2` URLs alongside existing diagram states. Pages/staff are enabled in that QA DB only. These are screenshot/real-browser gates, not claimed by Node tests.
+
+| State to capture | How to seed/open |
+|---|---|
+| Cards/table at 360, 820, 1280; 360×800 stage ≥420 | Seeded `joe_page_v1` wrapper/owned thread, select version 1; inspect overflow and card reflow. |
+| Inline SVG and readable marker/text at those sizes | Seeded `joe_page_v2`; inspect text/markers, Fit/100% and zoom. |
+| 800×360 landscape, stage ≥200; 1100 popout compact | Same page versions in existing pane host; verify one selector/exit and coarse vs fine pointer floats. |
+| Title/meta/About in compact and fuller panes | ⋯ → About this page at 360/compact; disclosure at 820/full width; include picker and card type labels. |
+| Older version/newer ready/restore/follow | Open v1 while v2 exists; Latest, Versions, then Use this version. No focus jump on update. |
+| Escaped Code, Copy, page help | Show code / Code; fixture text contains `&amp;`; no model HTML rendered in trusted DOM. |
+| Save and acknowledgement | Save to project files → select authorized QA project; staff default/baseline; remove areas as Joe and capture acknowledgement; save, then open/download static project file. Existing Save dialog is unchanged. |
+| HTML download and print/PDF | Page (HTML); verify no bridge in downloaded file. Print wrapper waits ready; inspect multi-page cards/table/SVG in desktop and actual Safari/iOS print. Verify version/Internal draft, no chat/buttons and no clipping. Use HTML fallback if embedded print is unreliable. |
+| Loading, timeout/error and retry | Throttle/block only the preview request in QA browser tools; capture Opening page, then after 10s unavailable-page copy with Show code / Ask Claude to try again / Try again. |
+| Unavailable/auth/off/source off | Foreign QA account, expired session, page flag off, and source flag off in QA separately; generic unavailable/auth copy, retained Code when permitted, no private pixels across account/thread change. Source-off preview must still work. |
+| Staff/owner scope | Seeded Abigail thread signed in as Abigail vs Joe's private link; shared project file only after explicit Save policy permits it. |
+
+Not done: coordinator production build, screenshots, real HTTP/proxy/header captures, focus/Safari/iframe multi-page print acceptance, Phase 3 wiring/audit/trigger repair, rollout or deploy. Keep the page flag false until those checks pass. No push.
+
+## Exact CSP constants for this commit
+
+Page bridge SHA-256 (base64): `B2ulZeMK2KxKxb3ie21fkM7KGq1m+evtSd/eKHRRV4Q=`. Diagram bootstrap also changes because its shared validator factory changed: `rJhQpKKTfQ3xy2//IBauP6SG9pSINyCiJFt76JUWQ10=`. Hashes are computed from the emitted server script bytes; production transforms may change function stringification, so verify actual response hashes in coordinator acceptance.
+
+Preview HTTP CSP:
+
+```text
+sandbox allow-scripts; default-src 'none'; script-src 'sha256-B2ulZeMK2KxKxb3ie21fkM7KGq1m+evtSd/eKHRRV4Q='; script-src-attr 'none'; style-src 'unsafe-inline'; img-src 'none'; font-src 'none'; connect-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; manifest-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'
+```
+
+Static file meta CSP (HTML-escaped in the actual meta attribute):
+
+```text
+default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src 'none'; font-src 'none'; connect-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; base-uri 'none'; form-action 'none'
+```
+
+Download/error HTTP CSP uses `sandbox; default-src 'none'; script-src 'none'` plus the renderer policy tail; saved files use existing `CANVAS_FILE_CSP` in `lib/canvas-file-access.ts` (scriptless sandbox, no resources, self-only framing). Wrapper/print HTTP framing policy remains `frame-ancestors 'none'` + `X-Frame-Options: DENY`.
+
+Exact download/error HTTP CSP:
+
+```text
+sandbox; default-src 'none'; script-src 'none'; script-src-attr 'none'; style-src 'unsafe-inline'; img-src 'none'; font-src 'none'; connect-src 'none'; media-src 'none'; object-src 'none'; frame-src 'none'; child-src 'none'; worker-src 'none'; manifest-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'
+```
+
+Exact saved-file HTTP CSP:
+
+```text
+sandbox; default-src 'none'; script-src 'none'; style-src 'unsafe-inline'; img-src 'none'; font-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'
+```
+
+Preview/error Permissions-Policy:
+
+```text
+camera=(), microphone=(), geolocation=(), payment=(), usb=(), serial=(), clipboard-read=(), clipboard-write=(), display-capture=(), fullscreen=()
+```
+
+## Round 1 fixes
+
+2026-11-06 · implementation A, shared Canvas/pages half; no delegation, push,
+server, browser, build, live/QA DB access, service operation, migration edit or
+package operation. B's concurrent floor changes were neither edited nor staged.
+
+- Engineering #1 / design shrink: page measurement does not advance its throttle
+  before the port exists; connection forces the initial report. Both child and
+  parent coalesce resize bursts with a trailing timer and cancel timers on close.
+  The trusted flow-root body box measures content rather than viewport-sized
+  scrollHeight, bounded to 200–8192px, so short pages shrink. The bridge and CSP
+  digest still derive from the same exact emitted function bytes.
+- Print uses authenticated, exact-shape `print-height` replies correlated to a
+  monotonic `layout_id`, bypasses normal height throttling, and times out after
+  three seconds. Print stays disabled until a valid non-overflow measurement;
+  the button waits for the print-layout response, then a React height commit
+  and animation frame before calling window.print. Timeout/overflow/error keeps
+  the HTML fallback and permits retry. Browser-native print still needs the
+  coordinator's device acceptance below.
+- Design #6–8 / engineering #4: cards use Workflow/FileText/LayoutGrid for
+  diagrams/pages/floors and “Floor plan · vN” for floor cards. Every pane receives
+  the same title picker trigger and “Canvases in this chat” overlay, including
+  type/version/current tick rows. Floor title uses the design name; compact
+  title leaves the design version to B's meta row. Floor passes its Delete action
+  back to the existing confirmation and fenced/idempotent delete path. Cancel
+  and Escape share the existing overlay close behavior, with title focus return
+  when the menu opener has unmounted. Failed delete remains hidden and retries
+  the original request ID. Empty copy includes floors only when available.
+- Server-computed rights: the API floor type requires `can_edit:boolean`, mapped
+  solely from B's `readFloorCanvas.canEdit===true`; missing fields default false.
+  No client role/screen inference grants editing.
+- Optional page control cleanup: removed duplicate Fit; 100% remains the reset.
+- Engineering #6: subset fixture accepts declared reviewed IDs through 0114.
+  Persistent Canvas-only tests apply exact production SQL and checksums for
+  0100 + 0105–0109 + 0114, replay the real ledger unchanged, exercise page
+  show/update/equal-source/replay/restore and floor show/update/no-op/replay/
+  restore without changing live geometry, and prove 0114 dependency failure
+  leaves no new function/columns/references/ledger row. Page equal-source updates
+  intentionally append whole versions; floor no-ops do not. Shared 0100 includes
+  inert Browser core tables by design; omitted 0101–0104 Browser vault/action/
+  artifact/handoff/file relations remain absent, as do their ledger rows.
+- Engineering #7: reviewed final QA seed before updating its source digest to
+  bb5d883a19b3f273b550444f7d261ce013f1270b0c49b0b5f8ab21a91ef51071.
+  Its explicit positional sjcos_qa_* guard precedes imports/connection; it checks
+  connected DB/website identity, disables outbound traffic and inherited deletion
+  authority, and seeds real floor geometry through registered named-principal
+  MCP tools and explicit revs before pinning through canvasInternal. The seed's
+  private query inventory is unchanged. Only A's ask-canvases source digest and
+  this reviewed seed digest were updated; no B hashes were approved.
+
+Expectations were written before implementation: **27 fresh named tests**, including
+judge cases 12/13, deterministic child/parent clocks, executed Print component
+commit timing, actual floor-branch picker/delete callbacks and disposable DB
+rollout/lifecycle regressions. VM/component evidence does not claim browser runs.
+
+All files ran individually, sequentially, with `SJC_TEST_CLUSTER_TAG=c23-a-r1-1106`.
+DB files used only `tests/_harness/testdb.mjs`; the tagged cluster was stopped.
+
+| Test file | Passing / failing |
+| --- | --- |
+| canvas-renderer | 7 / 0 |
+| canvas-render-bridge | 29 / 0 |
+| canvas-page-sandbox | 22 / 0 |
+| canvas-ui | 51 / 0 |
+| canvas-routes | 22 / 0 |
+| canvas-mcp | 40 / 0 |
+| canvas-rollout-db | 9 / 0 |
+| canvas-commands-db | 21 / 0 |
+| canvas-exports-db | 3 / 0 |
+| canvas-save-dialog | 30 / 0 |
+| ask-private-query-scan | 10 / 1 (B source review outstanding) |
+
+`flock /tmp/sjcos-tsc.lock nice -n 19 npx tsc --noEmit -p .` exited **0**.
+Logs: `/tmp/c23-a-*.log`. Early added expectations needed JSX-comment stripping
+and a VM promise-task boundary in test fixtures; the rollout absence assertion
+was corrected to distinguish shared 0100 core from omitted Browser relations.
+No resource kill occurred.
+
+Final scan finding requiring coordinator audit: `lib/canvas-floor.ts` has a
+changed private SQL/guard source. Its hashes were deliberately left untouched.
+Other A-owned scope is complete. B owns all remaining floor fixes and verification.
+Coordinator still must verify page shrink after rotate/content changes, rapid
+resize/handshake behavior, long/narrow tables and multi-page print/PDF in Chromium
+and Safari/iOS, plus floor menu deletion/Escape/focus and unified picker at
+360/820/1100/1280 and short landscape. No visual release, rollout or deploy is
+claimed; existing production flags remain unchanged.
+
+## Round 2 fixes
+
+2026-11-06 · implementation A, shared Canvas/pages half. Ten fresh expectations
+were written before implementation: nine executed component cases in canvas-ui
+and one real-DB/API metadata case in canvas-commands-db. All ten reproduced the
+unfixed findings, then passed. No delegation, server, browser, build, push,
+migration/package operation, live/QA DB connection or service action occurred.
+B's concurrent files were not edited or staged by A.
+
+- Engineering r2 #3: Delete now installs a synchronous per-canvas flight token
+  before the first await. Duplicate confirmation/menu callbacks coalesce; a
+  genuine retry keeps its operation/request ID. Only the current flight can
+  publish a result or release its fence, and the completed operation blocks
+  retained callbacks after success. Success clears stale notice/error state,
+  redacts cards once, and filters current collections rather than a pre-request
+  snapshot, preserving newly received canvases/events. Pending confirmation is
+  guarded/disabled across the separate title/content slot instances; retained
+  menu/Cancel callbacks cannot reopen/refocus it. Existing Cancel
+  focus return remains covered. Failed deletion stays title-free and retryable.
+- Design r2 #4, A half: VersionMeta has optional top-level design_name. The
+  shared mapper emits it from B's authorized floorVersionMeta.name and keeps
+  design's original four identity/version fields. New mutation results re-read
+  metadata after attaching the reference, so show/restore as well as get/list/
+  versions/events/replay carry the current name. The disposable API test also
+  renames the design and proves historical metadata reads the current name.
+  Picker rows and both visible/accessible floor card titles use design_name,
+  falling back to the canvas title. Floor history rows read “Floor plan · vN”.
+- Design r2 #5: the page iframe keeps visibility:hidden while loading; zoom
+  controls mount only after the bridge reports ready. The frame still loads
+  and performs the existing handshake. “Opening page…” and the existing 10s
+  timeout/error/Try again path remain intact; no bridge/CSP/renderer change.
+- Private-query audit: reviewed A's two-line ask-canvases delta; all 25 existing
+  private SQL fingerprints are unchanged. Only that source digest was updated
+  (39c5c05a4edcd677579dac9854f14b45e7868bb707a4cc51fbf6f5d93e658c33).
+  No B source/query fingerprints were approved.
+
+Each named file ran individually with SJC_TEST_CLUSTER_TAG=c23-a-r2-1106-583.
+Database execution minted explicit connection URLs solely with
+tests/_harness/testdb.mjs, supplied them for every database URL environment key,
+and used the harness callback/session URLs. stopCluster() returned true after
+both the red probe and the final DB run. The new metadata case uses a fresh
+harness database because the preceding journal test deliberately latches
+recovery/deletion state. An initial full-file run exposed that fixture-state
+inheritance; no product gate was relaxed.
+
+| Test file | Passing / failing |
+| --- | --- |
+| canvas-ui | 60 / 0 |
+| canvas-routes | 22 / 0 |
+| canvas-mcp | 40 / 0 |
+| canvas-commands-db | 22 / 0 |
+| canvas-page-sandbox | 22 / 0 |
+| canvas-render-bridge | 29 / 0 |
+| ask-private-query-scan | 10 / 1 (B audit outstanding; post-B rerun complete) |
+
+`flock /tmp/sjcos-tsc.lock nice -n 19 npx tsc --noEmit -p .` finally exited **0**.
+The first run exited 2 while B's in-progress plan-estimate.ts had two implicit-any
+errors; B corrected that file before the successful rerun. Logs:
+`/tmp/c23-a-r2-*.log`. No exit 137/resource kill occurred.
+
+Final combined-tree scan ran after B's commit **5f5a0fc8** and A's implementation
+commit **5257cd61**, exiting **1**, with **10 passing / 1 failing** test. Its three
+findings are confined to B's lib/canvas-floor.ts:
+
+- Unaudited private SQL: lib/canvas-floor.ts:38 floorVersionMeta.
+- Private SQL/guard source changed; review audit: lib/canvas-floor.ts.
+- Stale private SQL audit: lib/canvas-floor.ts floorVersionMeta.
+
+Coordinator must review those fingerprints; A deliberately leaves them unchanged.
+The scan reports no A-owned violations. Final log:
+`/tmp/c23-a-r2-private-scan.log`. A's implementation commit contains only its ten
+explicitly selected paths; this follow-up commit records the post-B scan result.
+
+Not done by A: B's floor/action implementation and its tests, approval of B's
+private-query hashes, production/browser/device acceptance, push or deploy.
+Coordinator visual checks: delayed/unreachable page preview stays blank behind
+“Opening page…” until the normal 10s error; Try again recovers with zoom appearing
+only when ready; floor names agree in cards/picker/header and compact history
+rows; rapid duplicate Delete, successful deletion and failed-delete retry leave
+correct focus/notice at narrow and full pane widths. Existing Phase 2+3 release
+checks and feature-off rollout remain in effect.

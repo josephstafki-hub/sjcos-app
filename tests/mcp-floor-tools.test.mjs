@@ -59,11 +59,16 @@ function fakeDb() {
   return { db, rows };
 }
 
-function setup() {
+function setup(options = {}) {
   const { db, rows } = fakeDb();
   const tools = new Map();
   const fakeServer = { registerTool: (name, spec, handler) => tools.set(name, { spec, handler }) };
-  registerFloorTools(fakeServer, { rows, json });
+  registerFloorTools(fakeServer, { rows:options.rows??rows, json, ...options, saveSnapshot: async ({design_id,label}) => {
+    const d=db.designs.get(Number(design_id));
+    const id=100+db.versions.length,number=db.versions.filter(v=>Number(v.design_id)===Number(design_id)).length+1;
+    db.versions.push({id,design_id:Number(design_id),number,label,doc:d.doc,created_at:new Date()});
+    return {ok:true,id,number};
+  } });
   const call = async (name, args = {}) => parse(await tools.get(name).handler(args));
   return { db, tools, call };
 }
@@ -246,4 +251,25 @@ test("versions, duplicate, sheet request and comments write the expected rows", 
   assert.equal(db.comments.find((x) => x.id === pin.comment_id).author_name, "Claude");
   const badPin = await call("add_plan_comment", { design_id: id, x: 0, y: 0, item_id: "nope", body: "x" });
   assert.equal(badPin.ok, false);
+});
+
+// Phase 3 expectations: deny before geometry/writes, scope-check every read,
+// panel ops require CAS; bare non-Canvas callers keep their existing behavior.
+test("named staff without projects or revoked identity cannot read or create",async()=>{
+ for(const options of [
+  {currentPrincipal:async()=>({userId:'staff',revoked:true})},
+  {currentPrincipal:async()=>({userId:'staff'}),rows:async()=>[{id:'staff',role:'staff',active:true,permissions:['ai']}]},
+ ]){const {call,db}=setup(options);assert.equal((await call('create_plan_design',{project_slug:'demo-project',name:'Denied'})).ok,false);assert.equal(db.writes,0);assert.equal((await call('get_plan_design',{design_id:1})).ok,false);}
+});
+test("named project-only staff cannot query lead scope or spoof both scopes",async()=>{
+ const {call}=setup({currentPrincipal:async()=>({userId:'staff'}),rows:async()=>[{id:'staff',role:'staff',active:true,permissions:['ai','projects']}]});
+ assert.equal((await call('list_plan_designs',{lead_slug:'demo-lead'})).ok,false);
+ assert.equal((await call('create_plan_design',{project_slug:'demo-project',lead_slug:'demo-lead',name:'x'})).ok,false);
+});
+test("panel-bound edits require expected_rev even for an owner",async()=>{
+ const {call}=setup({currentPrincipal:async()=>({userId:'owner',runId:'run'}),rows:async()=>[{id:'owner',role:'owner',active:true,permissions:[]}]});
+ const result=await call('apply_plan_ops',{design_id:1,ops:[]});assert.equal(result.ok,false);assert.match(result.error,/expected_rev/);
+});
+test("unsafe numeric design ids fail before querying geometry",async()=>{
+ const {call}=setup();assert.equal((await call('get_plan_design',{design_id:9007199254740992})).ok,false);
 });

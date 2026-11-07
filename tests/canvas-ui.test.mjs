@@ -7,7 +7,7 @@ import React from 'react';
 import {renderToString} from 'react-dom/server';
 import {hostWidths,deviceCases} from './fixtures/ask-pane-host.mjs';
 const root=new URL('../',import.meta.url);
-registerHooks({resolve(s,c,n){if(s==='react'&&c.parentURL?.includes('/components/panel/'))return {url:'canvas-react:hooks',shortCircuit:true};if(c.parentURL==='canvas-react:hooks')return n(s,{...c,parentURL:import.meta.url});if(s.startsWith('@/')||s.startsWith('.')){const u=s.startsWith('@/')?new URL(s.slice(2),root):new URL(s,c.parentURL);for(const ext of ['','.ts','.tsx'])if(existsSync(new URL(u.href+ext))&&statSync(new URL(u.href+ext)).isFile())return {url:u.href+ext,shortCircuit:true};}return n(s,c);},load(u,c,n){if(u==='canvas-react:hooks')return {format:'module',shortCircuit:true,source:`export * from 'react'; export const useSyncExternalStore=(_subscribe,get)=>get();`};if(/\.(ts|tsx)$/.test(u))return {format:'module',shortCircuit:true,source:ts.transpileModule(readFileSync(new URL(u),'utf8'),{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText};return n(u,c);}});
+registerHooks({resolve(s,c,n){if(s==='next/dynamic')return {url:'canvas-next:dynamic',shortCircuit:true};if(s==='react'&&c.parentURL?.includes('/components/panel/'))return {url:'canvas-react:hooks',shortCircuit:true};if(c.parentURL==='canvas-react:hooks')return n(s,{...c,parentURL:import.meta.url});if(s.startsWith('@/')||s.startsWith('.')){const u=s.startsWith('@/')?new URL(s.slice(2),root):new URL(s,c.parentURL);for(const ext of ['','.ts','.tsx'])if(existsSync(new URL(u.href+ext))&&statSync(new URL(u.href+ext)).isFile())return {url:u.href+ext,shortCircuit:true};}return n(s,c);},load(u,c,n){if(u==='canvas-next:dynamic')return {format:'module',shortCircuit:true,source:`export default function dynamic(){return function Lazy(){return null;};}`};if(u==='canvas-react:hooks')return {format:'module',shortCircuit:true,source:`export * from 'react'; export const useSyncExternalStore=(_subscribe,get)=>get();`};if(/\.(ts|tsx)$/.test(u))return {format:'module',shortCircuit:true,source:ts.transpileModule(readFileSync(new URL(u),'utf8'),{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText};return n(u,c);}});
 const {CanvasCard}=await import('../components/panel/CanvasCard.tsx');
 const {CanvasPane}=await import('../components/panel/CanvasPane.tsx');
 const {askPaneLayout}=await import('../components/panel/askPaneLayout.ts');
@@ -98,4 +98,117 @@ test('all state-action controls have visible bordered button affordance',()=>{
  for(const renderError of ['RENDER_FAILED','RENDER_TIMEOUT','LOAD_TIMEOUT']){loaded({renderError});const html=render(CanvasPane,{context,slot:'content'});if(renderError==='RENDER_FAILED')bordered(html,'Ask Claude to fix it');else{bordered(html,'Show code');bordered(html,renderError==='LOAD_TIMEOUT'?'Try again':'Ask Claude to simplify it');}}
  for(const [sheet,label] of [['restore','Use this version'],['delete','Delete canvas']]){loaded({sheet});bordered(render(CanvasPane,{context,slot:'content'}),label);}
  store.clearCanvas();bordered(render(CanvasPane,{context:{...context,snapshot:{...context.snapshot,id:'empty'}},slot:'content'}),'Draw the steps for a permit');
+});
+
+test('page uses responsive routed iframe, page labels/help and HTML-only export menu',()=>{
+ const data={canvas:{id:'c',kind:'page',latest_version:3},selected:version,availability:{...availability,pages:true},capabilities:{code:true,save:true,preview:true,download_formats:['html','txt']}};
+ loaded({data,code:{code:'<h1>Weekly board</h1>'},exportReady:true});
+ let html=render(CanvasPane,{context,slot:'content'});assert.match(html,/About this page/);assert.match(html,/sandbox="allow-scripts"/);assert.match(html,/src="\/api\/canvas\/c\/versions\/2\/preview"/);assert.doesNotMatch(html,/srcdoc|allow-same-origin|About this diagram/);
+ store.patchCanvas('c',{tab:'code'});html=render(CanvasPane,{context,slot:'content'});assert.match(html,/This page can show text, tables, and drawings. Ask Claude to change it./);assert.match(html,/&lt;h1&gt;Weekly board&lt;\/h1&gt;/);
+ store.patchCanvas('c',{sheet:'menu',tab:'preview'});html=render(CanvasPane,{context:{...context,compact:true},slot:'content'});assert.match(html,/Page \(HTML\)/);assert.doesNotMatch(html,/Drawing \(SVG\)|Diagram code/);
+ store.updateCanvas({items:[{canvas:data.canvas,latest:version}]});assert.match(render(CanvasCard,{event,availability,onOpen(){}}),/Page/);store.clearCanvas();
+});
+
+// Round 1 expectations FIRST: each kind has a distinct card, a unified picker,
+// floor deletion uses the shared confirmation, and page zoom has one reset.
+for(const [kind,label,icon] of [['diagram','Diagram','workflow'],['page','Page','file-text'],['floor_plan','Floor plan','layout-grid']])test(`round 1 ${kind} card type and icon`,()=>{loaded();store.updateCanvas({items:[{canvas:{id:'c',kind},latest:version}]});const html=render(CanvasCard,{event:{...event,version:{...version,design:kind==='floor_plan'?{number:7}:null}},availability,onOpen(){}}).replaceAll('<!-- -->','');assert.match(html,new RegExp(label+' · '));assert.match(html,new RegExp('lucide-'+icon));if(kind==='floor_plan'){assert.match(html,/floor plan, v7/);assert.doesNotMatch(html,/floor plan, floor plan/);}store.clearCanvas();});
+function floorLoaded(sheet){loaded({sheet,data:{canvas:{id:'c',kind:'floor_plan',latest_version:3},selected:{...version,design:{number:7,id:'4'}},availability:{...availability,floor:true},capabilities:{preview:false},floor:{designId:'4',snapshotId:'8',number:7,rev:0,latestRev:0,changed:false,can_edit:false,props:{design:{name:'Kitchen'}}}}});}
+for(const kind of ['diagram','page','floor_plan'])test(`round 1 ${kind} opens the same picker listing all kinds`,()=>{floorLoaded('picker');if(kind!=='floor_plan')store.patchCanvas('c',{data:{...store.canvasState().views.c.data,canvas:{id:'c',kind}}});store.updateCanvas({items:['diagram','page','floor_plan'].map((kind,i)=>({canvas:{id:i?'other'+i:'c',kind,latest_version:3},latest:{...version,design:kind==='floor_plan'?{number:7}:null}}))});const html=render(CanvasPane,{context,slot:'content'}).replaceAll('<!-- -->','');assert.equal((html.match(/aria-label="Canvases in this chat"/g)||[]).length,1);assert.match(html,/Diagram · Version 3/);assert.match(html,/Page · Version 3/);assert.match(html,/Floor plan · v7/);assert.match(html,/✓/);store.clearCanvas();});
+test('round 1 floor shares deletion confirmation and retains fenced failure copy',()=>{floorLoaded('delete');let html=render(CanvasPane,{context,slot:'content'});assert.match(html,/Delete canvas\?/);assert.match(html,/Saved project files will stay/);assert.match(html,/>Cancel</);store.patchCanvas('c',{data:undefined,sheet:undefined,error:'DELETE_FAILED'});html=render(CanvasPane,{context,slot:'content'});assert.match(html,/The canvas stays hidden until it does/);assert.doesNotMatch(html,/Kitchen/);store.clearCanvas();});
+for(const floor of [false,true])test(`round 1 empty copy honors floor availability ${floor}`,()=>{store.clearCanvas();store.updateCanvas({availability:{...availability,floor}});const html=render(CanvasPane,{context:{...context,snapshot:{...context.snapshot,id:'empty'}},slot:'content'});assert.match(html,floor?/Ask for a diagram, a page, or a floor plan\./:/Ask for a diagram or a page\./);store.clearCanvas();});
+test('round 1 pages have one meaningful zoom reset',()=>{const source=readFileSync(new URL('../components/panel/canvas/PageStage.tsx',import.meta.url),'utf8');assert.doesNotMatch(source,/>Fit</);assert.match(source,/>100%</);});
+
+async function paneActions({deferred=false}={}){
+ const {default:vm}=await import('node:vm');let cursor=0,focus=0,fail=true,publications=0,activeSlot='content';const refsBySlot={content:[],title:[],meta:[],actions:[]},requests=[];
+ floorLoaded();let state=store.canvasState();
+ const fakeStore={canvasState:()=>state,canvasServerState:()=>state,subscribeCanvas(){},patchCanvas(id,patch){state={...state,views:{...state.views,[id]:{...state.views[id],...patch}}};},updateCanvas(patch){state={...state,...patch};},publishCanvases(){publications++;},chooseCanvas(){},selectCanvasVersion(){},askCanvasChange(){},loadCanvas(){}};
+ const Floor=()=>null,Overlay=()=>null;
+ const sandbox={exports:{},AbortController,crypto,queueMicrotask,document:{activeElement:{isConnected:false},getElementById:()=>({focus:()=>focus++})},require(name){
+  if(name==='react')return {useSyncExternalStore:(_s,get)=>get(),useEffect(){},useRef(initial){const refs=refsBySlot[activeSlot];return refs[cursor++]??(refs[cursor-1]={current:initial});},lazy:()=>()=>null,Suspense:()=>null};
+  if(name==='react/jsx-runtime')return {jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})};
+  if(name==='./canvas/store')return fakeStore;
+  if(name==='./canvas/state')return {versionPath:()=>'',canvasFetch:async(url,signal,options)=>{const request={url,body:JSON.parse(options.body)};requests.push(request);if(deferred)return new Promise((resolve,reject)=>Object.assign(request,{resolve,reject}));if(fail)throw Error('network');return {ok:true};}};
+  if(name==='./canvas/floor/FloorCanvasPane')return {FloorCanvasPane:Floor};
+  if(name==='./canvas/CanvasOverlay')return {CanvasOverlay:Overlay};
+  return {};
+ }};
+ vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../components/panel/CanvasPane.tsx',import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,sandbox);
+ const render=(slot='content')=>{cursor=0;activeSlot=slot;return sandbox.exports.CanvasPane({context,slot});};
+ const all=tree=>!tree||typeof tree!=='object'?[]:[tree,...[tree.props?.children].flat(Infinity).flatMap(all)];
+ return {render,all,Floor,Overlay,requests,get publications(){return publications;},patch:fakeStore.patchCanvas,update:fakeStore.updateCanvas,get state(){return state;},get focus(){return focus;},succeed:()=>fail=false};
+}
+test('round 1 actual floor branch passes its shared picker and opens cancellable deletion',async()=>{const p=await paneActions();let tree=p.render(),floor=p.all(tree).find(n=>n.type===p.Floor);assert.equal(floor.props.picker.props['data-canvas-title'],true);floor.props.onDelete();tree=p.render();const confirm=p.all(tree).find(n=>n.type===p.Overlay&&n.props.title==='Delete canvas?');assert.ok(confirm);confirm.props.onClose();await Promise.resolve();assert.equal(p.state.views.c.sheet,undefined);assert.equal(p.focus,1);assert.equal(p.requests.length,0);});
+test('round 1 floor delete fences immediately and retries with the same request id',async()=>{const p=await paneActions();p.all(p.render()).find(n=>n.type===p.Floor).props.onDelete();const confirm=p.all(p.render()).find(n=>n.type===p.Overlay&&n.props.title==='Delete canvas?');p.all(confirm).find(n=>n.type==='button'&&n.props.children==='Delete canvas').props.onClick();assert.equal(p.state.views.c.data,undefined);assert.equal(p.state.views.c.error,'DELETING');await new Promise(setImmediate);assert.equal(p.state.views.c.error,'DELETE_FAILED');const retry=p.all(p.render()).find(n=>n.type==='button'&&n.props.children==='Try again');p.succeed();retry.props.onClick();await new Promise(setImmediate);assert.equal(p.requests.length,2);assert.equal(p.requests[0].body.request_id,p.requests[1].body.request_id);assert.equal(p.requests[0].url,'/api/canvas/c');store.clearCanvas();});
+
+
+// Round 2 expectations FIRST: callbacks retained before React rerenders must
+// coalesce, retry the same operation, and never replace a successful deletion.
+const tick=()=>new Promise(setImmediate);
+function deleteButton(p){
+ p.all(p.render()).find(n=>n.type===p.Floor).props.onDelete();
+ return p.all(p.render()).find(n=>n.type==='button'&&n.props.children==='Delete canvas');
+}
+test('round 2 duplicate confirm and floor menu callbacks send one DELETE',async()=>{
+ const p=await paneActions({deferred:true}),tree=p.render('title'),menu=p.all(tree).find(n=>n.type===p.Floor).props.onDelete,button=deleteButton(p);
+ button.props.onClick();button.props.onClick();menu();
+ assert.equal(p.requests.length,1);assert.equal(p.state.views.c.sheet,undefined);assert.equal(p.state.views.c.error,'DELETING');
+ p.requests[0].resolve({ok:true});await tick();assert.equal(p.publications,1);assert.equal(p.state.views.c.error,undefined);
+});
+test('round 2 success survives late failure and retained confirm callbacks',async()=>{
+ const p=await paneActions({deferred:true}),button=deleteButton(p);
+ button.props.onClick();button.props.onClick();
+ p.requests.at(-1).resolve({ok:true});await tick();
+ for(const request of p.requests)request.reject(Error('late lost response'));
+ button.props.onClick();await tick();
+ assert.equal(p.requests.length,1);assert.equal(p.publications,1);assert.equal(p.state.views.c.error,undefined);assert.equal(p.state.views.c.notice,undefined);
+ assert.doesNotMatch(JSON.stringify(p.render()),/DELETE_FAILED|Deleting didn/);
+});
+test('round 2 failed deletion retries once with original operation id and finishes cleanly',async()=>{
+ const p=await paneActions({deferred:true});p.patch('c',{notice:'Old notice'});deleteButton(p).props.onClick();
+ p.requests[0].reject(Error('lost response'));await tick();assert.equal(p.state.views.c.error,'DELETE_FAILED');assert.equal(p.state.views.c.data,undefined);
+ const retry=p.all(p.render()).find(n=>n.type==='button'&&n.props.children==='Try again');retry.props.onClick();retry.props.onClick();
+ assert.equal(p.requests.length,2);assert.equal(p.requests[1].body.request_id,p.requests[0].body.request_id);
+ p.requests[1].resolve({ok:true});await tick();assert.equal(p.publications,1);assert.equal(p.state.views.c.error,undefined);assert.equal(p.state.views.c.notice,undefined);assert.equal(p.state.views.c.sheet,undefined);
+});
+test('round 2 retained Cancel cannot reopen or refocus a pending delete',async()=>{
+ const p=await paneActions({deferred:true});const button=deleteButton(p),confirm=p.all(p.render()).find(n=>n.type===p.Overlay&&n.props.title==='Delete canvas?');
+ button.props.onClick();confirm.props.onClose();await tick();assert.equal(p.focus,0);assert.equal(p.state.views.c.sheet,undefined);
+ p.requests[0].resolve({ok:true});await tick();assert.equal(p.publications,1);assert.equal(p.focus,0);
+});
+test('round 2 deletion completion preserves canvases and events received while pending',async()=>{
+ const p=await paneActions({deferred:true});deleteButton(p).props.onClick();
+ p.update({items:[{canvas:{id:'new'},latest:version}],events:[{...event,id:'later',canvas_id:'new'},{...event,id:'deleted-card'}]});
+ p.requests[0].resolve({ok:true});await tick();assert.equal(p.state.items[0].canvas.id,'new');assert.equal(p.state.events[0].id,'later');assert.equal(p.state.events[1].kind,'deleted');assert.equal('version' in p.state.events[1],false);
+});
+test('round 2 floor picker uses current design name with canvas title fallback',()=>{
+ floorLoaded('picker');store.updateCanvas({items:[{canvas:{id:'c',kind:'floor_plan',latest_version:2},latest:{...version,design_name:'Kitchen layout',design:{number:7}}},{canvas:{id:'fallback',kind:'floor_plan',latest_version:2},latest:{...version,title:'Fallback floor',design:{number:8}}}]});
+ const html=render(CanvasPane,{context,slot:'content'}).replaceAll('<!-- -->','');assert.match(html,/Kitchen layout/);assert.match(html,/Fallback floor/);assert.doesNotMatch(html,/Permit steps/);store.clearCanvas();
+});
+test('round 2 floor card visible and accessible titles use design name with fallback',()=>{
+ floorLoaded();store.updateCanvas({items:[{canvas:{id:'c',kind:'floor_plan'},latest:version}]});
+ for(const name of ['Kitchen layout',undefined]){
+  const html=render(CanvasCard,{event:{...event,version:{...version,design_name:name,design:{number:7}}},availability,onOpen(){}}).replaceAll('<!-- -->','');
+  assert.match(html,new RegExp('>'+ (name??version.title)+'</h3>'));assert.match(html,new RegExp('aria-label="[^"\n]*'+(name??version.title)));
+  if(name)assert.doesNotMatch(html,/Permit steps/);
+ }store.clearCanvas();
+});
+async function hookComponent(file,name,modules={},initial=[]){
+ const {default:vm}=await import('node:vm');let cursor=0;const slots=[],effects=[];
+ const hooks={useRef:value=>{const i=cursor++;return slots[i]??(slots[i]={current:value});},useState:value=>{const i=cursor++;if(!(i in slots))slots[i]=initial.length?initial.shift():value;return [slots[i],next=>slots[i]=typeof next==='function'?next(slots[i]):next];},useEffect:fn=>effects.push(fn)};
+ const sandbox={exports:{},AbortController,matchMedia:()=>({matches:false,addEventListener(){},removeEventListener(){}}),require:s=>s==='react'?hooks:s==='react/jsx-runtime'?{jsx:(type,props)=>({type,props}),jsxs:(type,props)=>({type,props})}:modules[s]??{}};
+ vm.runInNewContext(ts.transpileModule(readFileSync(new URL('../'+file,import.meta.url),'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022,jsx:ts.JsxEmit.ReactJSX}}).outputText,sandbox);
+ const all=tree=>!tree||typeof tree!=='object'?[]:[tree,...[tree.props?.children].flat(Infinity).flatMap(all)];
+ return {render:props=>{cursor=0;return sandbox.exports[name](props);},all,effects};
+}
+test('round 2 floor history names only type and design version, preserving selection',async()=>{
+ const selected=[],h=await hookComponent('components/panel/CanvasVersions.tsx','CanvasVersions',{'./canvas/CanvasOverlay':{CanvasOverlay:()=>null},'./canvas/state':{canvasVersionByline:()=>'',canvasVersionTime:()=>''}},[[{...version,design:{number:7,snapshot_id:'s'}}],null,false,false]);
+ const tree=h.render({id:'c',selected:2,onSelect:n=>selected.push(n),onClose(){}}),nodes=h.all(tree),label=nodes.find(n=>n.type==='span').props.children.join('');
+ assert.equal(label,'Floor plan · v7 ✓');nodes.find(n=>n.type==='button').props.onClick();assert.deepEqual(selected,[2]);
+});
+test('round 2 page iframe and zoom stay hidden until bridge ready, without changing loading copy',async()=>{
+ let bridge;const patches=[],h=await hookComponent('components/panel/canvas/PageStage.tsx','PageStage',{'./page-bridge':{connectCanvasPage:options=>(bridge=options,{close(){}})},'./store':{patchCanvas:(id,patch)=>patches.push(patch)},'./state':{versionPath:()=>'/api/canvas/c/versions/2'}});
+ const props={id:'c',version,context};let nodes=h.all(h.render(props)),frame=nodes.find(n=>n.type==='iframe');
+ assert.equal(frame.props.style.visibility,'hidden');assert.equal(frame.props.sandbox,'allow-scripts');assert.ok(nodes.some(n=>n.type==='p'&&n.props.children==='Opening page…'));assert.ok(!nodes.some(n=>n.props['aria-label']==='Page size'));
+ for(const effect of [...h.effects])effect();bridge.onReady();nodes=h.all(h.render(props));assert.equal(nodes.find(n=>n.type==='iframe').props.style.visibility,'visible');assert.ok(nodes.some(n=>n.props['aria-label']==='Page size'));assert.ok(!nodes.some(n=>n.type==='p'&&n.props.children==='Opening page…'));assert.equal(patches[0].exportReady,true);
+ bridge.onFailure();assert.equal(patches.at(-1).renderError,'LOAD_TIMEOUT');
 });

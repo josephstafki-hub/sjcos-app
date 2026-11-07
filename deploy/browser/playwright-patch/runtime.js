@@ -86,6 +86,15 @@ function createSjcRuntime() {
   async function detach(session) {const s=sessions.get(session);if(!s)throw error('detach-unknown');return deny(s.browser,session,s.target,'detached');}
   function lost(session) {const s=sessions.get(session);if(s)void fail(s.browser,'session-lost').catch(()=>{});}
   function prepared(session) {const s=sessions.get(session);if(!s||!s.b.live)throw error('prepared-state');}
-  return {attach,resume,ready,prepared,fail,deny,boot,detach,lost,reserveContext,
+  // Upstream registers the CRPage synchronously on attach, before Target.createTarget returns.
+  // Here attach first passes the barrier, so wait (bounded, fail-closed) for the approved page.
+  async function pageFor(browser,targetId) {
+    const end=Date.now()+2500;
+    for(;;){const b=boots.get(browser);if(!b||!b.live)throw error('page-not-live:'+(b?.failReason||'unknown'));
+      const p=browser._crPages.get(targetId);if(p)return p;
+      if(Date.now()>end){await fail(browser,'page-timeout');throw error('page-timeout');}
+      await new Promise(r=>setTimeout(r,10));}
+  }
+  return {attach,resume,ready,prepared,fail,deny,boot,detach,lost,reserveContext,pageFor,
     connect(parent,transport,options){if(options.persistent||!options.__sjcBarrier)throw error('connect-options');return CRBrowser.connect(parent,transport,options);}};
 }

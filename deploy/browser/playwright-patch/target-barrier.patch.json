@@ -128,5 +128,10 @@
     "before": "      dispose() {\n        this._closed = true;",
     "after": "      dispose() {\n        __sjc.lost(this);\n        this._closed = true;",
     "matches": 1
+  },
+  {
+    "before": "return this._browser._crPages.get(targetId)._page;",
+    "after": "return (await __sjc.pageFor(this._browser, targetId))._page; // SJC: page registers only after the barrier approves its attach",
+    "matches": 1
   }
 ]

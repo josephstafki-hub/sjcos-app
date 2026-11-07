@@ -710,6 +710,86 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.assert_slot_stats(await control.dispatch(dict(op='stats')),2)
         return control,group,read,tails,releases
 
+    async def root_control_burst(self, *, saturated=False):
+        # Exact root concurrency: monitor stats, background stats, foreground
+        # stats/events and both first-request digest registrations. Park one
+        # accepted sampler frame so the other four Node connects hit the backlog.
+        import os,tempfile,struct
+        from pathlib import Path
+        from parser_adapter import UnixPolicy
+        import transport_control
+        from transport_control import ControlServer
+        with tempfile.TemporaryDirectory() as directory:
+            path=str(Path(directory)/'gate.sock')
+            group=[await self.connection(),await self.connection(contextId='context2',guardId='guard2',targetId='target2')]
+            for h,_,ck in group:self.runtime.register_guard(ck,h.binding['guardId'],h.binding['targetId'])
+            bindings=[dict(listener=h.listener.address[1],listenerCookie=ck,**h.binding) for h,_,ck in group]
+            control=ControlServer(self.runtime,'127.0.0.1',[])
+            verify_peer=UnixPolicy.verify_peer
+            verify=lambda policy,sock:verify_peer(UnixPolicy(policy.path,peer_uid=os.getuid()),sock)
+            with patch.object(UnixPolicy,'verify_peer',verify),patch.object(transport_control,'CONTROL_BACKLOG',2 if saturated else transport_control.CONTROL_BACKLOG):
+                server=asyncio.create_task(control.serve(path));self.addAsyncCleanup(self.cancel_runs,[server])
+                await self.wait_state(lambda:Path(path).exists())
+                reader,writer=await asyncio.open_unix_connection(path)
+                script=r"""
+import {gateCall} from './lib/browser/root-fixture.mjs';
+import {createGateAuthority} from './lib/browser/controller-gate.mjs';
+import {canonical} from './lib/browser/acceptance-attestation.mjs';
+import {sha256} from './lib/browser/runtime-readiness.mjs';
+const [path,uid,bindings]=JSON.parse(process.argv[1]);
+const events=[],call=(op,data)=>gateCall(path,uid,op,data);
+const policy=createGateAuthority({networkConfig:{appHosts:['app.example'],serviceHosts:[],hostPublicAddresses:['9.9.9.9']},
+ bindingFor:e=>bindings.find(b=>b.listener===e.listener),fetchFor:e=>({...bindings.find(b=>b.listener===e.listener),kind:e.method==='POST'?'fetch':'document'}),
+ authority:{authorizeRequest:async r=>{events.push('consume:'+r.method);return {kind:r.method==='POST'?'write':'read',expiresAt:Date.now()+2000,consumeReceipt:{id:'a'.repeat(64)}};}},
+ registerDigest:(e,b)=>call('fetch',{listenerCookie:b.listenerCookie,generation:b.generation,requestDigest:e.requestDigest,guardId:b.guardId,targetId:b.targetId}),
+ onFatal:failure=>{events.push('boot_revoked:'+failure?.code);}});
+const reqs=bindings.map((b,i)=>{
+ const method=i?'POST':'GET',headers=[['host','permit.example'],...(i?[['content-length','26214400']]:[])],bodySha256='a'.repeat(64),url='https://permit.example/preallocation-backpressure';
+ const requestDigest=sha256(canonical({method,url,headers,bodySha256}));
+ return {v:1,id:'flow'+i,remainingMs:2000,...b,authority:'permit.example:443',method,url,headers,bodySha256,requestDigest,
+  hostAuthority:'permit.example',sni:'permit.example',dns:{hostname:'permit.example',chain:['permit.example'],addresses:['8.8.8.8'],ttlMs:60000}};
+});
+for(const r of reqs)for(const event of ['http_connect','requestheaders'])if(!(await policy({...r,event})).ok)throw Error('setup '+r.method+' '+event+' '+JSON.stringify(events));
+const pending=[...['stats','events_drain'].map(op=>call(op)),...reqs.map(r=>policy({...r,event:'request'}))];
+// Attach rejection handlers immediately: backlog refusal must be evidence.
+const finished=Promise.allSettled(pending);
+setTimeout(()=>console.log('issued'),100);
+const outcomes=await finished;
+console.log(JSON.stringify({events,outcomes:outcomes.map(o=>o.status==='fulfilled'?o.value:{error:o.reason.message}),socketAlive:(await call('stats')).dead===false}));
+"""
+                child=await asyncio.create_subprocess_exec('node','--input-type=module','-e',script,json.dumps([path,os.getuid(),bindings]),stdout=asyncio.subprocess.PIPE,stderr=asyncio.subprocess.PIPE)
+                try:
+                    line=await asyncio.wait_for(child.stdout.readline(),3)
+                    if not line:self.fail((await child.stderr.read()).decode())
+                    self.assertEqual(line,b'issued\n')
+                    raw=json.dumps(dict(op='stats')).encode();writer.write(struct.pack('!I',len(raw))+raw);await writer.drain()
+                    await reader.readexactly(4);writer.close();await writer.wait_closed()
+                    stdout,stderr=await asyncio.wait_for(child.communicate(),4)
+                    self.assertEqual(child.returncode,0,stderr.decode())
+                    result=json.loads(stdout)
+                    self.assertTrue(result['socketAlive'],result)
+                    self.assertTrue(Path(path).is_socket(),'EAGAIN occurs before any socket file disappears')
+                    if saturated:
+                        self.assertEqual(result['events'][:2],['consume:GET','consume:POST'])
+                        self.assertIn('boot_revoked:BROWSER_GATE_DIGEST_BACKPRESSURE',result['events'])
+                        self.assertTrue(any(x.get('ok') is False for x in result['outcomes']),result)
+                    else:
+                        self.assertEqual(result['events'],['consume:GET','consume:POST'],result)
+                        self.assertTrue(all(x.get('ok') is True for x in result['outcomes']),result)
+                        self.assertEqual(set(self.runtime.fetches),{ck for _,_,ck in group})
+                        self.assertTrue(all(h.listener.active and not h.closed for h,_,_ in group))
+                finally:
+                    writer.close();await writer.wait_closed()
+                    if child.returncode is None:child.kill();await child.wait()
+                    server.cancel();await asyncio.gather(server,return_exceptions=True)
+            self.assertFalse(Path(path).exists())
+
+    async def test_root_control_burst_keeps_both_consumed_requests_and_socket_alive(self):
+        await self.root_control_burst()
+
+    async def test_root_control_backlog_two_revokes_after_consume_without_unlink(self):
+        await self.root_control_burst(saturated=True)
+
     async def test_root_flake_continuous_reads_can_ack_before_drain_observation(self):
         import fcntl,struct
         from transport_runtime import AsyncSocket

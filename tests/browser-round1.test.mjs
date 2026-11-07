@@ -173,3 +173,50 @@ test('policy denial returns before fatal revoke ACK (no gate/control circular wa
 test('fatal fence reentry shares the published shutdown promise',async()=>{
  let close,reentered,kills=0;close=createFatalShutdown({fence:()=>{reentered=close();},revoke:async()=>{},kill:async()=>kills++,cleanup:async()=>{}});const p=close();assert.equal(reentered,p);await p;assert.equal(kills,1);
 });
+
+import {caseObservations,verifyCaseArtifacts} from '../lib/browser/root-fixture.mjs';
+import {mkdtemp,mkdir,writeFile,readFile,rm} from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+test('RSS tail proof survives actual JSON write and parent artifact revalidation',async()=>{
+ const dir=await mkdtemp(path.join(os.tmpdir(),'browser-tail-artifact-'));
+ try{
+  const name='preallocation-backpressure',base=path.join(dir,name),fixture=slowFixture();await mkdir(base+'/receipts/sink',{recursive:true});
+  const keys=generateKeyPairSync('ed25519'),id='b'.repeat(64),consume={runId:'run',bootId:'boot',kind:'read',transportRequestDigest:hash};
+  const record={id,digest:sha256(canonical(consume)),runId:'run',bootId:'boot',kind:'read'};
+  const checkpoint={id,digest:record.digest,ack:{envelope:envelope({purpose:'browser-controller-checkpoint',...record},keys.privateKey)}};
+  const controllerEvents=[{seq:1,event:'target_attached',targetId:'t'},{seq:2,event:'guard_registered',targetId:'t'},{seq:3,event:'fetch_paused',targetId:'t'},{seq:4,event:'consume',id:'flow',targetId:'t',consumeId:id,checkpointVerified:true,requestDigest:hash},{seq:5,event:'digest_registered',id:'flow',targetId:'t',requestDigest:hash}];
+  const events=[{event:'flow_closed',id:'flow',targetId:'t',requestDigest:hash,upstreamPlaintextBytes:1}],origins=[{requestDigest:hash}];
+  const receipts={['consume-'+id+'.json']:consume,['checkpoint-'+id+'.json']:checkpoint};
+  for(const [file,value]of Object.entries({...receipts,['sink/sink-'+id+'.json']:record}))await writeFile(base+'/receipts/'+file,canonical(value));
+  await writeFile(base+'/checkpoint.pub',keys.publicKey.export({type:'spki',format:'pem'}));
+  const head=Buffer.alloc(24);head.writeUInt32LE(0xa1b2c3d4);head.writeUInt32LE(96,16);head.writeUInt32LE(101,20);
+  const packet=Buffer.alloc(1),entry=Buffer.alloc(16);entry.writeUInt32LE(1,8);entry.writeUInt32LE(1,12);const pcap=Buffer.concat([head,entry,packet]);
+  const stderr='1 packets captured\n0 packets dropped by kernel\n';await writeFile(base+'/ingress.pcap',pcap);await writeFile(base+'/ingress.pcap.stderr',stderr);
+  await writeFile(base+'/origin.jsonl',JSON.stringify(origins[0])+'\n');
+  const rss={maxResponseSlots:2},measurement={capture:{stderrSha256:sha256(stderr),capturedPackets:1},pcapSha256:sha256(pcap),eventSha256:sha256(JSON.stringify(events)),controllerEventsSha256:sha256(JSON.stringify(controllerEvents)),clientResultSha256:sha256(JSON.stringify(fixture.result)),originLogSha256:sha256(JSON.stringify(origins)),controllerEventCount:controllerEvents.length,eventCount:events.length,originRequests:1,rss,rssVerified:true,
+   receiptSha256:sha256(Buffer.concat(Object.keys(receipts).sort().map(file=>Buffer.concat([Buffer.from(file),Buffer.from(canonical(receipts[file]))]))))};
+  const observations=caseObservations({measurement,events,controllerEvents,...fixture,rss});
+  const save=()=>writeFile(base+'/observations.json',JSON.stringify(observations));await save();
+  assert.deepEqual(JSON.parse(await readFile(base+'/observations.json')).tailHoldSamples,fixture.state.tailHoldSamples);
+  await verifyCaseArtifacts(dir,[{name,measurement}]);assert.equal(measurement.artifactHashesVerified,true);
+  for(const corrupt of [o=>delete o.tailHoldSamples,o=>o.tailHoldSamples[0].tails[1].reserved=false,o=>o.tailHoldSamples[0].tails[1].id='a']){
+   const damaged=structuredClone(observations);corrupt(damaged);await writeFile(base+'/observations.json',JSON.stringify(damaged));
+   await assert.rejects(verifyCaseArtifacts(dir,[{name,measurement}]),/controlled TCP tails/);
+  }
+ }finally{await rm(dir,{recursive:true,force:true});}
+});
+
+test('controller bridge preserves only the fixed EAGAIN code across process IPC',async()=>{
+ for(const code of ['EAGAIN','secret exception text']){
+  let request;const rpc=bridge({send:m=>request=m}),pending=rpc.request('gate',['fetch']);
+  rpc.reply({reply:request.id,error:true,errorCode:code});
+  await assert.rejects(pending,e=>e.message==='BROWSER_CONTROLLER_BRIDGE_REFUSED'&&e.code===(code==='EAGAIN'?'EAGAIN':'BROWSER_CONTROLLER_BRIDGE_REFUSED'));
+ }
+});
+test('boot revoke retains a fixed trigger and discards exception text',async()=>{
+ for(const reason of ['BROWSER_GATE_DIGEST_BACKPRESSURE','secret exception text']){
+  let received;const id=randomUUID(),policy=createControllerPolicy({runId:id,taskId:id,bootId:id,authority:{unknownAll:async()=>{}},gate:{call:async(op,data)=>{received=data.reason;return {ok:true};}}});
+  await policy.revokeListener(reason);assert.equal(received,reason.startsWith('BROWSER_')?reason:'BROWSER_CONTROLLER_REVOKE');
+ }
+});

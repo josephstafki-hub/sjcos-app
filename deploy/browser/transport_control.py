@@ -17,6 +17,13 @@ from OpenSSL import SSL
 from parser_adapter import Refused, UnixPolicy, HEADER
 from transport_tls import TLSConfiguration
 
+# Control RPCs are independent of the two admitted TCP/body slots. The root
+# fixture overlaps three samplers and two digest registrations; listen(2)
+# makes Node's nonblocking Unix connect fail with EAGAIN before accept().
+# Eight pending metadata-only peers leave headroom, without allocating any
+# additional parser/body buffers or changing the serialized control dispatch.
+CONTROL_BACKLOG=8
+
 SOURCES=('parser_adapter.py','transport_runtime.py','transport_tls.py','transport_dns.py','transport_control.py','egress_gate.py','closed_dispatcher.py')
 
 def protected(path,maximum=HEADER):
@@ -114,7 +121,7 @@ class ControlServer:
         from transport_runtime import AsyncSocket
         # Never unlink an existing socket or another run's file.
         sock=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
-        sock.bind(path);os.chmod(path,0o600);sock.listen(2);sock.setblocking(False)
+        sock.bind(path);os.chmod(path,0o600);sock.listen(CONTROL_BACKLOG);sock.setblocking(False)
         inode=os.lstat(path).st_ino
         try:
             while not self.dead:

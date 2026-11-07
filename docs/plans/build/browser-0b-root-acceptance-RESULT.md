@@ -203,3 +203,89 @@ Coordinator handoff: re-run ROOT network/RSS acceptance and repeat
 preallocation-backpressure. Confirm two controlled final-tail samples/IDs,
 independent release, durable unknown on interrupted POST, and no browser/socket
 survivors. No new ROOT pass claim or acceptance promotion is made here.
+
+### Follow-up to ROOT `r1p-evidence` (2026-11-07)
+
+**Mid-case revoke trigger: control-socket accept backlog exhaustion.** The
+`listen(2)` in `ControlServer.serve` was sized like the two browser/body slots,
+but independent control RPCs overlap: monitor stats, background sampling,
+foreground sampling, and the two contexts' digest registrations. While the
+single Python loop is busy collecting/freezing the upload, Node's nonblocking
+Unix connects can fill that backlog and fail immediately with `EAGAIN`.
+A failed digest registration after consume invokes `createGateAuthority`'s
+fatal callback; a failed monitor stats call also revokes. Fixture shutdown
+then closes/unlinks the policy endpoint, explaining the subsequent
+`FileNotFoundError` and unconfirmable terminal revoke. The missing policy
+path is downstream of the revocation, not a terminal finalizer unlinking a
+shared socket. Comparing `50a63f09` confirms its terminal cleanup never
+unlinks a socket; the undersized control backlog predates that commit.
+
+Expectations were added before the capacity fix. The real loopback
+`test_root_control_burst_keeps_both_consumed_requests_and_socket_alive`
+failed with consumes followed by the fatal callback at digest registration.
+Adding diagnostic codes before changing the backlog identified
+`BROWSER_GATE_DIGEST_BACKPRESSURE` (`EAGAIN`), with the socket file still
+present. The test uses the actual Python `ControlServer`, real mitmproxy
+ConnectionHandler/HTTPFlow instances on two distinct TCP listeners, and Node's
+actual `gateCall` + `createGateAuthority`; only the authenticated peer UID is
+changed to the test user's kernel UID. One accepted sampler frame is parked
+while the other four calls connect, making the root concurrency deterministic
+without mocking socket errors, pending bytes, or reservation counts.
+`test_root_control_backlog_two_revokes_after_consume_without_unlink` preserves
+the old backlog as a negative control and reproduces the specific failure.
+
+The control backlog is now eight pending metadata peers, with serialized
+control dispatch and the existing root-peer checks/framing/deadlines unchanged.
+This does not add admitted TCP flows, parser buffers, or body slots. The
+positive regression checks both distinct listener-cookie digest registrations,
+no fatal callback, both TCP listeners/handlers still alive, and the Unix
+socket present until its owning server is stopped. Existing loaded GET + held
+25 MiB POST tests still verify two slots/112 MiB, real controlled tails,
+independent listener revocation, prompt all-flow CUT, and 2 -> 1 -> 0 release.
+
+Fixed diagnostics now preserve `EAGAIN` across the fixture process bridge,
+record `policy_refused` with the stage (`BROWSER_GATE_VALIDATE`,
+`BROWSER_GATE_AUTHORIZE`, `BROWSER_GATE_DIGEST_REGISTER`, or
+`BROWSER_GATE_DIGEST_BACKPRESSURE`), and retain a bounded `boot_revoked.reason`.
+Monitor-triggered revokes distinguish `BROWSER_CONTROL_BACKPRESSURE`,
+`BROWSER_GATE_MONITOR_FAILED`, and `BROWSER_GATE_MONITOR_DEAD`. No exception
+text, request body, or secret is put in those codes. The supplied ROOT logs
+had no original trigger code; these codes let the coordinator confirm which
+control RPC first failed if the root topology reveals another trigger.
+
+**Run 2: lost proof at artifact serialization/revalidation.** The case had
+already passed the live `validateRssCase(state)` check. The parent then called
+the same validator from `verifyCaseArtifacts`, but `observations.json` omitted
+`tailHoldSamples`, and the parent also omitted that field when reconstructing
+state. Therefore even a correct two-tail hold inevitably failed the new strict
+check. Both boundaries now preserve the samples, through the actual writer's
+`caseObservations` projection. The new Node test failed first on missing JSON
+samples, then passes complete artifact revalidation including signed consume,
+checkpoint, sink, receipt hashes, packet hashes, and ordering. Negative artifact
+variants still fail for missing samples, an unreserved tail, or a duplicated
+flow ID. No tail requirement or TCP fixture hold was weakened.
+
+Validation (no ROOT, sudo, browsers, installed-runtime writes, or live DB/services):
+
+- `/opt/sjcos-browser/py/bin/python -B deploy/browser/transport_tests.py -v`:
+  **116/116** passed (88.139 s), including all 15 RSS cases and all 36
+  cancellation boundaries. The final exact five-call control-burst version
+  was also checked separately: **2/2** positive/negative controls passed.
+- `tests/browser-round1.test.mjs`: **69/69** passed, including the actual JSON
+  artifact round trip and fixed diagnostic/IPC tests.
+- `tests/browser-controller.test.mjs`: **87/87** passed.
+- `/home/joe/qa-sjcos/browser-acc/relock.sh`: frozen source/hash/pin verification
+  passed; root runner **17/17**, runtime boundaries **19/19**, acceptance
+  integration **42/42**. Both relocked JSON inventories are committed.
+- The parser adapter and Playwright runtime patch are unchanged, so neither
+  parser-pin reassignment nor `repatch.sh` was needed. Local test tag:
+  `browser-r1p-20261107`; the required relock script uses its own `coord-relock`
+  tag. These test files create no database cluster. All test listeners, Node
+  children, and tasks were stopped; no exit 137/resource kill occurred.
+  `git diff --check` passed.
+
+Coordinator handoff: reprovision the relocked candidate and rerun ROOT
+preallocation-backpressure repeatedly. Check that consume is followed by digest
+registration/server connect instead of revocation, both tail proof arrays
+survive the parent artifact pass, and independent release/zero survivors hold.
+No ROOT acceptance pass or promotion is claimed by this follow-up.

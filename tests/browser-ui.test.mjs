@@ -127,7 +127,7 @@ async function sessionFixture({ownerView=false,viewerId='viewer',detail:initial,
  const joined={stream_id:'stream',stream_generation:1,viewer_id:viewerId,device_secret:'secret',expires_at:'2099-01-01T00:00:00Z',...(ownerView?{owner_review_claim:{claim_id:'claim',expires_at:claimExpires}}:{})},calls=[];let eventCallback;
  Object.assign(browserAPI,{join:async()=>({...status,...joined}),detail:async()=>status,answers:async()=>({answers:[]}),leave:async()=>{},presence:async()=>({}),closeStream:async(_id,_v,binding)=>({closed:true,planned:true,...binding}),reads:async()=>({candidates:[],candidates_status:'none'}),control:async(...args)=>{calls.push(args);return status;},events:events??(async(_id,_v,signal,onEvent)=>{eventCallback=onEvent;onEvent('state',{...status,stream_id:'stream',stream_generation:1});await new Promise(resolve=>signal.addEventListener('abort',resolve,{once:true}));})});
  const props={taskId:'task',conversationId:'thread',visible:true,ownerView},h=await browserSessionHarness(()=>useBrowserSession(props));await h.settle();
- return {h,props,calls,async poll(ms=5000){for(const timer of timers)if(timer.ms===ms)await timer.fn();await h.settle();},setStatus(next){status=next;},get status(){return status;},emit(name,data){eventCallback(name,data);},async dispose(){h.dispose();await h.settle();Object.assign(browserAPI,saved);globalThis.document=doc;globalThis.window=win;globalThis.setInterval=interval;globalThis.clearInterval=clear;}};
+ return {h,props,calls,async poll(ms=5000){for(const timer of timers)if(timer.ms===ms)await timer.fn();await h.settle();},setStatus(next){status=next;},get status(){return status;},get emitCurrent(){return eventCallback;},emit(name,data){eventCallback(name,data);},async dispose(){h.dispose();await h.settle();Object.assign(browserAPI,saved);globalThis.document=doc;globalThis.window=win;globalThis.setInterval=interval;globalThis.clearInterval=clear;}};
 }
 test('R1 real session menu cancel is local; reload confirms then sends current epochs once',async()=>{
  const f=await sessionFixture();try{await f.h.value.action('menu');assert.match(view(f.h.value.model),/Browser options/);await f.h.value.action('cancel');assert.equal(f.h.value.model.dialog,null);assert.equal(f.calls.length,0);await f.h.value.action('reload');assert.match(view(f.h.value.model),/Reload this page\?/);assert.equal(f.calls.length,0);await f.h.value.action('confirm_reload');await f.h.settle();assert.equal(f.calls.length,1);assert.deepEqual(f.calls[0].slice(2),['reload',7,{expected_document_epoch:3,context_generation:2,read_manifest_revision:4}]);assert.equal(f.h.value.model.dialog,null);}finally{await f.dispose();}
@@ -353,6 +353,35 @@ test('R3 12 owner Pause confirm succeeds only after ACK; Show page reaches autho
   f.setStatus({...f.status,revision:3,task:{...f.status.task,state:'active',private:true,control:'person'},paused_by:null});await f.poll();assert.match(view(f.h.value.model),/>Show the page</);
   let authorize;browserAPI.join=()=>new Promise(r=>authorize=()=>{f.setStatus({...f.status,private_view_status:'authorized'});r({...f.status,stream_id:'stream',stream_generation:1,viewer_id:'viewer',device_secret:'secret',owner_review_claim:{claim_id:'claim',expires_at:'2099-01-01T00:00:00Z'}});});const show=f.h.value.action('show_private');await f.h.settle();assert.match(view(f.h.value.model),/Waiting to show the private page…/);assert.doesNotMatch(view(f.h.value.model),/<img/);authorize();await show;await f.h.settle();
   f.h.value.patch({frameUrl:'data:image/jpeg;base64,/9j/'});await f.h.settle();assert.match(view(f.h.value.model),/Private — only you and Abigail see this page./);assert.match(view(f.h.value.model),/You're watching. Abigail is in control./);assert.match(view(f.h.value.model),/<img/);await f.h.value.action('takeover');assert.match(view(f.h.value.model),/aria-label="Take over from Abigail\? Their control ends\."/);
+ }finally{await f.dispose();}
+});
+// R4b expectations precede the session fix: exercise metadata, not a patched UI model.
+const earlierFrame={stream_id:'10000000-0000-4000-8000-000000000001',stream_generation:1,frame_id:'10000000-0000-4000-8000-000000000002',seq:1,control_epoch:7,document_epoch:3,viewport:{width:1280,height:800},width:1280,height:800,jpeg_base64:'/9j/'};
+async function earlierLoading(f){
+ f.setStatus({...f.status,revision:f.status.revision+1,navigation:{...navigation,loading:true}});
+ await f.poll();
+}
+test('R4b loading metadata retains the shown frame; replacement clears Earlier view',async()=>{
+ const f=await sessionFixture();try{
+  f.emit('frame',earlierFrame);await f.h.settle();const before=f.h.value.model.frameUrl;
+  await earlierLoading(f);assert.equal(f.h.value.model.frameUrl,before);assert.equal(f.h.value.model.state,'loading');
+  assert.match(view(f.h.value.model),/>Earlier view</);assert.ok(view(f.h.value.model).includes('Live view of city.example. Loading city.example….'));
+  f.emit('frame',{...earlierFrame,seq:2,jpeg_base64:'/9j/AAAA'});await f.h.settle();
+  assert.doesNotMatch(view(f.h.value.model),/Earlier view/);assert.equal(f.h.value.model.state,'working');assert.notEqual(f.h.value.model.frameUrl,before);
+  await f.poll();assert.doesNotMatch(view(f.h.value.model),/Earlier view/,'unchanged loading poll cannot relabel the replacement');
+ }finally{await f.dispose();}
+});
+test('R4b loading before any frame is plain loading',async()=>{
+ const f=await sessionFixture();try{await earlierLoading(f);assert.equal(f.h.value.model.state,'loading');assert.match(view(f.h.value.model),/Loading city.example…/);assert.doesNotMatch(view(f.h.value.model),/Earlier view|<img/);}finally{await f.dispose();}
+});
+for(const boundary of ['privacy','privacy mode','generation','rotation','stream binding','stream generation'])test('R4b '+boundary+' clears an earlier frame',async()=>{
+ const f=await sessionFixture();try{
+  f.emit('frame',earlierFrame);await f.h.settle();await earlierLoading(f);assert.match(view(f.h.value.model),/Earlier view/);const oldEvents=f.emitCurrent;
+  if(boundary==='rotation')f.emit('reauth',{});
+  else if(boundary.startsWith('stream '))f.emit('state',{...f.status,stream_id:boundary==='stream binding'?'20000000-0000-4000-8000-000000000001':earlierFrame.stream_id,stream_generation:2});
+  else {f.setStatus({...f.status,revision:f.status.revision+1,...(boundary==='generation'?{context_generation:3}:{task:{...f.status.task,...(boundary==='privacy'?{private:true}:{privacy_mode:'delegated_secret'})}})});await f.poll();}
+  await f.h.settle();assert.equal(f.h.value.model.frameUrl,undefined);assert.doesNotMatch(view(f.h.value.model),/Earlier view|<img/);
+  oldEvents('frame',{...earlierFrame,seq:2});await f.h.settle();assert.equal(f.h.value.model.frameUrl,undefined,'late old-stream frame stays hidden');
  }finally{await f.dispose();}
 });
 test('R3 12 Earlier view and reconnect recovery have stable visible names',async()=>{

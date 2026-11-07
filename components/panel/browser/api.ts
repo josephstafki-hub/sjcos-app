@@ -2,12 +2,12 @@
 // The only Browser UI module aware of website routes. No credentials are persisted.
 import {TaskUI,ReviewNotice,OwnerBrowserReviewClaim,validateEvent,ManualInput} from '../../../lib/browser/phase1-contracts.mjs';
 import {BROWSER_API as root,BROWSER_HEADERS} from '../../../lib/browser/web-types';
-import type {NavigationBinding} from './navigation';
+import type {NavigationBinding,NavigationState} from './navigation';
 import type * as Web from '../../../lib/browser/web-types';
 import type {TaskUI as Task,ReviewNotice as Review,OwnerBrowserReviewClaim as OwnerClaim,BrowserStatus,BrowserJoin,BrowserAvailability,BrowserResponse,ControlMessage,ManualInput as Input} from '../../../lib/browser/web-types';
 export type {Task,Review,OwnerClaim};
 export type Viewer=Pick<BrowserJoin,'viewer_id'|'device_secret'|'expires_at'|'owner_review_claim'|'stream_id'|'stream_generation'>;
-export type Detail=BrowserStatus;
+export type Detail=Omit<BrowserStatus,'navigation'> & {navigation:NavigationState|null};
 export type Reads=Web.BrowserReads;
 export type Settings=Web.BrowserSettings;
 let csrf:{token:string;expires:number}|null=null;

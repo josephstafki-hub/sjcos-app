@@ -1,6 +1,6 @@
 import type {BrowserStatus,ControlMessage} from '../../../lib/browser/web-types';
 
-export type NavigationState=NonNullable<BrowserStatus['navigation']>;
+export type NavigationState=NonNullable<BrowserStatus['navigation']> & {loading?:boolean};
 export type NavigationBinding=Required<Pick<ControlMessage,'expected_document_epoch'|'context_generation'|'read_manifest_revision'>> & Pick<ControlMessage,'target_id'>;
 export const isNavigation=(action:string):action is Extract<ControlMessage['action'],'back'|'forward'|'reload'|'switch_tab'>=>['back','forward','reload','switch_tab'].includes(action);
 /** Only the latest server projection can bind a deliberate navigation. */

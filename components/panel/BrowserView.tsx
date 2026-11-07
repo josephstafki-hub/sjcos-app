@@ -3,18 +3,19 @@ import {useEffect,useRef,useState} from 'react';
 import {browserStatus,blankBrowserStates,type BrowserModel} from './browser/model';
 import {PHONE_INSTRUCTION} from './browser/device';
 import {InputEvent} from '../../lib/browser/phase1-contracts.mjs';
-import {letterboxPoint} from './browser/model';
+import {browserMenuKey} from './browser/navigation';
+import {letterboxPoint,privateWatchReady} from './browser/model';
 export type BrowserViewProps={model:BrowserModel;slot:'title'|'meta'|'content'|'actions'|'all';onAction:(action:string,value?:string)=>void;onInput?:(event:unknown)=>void};
 const button='min-h-12 min-w-11 rounded border border-rule bg-paper px-3 text-subheading focus-visible:outline-2 focus-visible:outline-focus disabled:opacity-50';
 export function BrowserView({model:m,slot,onAction,onInput}:BrowserViewProps) {
  const root=useRef<HTMLDivElement>(null),image=useRef<HTMLDivElement>(null),ime=useRef<HTMLTextAreaElement>(null),heading=useRef<HTMLHeadingElement>(null);
  const [answerId,setAnswerId]=useState<string|null>(null);
  const status=browserStatus(m),all=slot==='all',review=['read_review','resource_review','write_blocked','final_blocked'].includes(m.state);
- const privateHidden=!!m.ownerView&&!!m.privatePage&&!m.privateConsented;
+ const privateHidden=!!m.ownerView&&!!m.privatePage&&!privateWatchReady(m);
  const canImage=!blankBrowserStates.has(m.state)&&!privateHidden&&!review;
  const controlled=m.state==='controlling'&&!m.phone&&!m.busy&&!m.livePaused&&!m.zoom;
- const remoteActions:Record<string,string>={takeover:'take_over',done:'done',fresh:'fresh_browser',resume:'resume',stop:'stop',pause_owner:'pause'};
- const act=(label:string,action:string,disabled=false)=><button type="button" className={button+(action==='takeover'?' min-h-14':'')} disabled={disabled||m.busy||(!!remoteActions[action]&&!(m.availableControls??[]).includes(remoteActions[action]))} onClick={()=>onAction(action)}>{label}</button>;
+ const remoteActions:Record<string,string>={takeover:'take_over',done:'done',fresh:'fresh_browser',resume:'resume',stop:'stop',pause_owner:'pause',back:'back',forward:'forward',reload:'reload',confirm_reload:'reload',window:'switch_tab'};
+ const act=(label:string,action:string,disabled=false,value?:string,ariaLabel?:string)=><button type="button" aria-label={ariaLabel} className={button+(action==='takeover'?' min-h-14':'')} disabled={disabled||m.busy||(!!remoteActions[action]&&!(m.availableControls??[]).includes(remoteActions[action]))} onClick={()=>onAction(action,value)}>{label}</button>;
  useEffect(()=>{if(review)heading.current?.focus();},[review,m.state]);
  useEffect(()=>{
   if(!m.capture||!controlled)return;
@@ -45,7 +46,7 @@ export function BrowserView({model:m,slot,onAction,onInput}:BrowserViewProps) {
   if(['latched','access_removed','closed'].includes(m.state))return act('Close','exit');
   if(['crashed','idle_closed'].includes(m.state))return act('Open again','sites');
   if(m.state==='service_unavailable')return <>{act('Try again','reconnect')}{act('Close','exit')}</>;
-  if(m.ownerView)return <>{privateHidden?act('Show the page','show_private'):!privateHidden&&!m.phone&&!review&&act(`Take over from ${m.personName}`,'takeover')}{act('Pause agent','pause_owner')}</>;
+  if(m.ownerView)return <>{privateHidden?(m.privateViewStatus==='pending_audit'?null:act('Show the page','show_private')):!privateHidden&&!m.phone&&!review&&act(`Take over from ${m.personName}`,'takeover')}{act('Pause agent','pause_owner')}</>;
   if(m.state==='done')return <>{act('Open a fresh browser','fresh')}{act('Keep paused','keep_paused')}</>;
   return <>
    {m.state==='controlling'?act('Done','done'):m.state==='taking_over'?null:m.state==='paused_private'?<>{!m.phone&&act('Take over again','takeover')}{act('Open a fresh browser','fresh')}</>:<>{['paused','absent','turn_ended','owner_paused','reconnected'].includes(m.state)&&!m.privatePage&&act(m.state==='reconnected'?'Resume':'Continue','resume')}{!m.phone&&act(m.state==='other_device'?'Take over here':'Take over','takeover')}</>}
@@ -54,15 +55,16 @@ export function BrowserView({model:m,slot,onAction,onInput}:BrowserViewProps) {
  };
  const dialog=()=>{
   if(!m.dialog)return null;
-  if(m.dialog==='menu')return <div role="dialog" aria-label="Browser options" className="space-y-2"><div className="flex flex-wrap gap-2">{act('‹','back',true)}{act('›','forward',true)}{act('Reload','reload',true)}{m.windowCount===2&&act('Payment window','window',true)}</div><p>Review page addresses</p>{act('This task’s sites','sites')}{m.phone&&<p>{PHONE_INSTRUCTION}</p>}<p>Sending information isn't available in this version.</p>{act('Close','cancel')}</div>;
-  const title=m.dialog==='takeover'?"Take over? After you take over, the agent can't see this page anymore. To let it keep reading, open a fresh browser afterwards.":m.dialog==='fresh'?'Starts a new browser for this task on the same sites. Pages you signed in to will need signing in again.':m.dialog==='leave'?`Pause browser and return to ${m.destination??'Chat'}?`:m.dialog==='pause_owner'?`Pause ${m.personName}'s agent? ${m.personName} will need to tap Continue.`:m.dialog==='replace'?`Take over from ${m.personName}? Their control ends.`:'This task can use these sites.';
+  if(m.dialog==='menu')return <div role="dialog" aria-modal="true" aria-label="Browser options" className="absolute inset-0 z-10 overflow-y-auto bg-paper p-4 space-y-2" onKeyDown={e=>browserMenuKey(e,e.currentTarget)}><h2 tabIndex={-1}>Browser options</h2><div className="flex flex-wrap gap-2">{act('‹','back',!m.navigation,undefined,'Back')}{act('›','forward',!m.navigation,undefined,'Forward')}{act('Reload','reload',!m.navigation)}{m.windowCount===2&&<>{act(m.origin,'window',!m.navigation?.target_ids[0],m.navigation?.target_ids[0])}{act('Payment window','window',!m.navigation?.target_ids[1],m.navigation?.target_ids[1])}</>}</div><p>Review page addresses</p>{act('This task’s sites','sites')}{m.phone&&<p>{PHONE_INSTRUCTION}</p>}<p>Sending information isn't available in this version.</p>{act('Close','cancel')}</div>;
+  const title=m.dialog==='reload'?'Reload this page?':m.dialog==='takeover'?"Take over? After you take over, the agent can't see this page anymore. To let it keep reading, open a fresh browser afterwards.":m.dialog==='fresh'?'Starts a new browser for this task on the same sites. Pages you signed in to will need signing in again.':m.dialog==='leave'?`Pause browser and return to ${m.destination??'Chat'}?`:m.dialog==='pause_owner'?`Pause ${m.personName}'s agent? ${m.personName} will need to tap Continue.`:m.dialog==='replace'?`Take over from ${m.personName}? Their control ends.`:'This task can use these sites.';
   return <div role="dialog" aria-modal="true" aria-label={title} className="absolute inset-0 z-10 flex min-h-0 flex-col bg-paper p-4 text-subheading">
    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto"><h2 tabIndex={-1}>{title}</h2>
+    {m.dialog==='reload'&&<p>Reloading may clear what you've entered. Review page addresses before reloading. Nothing will be sent.</p>}
     {m.dialog==='sites'&&<><ul>{m.sites?.map(s=><li key={s} className="break-all">{s}</li>)}</ul>{m.areas?.length?<p>Areas: {m.areas.join(', ')}</p>:null}<h3>Pages this task may read</h3><ul>{(m.approvedReadUrls??m.readUrls)?.map((s,i)=><li key={i} className="break-all">{s}</li>)}</ul><p>Review page addresses</p><p>This version reads public pages only. Sending job details isn't available yet.</p><label className="block">Page address<input type="url" name="page-address" className="mt-1 min-h-11 w-full border border-rule p-2" placeholder="https://city.example/" onChange={e=>onAction('address',e.target.value)} /></label><label className="block">What should the agent read?<input name="purpose" maxLength={500} className="min-h-11 w-full border border-rule p-2" onChange={e=>onAction('purpose',e.target.value)} /></label>{!m.sites?.length&&!m.addressReady&&<p>Add at least one site to start.</p>}</>}
     {m.error&&<p role="alert">{m.error}</p>}
     {m.dialog==='takeover'&&m.isOwner&&<label className="flex min-h-11 items-center gap-2"><input type="checkbox" onChange={e=>onAction('suppress_confirm',String(e.target.checked))}/>Don't ask again</label>}
    </div>
-   <div className="flex shrink-0 flex-wrap gap-2 pt-2">{act(m.dialog==='fresh'?'Open a fresh browser':m.dialog==='leave'?'Pause and return':m.dialog==='pause_owner'?'Pause agent':m.dialog==='sites'?(m.hasTask?'Add a site':'Open browser'):'Take over',m.dialog==='fresh'?'confirm_fresh':m.dialog==='leave'?'confirm_leave':m.dialog==='pause_owner'?'confirm_pause_owner':m.dialog==='sites'?'create':'confirm_takeover',m.dialog==='sites'&&!m.addressReady)}{act(m.dialog==='leave'?'Keep browser open':'Cancel','cancel')}</div>
+   <div className="flex shrink-0 flex-wrap gap-2 pt-2">{act(m.dialog==='reload'?'Reload':m.dialog==='fresh'?'Open a fresh browser':m.dialog==='leave'?'Pause and return':m.dialog==='pause_owner'?'Pause agent':m.dialog==='sites'?(m.hasTask?'Add a site':'Open browser'):'Take over',m.dialog==='reload'?'confirm_reload':m.dialog==='fresh'?'confirm_fresh':m.dialog==='leave'?'confirm_leave':m.dialog==='pause_owner'?'confirm_pause_owner':m.dialog==='sites'?'create':'confirm_takeover',m.dialog==='sites'&&!m.addressReady)}{act(m.dialog==='leave'?'Keep browser open':'Cancel','cancel')}</div>
   </div>;
  };
  return <div ref={root} tabIndex={m.capture?0:undefined} className="h-full min-h-0 min-w-0 motion-reduce:transition-none" data-browser-state={m.state} data-browser-compact-capture={m.compactCapture?true:undefined}>

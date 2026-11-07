@@ -25,3 +25,20 @@ export async function browserRenderHarness() {
  const React=await import('react');const {renderToStaticMarkup}=await import('react-dom/server');
  return (C,p)=>renderToStaticMarkup(React.createElement(C,p)).replaceAll('&#x27;',"'").replaceAll('&gt;','>').replaceAll('&amp;','&').replaceAll('<!-- -->','');
 }
+
+// Minimal deterministic React hook dispatcher: runs the real session hook and
+// effects without a DOM/browser, server, or renderer dependency installation.
+export async function browserSessionHarness(factory) {
+ const React=await import('react'),internals=React.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
+ const slots=[];let index=0,dirty=true,value,effects=[];
+ const same=(a,b)=>a&&b&&a.length===b.length&&a.every((x,i)=>Object.is(x,b[i]));
+ const dispatcher={
+  useState(initial){const i=index++;if(!slots[i])slots[i]={value:typeof initial==='function'?initial():initial,set(next){const v=typeof next==='function'?next(slots[i].value):next;if(!Object.is(v,slots[i].value)){slots[i].value=v;dirty=true;}}};return [slots[i].value,slots[i].set];},
+  useRef(initial){const i=index++;return slots[i]??=( {current:initial} );},
+  useMemo(fn,deps){const i=index++;if(!slots[i]||!same(slots[i].deps,deps))slots[i]={value:fn(),deps};return slots[i].value;},
+  useCallback(fn,deps){return dispatcher.useMemo(()=>fn,deps);},
+  useEffect(fn,deps){const i=index++;if(!slots[i]||!same(slots[i].deps,deps)){const old=slots[i];slots[i]={deps,cleanup:old?.cleanup};effects.push(()=>{slots[i].cleanup?.();slots[i].cleanup=fn();});}}
+ };
+ function flush(){let rounds=0;while(dirty){if(++rounds>60)throw Error('hook render loop');dirty=false;index=0;const saved=internals.H;internals.H=dispatcher;try{value=factory();}finally{internals.H=saved;}const run=effects;effects=[];run.forEach(fn=>fn());}return value;}
+ return {get value(){return flush();},async settle(){for(let i=0;i<8;i++){flush();await new Promise(resolve=>setImmediate(resolve));}return flush();},render(){dirty=true;return flush();},dispose(){slots.forEach(s=>s?.cleanup?.());}};
+}

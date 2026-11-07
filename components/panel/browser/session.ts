@@ -39,3 +39,22 @@ export function renewControl(token:{value:string;expires:number}|null,detail:Pic
  if(!Number.isFinite(deadline)||!Number.isFinite(serverTime)||deadline<=serverTime)return null;
  return {...token,expires:Date.now()+deadline-serverTime};
 }
+
+/** A pane may leave before response headers arrive. Stop presentation at once,
+ * wait briefly for the authenticated bootstrap, then ACK before aborting. A
+ * failed/missing bootstrap or ACK remains an accidental transport loss. */
+export function createStreamLifecycle(abort:()=>void) {
+ type Binding=Pick<import('../../../lib/browser/web-types').Frame,'stream_id'|'stream_generation'>;
+ let binding:Binding|undefined,settle:(value:Binding|null)=>void,closing:Promise<void>|undefined;
+ const ready=new Promise<Binding|null>(resolve=>{settle=resolve;});
+ return {
+  bind(value:Binding){if(!binding){binding=value;settle(value);}},
+  fail(){settle(null);},
+  close(ack:(binding:Binding)=>Promise<unknown>){
+   return closing??=(async()=>{
+    const timeout=setTimeout(()=>settle(null),5000);
+    try{const value=binding??await ready;if(!value)throw Error('BROWSER_STREAM_STALE');await ack(value);}finally{clearTimeout(timeout);abort();}
+   })();
+  }
+ };
+}

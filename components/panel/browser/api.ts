@@ -2,6 +2,7 @@
 // The only Browser UI module aware of website routes. No credentials are persisted.
 import {TaskUI,ReviewNotice,OwnerBrowserReviewClaim,validateEvent,ManualInput} from '../../../lib/browser/phase1-contracts.mjs';
 import {BROWSER_API as root,BROWSER_HEADERS} from '../../../lib/browser/web-types';
+import type {NavigationBinding} from './navigation';
 import type * as Web from '../../../lib/browser/web-types';
 import type {TaskUI as Task,ReviewNotice as Review,OwnerBrowserReviewClaim as OwnerClaim,BrowserStatus,BrowserJoin,BrowserAvailability,BrowserResponse,ControlMessage,ManualInput as Input} from '../../../lib/browser/web-types';
 export type {Task,Review,OwnerClaim};
@@ -29,10 +30,10 @@ export const browserAPI={
  start:(id:string,v?:Viewer)=>request<Web.BrowserStart>(taskPath(id)+'/start',I(),v),
  join:async(id:string,body:Omit<Web.BrowserJoinRequest,'idempotency_key'>,v?:Viewer,signal?:AbortSignal)=>{const d=await request<BrowserJoin>(taskPath(id)+'/join',{...body,...I()},v,signal);TaskUI.parse(d.task);if(d.owner_review_claim)OwnerBrowserReviewClaim.parse(d.owner_review_claim);return d;},
  leave:(id:string,v:Viewer)=>request(taskPath(id)+'/leave',{viewer_id:v.viewer_id,device_secret:v.device_secret,...I()},v),
- closeStream:(id:string,v:Viewer,binding:Pick<import('../../../lib/browser/web-types').Frame,'stream_id'|'stream_generation'>)=>request<Web.BrowserStreamClose>(sessionPath(id)+'/stream-close',{viewer_id:v.viewer_id,device_secret:v.device_secret,...binding,...I()},v),
+ closeStream:async(id:string,v:Viewer,binding:Pick<Web.Frame,'stream_id'|'stream_generation'>)=>{const r=await request<Web.BrowserStreamClose>(sessionPath(id)+'/stream-close',{viewer_id:v.viewer_id,device_secret:v.device_secret,...binding,...I()},v);if(r.closed!==true||r.planned!==true||r.stream_id!==binding.stream_id||r.stream_generation!==binding.stream_generation)throw new BrowserAPIError('BROWSER_STREAM_STALE');return r;},
  presence:(id:string,v:Viewer,body:Omit<Web.BrowserPresenceRequest,'viewer_id'|'device_secret'|'idempotency_key'>)=>request<Web.BrowserPresence>(sessionPath(id)+'/presence',{...body,viewer_id:v.viewer_id,device_secret:v.device_secret,...I()},v),
- control:(id:string,v:Viewer,action:ControlMessage['action'],epoch:number)=>request<Web.BrowserControl>(sessionPath(id)+'/control',{action,viewer_id:v.viewer_id,device_secret:v.device_secret,expected_epoch:epoch,...(['take_over','fresh_browser'].includes(action)?{confirmed:true}:{}),...I()},v),
- sites:(id:string,v:Viewer,origin:string,role:Web.BrowserCreateRequest['origins'][number]['role'],revision:number)=>request<Web.BrowserTaskResult>(taskPath(id)+'/sites',{origin,role,expected_revision:revision,...I()},v),
+ control:(id:string,v:Viewer,action:ControlMessage['action'],epoch:number,navigation?:NavigationBinding)=>request<Web.BrowserControl>(sessionPath(id)+'/control',{action,viewer_id:v.viewer_id,device_secret:v.device_secret,expected_epoch:epoch,...navigation,...(['take_over','fresh_browser'].includes(action)?{confirmed:true}:{}),...I()},v),
+ sites:(id:string,v:Viewer,origin:string,role:Web.BrowserCreateRequest['origins'][number]['role'],revision:number,proposal?:Web.ReadProposal)=>request<Web.BrowserTaskResult>(taskPath(id)+'/sites',{origin,role,expected_revision:revision,...(proposal?{proposal}:{}),...I()},v),
  reads:async(id:string,v?:Viewer)=>{const page=await collectBrowserPages(cursor=>request<Reads>(paged(taskPath(id)+'/reads',cursor),undefined,v),'items');return {...page,entries:page.items.flatMap(x=>x.kind==='entry'?[x.entry]:[]),candidates:page.items.flatMap(x=>x.kind==='candidate'?[x.candidate]:[])};},
  decideRead:(id:string,v:Viewer,revision:number,entries:Web.ReadProposal['entries'],decision:'approve'|'deny')=>request(taskPath(id)+'/reads',{expected_revision:revision,proposal:{v:1,entries},decision,...I()},v),
  answers:async(id:string,v:Viewer)=>{const page=await collectBrowserPages(cursor=>request<Web.BrowserAnswers>(paged(taskPath(id)+'/answers',cursor),undefined,v),'items');return {...page,answers:page.items};},

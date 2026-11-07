@@ -1,7 +1,7 @@
 'use client';
 import {useCallback,useEffect,useRef,useState} from 'react';
 import {BrowserView} from './BrowserView';
-import type {BrowserModel} from './browser/model';
+import {browserStatus,type BrowserModel} from './browser/model';
 import {useBrowserSession} from './useBrowserSession';
 import {trapAskFocus} from './askPaneFocus';
 import {browserAPI} from './browser/api';
@@ -15,7 +15,7 @@ export function BrowserOwnerView({model:m,onAction,onInput}:{model:BrowserModel;
  return <section className="grid h-full min-h-0 overflow-hidden bg-paper" aria-label={`${m.personName}'s browser`} style={{gridTemplateRows:'48px 20px minmax(0,1fr)',gridTemplateColumns:m.landscape?'minmax(0,1fr) 128px':p.split?`${p.chat}px 12px minmax(480px,1fr)`:'minmax(0,1fr)'}}>
   <header data-owner-header className="col-span-full flex min-w-0 items-center border-b border-rule text-heading"><button className="min-h-11 min-w-11 shrink-0 px-3" onClick={()=>onAction('exit')}>‹ Back</button><span className="min-w-0 truncate"> · {m.personName}'s browser{m.projectLabel?' · '+m.projectLabel:''}</span></header>
   <div className="col-span-full row-start-2"><BrowserView model={m} slot="meta" onAction={onAction}/></div>
-  {m.landscape?<><div className="col-start-1 row-start-3 min-h-0 overflow-auto">{content}</div><div className="col-start-2 row-start-3 min-h-0 overflow-auto border-l border-rule">{actions}</div></>:p.split?<><div className="col-start-1 row-start-3 flex min-h-0 flex-col overflow-auto"><div className="min-h-0 flex-1">{m.dialog||['read_review','resource_review','write_blocked','final_blocked'].includes(m.state)?content:<p className="p-4 text-subheading">{m.privatePage&&!m.privateConsented?`${m.personName} took over. The agent can't see this page.`:'Watch the page. The agent stays with this task.'}</p>}</div><div className="shrink-0">{actions}</div></div><div className="col-start-3 row-start-3 min-h-0"><BrowserView model={{...m,dialog:null,state:['read_review','resource_review','write_blocked','final_blocked'].includes(m.state)?'paused':m.state}} slot="content" onAction={onAction} onInput={onInput}/></div></>:<div className="row-start-3 flex min-h-0 flex-col"><div className="min-h-0 flex-1 overflow-auto">{content}</div><div className="max-h-[40%] shrink-0 overflow-auto">{actions}</div></div>}
+  {m.landscape?<><div className="col-start-1 row-start-3 min-h-0 overflow-auto">{content}</div><div className="col-start-2 row-start-3 min-h-0 overflow-auto border-l border-rule">{actions}</div></>:p.split?<><div className="col-start-1 row-start-3 flex min-h-0 flex-col overflow-auto"><div className="min-h-0 flex-1">{m.dialog||['read_review','resource_review','write_blocked','final_blocked'].includes(m.state)?content:<p className="p-4 text-subheading">{m.privatePage?browserStatus(m):'Watch the page. The agent stays with this task.'}</p>}</div><div className="shrink-0">{actions}</div></div><div className="col-start-3 row-start-3 min-h-0"><BrowserView model={{...m,dialog:null,state:['read_review','resource_review','write_blocked','final_blocked'].includes(m.state)?'paused':m.state}} slot="content" onAction={onAction} onInput={onInput}/></div></>:<div className="row-start-3 flex min-h-0 flex-col"><div className="min-h-0 flex-1 overflow-auto">{content}</div><div className="max-h-[40%] shrink-0 overflow-auto">{actions}</div></div>}
  </section>;
 }
 /** Top host layer, never a staff PaneSnapshot or a staff chat. */

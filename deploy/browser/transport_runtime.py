@@ -92,6 +92,8 @@ class AsyncSocket:
         try:
             while view:
                 self.remaining()
+                guard=getattr(self,'write_guard',None)
+                if guard:guard()
                 try:n=self.sock.send(view)
                 except (BlockingIOError,InterruptedError):
                     ready=loop.create_future();fd=self.sock.fileno()
@@ -135,6 +137,7 @@ class TransportRuntime:
         self.event_sequence=0;self.event_log=[];self.dropped_events=0;self.case=None;self.fault=None
         self.adapter=RuntimeAdapter(self.owner,policy,self,verify_deployment,key)
         self.max_queue=0;self.max_handlers=0;self.terminal_error=False
+        self.dispatch_release=asyncio.Event()
     def attested(self):
         return (not self.dead and importlib.metadata.version('mitmproxy')=='12.3.1'
                 and self.verify_deployment() is True and isinstance(self.owner,AllocationOwner)
@@ -294,6 +297,37 @@ class TransportRuntime:
         answer=self.apply_verified('server_connected',h.flow,result)
         self.observe('peer_verified',h,address=expected)
         return answer
+    def request_alive(self,h):
+        self.handler(h.flow);self.remaining(h.flow)
+        if self.clock()>=h.decision_deadline:raise Refused('BROWSER_DECISION_EXPIRED')
+        guard=getattr(self.policy,'check_alive',None)
+        if guard:guard()
+    async def dispatch_request(self,h):
+        # Test-only root control can hold AFTER TLS, before the final authority
+        # check. Killing the controller here cannot start a buffered mutation.
+        if self.fault==dict(point='after_connect',action='hold_dispatch'):
+            self.fault=None;self.observe('dispatch_held',h)
+            await asyncio.wait_for(self.dispatch_release.wait(),self.remaining(h.flow))
+        self.request_alive(h)
+        meta=self.event_metadata('request_dispatch',h.flow)
+        meta.update(requestDigest=h.request_digest,decisionId=h.decision['decisionId'])
+        answer=await asyncio.to_thread(self.policy.call,meta,min(self.remaining(h.flow),h.decision_deadline-self.clock()))
+        self.apply_verified('request_dispatch',h.flow,answer)
+        if answer.get('requestDigest')!=h.request_digest or answer.get('decisionId')!=h.decision['decisionId']:raise Refused('BROWSER_DISPATCH_BINDING')
+        self.request_alive(h)
+        # No await between kernel liveness check and each nonblocking send.
+        h.upstream_io.write_guard=lambda:self.request_alive(h)
+        records=0
+        async def checkpoint():
+            nonlocal records
+            records+=1
+            if records==3 and self.fault==dict(point='upload_record',action='hold_upload'):
+                self.fault=None;self.observe('upload_held',h)
+                await asyncio.wait_for(self.dispatch_release.wait(),self.remaining(h.flow))
+            self.request_alive(h)
+        h.upstream_io.write_checkpoint=checkpoint
+        self.observe('dispatch_confirmed',h)
+
     def terminal_ack(self,h,event,result):
         return isinstance(result,dict) and result.get('ok') is True and all(result.get(k)==v for k,v in dict(event=event,id=h.flow.id,generation=h.binding['generation'],listenerCookie=h.listener.cookie,guardId=h.binding['guardId']).items())
     def terminal_call(self,h,event,meta):
@@ -564,13 +598,14 @@ class TransportHandler(ConnectionHandler):
             self.runtime.fault_point('after_consume',self)
             self.runtime.fault_point('before_connect',self)
             await self.open_connection(commands.OpenConnection(self.context.server))
-            self.runtime.fault_point('after_connect',self)
+            if self.runtime.fault!=dict(point='after_connect',action='hold_dispatch'):self.runtime.fault_point('after_connect',self)
             self.runtime.handler(self.flow)
             self.read_deadline=min(self.deadline,self.decision_deadline)
             # Build only a bounded header; body is the attested frozen copy.
             request=self.flow.request
             head=(request.method+' '+request.path+' HTTP/1.1\r\n').encode('ascii')+b''.join(k.encode('ascii')+b': '+v.encode('latin1')+b'\r\n' for k,v in self.request_headers)+b'\r\n'
             if len(head)>HEADER:raise Refused('BROWSER_HEADER_LIMIT')
+            await self.runtime.dispatch_request(self)
             await self.server_tls.write(head)
             self.upstream_plaintext_bytes+=len(head)
             await self.server_tls.write(request.raw_content)

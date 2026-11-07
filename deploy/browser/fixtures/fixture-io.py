@@ -42,7 +42,10 @@ def origin(config):
                 if mode in ('two-25MiB-slow-readers','two-contexts-eight-candidates','fair-contention-completion','preallocation-backpressure','disconnect-finally','declared-length'):length=25*1048576
                 elif mode=='oversize-body':length=25*1048576+1
                 else:length=256
-                if mode=='compressed-bomb-no-decode':
+                if mode=='oopif-first-request' and headers[b'host']==b'child.example':
+                    payload=b'<!doctype html><link rel="icon" href="data:,"><script>fetch("/oopif-first-request/sub")</script>'
+                    length=len(payload)
+                elif mode=='compressed-bomb-no-decode':
                     import gzip
                     payload=gzip.compress(b'x'*1048576);length=len(payload);extra+=b'Content-Encoding: gzip\r\n'
                 else:payload=None

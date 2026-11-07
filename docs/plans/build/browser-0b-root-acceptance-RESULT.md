@@ -317,3 +317,64 @@ Builder fixes found by these runs: `50a63f09` (bounded asynchronous terminal cle
 controlled TCP-tail measurement) and `45982097` (gate control backlog 2→8: concurrent first requests exhausted the
 Unix control backlog → EAGAIN during digest registration → fatal revocation; RSS tail-hold samples preserved
 through artifact serialization).
+
+## Round 2 fixes
+
+Implemented against `3074aa01`, without root, sudo, Chromium/Playwright launches,
+Next servers/builds, installed-runtime writes, or live services/database access.
+The root `final2` run above remains historical: it does **not** attest this
+relocked runtime or the newly required evidence. Release readiness stays false.
+Expectations preceded implementation in `browser-0b-round2-expectations.md`.
+
+| Finding | Change | Proving tests |
+| --- | --- | --- |
+| S1: controller death at dispatch | After upstream TLS, require a controller-confirmed `request_dispatch` bound to the exact flow, decision ID, request digest, listener/guard and original expiry. Pin the authenticated controller's kernel pidfd; readiness actively cuts/cancels dispatch and upload independently of the lease. Check that same pidfd synchronously before every upstream kernel send, including a resumed blocked send, and recheck authority between TLS records. Root `controller-loss-unknown` now holds a consumed POST after TLS, kills the controller, immediately releases dispatch and requires zero HTTP bytes. `consumed-write-no-retry` holds a 25MiB POST between body records, kills/releases immediately, and requires only headers plus the first record, no completed origin write, exact durable unknown and no second consume. | Pinned Python transport: real TLS plus real separate-process SIGKILL at both boundaries, zero/partial byte bounds, fsynced unknown/no-retry and single consume. Python root-runner: pidfd cancels without a lease, refusal before dispatch, and no next TLS record. Node round2: wrong digest/decision, expired/reused dispatch and both root fault predicates. |
+| E1: independently recomputed artifacts | Retain capture terminal exit facts and fixture interface identity; reparse terminal statistics and classify every ingress and bypass PCAP, comparing all retained counters/classification/hashes. Recompute case RSS from capped allocation samples, raw cgroup observations, terminal stats, actual events, results and exact write-bound unknown receipts. Reject negative/over-cap case values before aggregate maxima/OR, and require named-case backpressure/unknown/compression. Hold samples must be strictly ordered, span the interval with <=250ms gaps, and show frozen request charge overlapping an actual buffered response on a live flow. | Round2's three hash-matching capture negatives, five healthy-aggregate/corrupt-case mutations, and clustered/gapped/no-overlap stress negatives. Round1 complete signed consume/checkpoint/sink artifact round trip plus corrupted RSS samples, copied maxima and tail evidence. |
+| E2: OOPIF child interception | Preserve the exact parent-target document navigation; retain its frame ID and the attached iframe's target/context identity. The child document issues exact-approved `GET https://child.example/oopif-first-request/sub`. Require its own attach < guard < resume < Fetch < consume < digest registration, matching gate write and origin digest. | Round2 full ordering/child positive; unrelated iframe and removed child Fetch negatives. Updated round1 OOPIF positive and parent-write/guard-order negatives. Actual site-per-process rerun belongs to the coordinator. |
+| E3: detach causal identity | Retain session binding and a named detach-attempt event. Observe the same session's CDP parent detach independently, deliver it through the registered **production** disconnect handler, and retain that handler's session/target-specific fence/revocation. An ack loss requires this observed detach and its subsequent named fence; unrelated boot revocation cannot substitute. Recompute this chain from artifacts. There is no fixture fallback revoke. | Round2 invalid-session/unrelated-revoke and disabled-cleanup negatives, production cleanup enabled/disabled tests, and lost-ack positive. Acceptance-integration rejects the old arbitrary-revocation predicate. |
+| E4: failing positive fixtures | Response-budget uses complete realistic per-case evidence and mutates the actual compression/backpressure case. Successful Python settlement explicitly returns True; False and None cannot acknowledge durable revoke. | Response-budget 13/13; Python root-runner 13/13. |
+
+**Dispatch contract.** The controller RPC confirms exact dispatch authority after
+TLS; the final kernel pidfd check immediately preceding each nonblocking send
+is the dispatch/send linearization point. A controller already dead at that
+check cannot start the buffered request or send another upload record. The
+pidfd watcher also cancels pending IO without waiting for the periodic lease.
+A userspace check and `send` are not one atomic kernel operation: physical death
+can race that final syscall, and already queued/in-flight bytes cannot be
+recalled. A dispatched consumed mutation therefore remains durable unknown,
+with no retry. This does not claim a zero-time physical-death guarantee.
+Already-authorized buffered responses can still drain bytes already queued
+before cancellation; the earlier response-side qualification remains. The
+active-response case still waits for independent loss observation before
+releasing its reader and does not independently certify a fault-to-CUT latency.
+
+Validation, individual files only, tag `browser-r2-20261107`:
+
+- Node: acceptance-drivers 11, acceptance-integration 42, controller 87,
+  launcher 15, parser-adapter 44, Playwright-patch 30, response-budget 13,
+  root-runner 17, round1 69, round2 26 (including the 15 fresh adversarial
+  expectations), runtime-boundaries 19, runtime-gate 61, startup 19,
+  transport wrapper 1: **454/454**. Disposable startup uses only
+  `tests/_harness/testdb.mjs`; the matching tagged cluster is stopped after
+  each file. No suite-wide `npm test` invocation.
+- Pinned `/opt/sjcos-browser/py/bin/python -B`: transport **118/118**;
+  root-runner **13/13**; parser **44/44** and provision **9/9** through the
+  individual Node wrappers. Python/wrapper counts overlap. Test loopback
+  listeners, subprocesses and tasks are cleaned up by their fixtures.
+- `flock /tmp/sjcos-tsc.lock nice -n 19 npx tsc --noEmit -p .`: **exit 0**.
+  `git diff --check`: passed. No resource-limit kill occurred; deliberate
+  child SIGKILL tests are the named controller faults.
+- Required `relock.sh`: frozen source/hash/pin verification and root-runner
+  17/17, runtime-boundaries 19/19, acceptance-integration 42/42 passed.
+  Both JSON inventories are included. `parser_adapter.py` and the Playwright
+  patch runtime are unchanged, so no parser-pin reassignment or repatch.
+
+Coordinator: reprovision this relocked candidate and rerun **all 28 network +
+all 15 RSS** cases as root. Recompute all private artifacts with the new
+validator; old artifacts missing terminal/interface/sample/session identity
+must not be grandfathered in. Confirm both immediate-release controller kills
+(zero pre-dispatch HTTP bytes; no next upload record), durable exact unknown
+receipts/no retry, zero survivors before cleanup, the child's own subresource
+consume/digest/write on its iframe target, same-session detach causality, and
+real sustained no-read/overlap/two-tail/independent-release storage evidence.
+This builder makes no new root acceptance or release approval claim.

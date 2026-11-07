@@ -22,7 +22,7 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.now = 100.0
         self.policy = Mock()
         def call(meta, remaining):
-            return dict(ok=True, event=meta['event'], id=meta['id'], generation=meta['generation'], listenerCookie=meta['listenerCookie'], guardId=meta['guardId'], durable=True)
+            return dict(ok=True, event=meta['event'], id=meta['id'], generation=meta['generation'], listenerCookie=meta['listenerCookie'], guardId=meta['guardId'], durable=True,**({k:meta[k] for k in ('requestDigest','decisionId')} if meta['event']=='request_dispatch' else {}))
         self.policy.call.side_effect = call
         self.runtime = TransportRuntime(self.policy, Mock(), lambda: True, b'k'*32, clock=lambda:self.now)
         self.sockets = []
@@ -1050,6 +1050,46 @@ console.log(JSON.stringify({events,outcomes:outcomes.map(o=>o.status==='fulfille
 
     async def test_original_deadline_during_tcp_drain(self):await self.rss_tcp_drain_terminal(True)
     async def test_disconnect_during_tcp_drain(self):await self.rss_tcp_drain_terminal(False)
+
+    async def controller_dispatch_loss(self,upload=False):
+        import os,subprocess,tempfile,shutil
+        from pathlib import Path
+        from transport_control import LifetimePolicy
+        child=subprocess.Popen([__import__('sys').executable,'-c','import sys;sys.stdin.buffer.read()'],stdin=subprocess.PIPE)
+        self.addCleanup(child.stdin.close)
+        self.addCleanup(lambda:child.poll() is None and (child.kill(),child.wait()))
+        lifetime=LifetimePolicy('/unused');lifetime.pidfd=os.pidfd_open(child.pid);lifetime.pid=child.pid
+        self.addCleanup(lifetime.close);self.policy.check_alive=lifetime.check_alive
+        ctx=await self.rss_fixture(write=True)
+        directory=tempfile.mkdtemp();self.addCleanup(shutil.rmtree,directory)
+        base=self.policy.call.side_effect;unknown=Path(directory)/'unknown.json'
+        def policy(meta,remaining):
+            result=base(meta,remaining)
+            if meta['event']=='persist_unknown':
+                with unknown.open('x') as out:
+                    json.dump(dict(outcome='unknown',retry=False,id=meta['id']),out);out.flush();os.fsync(out.fileno())
+            return result
+        self.policy.call.side_effect=policy
+        if upload:self.runtime.fault=dict(point='upload_record',action='hold_upload')
+        h,task,client=await self.rss_start_raw(ctx,'controller-loss-unknown',body_size=25*1048576 if upload else 13)
+        held=asyncio.Event();release=asyncio.Event();real_open=h.open_connection
+        async def open_tls(command):
+            await real_open(command);held.set();await release.wait()
+        if not upload:h.open_connection=open_tls
+        if upload:await self.wait_state(lambda:any(e['event']=='upload_held' for e in self.runtime.event_log))
+        else:await asyncio.wait_for(held.wait(),3)
+        child.kill();child.wait();release.set();self.runtime.dispatch_release.set()
+        await asyncio.wait_for(task,2);await asyncio.gather(client,return_exceptions=True)
+        closed=[e for e in self.runtime.event_log if e['event']=='flow_closed' and e['id']==h.flow.id]
+        self.assertEqual(len(closed),1)
+        if upload:self.assertTrue(16384<closed[0]['upstreamPlaintextBytes']<=32768+16384)
+        else:self.assertEqual(closed[0]['upstreamPlaintextBytes'],0)
+        self.assertEqual(self.rss_origins,[])
+        self.assertEqual(json.loads(unknown.read_text()),dict(outcome='unknown',retry=False,id=h.flow.id))
+        self.assertEqual(sum(c.args[0]['event']=='request' for c in self.policy.call.call_args_list),1)
+        self.assertEqual(sum(c.args[0]['event']=='persist_unknown' for c in self.policy.call.call_args_list),1)
+    async def test_controller_death_after_tls_before_dispatch_has_zero_http_bytes(self):await self.controller_dispatch_loss()
+    async def test_controller_death_between_upload_records_cannot_send_next_record(self):await self.controller_dispatch_loss(True)
 
     async def test_request_decision_deadline_bounds_parked_policy(self):
         import threading

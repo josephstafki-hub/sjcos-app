@@ -9,10 +9,15 @@ class ControlTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue((await c.dispatch({'op':'fault_arm','point':'before_connect_reply','action':'proxy407'}))['ok'])
         self.assertEqual(r.fault,{'point':'before_connect_reply','action':'proxy407'})
     async def test_terminal_control_stays_available_for_evidence(self):
-        r=SimpleNamespace(revoke_all=lambda:None,settled=lambda:asyncio.sleep(0))
+        r=SimpleNamespace(revoke_all=lambda:None,settled=lambda:asyncio.sleep(0,result=True))
         c=ControlServer(r,'10.203.0.2',[18081,18082])
         self.assertTrue((await c.dispatch({'op':'revoke_all'}))['durable'])
         self.assertFalse(c.dead,'terminal telemetry must survive listener revocation')
+    async def test_unconfirmed_settlement_cannot_ack_durable_revoke(self):
+        for confirmed in (False,None):
+            r=SimpleNamespace(revoke_all=lambda:None,settled=lambda:asyncio.sleep(0,result=confirmed))
+            with self.assertRaisesRegex(Exception,'BROWSER_REVOKE_UNCONFIRMED'):
+                await ControlServer(r,'unused',[]).dispatch({'op':'revoke_all'})
 class ConnectTests(unittest.TestCase):
     def test_chromium_connect_metadata_does_not_allow_credentials_or_framing(self):
         from transport_runtime import validate_connect_headers
@@ -55,6 +60,51 @@ class LeaseTests(unittest.IsolatedAsyncioTestCase):
         r=SimpleNamespace(dead=False,observe=lambda *a:None,revoke_all=lambda:None,settled=lambda:asyncio.sleep(0))
         async def stuck(*a):await asyncio.Future()
         with patch('asyncio.to_thread',stuck):await asyncio.wait_for(supervise_policy(r,None,timeout=.01),.1)
+
+class DispatchLifetimeTests(unittest.IsolatedAsyncioTestCase):
+    def lifetime(self):
+        import os,subprocess
+        from transport_control import LifetimePolicy
+        # A separate process, not a daemon/server. pidfd remains readable after
+        # reaping, proving that PID reuse and a zombie cannot revive authority.
+        child=subprocess.Popen([sys.executable,'-c','import sys;sys.stdin.buffer.read()'],stdin=subprocess.PIPE)
+        self.addCleanup(child.stdin.close)
+        self.addCleanup(lambda: child.poll() is None and (child.kill(),child.wait()))
+        policy=LifetimePolicy('/unused');policy.pidfd=os.pidfd_open(child.pid);policy.pid=child.pid
+        self.addCleanup(policy.close)
+        return policy,child
+    async def test_post_tls_dispatch_loss_cannot_release_buffered_post(self):
+        from transport_runtime import TransportRuntime
+        from unittest.mock import Mock
+        policy,child=self.lifetime();r=TransportRuntime.__new__(TransportRuntime)
+        h=SimpleNamespace(flow=SimpleNamespace(id='f'),request_digest='a'*64,decision={'decisionId':'d'},decision_deadline=100)
+        r.handler=lambda f:h;r.remaining=lambda f:1;r.clock=lambda:1;r.policy=policy;r.fault=None
+        r.event_metadata=Mock();r.apply_verified=Mock();r.observe=Mock()
+        child.kill();child.wait()
+        with self.assertRaisesRegex(Exception,'BROWSER_CONTROLLER_LOST'):await r.dispatch_request(h)
+        r.event_metadata.assert_not_called();r.observe.assert_not_called()
+    async def test_active_upload_checks_pidfd_between_tls_records(self):
+        from transport_runtime import AsyncSocket
+        from transport_tls import TLSChannel
+        from mitmproxy.proxy import commands
+        from unittest.mock import Mock
+        policy,child=self.lifetime();sock=Mock();sent=[]
+        def send(data):
+            sent.append(bytes(data));child.kill();child.wait();return len(data)
+        sock.send.side_effect=send
+        io=AsyncSocket(sock,lambda:1);io.write_guard=policy.check_alive
+        channel=TLSChannel.__new__(TLSChannel);channel.io=io;channel.plaintext_written=0;channel.layer=Mock()
+        def record(data):yield commands.SendData(None,bytes(data))
+        channel.layer.send_data.side_effect=record
+        with self.assertRaisesRegex(Exception,'BROWSER_CONTROLLER_LOST'):await channel.write(b'x'*32768)
+        self.assertEqual(len(sent),1);self.assertEqual(len(sent[0]),16384)
+    async def test_pidfd_watcher_cancels_without_periodic_lease(self):
+        from transport_control import watch_controller_death
+        from unittest.mock import Mock
+        policy,child=self.lifetime();r=SimpleNamespace(observe=Mock(),revoke_all=Mock())
+        watch=asyncio.create_task(watch_controller_death(r,policy));await asyncio.sleep(0)
+        child.kill();child.wait();await asyncio.wait_for(watch,.2)
+        r.revoke_all.assert_called_once();r.observe.assert_called_once_with('controller_lost')
 
 class SupervisorTests(unittest.TestCase):
     def test_eof_kills_browser_group_and_waits_independently(self):

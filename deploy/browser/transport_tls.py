@@ -145,6 +145,8 @@ class TLSChannel:
     async def write(self,data):
         view=memoryview(data)
         for start in range(0,len(view),PLAIN):
+            checkpoint=getattr(self.io,'write_checkpoint',None)
+            if checkpoint:await checkpoint()
             part=view[start:start+PLAIN]
             self.plaintext_written+=len(part)
             await self.drive(self.layer.send_data(part))

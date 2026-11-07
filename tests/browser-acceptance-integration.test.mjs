@@ -26,7 +26,7 @@ for(const [name,mutate] of [
 test('signature from different signer fails',()=>assert.throws(()=>verify(envelope(document(),other.privateKey))));
 test('noncanonical signed bytes fail including duplicate JSON keys',()=>{for(const bytes of [Buffer.from(JSON.stringify(document(),null,2)),Buffer.from(canonical(document()).replace('"format":1','"format":1,"format":1'))])assert.throws(()=>verify(envelope(document(),keys.privateKey,bytes)));});
 test('extra envelope field and malformed base64 fail',()=>{for(const e of [{...envelope(),key:'caller-key'},{...envelope(),payload:'$bad'},{...envelope(),signature:'AA=='}])assert.throws(()=>verify(e));});
-const network=()=>({runId:'nonce',kind:'network',parserTransportIntegrated:true,realRuntime:true,simulated:false,runtimeLockSha256:hash,cases:NETWORK_CASES.map(name=>({name,passed:true,measurement:{packets:2,wireBytes:200,durationMs:100,originRequests:1,eventCount:6,controllerEventCount:6,remainingFlows:0,remainingReservations:0,unapprovedUpstreamBytes:0,privatePackets:0,pcapSha256:hash,originLogSha256:hash,eventSha256:hash,controllerEventsSha256:hash,clientResultSha256:hash,receiptSha256:hash,guardOrderingVerified:true,artifactHashesVerified:true,capture:{complete:true,capturedPackets:2,receivedPackets:2,droppedPackets:0,exitCode:0,signal:null,stderrSha256:hash},childBarrierVerified:true,faultProof:{pid:123,code:null,signal:'SIGKILL',sessionId:'session',acknowledged:true},browserSurvivors:[],faultObserved:({'controller-loss-keepalive':'controller-SIGKILL-active-transfer','fetch-detach-buffered-write':'actual-session-detach'})[name]??null}})),unapprovedUpstreamBytes:0,privatePackets:0,captureIngressVerified:true,guardOrderingVerified:true});
+const network=()=>({runId:'nonce',kind:'network',parserTransportIntegrated:true,realRuntime:true,simulated:false,runtimeLockSha256:hash,cases:NETWORK_CASES.map(name=>({name,passed:true,measurement:{packets:2,wireBytes:200,durationMs:100,originRequests:1,eventCount:6,controllerEventCount:6,remainingFlows:0,remainingReservations:0,unapprovedUpstreamBytes:0,privatePackets:0,pcapSha256:hash,originLogSha256:hash,eventSha256:hash,controllerEventsSha256:hash,clientResultSha256:hash,receiptSha256:hash,guardOrderingVerified:true,artifactHashesVerified:true,capture:{complete:true,capturedPackets:2,receivedPackets:2,droppedPackets:0,exitCode:0,signal:null,stderrSha256:hash},childBarrierVerified:true,faultProof:{pid:123,code:null,signal:'SIGKILL',sessionId:'session',targetId:'t',eventMark:3,acknowledged:true},browserSurvivors:[],faultObserved:({'controller-loss-keepalive':'controller-SIGKILL-active-transfer','fetch-detach-buffered-write':'actual-session-detach'})[name]??null}})),unapprovedUpstreamBytes:0,privatePackets:0,captureIngressVerified:true,guardOrderingVerified:true});
 for(const [name,mutate] of [
  ['fabrication',e=>e.cases[0].measurement={fake:true}],
  ['diagnostic',e=>e.diagnosticOnly=true],
@@ -77,9 +77,9 @@ test('installed controller wrapper binds its entire source graph before evaluati
 
 // Coordinator root-run fix: a detach whose ack is lost because the barrier revoked the boot is accepted only
 // with bootRevokedAfter===true; neither an ack nor a recorded revocation still fails.
-test('fetch-detach evidence: ack OR recorded boot revocation; neither fails', () => {
+test('fetch-detach evidence: ack OR session-specific detach fence; arbitrary revoke fails', () => {
   const base = network();
   const withProof = proof => ({...base, cases: base.cases.map(c => c.name === 'fetch-detach-buffered-write' ? {...c, measurement: {...c.measurement, faultProof: proof}} : c)});
-  assert.doesNotThrow(() => validateEvidence(withProof({sessionId:'S', acknowledged:false, bootRevokedAfter:true}), {kind:'network', runId:'nonce'}));
-  assert.throws(() => validateEvidence(withProof({sessionId:'S', acknowledged:false, bootRevokedAfter:false}), {kind:'network', runId:'nonce'}), /actual detach ack/);
+  assert.doesNotThrow(() => validateEvidence(withProof({sessionId:'S',targetId:'t',eventMark:3, acknowledged:false,detachObserved:true,detachRevoked:true}), {kind:'network', runId:'nonce'}));
+  assert.throws(() => validateEvidence(withProof({sessionId:'S',targetId:'t',eventMark:3, acknowledged:false,bootRevokedAfter:true}), {kind:'network', runId:'nonce'}), /actual detach ack/);
 });

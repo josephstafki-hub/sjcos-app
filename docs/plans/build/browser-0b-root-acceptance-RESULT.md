@@ -408,3 +408,7 @@ Candidate `faee0245` (round 2 server/factory/QA/UI fixes; QA hooks removed from 
 ## Phase 1 round 3 fixes — root re-acceptance (run p1e, 2026-11-07)
 
 Candidate `fd02a1ec` (round 3 server/QA/UI fixes; inventories refreshed). Single run: **network 28/28**, **RSS 15/15**, `realRuntime: true`, `simulated: false`, `releaseReady: false`. Evidence `~/qa-sjcos/browser-acc/p1e/`.
+
+## Phase 1 round 4 fixes — root re-acceptance (runs p1f + p1f-rss, 2026-11-07)
+
+Candidate `be74231f` (round 4 UI lease/SSE fixes, `navigation.loading` projection; inventories refreshed; later audit-only commit `e7c389c3` changes no hashed source). p1f: **network 28/28**; RSS stopped on the `preallocation-backpressure` ≤250 ms sample-gap check while a builder was running tests concurrently (CPU contention, same as p1c). p1f-rss on an idle box: **RSS 15/15**. `realRuntime: true`, `simulated: false`, `releaseReady: false`. Evidence `~/qa-sjcos/browser-acc/{p1f,p1f-rss}/`.

@@ -118,12 +118,34 @@ test('verifyChildBarrier accepts a distinct browser-level popup target with full
   const ctl=[
     {seq:1,event:'target_attached',targetId:'OPENER',type:'page'},{seq:2,event:'guard_registered',targetId:'OPENER'},{seq:3,event:'resume',targetId:'OPENER'},
     {seq:4,event:'target_attached',targetId:'POPUP',type:'page'},{seq:5,event:'guard_registered',targetId:'POPUP'},{seq:6,event:'resume',targetId:'POPUP'},
-    {seq:7,event:'fetch_paused',targetId:'POPUP',url:'https://child.example/'+name}];
+    {seq:7,event:'fetch_paused',targetId:'POPUP',url:'https://child.example/'+name},{seq:8,event:'consume',url:'https://child.example/'+name,requestDigest:d}];
   const gate=[{event:'flow_closed',targetId:'POPUP',upstreamPlaintextBytes:10,requestDigest:d}];
   assert.equal(verifyChildBarrier(name,ctl,gate,[{requestDigest:d,path:'/'+name}]),true);
   // Only the opener exists: refused.
   assert.throws(()=>verifyChildBarrier(name,ctl.slice(0,3),gate,[{requestDigest:d,path:'/'+name}]),/missing paused child/);
   // Popup resumed before its guard: refused.
-  const bad=ctl.map(e=>e.targetId==='POPUP'&&e.event==='guard_registered'?{...e,seq:8}:e);
+  const bad=ctl.map(e=>e.targetId==='POPUP'&&e.event==='guard_registered'?{...e,seq:9}:e);
   assert.throws(()=>verifyChildBarrier(name,bad,gate,[{requestDigest:d,path:'/'+name}]),/child own/);
+});
+
+// OOPIF: the frame's own navigation is Fetch-paused on the parent target before the iframe target exists;
+// the iframe must still attach paused and be guarded before resume, and the write must be the exact child request.
+test('verifyChildBarrier OOPIF: navigation via parent before attach, exact child digest', async () => {
+  const {verifyChildBarrier} = await import('../lib/browser/root-fixture.mjs');
+  const name='oopif-first-request', child='c'.repeat(64), parent='p'.repeat(64).replace(/p/g,'b');
+  const ctl=[
+    {seq:1,event:'target_attached',targetId:'P',type:'page'},{seq:2,event:'guard_registered',targetId:'P'},{seq:3,event:'resume',targetId:'P'},
+    {seq:4,event:'fetch_paused',targetId:'P',url:'https://fixture.example/'+name},{seq:5,event:'consume',url:'https://fixture.example/'+name,requestDigest:parent},
+    {seq:6,event:'fetch_paused',targetId:'P',url:'https://child.example/'+name},{seq:7,event:'consume',url:'https://child.example/'+name,requestDigest:child},
+    {seq:8,event:'child_target',targetId:'F',type:'iframe',waitingForDebugger:true},{seq:9,event:'target_attached',targetId:'F',type:'iframe'},
+    {seq:10,event:'guard_registered',targetId:'F'},{seq:11,event:'resume',targetId:'F'}];
+  const gate=[{event:'flow_closed',targetId:'P',requestDigest:parent,upstreamPlaintextBytes:5},{event:'flow_closed',targetId:'P',requestDigest:child,upstreamPlaintextBytes:5}];
+  const origins=[{requestDigest:parent,path:'/'+name},{requestDigest:child,path:'/'+name}];
+  assert.equal(verifyChildBarrier(name,ctl,gate,origins),true);
+  // Only the parent page's own request was written: refused (no exact child write).
+  assert.throws(()=>verifyChildBarrier(name,ctl,gate.slice(0,1),origins),/child own/);
+  // Frame resumed before its guard: refused.
+  assert.throws(()=>verifyChildBarrier(name,ctl.map(e=>e.targetId==='F'&&e.event==='guard_registered'?{...e,seq:12}:e),gate,origins),/child own/);
+  // Popup still strict: a popup request on the parent target does not count.
+  assert.throws(()=>verifyChildBarrier('popup-first-request',[{seq:1,event:'target_attached',targetId:'P',type:'page'},{seq:2,event:'resume',targetId:'P'},{seq:3,event:'fetch_paused',targetId:'P',url:'https://child.example/popup-first-request'}],[],[]),/missing paused child/);
 });

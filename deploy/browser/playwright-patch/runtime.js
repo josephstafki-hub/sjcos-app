@@ -21,7 +21,7 @@ function createSjcRuntime() {
     b.failReason = String(reason).slice(0, 80); // first cause only
     b.live = false; // synchronous fence before any asynchronous revocation
     await Promise.allSettled([...b.states].map(s=>s.guard?.fail()));
-    await b.policy.revokeListener();
+    await b.policy.revokeListener(b.failReason); // fixed reason code, for root-run diagnostics
   }
   async function deny(browser,session,target,reason='deny') {
     try { await fail(browser, 'deny:' + reason); }

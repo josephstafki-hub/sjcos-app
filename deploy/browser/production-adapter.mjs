@@ -32,3 +32,10 @@ export async function agentDependencies(config){
  for(const name of ['admittedRun','checkAdmission','providerCredential','registerProcess','appendMessage','finishRun','failRun','purgeRunCache'])if(typeof deps.bridge?.[name]!=='function')throw Error('BROWSER_BOOTSTRAP_REFUSED');
  return deps;
 }
+/** Owner retention bridge runs in a separate bounded identity/unit, never the
+ * controller's narrow LOGIN. The installed bridge owns the actual backend. */
+export async function retentionDependencies(config){
+ const installed=await bridge(config);
+ if(typeof installed.retentionDependencies!=='function')throw Error('BROWSER_BOOTSTRAP_REFUSED');
+ return installed.retentionDependencies(config);
+}

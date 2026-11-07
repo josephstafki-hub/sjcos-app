@@ -1,7 +1,7 @@
 // Expectations first: all writes confined to a private temporary root.
 import test from 'node:test';import assert from 'node:assert/strict';import {mkdtemp,readFile,writeFile,rm,mkdir} from 'node:fs/promises';import os from 'node:os';import path from 'node:path';
 import {installationPlan,applyPlan,uninstall,verifyInstallation} from '../deploy/browser/phase1-installer.mjs';
-const evidence={phase:1,sourceVerified:true,acceptanceVerified:true,accountingVerified:true,databasePort:55432};const accounts={joe:1010,browser:{name:'sjcos-browser',uid:998},controller:{name:'sjcos-browser-controller',uid:997},gate:{name:'sjcos-browser-gate',uid:996},dns:{name:'sjcos-browser-dns',uid:995}};
+const evidence={phase:1,sourceVerified:true,acceptanceVerified:true,accountingVerified:true,databasePort:55432};const accounts={joe:1010,browser:{name:'sjcos-browser',uid:998},controller:{name:'sjcos-browser-controller',uid:997},gate:{name:'sjcos-browser-gate',uid:996},dns:{name:'sjcos-browser-dns',uid:995},runner:{name:'sjcos-browser-runner',uid:994},retention:{name:'sjcos-browser-retention',uid:993},exporter:{name:'sjcos-browser-exporter',uid:992}};
 test('default dry-run deterministic no enable/start actions',async()=>{const a=await installationPlan({accounts,evidence});assert.equal(a.dryRun,true);assert.ok(a.files.some(f=>f.path==='/etc/systemd/system/user-1010-sjcosbrowser.slice'));assert.equal(JSON.stringify(a).includes('systemctl'),false);});
 test('uid998 wrong account refused',async()=>{await assert.rejects(installationPlan({accounts:{...accounts,browser:{name:'joe',uid:998}},evidence}),/ACCOUNT/);});
 test('missing exact-candidate evidence refused',async()=>{await assert.rejects(installationPlan({accounts,evidence:{}}),/EVIDENCE/);});

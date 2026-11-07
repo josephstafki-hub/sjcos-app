@@ -134,8 +134,8 @@
   "acceptance": {
     "parserPatchSha256": "a8b424037e37de756647d3cf87554dd5385700fc1bfcd9d3d0a6af9543d0f943",
     "pythonTransitiveLockSha256": "eba221bfad4290320bd1dabec0ab76583d5b84505b9fdfa0e9d675eb9d777885",
-    "playwrightPatchSha256": "2baf950834b51b299bae8efba5d8931283d5f15157fd143740a6a1b597a9f6aa",
-    "patchedBundleSha256": "6bc58b6114a672650d0de61d0d0f308668064207163e9fc5d40783c68d728e92",
+    "playwrightPatchSha256": "fb71a7f96c43a0bdfae75536afdfb6f07887c73c46542d71384b25ebbf36e1e8",
+    "patchedBundleSha256": "5c72f2b33ee33b4f5f1282d5dc3a5a4a5370679d5fed3059ba7a1c7ee61bcf06",
     "signedAttestationSha256": null,
     "releaseReady": false,
     "parserTransportIntegrated": false

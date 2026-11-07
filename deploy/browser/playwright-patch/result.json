@@ -1,8 +1,8 @@
 {
   "version": "1.64.1",
   "upstreamBundleSha256": "829521b67ed7be90c7d6d6098ff39f2241562d47e4ad7ccab13710924a56001d",
-  "playwrightPatchSha256": "2baf950834b51b299bae8efba5d8931283d5f15157fd143740a6a1b597a9f6aa",
-  "patchedBundleSha256": "6bc58b6114a672650d0de61d0d0f308668064207163e9fc5d40783c68d728e92",
+  "playwrightPatchSha256": "fb71a7f96c43a0bdfae75536afdfb6f07887c73c46542d71384b25ebbf36e1e8",
+  "patchedBundleSha256": "5c72f2b33ee33b4f5f1282d5dc3a5a4a5370679d5fed3059ba7a1c7ee61bcf06",
   "patchedCensus": [
     {
       "line": 66,
@@ -10,19 +10,81 @@
       "sha256": "22176b46d1115a2922f339c557c48376956a5ffef8d022fd4d19839f935f54cf"
     },
     {
-      "line": 39801,
+      "line": 39837,
       "text": "await session.send(\"Target.setAutoAttach\", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });",
       "sha256": "eab29f8140ff0a78d34a99e0ccb6c6c908f81d634439c1d9a5e403d01ea88ac4"
     },
     {
-      "line": 74777,
+      "line": 74814,
       "text": "// Called in response to Playwright's `Target.setAutoAttach` on the root session.",
       "sha256": "ad5fe673f2dcfc4457accc27327a689aae6da1facea6a74978a6b6a21380dd7f"
     },
     {
-      "line": 74944,
+      "line": 74981,
       "text": "case \"Target.setAutoAttach\": {",
       "sha256": "29bf0aabbcb6b20f2115abba725d9fb320cc86d0606e4455c467164d68a49a7d"
+    }
+  ],
+  "patchedLifecycleCensus": [
+    {
+      "line": 32,
+      "text": "finally { if (target?.targetId) { const x=await session._parentSession?.send('Target.closeTarget',{targetId:target.targetId}) ?? await browser._session.send('Target.closeTarget',{targetId:target.targetId}); if(x?.success!==true) throw error('close-failed:'+reason); } }",
+      "sha256": "36eab92be18c7084d77d2ec9082ec2e0bd9a1e46f35712efee7e98da1fb179cc"
+    },
+    {
+      "line": 65,
+      "text": "session.on('Target.detachedFromTarget',e=>{detached(browser,e);});",
+      "sha256": "f538476c6ead2ed979e9b6280918793905aab5ded6f5067540b300f53841e2a5"
+    },
+    {
+      "line": 69,
+      "text": "closeTarget:async()=>{const x=await browser._session.send('Target.closeTarget',{targetId:target.targetId});if(x?.success!==true)throw error('close-target');}",
+      "sha256": "10d66edc65ff2f1b0ba1250b0ba6ee1edd2849accf0d7d5a5499c43287c76206"
+    },
+    {
+      "line": 109,
+      "text": "return closing(browser,[...b.states].filter(owned),async()=>{const r=await browser._session.send('Target.closeTarget',{targetId:id});if(r?.success!==true)throw error('close-failed');});",
+      "sha256": "d1e4cc944ecb92ca44eb02d57f0d06ef743b118a2677464ef998e0840656c936"
+    },
+    {
+      "line": 113,
+      "text": "await closing(browser,[...b.states].filter(s=>s.target.browserContextId===id),()=>browser._session.send('Target.disposeBrowserContext',{browserContextId:id}));",
+      "sha256": "03eb6da4268a1d15e65fd59ea0c6bdf650ef4dcc2a1005bc047776bc0e3282e7"
+    },
+    {
+      "line": 36558,
+      "text": "this._listeners = [eventsHelper.addEventListener(parentSession, \"Target.detachedFromTarget\", (event) => {",
+      "sha256": "5ff746f4f391fca8deb95e38d6957aaaed8ede0965ebfb1d42ecbd7883fd7cd7"
+    },
+    {
+      "line": 39050,
+      "text": "// See Target.detachedFromTarget handler for details.",
+      "sha256": "9a02bbda5f8c1ed06ca59d934b4004ab646289ec2b706b374ff7c5d8c4a9c5da"
+    },
+    {
+      "line": 39812,
+      "text": "this._session.on(\"Target.detachedFromTarget\", this._onDetachedFromTarget.bind(this));",
+      "sha256": "579b678e6238ee5cd4b8b43c4aa0138e779e05cd9584acaef66fafc1b2eb9ed5"
+    },
+    {
+      "line": 39850,
+      "text": "const { browserContextId } = await this._session.send(\"Target.createBrowserContext\", {",
+      "sha256": "d13eb074ae3cc0b99b3cbca7451795451ae4b3294f03e1f251f2154f5548c031"
+    },
+    {
+      "line": 74803,
+      "text": "else if (method2 === \"Target.detachedFromTarget\" && childSessionId)",
+      "sha256": "04b30b67773c577937a88bc8b2e71e24b499206ab4c173fca936d4d54bb0e965"
+    },
+    {
+      "line": 74900,
+      "text": "method: \"Target.detachedFromTarget\",",
+      "sha256": "33ef70f719440b5b222cbf21ad2c7b42d3ccb481e0d7ee72e39f67c7d47f1ed1"
+    },
+    {
+      "line": 74990,
+      "text": "case \"Target.closeTarget\":",
+      "sha256": "d53a74f5352c665ec87066f0ae4ea3ef07db06566d2fefe3c852f0a1138eebca"
     }
   ]
 }

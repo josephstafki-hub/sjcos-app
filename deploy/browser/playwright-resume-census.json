@@ -87,5 +87,62 @@
     "39645": "crash reload resume removed; boot revocation",
     "44326": "DevTools install hard denial",
     "44603": "worker transport hard denial"
-  }
+  },
+  "lifecycleOccurrences": [
+    {
+      "line": 36415,
+      "text": "this._listeners = [eventsHelper.addEventListener(parentSession, \"Target.detachedFromTarget\", (event) => {",
+      "sha256": "5ff746f4f391fca8deb95e38d6957aaaed8ede0965ebfb1d42ecbd7883fd7cd7"
+    },
+    {
+      "line": 38916,
+      "text": "// See Target.detachedFromTarget handler for details.",
+      "sha256": "9a02bbda5f8c1ed06ca59d934b4004ab646289ec2b706b374ff7c5d8c4a9c5da"
+    },
+    {
+      "line": 38959,
+      "text": "eventsHelper.addEventListener(this._client, \"Target.detachedFromTarget\", (event) => this._onDetachedFromTarget(this._client, event)),",
+      "sha256": "c0d5611340bb6fac7bf86a3068849c9f79f3b04b761899cb7e36981a61255cf2"
+    },
+    {
+      "line": 39239,
+      "text": "session.on(\"Target.detachedFromTarget\", (event2) => this._onDetachedFromTarget(session, event2));",
+      "sha256": "b63b415874ee26d25b0aeaeb5626d3877ac1f0b19e5cb1a0f0e028eef5321a89"
+    },
+    {
+      "line": 39752,
+      "text": "this._session.on(\"Target.detachedFromTarget\", this._onDetachedFromTarget.bind(this));",
+      "sha256": "579b678e6238ee5cd4b8b43c4aa0138e779e05cd9584acaef66fafc1b2eb9ed5"
+    },
+    {
+      "line": 39803,
+      "text": "const { browserContextId } = await this._session.send(\"Target.createBrowserContext\", {",
+      "sha256": "d13eb074ae3cc0b99b3cbca7451795451ae4b3294f03e1f251f2154f5548c031"
+    },
+    {
+      "line": 39927,
+      "text": "await this._session.send(\"Target.closeTarget\", { targetId: crPage._targetId });",
+      "sha256": "e5c514aa34ee8b6937b8e1091473f50345ba27c9e2ae1b7bad5186c90b009588"
+    },
+    {
+      "line": 40172,
+      "text": "await this._browser._session.send(\"Target.disposeBrowserContext\", { browserContextId: this._browserContextId });",
+      "sha256": "a040a5d8363a51166d8ce2ec788dfe1d92d47c195f878ec71f2e375845ce2d11"
+    },
+    {
+      "line": 74944,
+      "text": "else if (method2 === \"Target.detachedFromTarget\" && childSessionId)",
+      "sha256": "04b30b67773c577937a88bc8b2e71e24b499206ab4c173fca936d4d54bb0e965"
+    },
+    {
+      "line": 75041,
+      "text": "method: \"Target.detachedFromTarget\",",
+      "sha256": "33ef70f719440b5b222cbf21ad2c7b42d3ccb481e0d7ee72e39f67c7d47f1ed1"
+    },
+    {
+      "line": 75130,
+      "text": "case \"Target.closeTarget\":",
+      "sha256": "d53a74f5352c665ec87066f0ae4ea3ef07db06566d2fefe3c852f0a1138eebca"
+    }
+  ]
 }

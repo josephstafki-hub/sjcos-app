@@ -96,7 +96,7 @@
   },
   {
     "before": "      _onDetachedFromTarget(payload) {\n        const targetId = payload.targetId;",
-    "after": "      _onDetachedFromTarget(payload) {\n        void __sjc.fail(this);\n        const targetId = payload.targetId;",
+    "after": "      _onDetachedFromTarget(payload) {\n        __sjc.detached(this,payload);\n        const targetId = payload.targetId;",
     "matches": 1
   },
   {
@@ -132,6 +132,21 @@
   {
     "before": "return this._browser._crPages.get(targetId)._page;",
     "after": "return (await __sjc.pageFor(this._browser, targetId))._page; // SJC: page registers only after the barrier approves its attach",
+    "matches": 1
+  },
+  {
+    "before": "        const context = new CRBrowserContext(this, browserContextId, options);",
+    "after": "        __sjc.commitContext(this,browserContextId,options);\n        const context = new CRBrowserContext(this, browserContextId, options);",
+    "matches": 1
+  },
+  {
+    "before": "        await this._session.send(\"Target.closeTarget\", { targetId: crPage._targetId });",
+    "after": "        await __sjc.closePage(this,crPage._targetId);",
+    "matches": 1
+  },
+  {
+    "before": "        await this._browser._session.send(\"Target.disposeBrowserContext\", { browserContextId: this._browserContextId });",
+    "after": "        await __sjc.closeContext(this._browser,this._browserContextId);",
     "matches": 1
   }
 ]

@@ -1,0 +1,11 @@
+[Unit]
+Description=SJC OS minute retention schedule
+ConditionPathExists=/etc/sjcos-browser/phase1-accepted
+[Timer]
+OnBootSec=60
+OnUnitInactiveSec=60
+AccuracySec=5
+Unit=sjcos-browser-retention.service
+Persistent=false
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,29 @@
+[Unit]
+Description=SJC OS fixed held runner and protected claim broker
+ConditionPathExists=/etc/sjcos-browser/phase1-accepted
+Requires=sjcos-browser-supervisor.service
+After=sjcos-browser-supervisor.service
+[Service]
+User=root
+Slice=user-@JOE_UID@-sjcosbrowser.slice
+ExecStart=/usr/bin/python3 -I -B /opt/sjcos-browser/node/source/deploy/browser/root-broker.py
+Restart=no
+MemoryMax=256M
+MemorySwapMax=0
+CPUQuota=15%
+TasksMax=32
+RuntimeDirectory=sjcos-browser
+RuntimeDirectoryMode=0755
+UMask=0077
+LimitCORE=0
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ReadWritePaths=/run/sjcos-browser /var/lib/sjcos-browser-runner
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+KillMode=control-group
+TimeoutStopSec=15
+ProtectProc=invisible
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_CHOWN CAP_KILL

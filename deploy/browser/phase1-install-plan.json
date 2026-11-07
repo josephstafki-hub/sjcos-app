@@ -4,8 +4,44 @@
   "entry": "deploy/browser/phase1-installer.mjs install|uninstall|verify",
   "dry_run_default": true,
   "journal": "/var/lib/sjcos-browser-supervisor/install-journal.json",
-  "requires": ["existing sjcos-browser uid998", "distinct controller/gate/DNS service accounts", "reviewed root-protected independently signed bundle for exact candidate", "all workloads under user-<JOE_UID>.slice 24G/Swap0/800%", "explicit database socket port; no default", "existing pinned runtime; no dependency download"],
-  "journal_records": ["before and after digests", "previous owner/mode", "root-private backup path without secret bytes", "created directories; intent fsynced before each mutation"],
-  "does_not_execute": ["systemctl", "service activation", "account creation", "global sysctl", "system or Joe CA trust", "database SQL"],
-  "rollback": ["coordinator fences and stops browser-only units", "verify all current files against journal before any rollback", "restore exact previous bytes/ownership/mode or remove added files", "preserve existing latch/audit", "refuse drift and active runtime"]
+  "requires": [
+    "existing sjcos-browser uid998",
+    "distinct controller/gate/DNS service accounts",
+    "reviewed root-protected independently signed bundle for exact candidate",
+    "all workloads under user-<JOE_UID>.slice 24G/Swap0/800%",
+    "explicit database socket port; no default",
+    "existing pinned runtime; no dependency download",
+    "distinct sjcos-browser-runner / sjcos-browser-retention / sjcos-browser-exporter accounts",
+    "reviewed exporter endpoint/bucket/public IP pins + >=731-day Object Lock COMPLIANCE retention",
+    "dedicated non-deleting sink writer LoadCredential; expected highest seq stored at sink",
+    "production bootstrap path/credential readability reconciled before installation"
+  ],
+  "journal_records": [
+    "before and after digests",
+    "previous owner/mode",
+    "root-private backup path without secret bytes",
+    "created directories; intent fsynced before each mutation"
+  ],
+  "does_not_execute": [
+    "systemctl",
+    "service activation",
+    "account creation",
+    "global sysctl",
+    "system or Joe CA trust",
+    "database SQL"
+  ],
+  "rollback": [
+    "coordinator fences and stops browser-only units",
+    "verify all current files against journal before any rollback",
+    "restore exact previous bytes/ownership/mode or remove added files",
+    "preserve existing latch/audit",
+    "refuse drift and active runtime"
+  ],
+  "units_added": [
+    "sjcos-browser-root-broker.service",
+    "sjcos-browser-mcp-relay.service",
+    "sjcos-browser-checkpoint-exporter.service",
+    "sjcos-browser-retention.service",
+    "sjcos-browser-retention.timer"
+  ]
 }

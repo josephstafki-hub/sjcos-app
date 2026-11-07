@@ -57,7 +57,7 @@ of Fetch and refuses without exact decisions even on existing keepalives.
 Before activation: produce actual patch SHA, resulting bundle SHA, reviewer
 approval and signed real revision1248 event/packet evidence. Re-run census over
 patched tree: every resume must be guarded or unreachable denial. Metadata and
-this spec cannot satisfy that runtime gate; pins retain null result digests.
+this spec cannot satisfy that runtime gate; signed acceptance remains a separate requirement.
 
 ## Implemented candidate (2026-11-06; no acceptance claim)
 
@@ -93,3 +93,30 @@ supplies guardTarget and shuts down Chromium on revocation. The controller
 adapter is NOT implemented by this patch. Syntax, string census, AST command
 census and executable module/helper tests do not replace real revision1248
 packet/event acceptance or independent review. Flags remain OFF.
+
+## A3b guarded lifecycle revision (2026-11-07)
+
+Intentional controller closes now use embedded `closePage` / `closeContext`.
+`CRBrowser._closePage` and `CRBrowserContext.doClose` are exact-patched to them;
+`commitContext` binds the reserved proxy listener to the actual returned context
+ID. No generic detach/reconnect/release API is exposed to model or web input.
+
+A guarded close synchronously fences the exact resumed session tree, removes its
+policy target bindings through mandatory releaseTarget, sends fixed Target.closeTarget / disposeBrowserContext,
+and awaits BOTH command ACK and expected detach events (2s bound). Only then
+are page/target counts and the context's listener reservation released. Missing
+ACK/detach, unprepared close, unknown target, unexpected detach, crash, duplicate
+attach or a new target in a closing context still revokes the boot. A page close
+retains its context's listener; a context close frees that listener only after
+ACK. Replacement must install a new gate generation and fresh guards; released
+sessions cannot resume. Other contexts keep their own guards/listeners. Pending
+Fetch handlers fail closed without boot-wide fatal when their exact policy
+binding was intentionally removed by this guarded close.
+
+Original 15 resume/toggle occurrences are unchanged; lifecycleOccurrences now
+also records every upstream create/dispose/close/detached occurrence. Apply
+checks both original inventories. result.json contains both patched censuses.
+The patch digest remains SHA256(patch JSON + NUL + embedded runtime); bundle pin
+changes accordingly. Source-only inventory refresh remains coordinator-owned.
+Real revision1248 close/reuse, concurrent surviving context and hostile target
+fixtures must pass again; these mock/AST tests are not production acceptance.

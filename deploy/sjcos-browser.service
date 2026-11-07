@@ -1,8 +1,8 @@
 # Installed disabled only; independent exact-candidate evidence required.
 [Unit]
 Description=SJC OS attended public browser controller
-Requires=sjcos-browser-supervisor.service sjcos-browser-helper.service sjcos-browser-gate.service sjcos-browser-dns.service sjcos-browser-setup.service
-After=sjcos-browser-supervisor.service sjcos-browser-helper.service sjcos-browser-gate.service sjcos-browser-dns.service sjcos-browser-setup.service
+Requires=sjcos-browser-checkpoint-exporter.service sjcos-browser-root-broker.service sjcos-browser-supervisor.service sjcos-browser-helper.service sjcos-browser-gate.service sjcos-browser-dns.service sjcos-browser-setup.service
+After=sjcos-browser-checkpoint-exporter.service sjcos-browser-root-broker.service sjcos-browser-supervisor.service sjcos-browser-helper.service sjcos-browser-gate.service sjcos-browser-dns.service sjcos-browser-setup.service
 BindsTo=sjcos-browser-gate.service sjcos-browser-helper.service
 ConditionPathExists=/etc/sjcos-browser/phase1-accepted
 [Service]
@@ -47,3 +47,6 @@ LoadCredential=request-hmac:/etc/sjcos-browser/credentials/request-hmac
 LoadCredential=dispatch-public:/etc/sjcos-browser/credentials/read-dispatch-public
 # Credential files are controller-only; Chromium and CLI get explicit env and no
 # inherited descriptors/mount access. Public CA only; gate owns CA private key.
+LoadCredential=checkpoint-key:/etc/sjcos-browser/credentials/checkpoint-key
+LoadCredential=exporter-public:/etc/sjcos-browser/credentials/exporter-public
+LoadCredential=peer-key:/etc/sjcos-browser/credentials/peer-key

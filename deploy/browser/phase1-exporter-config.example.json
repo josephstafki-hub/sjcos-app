@@ -1,0 +1,10 @@
+{
+  "endpoint": "https://s3.us-west-004.backblazeb2.com",
+  "bucket": "REPLACE_WITH_DEDICATED_OBJECT_LOCK_BUCKET",
+  "region": "us-west-004",
+  "retention_days": 731,
+  "pinned_ips": ["REPLACE_WITH_REVIEWED_PUBLIC_ENDPOINT_IP"],
+  "install_id": "REPLACE_WITH_INSTALLATION_UUID",
+  "controller_uid": "REPLACE_WITH_CONTROLLER_UID_INTEGER",
+  "controller_gid": "REPLACE_WITH_CONTROLLER_GID_INTEGER"
+}

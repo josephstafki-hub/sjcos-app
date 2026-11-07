@@ -1,0 +1,34 @@
+[Unit]
+Description=SJC OS independent signed checkpoint S3 Object Lock exporter
+ConditionPathExists=/etc/sjcos-browser/phase1-accepted
+[Service]
+User=root
+Slice=user-@JOE_UID@-sjcosbrowser.slice
+ExecStart=/usr/bin/python3 -I -B /opt/sjcos-browser/node/source/deploy/browser/checkpoint-exporter.py
+LoadCredential=exporter-key:/etc/sjcos-browser/credentials/exporter-key
+LoadCredential=checkpoint-public:/etc/sjcos-browser/credentials/checkpoint-public
+LoadCredential=sink-writer:/etc/sjcos-browser/credentials/sink-writer
+Restart=no
+MemoryMax=32M
+MemorySwapMax=0
+CPUQuota=5%
+TasksMax=4
+RuntimeDirectory=sjcos-browser-exporter
+RuntimeDirectoryMode=0755
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ReadWritePaths=/run/sjcos-browser-exporter
+InaccessiblePaths=/run/sjcos-browser /run/sjcos-browser-runtime /run/sjcos-browser-gate /run/sjcos-browser-chromium /var/lib/sjcos-browser /run/postgresql /var/lib/postgresql /var/lib/sjcos-browser-runner /etc/sjcos-browser/credentials
+IPAddressDeny=any
+# Installer appends exact reviewed public sink IPs; no DNS or other egress.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+KillMode=control-group
+TimeoutStopSec=15
+LimitCORE=0
+ProtectProc=invisible
+CapabilityBoundingSet=CAP_SETUID CAP_SETGID CAP_CHOWN
+RestrictNamespaces=yes

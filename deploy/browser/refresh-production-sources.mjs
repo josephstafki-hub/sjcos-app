@@ -8,7 +8,7 @@ async function put(n,b){const old=await read(n).catch(()=>null);if(old?.equals(B
 const unitNames=(await readdir(path.join(root,'deploy'))).filter(n=>/^sjcos-browser.*\.service$|^user-.*-sjcosbrowser.*\.slice$/.test(n)).sort();const units={};for(const n of unitNames)units[n]=(await read('deploy/'+n)).toString();await put('deploy/browser/phase1-unit-files.json',JSON.stringify(units,null,2)+'\n');
 const launcherPath='deploy/browser/playwright-patch/launcher-files.json';const launcher=JSON.parse(await read(launcherPath));
 async function walk(dir){const out=[];for(const e of await readdir(path.join(root,dir),{withFileTypes:true})){if(e.name==='__pycache__'||e.name.endsWith('.pyc'))continue;const p=dir+'/'+e.name;if(e.isDirectory())out.push(...await walk(p));else if(e.isFile())out.push(p);}return out;}
-const added=[...(await walk('lib/browser')).filter(n=>n.endsWith('.mjs')), ...(await walk('deploy/browser')).filter(n=>!n.includes('/playwright-patch/')&&n!=='deploy/browser/runtime-lock.json')];
+const added=[...(await walk('lib/browser')).filter(n=>n.endsWith('.mjs')), 'scripts/browser-retention.mjs', ...(await walk('deploy/browser')).filter(n=>!n.includes('/playwright-patch/')&&n!=='deploy/browser/runtime-lock.json')];
 for(const n of added)launcher[n]=h(await read(n));for(const n of Object.keys(launcher))launcher[n]=h(await read(n));
 const sorted=o=>Object.fromEntries(Object.entries(o).sort(([a],[b])=>a.localeCompare(b)));
 await put(launcherPath,JSON.stringify(sorted(launcher),null,2)+'\n');

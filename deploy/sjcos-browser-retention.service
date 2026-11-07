@@ -1,0 +1,26 @@
+[Unit]
+Description=SJC OS bounded owner retention executor
+ConditionPathExists=/etc/sjcos-browser/phase1-accepted
+[Service]
+Type=oneshot
+User=sjcos-browser-retention
+Group=sjcos-browser-retention
+Slice=user-@JOE_UID@-sjcosbrowser.slice
+ExecStart=/usr/bin/node --max-old-space-size=64 /opt/sjcos-browser/node/source/scripts/browser-retention.mjs
+LoadCredential=retention-database:/etc/sjcos-browser/credentials/retention-database
+Restart=no
+RuntimeMaxSec=45
+TimeoutStartSec=45
+MemoryMax=128M
+MemorySwapMax=0
+CPUQuota=5%
+TasksMax=8
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+RestrictAddressFamilies=AF_UNIX
+InaccessiblePaths=/etc/sjcos-browser/credentials /run/sjcos-browser-runtime
+LimitCORE=0

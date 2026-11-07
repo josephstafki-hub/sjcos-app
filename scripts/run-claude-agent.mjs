@@ -311,7 +311,7 @@ async function unseenTranscriptAllowed(conversationId) {
   try {
     ({ rows } = await client.query(
       `SELECT id, role, body, agent, attachments FROM ai_messages
-        WHERE conversation_id = $1 ORDER BY created_at ASC`,
+        WHERE conversation_id = $1 AND trust_profile='ordinary' ORDER BY created_at ASC`,
       [conversationId],
     ));
   } catch {
@@ -897,6 +897,7 @@ async function main() {
   TRACK_CONTEXT=await trackingAvailable(client);
   // Never downgrade a browser row into the ordinary, privileged CLI path.
   if (rows[0].profile === "browser" || rows[0].browser_task_id) throw new Error("BROWSER_RUNTIME_NOT_READY");
+  if (rows[0].conversation_id) { const {assertOrdinaryConversation}=await import('../lib/browser/model-history.mjs'); await assertOrdinaryConversation(client,rows[0].conversation_id); }
   const model = rows[0].model || ENV_MODEL;
   const effort = rows[0].effort || "default";
 

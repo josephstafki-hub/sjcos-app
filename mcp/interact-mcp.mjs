@@ -36,6 +36,13 @@ import { readFileSync } from "node:fs";
 import { registerAskOwner } from "./interact-tools.mjs";
 import { databaseUrlFor, mcpLogin } from "../lib/db-login.mjs";
 
+// Browser branch must precede every ordinary DSN/.env/registration path.
+if (process.env.SJC_RUN_PROFILE === 'browser' || process.argv.includes('--browser-run')) {
+  const {runFilteredProfileEntry}=await import('./browser-profile-tools.mjs');
+  await runFilteredProfileEntry('interact');
+  process.exit(0);
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Same login rule as mcp/sjcos-mcp.mjs (deploy/db-roles.md): owner only when

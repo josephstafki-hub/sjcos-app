@@ -73,7 +73,7 @@ test('real fake CLI → MCP, kernel peer registration, protected delivery, actua
  const repo=fileURLToPath(new URL('..',import.meta.url));const root=await mkdtemp(path.join(os.tmpdir(),'browser-two-hop-'));
  let broker,brokerExit,launcherChild;
  try{await withTestDb(async(url,admin)=>{
-  assertNotProduction(url);await admin.query('CREATE ROLE sjcos_browser LOGIN NOSUPERUSER NOBYPASSRLS');
+  assertNotProduction(url);const role=(await admin.query("SELECT rolcanlogin,rolsuper,rolbypassrls FROM pg_roles WHERE rolname='sjcos_browser'")).rows[0];assert.deepEqual(role,{rolcanlogin:true,rolsuper:false,rolbypassrls:false});
   const dbUrl=new URL(url);dbUrl.username='sjcos_browser';const dsn=dbUrl.href;
   const credential=path.join(root,'credential');await writeFile(credential,dsn,{mode:0o600});
   const socket=path.join(root,'launch.sock'),registry=path.join(root,'registry');await (await import('node:fs/promises')).mkdir(registry,{mode:0o700});
@@ -103,4 +103,21 @@ finally:s.close()
   const result=JSON.parse(out);assert.equal(result.replay,true);assert.equal(result.verifiedRun.taskId,ids.taskId);assert.equal(result.verifiedRun.dsn,undefined);assert.equal(out.includes(dsn),false);
   const [brokerCode]=await brokerExit;assert.equal(brokerCode,0,errors);
  },{fresh:true});}finally{try{if(launcherChild?.pid)process.kill(-launcherChild.pid,'SIGKILL');}catch{}broker?.kill('SIGKILL');stopCluster();await rm(root,{recursive:true,force:true});}
+});
+
+import {PROFILE_TOOLS,registerProfileTools} from '../mcp/browser-profile-tools.mjs';
+test('filtered SJC and interact registration exposes only frozen names and denial helper',async()=>{
+ for(const kind of ['sjcos','interact']){
+  const registered=new Map();const server={registerTool:(n,s,fn)=>registered.set(n,{s,fn})};
+  registerProfileTools(server,{kind,verifiedRun:{profile:'browser',capability:'x'.repeat(43)},invoke:async()=>({answer:'bounded'})});
+  assert.deepEqual([...registered.keys()],kind==='sjcos'?['get_operating_context','get_project','get_lead','get_work_item']:['ask_owner','approve_action']);
+  if(kind==='interact'){const denied=await registered.get('approve_action').fn({tool_name:'Read',input:{secret:'NEVER_STORE'}});assert.match(denied.content[0].text,/deny/);assert.doesNotMatch(denied.content[0].text,/NEVER_STORE/);}
+ }
+ assert.equal(PROFILE_TOOLS.sjcos.get_project.input.safeParse({project_id:randomUUID(),include_notes:true}).success,false);
+});
+import {validateProductionNamespace} from '../lib/browser/launcher.mjs';
+test('production namespace rejects disposable validator and inode substitution',()=>{
+ const valid={name:'sjcos-browser',current:'net:[1234]',host:'net:[1]',currentInode:1234,expectedInode:1234};
+ assert.equal(validateProductionNamespace(valid),true);
+ for(const change of [{name:'b0b-1234abcd-b'},{current:'net:[1]'},{expectedInode:1235},{currentInode:'1234'}])assert.throws(()=>validateProductionNamespace({...valid,...change}));
 });

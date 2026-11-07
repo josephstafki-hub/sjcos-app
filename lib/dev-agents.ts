@@ -255,6 +255,10 @@ export async function hermesChat(
   progress?: HermesProgress,
   steer?: HermesSteer,
 ): Promise<string> {
+  if (sessionId && /^[0-9a-f-]{36}$/.test(sessionId)) {
+    const {assertOrdinaryConversation}=await import('@/lib/browser/model-history.mjs');
+    await assertOrdinaryConversation({query},sessionId);
+  }
   // W5: Joe-approved standing instructions ride along on every turn so the
   // in-app agents get them without an MCP round-trip. "" when none exist.
   const standing = await standingInstructionsBlock();

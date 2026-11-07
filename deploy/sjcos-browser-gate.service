@@ -1,0 +1,30 @@
+# REVIEW TEMPLATE ONLY; fixed root-owned gate config/CA provisioned separately.
+[Unit]
+Description=SJC OS bounded public read gate
+After=sjcos-browser-dns.service
+Requires=sjcos-browser-dns.service
+ConditionPathExists=/etc/sjcos-browser/phase1-accepted
+[Service]
+User=sjcos-browser-gate
+Group=sjcos-browser-gate
+Slice=user-@JOE_UID@-sjcosbrowser.slice
+NetworkNamespacePath=/run/netns/sjcos-browser-gate
+ExecStart=/opt/sjcos-browser/py/bin/python -I -B /opt/sjcos-browser/node/source/deploy/browser/phase1-gate-entry.py
+MemoryMax=384M
+MemorySwapMax=0
+CPUQuota=35%
+TasksMax=32
+Restart=no
+Nice=15
+OOMPolicy=stop
+KillMode=control-group
+TimeoutStopSec=15
+UMask=0077
+LimitCORE=0
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+LoadCredential=ca-key:/etc/sjcos-browser/credentials/gate-ca-key
+LoadCredential=dispatch-public:/etc/sjcos-browser/credentials/read-dispatch-public

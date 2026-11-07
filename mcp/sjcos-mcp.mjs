@@ -111,6 +111,13 @@ import { registerFilingTools } from "./filing-tools.mjs";
 import { registerUploadTools } from "./upload-tools.mjs";
 import { databaseUrlFor, mcpLogin } from "../lib/db-login.mjs";
 
+// Browser branch must precede every ordinary DSN/.env/registration path.
+if (process.env.SJC_RUN_PROFILE === 'browser' || process.argv.includes('--browser-run')) {
+  const {runFilteredProfileEntry}=await import('./browser-profile-tools.mjs');
+  await runFilteredProfileEntry('sjcos');
+  process.exit(0);
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Database login (deploy/db-roles.md): the narrow sjcos_agent login

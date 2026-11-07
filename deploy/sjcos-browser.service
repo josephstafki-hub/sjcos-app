@@ -1,58 +1,41 @@
-# REVIEW SPEC ONLY. Render @JOE_UID@ at owner-authorized deployment.
-# Required executables, attestation and root-created namespaces do not exist yet.
+# REVIEW TEMPLATE ONLY. Not installed/started; @JOE_UID@ must be substituted.
 [Unit]
-Description=SJC OS isolated browser controller (activation gated)
-Requires=sjcos-browser-supervisor.service sjcos-browser-proxy.service
-After=sjcos-browser-supervisor.service sjcos-browser-proxy.service
-ConditionPathExists=/etc/sjcos-browser/runtime-attested.json
-ConditionPathExists=/etc/sjcos-browser/activation-approved
-
+Description=SJC OS attended public browser controller
+Requires=sjcos-browser-supervisor.service sjcos-browser-gate.service sjcos-browser-dns.service
+After=sjcos-browser-supervisor.service sjcos-browser-gate.service sjcos-browser-dns.service
+ConditionPathExists=/etc/sjcos-browser/phase1-accepted
 [Service]
 Type=simple
 User=sjcos-browser
-Group=sjcos-browser-web
+Group=sjcos-browser
 Slice=user-@JOE_UID@-sjcosbrowser.slice
 NetworkNamespacePath=/run/netns/sjcos-browser
-Environment=SJC_BROWSER_ENABLED=0
-Environment=NODE_OPTIONS=--max-old-space-size=256
-Environment=HOME=/run/sjcos-browser/profile
-ExecStartPre=+/usr/local/libexec/sjcos-browser-latch check
-ExecStartPre=/usr/local/libexec/sjcos-browser-attest controller
-ExecStart=/usr/bin/node /opt/sjcos-browser/scripts/sjcos-browser.mjs
-ExecStopPost=+/usr/local/libexec/sjcos-browser-latch record
+ExecStartPre=+/usr/bin/python3 -I -B /opt/sjcos-browser/node/source/deploy/browser/browser-latch.py check
+ExecStart=/usr/bin/node --max-old-space-size=256 /opt/sjcos-browser/node/source/scripts/sjcos-browser.mjs
+ExecStopPost=+/usr/bin/python3 -I -B /opt/sjcos-browser/node/source/deploy/browser/browser-latch.py record
 Restart=no
-MemoryHigh=2G
-MemoryMax=3G
-MemorySwapMax=0
-CPUQuota=150%
-TasksMax=256
 Nice=15
 OOMPolicy=stop
 KillMode=control-group
 TimeoutStopSec=15
 UMask=0077
-NoNewPrivileges=true
-ProtectSystem=strict
-ProtectHome=true
-PrivateTmp=true
-PrivateDevices=true
-CapabilityBoundingSet=
-AmbientCapabilities=
 LimitCORE=0
-RuntimeDirectory=sjcos-browser
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+RuntimeDirectory=sjcos-browser-runtime
 RuntimeDirectoryMode=0750
-StateDirectory=sjcos-browser
-StateDirectoryMode=0700
-ReadWritePaths=/run/sjcos-browser /var/lib/sjcos-browser
-# Socket itself must be explicitly chmod 0660, group sjcos-browser-web.
-# Root must mount quota partitions 128/200/56 MiB inside the 384 MiB tmpfs.
-TemporaryFileSystem=/run/sjcos-browser/profile:rw,nosuid,nodev,size=128M,mode=0700,uid=@BROWSER_UID@,gid=@BROWSER_GID@
-TemporaryFileSystem=/run/sjcos-browser/downloads:rw,nosuid,nodev,size=200M,mode=0700,uid=@BROWSER_UID@,gid=@BROWSER_GID@
-TemporaryFileSystem=/run/sjcos-browser/scratch:rw,nosuid,nodev,size=56M,mode=0700,uid=@BROWSER_UID@,gid=@BROWSER_GID@
-TemporaryFileSystem=/dev/shm:rw,nosuid,nodev,noexec,size=128M,mode=1777
-LoadCredential=database:/etc/sjcos-browser/credentials/database
-LoadCredential=bridge:/etc/sjcos-browser/credentials/bridge
-LoadCredential=vault:/etc/sjcos-browser/credentials/vault
+ReadWritePaths=/run/sjcos-browser-runtime
+TemporaryFileSystem=/run/sjcos-browser-runtime/tmp:rw,nosuid,nodev,noexec,size=384M,mode=0700
+TemporaryFileSystem=/dev/shm:rw,nosuid,nodev,noexec,size=128M
+BindReadOnlyPaths=/run/postgresql/.s.PGSQL.@BROWSER_DB_PORT@
+LoadCredential=database:/etc/sjcos-browser/credentials/browser-database
+LoadCredential=web-rpc:/etc/sjcos-browser/credentials/web-rpc
+LoadCredential=frame:/etc/sjcos-browser/credentials/frame
+LoadCredential=read-dispatch:/etc/sjcos-browser/credentials/read-dispatch
+LoadCredential=manifest-hmac:/etc/sjcos-browser/credentials/manifest-hmac
 LoadCredential=audit:/etc/sjcos-browser/credentials/audit
-StandardOutput=null
-StandardError=null
+# Credential files are controller-only; Chromium and CLI get explicit env and no
+# inherited descriptors/mount access. Public CA only; gate owns CA private key.

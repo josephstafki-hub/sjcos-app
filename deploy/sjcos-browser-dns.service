@@ -1,0 +1,23 @@
+# REVIEW TEMPLATE ONLY. Namespace setup must precede this service.
+[Unit]
+Description=SJC OS restricted browser resolver
+ConditionPathExists=/etc/sjcos-browser/phase1-accepted
+[Service]
+User=sjcos-browser-dns
+Group=sjcos-browser-dns
+Slice=user-@JOE_UID@-sjcosbrowser.slice
+NetworkNamespacePath=/run/netns/sjcos-browser-gate
+ExecStart=/opt/sjcos-browser/unbound/sbin/unbound -d -c /etc/sjcos-browser/unbound.conf
+MemoryMax=64M
+MemorySwapMax=0
+CPUQuota=10%
+TasksMax=8
+Restart=no
+Nice=15
+UMask=0077
+LimitCORE=0
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes

@@ -1,0 +1,11 @@
+# REVIEW TEMPLATE ONLY. Sibling of browser child, under common account cap.
+[Unit]
+Description=SJC OS minimal browser supervisor budget
+[Slice]
+MemoryAccounting=yes
+CPUAccounting=yes
+TasksAccounting=yes
+MemoryMax=32M
+MemorySwapMax=0
+CPUQuota=10%
+TasksMax=16

@@ -62,7 +62,7 @@ def verified_sources():
     lock = json.loads(lock_bytes)
     files = {}
     for name, expected in lock['files'].items():
-        if not (name.startswith(('deploy/browser/','lib/browser/')) or name == 'mcp/browser-tools.mjs') or '..' in name:
+        if not (name.startswith(('deploy/browser/','lib/browser/')) or name in ('mcp/browser-tools.mjs','mcp/browser-profile-tools.mjs')) or '..' in name:
             fail('BROWSER_PROVISION_SOURCE_PATH')
         p = SOURCE/name
         if p.is_symlink(): fail('BROWSER_PROVISION_SOURCE_SYMLINK')

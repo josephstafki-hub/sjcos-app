@@ -229,7 +229,7 @@ export async function getTurns(
   await requireThreadAccess(conversationId);
   const { rows } = await query<{ role: "user" | "assistant"; body: string }>(
     `SELECT role, body FROM ai_messages
-      WHERE conversation_id = $1 ORDER BY created_at ASC`,
+      WHERE conversation_id = $1 AND trust_profile = 'ordinary' ORDER BY created_at ASC`,
     [conversationId],
   );
   return rows.map((r) => ({ role: r.role, content: r.body }));
@@ -243,6 +243,8 @@ export interface ThreadMessage {
   agent: string | null;
   attachments: ChatAttachment[];
   createdAt: string;
+  trust_profile?: "ordinary" | "browser";
+  browser_task_id?: string | null;
 }
 
 /** The whole thread, oldest first, with agent + attachments — what the
@@ -256,10 +258,12 @@ export async function getThreadMessages(conversationId: string): Promise<ThreadM
     body: string;
     agent: string | null;
     attachments: ChatAttachment[] | null;
+    trust_profile: "ordinary" | "browser";
+    browser_task_id: string | null;
     created_at: string;
   }>(
-    `SELECT id, role, body, agent, attachments, created_at::text AS created_at
-       FROM ai_messages WHERE conversation_id = $1 ORDER BY created_at ASC`,
+    `SELECT id, role, body, agent, attachments, trust_profile, browser_task_id, created_at::text AS created_at
+       FROM ai_messages WHERE conversation_id = $1 AND trust_profile = 'ordinary' ORDER BY created_at ASC`,
     [conversationId],
   );
   return rows.map((r) => ({
@@ -269,6 +273,8 @@ export async function getThreadMessages(conversationId: string): Promise<ThreadM
     agent: r.agent,
     attachments: Array.isArray(r.attachments) ? r.attachments : [],
     createdAt: r.created_at,
+    trust_profile: r.trust_profile,
+    browser_task_id: r.browser_task_id,
   }));
 }
 
@@ -304,6 +310,7 @@ export async function insertMessage(
   } = {},
 ): Promise<ChatMessage> {
   await requireThreadAccess(conversationId);
+  if (opts.runId && await queryOne(`SELECT id FROM dev_agent_runs WHERE id=$1 AND profile='browser'`, [opts.runId])) throw Error('BROWSER_PROVENANCE_INVALID');
   const row = await queryOne<{
     id: string;
     role: "user" | "assistant";

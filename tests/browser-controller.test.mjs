@@ -114,3 +114,37 @@ test('one manifest, two concurrent identical requests: exactly one is authorized
   const results=await Promise.allSettled([a.authorizeRequest(request()),a.authorizeRequest(request())]);
   assert.equal(results.filter(r=>r.status==='fulfilled').length,1);
 }));
+
+import {randomUUID as id} from 'node:crypto';
+import {BrowserService} from '../lib/browser/service.mjs';
+function fixture(){let now=1000;const events=[];const context=()=>({id:id(),pages:new Set(),close:async()=>events.push('close')});const browser={newContext:async()=>{events.push('context');return context();},close:async()=>events.push('process-close')};const io={browser:async()=>browser,authorize:async()=>true,transition:async(t,next,code)=>events.push(next+':'+code),fence:async()=>events.push('fence'),reconcile:async()=>events.push('reconcile'),audit:async()=>events.push('audit'),release:async()=>{},hooks:{enterPrivate:async()=>{events.push('private');return {privacy_mode:'private',drained:true};},authorizeManualInput:async()=>({allowed:true}),submitGuard:async()=>({allowed:true})},deliverInput:async()=>events.push('input')};const s=new BrowserService({io,clock:()=>now,uid:998});const task=()=>({id:id(),person_id:id(),context_generation:1,control_epoch:1,controller_boot_id:id(),state:'active',private:false,last_progress:now,present_until:now+15000});return {s,io,events,task,setTime:x=>now=x};}
+test('controller refuses root',()=>assert.throws(()=>new BrowserService({uid:0,io:{}})));
+test('startup reconciles before context',async()=>{const f=fixture();await f.s.start();await f.s.open(f.task());assert.ok(f.events.indexOf('reconcile')<f.events.indexOf('context'));});
+test('maximum two anonymous contexts',async()=>{const f=fixture();await f.s.start();await f.s.open(f.task());await f.s.open(f.task());await assert.rejects(f.s.open(f.task()),/BROWSER_BUSY/);});
+test('one context per person',async()=>{const f=fixture();await f.s.start();const t=f.task();await f.s.open(t);await assert.rejects(f.s.open({...f.task(),person_id:t.person_id}),/BROWSER_BUSY/);});
+test('two tabs with close/reuse accounting',async()=>{const f=fixture();await f.s.start();const t=f.task();await f.s.open(t);f.s.trackTab(t.id,'a');f.s.trackTab(t.id,'b');assert.throws(()=>f.s.trackTab(t.id,'c'));f.s.closeTab(t.id,'b');f.s.trackTab(t.id,'c');});
+test('manual privacy ACK precedes input',async()=>{const f=fixture();await f.s.start();const t=f.task();await f.s.open(t);await f.s.manualInput(t.id,{proof_id:id()});assert.ok(f.events.indexOf('private')<f.events.indexOf('input'));});
+test('failed drain never inputs',async()=>{const f=fixture();f.io.hooks.enterPrivate=async()=>{throw Error();};await f.s.start();const t=f.task();await f.s.open(t);await assert.rejects(f.s.manualInput(t.id,{}));assert.ok(!f.events.includes('input'));});
+test('absence pauses; polling cannot renew attendance',async()=>{const f=fixture();await f.s.start();const t=f.task();await f.s.open(t);f.setTime(17000);await f.s.tick();assert.ok(f.events.some(x=>x.startsWith('paused:')));});
+test('idle closes at five minutes',async()=>{const f=fixture();await f.s.start();await f.s.open(f.task());f.setTime(301001);await f.s.tick();assert.ok(f.events.includes('close'));});
+test('empty browser process closes after sixty seconds',async()=>{const f=fixture();await f.s.start();const t=f.task();await f.s.open(t);await f.s.close(t.id);f.setTime(62000);await f.s.tick();assert.ok(f.events.includes('process-close'));});
+test('wait pauses; unexpected death fails',async()=>{for(const disposition of ['waiting','crashed']){const f=fixture();await f.s.start();const t=f.task();await f.s.open(t);await f.s.runEnd(t.id,disposition);assert.ok(f.events.some(x=>x.startsWith(disposition==='waiting'?'paused:':'failed:')));}});
+test('old generation cannot deliver after awaited authorization',async()=>{const f=fixture();await f.s.start();const t=f.task();await f.s.open(t);let release;f.io.authorize=()=>new Promise(r=>release=r);const p=f.s.manualInput(t.id,{});await new Promise(r=>setImmediate(r));await f.s.close(t.id);release(true);await assert.rejects(p);assert.ok(!f.events.includes('input'));});
+
+import {createProductionRpc,encodeBinaryFrame,decodeBinaryFrame} from '../lib/browser/controller-rpc.mjs';
+import {createHmac,createHash} from 'node:crypto';
+function rpcMessage(key,bootId){const payload={proof_id:id(),body:{scope:'task'}},x={v:1,method:'read_state',task_id:id(),original_run_id:id(),viewer_id:id(),boot_id:bootId,command_id:id(),sequence:1,issued_at:new Date(1000).toISOString(),expires_at:new Date(5000).toISOString(),nonce:id(),body_digest:createHash('sha256').update(canonical(payload)).digest('hex'),payload};return {...x,signature:createHmac('sha256',key).update('browser-phase1-web-rpc\0').update(canonical(x)).digest('hex')};}
+test('production RPC verifies purpose, proof and boot and never replays a nonce',async()=>{
+ const key=Buffer.alloc(32,7),bootId=id();let consumed=0;const rpc=createProductionRpc({key,bootId,clock:()=>2000,consumeProof:async()=>{consumed++;return true;},handlers:{read_state:async()=>({ok:true})}}),message=rpcMessage(key,bootId);
+ assert.equal((await rpc({...message,boot_id:id()})).ok,false);assert.equal(consumed,0);
+ assert.equal((await rpc(message)).ok,true);assert.equal((await rpc(message)).ok,false);assert.equal(consumed,1);
+});
+test('binary frames use independent channel and cannot pass metadata framing or stale authority',async()=>{
+ const key=Buffer.alloc(32,8),header={v:1,kind:'frame',viewer_id:id(),task_id:id(),boot_id:id(),stream_id:id(),stream_generation:1,frame_id:id(),seq:1,control_epoch:1,document_epoch:1,viewport:{width:1280,height:800},width:1280,height:800,context_generation:1};
+ const jpeg=Buffer.alloc(160*1024,1),bytes=await encodeBinaryFrame(header,jpeg,key);
+ assert.ok((await decodeBinaryFrame(bytes,key,async()=>true)).jpeg.equals(jpeg));
+ await assert.rejects(decodeBinaryFrame(bytes,key,async()=>false));
+ const changed=Buffer.from(bytes);changed[changed.length-1]^=1;await assert.rejects(decodeBinaryFrame(changed,key,async()=>true));
+ await assert.rejects(encodeBinaryFrame(header,Buffer.alloc(160*1024+1),key));
+ assert.throws(()=>encodeFrame({jpeg:jpeg.toString('base64')}));
+});

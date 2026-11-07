@@ -51,7 +51,7 @@ export async function lastAnsweringAgent(conversationId: string): Promise<DevAge
   }
   const run = await queryOne<{ agent: string }>(
     `SELECT agent FROM dev_agent_runs
-      WHERE conversation_id = $1 AND status = 'done'
+      WHERE conversation_id = $1 AND status = 'done' AND profile <> 'browser'
       ORDER BY created_at DESC LIMIT 1`,
     [conversationId],
   ).catch(() => null);
@@ -114,7 +114,7 @@ export async function renderTranscript(
   const perTurn = opts.perTurn ?? 2_000;
   const lines: string[] = [];
   const images: AttachmentImage[] = [];
-  for (const m of turns) {
+  for (const m of turns.filter(m => m.trust_profile === "ordinary")) {
     let body = m.body.length > perTurn ? `${m.body.slice(0, perTurn)}…` : m.body;
     if (m.role === "user" && m.attachments.length && (opts.attachmentChars || opts.withPaths || opts.withImages)) {
       const r = await renderAttachmentsForPrompt(m.attachments, {

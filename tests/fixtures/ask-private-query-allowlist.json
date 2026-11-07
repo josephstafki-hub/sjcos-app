@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "note": "Manually reviewed privacy inventory. Query and full source hashes require explicit review on changes. No file-wide query wildcard. not-private entries explain business metadata/aggregate/conservative non-SQL matches. R3 includes shared reply fan-out/status columns, runtime execution/trigger/receipt carriers and all browser_* schema carriers. Removed storage is distinct from per-person private storage; a green scanner is only a reviewed-source change detector. R4 explicitly inventories push_outbox producers/persistence/drain and immutable erasure; private_ask_push_sources stores only opaque associations. Merge audit: phone messages/actions/devices, SMS/phone lines and non-SQL APNs/phone serializers are explicitly inventoried; private Ask phone copies are fixed status under 0112, business-line summaries are explicit communications. Round 1 getIn review: floor can_edit comes only from readFloorCanvas.canEdit (missing means false); all existing load/current-person/owned-thread/current-scope/availability fences remain before serialization. No query changes.",
+  "note": "Manually reviewed privacy inventory. Query and full source hashes require explicit review on changes. No file-wide query wildcard. not-private entries explain business metadata/aggregate/conservative non-SQL matches. R3 includes shared reply fan-out/status columns, runtime execution/trigger/receipt carriers and all browser_* schema carriers. Removed storage is distinct from per-person private storage; a green scanner is only a reviewed-source change detector. R4 explicitly inventories push_outbox producers/persistence/drain and immutable erasure; private_ask_push_sources stores only opaque associations. Merge audit: phone messages/actions/devices, SMS/phone lines and non-SQL APNs/phone serializers are explicitly inventoried; private Ask phone copies are fixed status under 0112, business-line summaries are explicit communications. Round 1 getIn review: floor can_edit comes only from readFloorCanvas.canEdit (missing means false); all existing load/current-person/owned-thread/current-scope/availability fences remain before serialization. No query changes. Browser A1: explicit owned-source/history and A0 catalog audit refreshed; B web SQL remains a separate integration review. B website query census reviewed at the current source snapshot; coordinator must refresh after subsequent fixes.",
   "sources": {
     "lib/accounting/qbo/https.ts": "afb9c1021ccce50aa049de389b602e14d114283ef9748cde733d7d49374725e1",
     "lib/actions/ai-chat.ts": "3fc8090bfa56e326ddd0a99b9b282a9288a94599b00d7f5883450a329c439778",
@@ -25,14 +25,14 @@
     "lib/agent-runtime/triggers.ts": "871c067ab7e2f46f481b893e4b7cbf5481c7a1cf09ccc23882dc35a217b32a43",
     "lib/agent-runtime/worker.ts": "cda55fbf4bf8c2a8644a17836b4b395b23a8889f15ec9c7b6b49f03aa6bcb971",
     "lib/agent-sends.ts": "0b4246843f2148177f5df5e6498ee66379415c4147d05b4cd915e75e561feb7f",
-    "lib/ai-chat.ts": "3ce216a36019763bfdedd24f1d808a233c9b59abf050d565416cc457252374a8",
+    "lib/ai-chat.ts": "44dabf37722ce98bb5b6b2bc7bba4848efccafa89e08ab2856aff26cbf7d45dc",
     "lib/ai.ts": "93e2504983bb20641cbe3c3b3c9c828f14f711757bd7366a38fe8cdb16a4c62c",
     "lib/approvals.ts": "ea377225832b65b7102c411c91f68eeb04bf3ce48ef9b340c2b32d94c53c60e9",
     "lib/approve-work-item.ts": "6c97b8ff17b744fe8d3fabb7352ac8f48446372eaa8b219057dc7ae5265189dc",
     "lib/approved-draft-send.ts": "872f908d555c47f21896979442a2a67db5ffaeedf0600f7025e2cf5a23daa146",
     "lib/ask-private-bridge.mjs": "586fb7ecd55b01a8a002b36967e99572f8535607dd3ea91b93a868555d46d5aa",
     "lib/ask-private-transport.mjs": "526f608724370f95444e33c5612c0e74433d58c43a161bda8d2a0bde820caab5",
-    "lib/ask-run-admission.ts": "f07318d9ee3666da83dd659a20c257cbf30b12a5b0f3fd51a1e0b359019188a4",
+    "lib/ask-run-admission.ts": "a2f8ffea1631d35750995812af8fa5a38b0c6abda0ff332e9f4802b53593ee08",
     "lib/ask-thread-journal-interactions.mjs": "bb7cc8fc617e99d1eea8131a590f4089fec6be00e065ec16624fb7dcba67be55",
     "lib/ask-thread-journal.mjs": "7e7f8ef038300ef4bfe3d1e6b0ca3ebcd5745d45a0c6cd13755a11697c3be22e",
     "lib/attachments.ts": "22837ed0d5a1e347a6b08dc1f45cb5670a042daeead7084d42e7db311471d5d5",
@@ -58,7 +58,7 @@
     "lib/decisions/telegram.ts": "f3704776f8f707e977b35a8663eb3d5c055b7d8aa3c1a6d0f7c3fface790873e",
     "lib/detectors.ts": "597959f022544a1c9b3e40ad9cb3258b28f98b37f8fb2f34601e319efac397e0",
     "lib/dev-agents-meta.ts": "eababf3bfdf6ed4b0f5bc09bd9c85276538428148529580d9ac13ba3b45e5d28",
-    "lib/dev-agents.ts": "04919b77226d1759e20af95a580b507410547f6b8fc62de839e1d95001e6e061",
+    "lib/dev-agents.ts": "56b8af5843082c5274b526572d5ce88623295144565b75e2940c3710d905ff6e",
     "lib/dispatch/authority.ts": "5ff3b250e52717c56ff8ddd4d563ae9c41c1412b885df5a759e316feb1c82284",
     "lib/dispatch/core.ts": "801bfcf565e5add8833eb40203381c8d14b15f36ae60dc394ec6298361d818be",
     "lib/dispatch/effects.ts": "83635e3c42d1a98d919f64ea75da48dfb35b5071398b1a41b8f22424b83b7385",
@@ -90,7 +90,7 @@
     "lib/orchestrator/execute.ts": "a7f968bc43f7923bcd040167203cc378a416208ac60f56cf0e0ec2d13698e5fd",
     "lib/orchestrator/ladder.ts": "703ffc7a9e967c055675ecfa03b561fe124c470b5de66b65acabde832c41fe88",
     "lib/orchestrator/proposals.ts": "1beae0211f1e0dbb8315681f92b0251ab2d82ac3e91f17f37b268598c7ac45d8",
-    "lib/orchestrator/thread.ts": "5ba641e41aa357edebc089f398e98ff67be9ae4cd3b83c00680f8dfb6b4109ab",
+    "lib/orchestrator/thread.ts": "41c7f857207ba959a559acf79853a8522f5ff9361959ae13788e7a8536a88c3d",
     "lib/orchestrator/voice.ts": "21d93168dd348caaee551a4538394e110e2055fd15a08ee00012867ba81e9d90",
     "lib/overhead/overhead.ts": "d0f5010300b77a7f5b9bb714bd5971dac437d43538a5bcf11371c055916b01ac",
     "lib/owner-grants.ts": "0785fde731cfa63dbcd51e56f474b1bc9c8d4154fc91fb7498d6c71ad6b10928",
@@ -142,11 +142,11 @@
     "mcp/obligation-tools.mjs": "409b9fe090590051e392bb5ae45abf4abc8cdc37ccd62430737d2794d504e1e9",
     "mcp/project-tools.mjs": "9cb8deacdc68efd39d657c9960910b5b71e4100b4738bd15972af53b27788f43",
     "mcp/runbook-tools.mjs": "e2988e12c1cbd4e8a6a71cf0c04661a487b12fed4f8806f83f885e926d972123",
-    "mcp/sjcos-mcp.mjs": "3df1e00b04a5c8bde915bec1a96cc29fde3c6c6de1896bc2ed42b7b4e5447f28",
+    "mcp/sjcos-mcp.mjs": "a4df96c50838b291f30c83d43576b657f712b084dd105b26cca83fe1bc7830bb",
     "mcp/team-tools.mjs": "68e526938fc74c10646707c1ee1020f6a5b0336fb37186649c015caf7557fbcd",
     "mcp/workflow-tools.mjs": "8f643366b6c20fbf5dd13f41cf39f00ebf269b2a796efc809d9b1eea5a13aae7",
     "scripts/backup.mjs": "765d1d8ee5cd91bb65cefba38f068f522662a9ca18f4384e324687132ff6a73f",
-    "scripts/db-roles-apply.mjs": "63e4ba2e9ea8b722672a0bf5ccc6f735a0fb27b289203e8f1115d609b44d9e6b",
+    "scripts/db-roles-apply.mjs": "69101521f68dcf728b0aea61334dcee9c2bfce237760998100c999a731a8d093",
     "scripts/import-brain-archives.mjs": "42a6a14ce1ebcf60dd665643bd7261fdd29d460e81747bc52ed00589a72459d0",
     "scripts/import-review.mjs": "7e1a96e2705fc8df3051591fda7cdcfd109a1557e7bd088ae293d61da9055814",
     "scripts/import-subs-csv.mjs": "ce7b6fbe82e321c3d337603817161d4659fa63b391f4391ffc6b6c88f7319c87",
@@ -155,7 +155,7 @@
     "scripts/report-work-item-collisions.mjs": "c9f3743600622e60cc6716759382a4886e7cb05e1f9a5f36121accfdaecad3a5",
     "scripts/restore.mjs": "bc3cc17d8cd68f20ff6af49cefb94ecd8776971670fad8a969cd6ecb81dd0ba5",
     "scripts/run-business-agent.mjs": "7e22d7108d49cb9a81aebee5af529ed65b26fc82a0071c807f76fcce9992b439",
-    "scripts/run-claude-agent.mjs": "fc470c03d6a7e52c4a408e5d0a4356209a4dfd1856fc1a7ccdf6d24a5d7280c1",
+    "scripts/run-claude-agent.mjs": "d84a4d0c44f927307cb562fc2c7863d5621c1528d4be4d2082b205824cc3ca63",
     "scripts/upsert-inbox-work-items.mjs": "c0033789b9004fc6ffa27ff4e35921b794e6f2195de3fadac6fe46f30f6ff014",
     "db/apply-comms-sms-voice.mjs": "8b17910a69dfd4e59764f9c869adca361c24ee59ceb44db3b42018f494be7cdb",
     "db/apply-detectors.mjs": "8c41a34360277576b57bd2f51bf31a97d70cee730d71bcb8651b954cc6c09072",
@@ -207,7 +207,7 @@
     "db/migrations/0062_portal_telegram.sql": "85878f8cf90c1ec4731c51ec5cd45ff1409ebc1ef3a5bf9e902394e90780155e",
     "db/migrations/0100_ask_launch_sessions_browser_core.sql": "dd0deca0d6bc5ec0ea573fe6214d62889d238027e5d91a69256d0b4aa2d99f04",
     "db/migrations/0105_ask_thread_ownership.sql": "3a105fc3041b26f3ef73d7796bf7cdf4aff6dae3bfa5df9d4d8e9bcf85311cf3",
-    "db/schema.sql": "9fb28d72e2d294afee2980a52314ef0fb1220f6d3c88923b9388b2253e4e153c",
+    "db/schema.sql": "7818232f2f060f9f70e71e3cd6bd4b7bf7500491b6ccffe896728562915d878a",
     "db/seed-workflow-runbooks.mjs": "8f1b9e05bbb08312b1e81fd90aa1b852ce33b53367880dad4b4f3883281c0a29",
     "db/seed.sql": "fe0fa36f0ade311fe5d64ae7d878e249977ab3f653e29d9b24178dba87745400",
     "db/apply-push-outbox.mjs": "3466c5e4f0dbaecf175fd55c31de18a7a989a8972e399b86bdf05771c5739627",
@@ -254,7 +254,12 @@
     "db/migrations/0101_browser_vault_handoffs.sql": "a5fe3e47fa3ba8cca2389d67fc9856de9af6b34d3cac2c6c1f6d01f98bcbdd60",
     "db/migrations/0102_browser_actions_audit.sql": "717163bf096ccdbd936a17d9b0f2d3f522c8d7e869d6f3f2f8e05ec5cb30268b",
     "db/migrations/0103_browser_file_provenance.sql": "d11dc01762025309fa978b790ae3687f9837cda11ec666d0f141209fd81cc02c",
-    "db/migrations/0104_browser_rollout_catalog.sql": "933d805150678178e9e37c0dcfca13b1c5df5ac7dcd603da9a013daba8ada691"
+    "db/migrations/0104_browser_rollout_catalog.sql": "933d805150678178e9e37c0dcfca13b1c5df5ac7dcd603da9a013daba8ada691",
+    "lib/browser/model-history.mjs": "aea1e1c897ca3dfa1ba17879c46a24f60d3169814e787230dc9cda9901849dd8",
+    "lib/browser/repository.mjs": "0332921da517b6ed374712d567cabd839dd6228d4e6e094abc521577d80e9fc0",
+    "lib/browser/root-fixture.mjs": "fff1835c62526e0d71c3a76ddcb6175aa171eb4bcfdba7223b4190998d3b1994",
+    "db/migrations/0115_browser_phase1_runtime.sql": "2bd8bbd9d991f903ba743e41494f3d5d4117c18395b4964b2db773cc4ff3fe7f",
+    "lib/browser/web.ts": "871394feb60dc51212b046dbdfca7045ed0ba1b86fd753c5c42aec41c5b787a6"
   },
   "entries": [
     {
@@ -958,100 +963,6 @@
       ]
     },
     {
-      "file": "lib/ai-chat.ts",
-      "function": "<private-files>",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Non-SQL private-source inventory: upload root/reader or closed transport consumer. Application extraction uses withThreadAttachmentAccess; filing tools route through bound private bridge; MCP context captured at server construction and HTTP disabled. Metadata/type imports do not read bytes.",
-      "queries": [
-        "3ce216a36019763bfdedd24f1d808a233c9b59abf050d565416cc457252374a8"
-      ]
-    },
-    {
-      "file": "lib/ai-chat.ts",
-      "function": "listConversations",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Lists explicitly filter current actor and live threads. ID operations requireThreadAccess; creation stamps the actor and validates folder ownership. threadQuery supplies actor transaction and journal fence.",
-      "queries": [
-        "6ae2d20629627413ca1059317390b15591ab34e05205289d4fb4f55575427837"
-      ]
-    },
-    {
-      "file": "lib/ai-chat.ts",
-      "function": "listAllConversations",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Lists explicitly filter current actor and live threads. ID operations requireThreadAccess; creation stamps the actor and validates folder ownership. threadQuery supplies actor transaction and journal fence.",
-      "queries": [
-        "39bca7b9872f9bffb52d95f9f00ebd0776d21063f70fc59c6a0d22e91384a751"
-      ]
-    },
-    {
-      "file": "lib/ai-chat.ts",
-      "function": "getConversation",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Lists explicitly filter current actor and live threads. ID operations requireThreadAccess; creation stamps the actor and validates folder ownership. threadQuery supplies actor transaction and journal fence.",
-      "queries": [
-        "1f9132143493c020dcfc7df36816337bdb8c18f597199a0211c45359f4e7f2ad",
-        "bee43d854b4425dfefa4fbec234b4fcfc41ebdae964619bb0de7c08a8d3c2758",
-        "3eb0b25a9cecadc4b2c55483899ffa458a8d6fc3873d05c79eb83db87508f064"
-      ]
-    },
-    {
-      "file": "lib/ai-chat.ts",
-      "function": "getTurns",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Lists explicitly filter current actor and live threads. ID operations requireThreadAccess; creation stamps the actor and validates folder ownership. threadQuery supplies actor transaction and journal fence.",
-      "queries": [
-        "6461c9376894f7844b317ef28efedbd6cc430989e1bd7a77fe2de5d7095e07a6"
-      ]
-    },
-    {
-      "file": "lib/ai-chat.ts",
-      "function": "getThreadMessages",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Lists explicitly filter current actor and live threads. ID operations requireThreadAccess; creation stamps the actor and validates folder ownership. threadQuery supplies actor transaction and journal fence.",
-      "queries": [
-        "6249876e6b09b4b9f9a8071910aa841304532c0489c868bf3a0482c9614dfa6c"
-      ]
-    },
-    {
-      "file": "lib/ai-chat.ts",
-      "function": "insertConversation",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Lists explicitly filter current actor and live threads. ID operations requireThreadAccess; creation stamps the actor and validates folder ownership. threadQuery supplies actor transaction and journal fence.",
-      "queries": [
-        "36afe138ece30f524cd2c1d9be521baa1af8cd1f6306cbf410e109ac1d2c2050",
-        "0932c716af6d2cc2c08ba4bcc74d0f79cbba547b8193c243e5dec34808534321"
-      ]
-    },
-    {
-      "file": "lib/ai-chat.ts",
-      "function": "insertMessage",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Lists explicitly filter current actor and live threads. ID operations requireThreadAccess; creation stamps the actor and validates folder ownership. threadQuery supplies actor transaction and journal fence.",
-      "queries": [
-        "ef02204d34cb18aae53332dff21b83a4bca453fdd26f5683f29313b156326f8f",
-        "23f07a19c832c913d4c1cbd28b09534c6547ba41aab79d10ed2e8f7e72822496"
-      ]
-    },
-    {
-      "file": "lib/ai-chat.ts",
-      "function": "autoTitleIfNeeded",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Lists explicitly filter current actor and live threads. ID operations requireThreadAccess; creation stamps the actor and validates folder ownership. threadQuery supplies actor transaction and journal fence.",
-      "queries": [
-        "f5c77295f74113d069a9c8ca023e74c3b3e0434e1a99b6f04f83edd784785482"
-      ]
-    },
-    {
       "file": "lib/ai.ts",
       "function": "brief",
       "classification": "not-private",
@@ -1182,17 +1093,6 @@
       "explanation": "Non-SQL private-source inventory: upload root/reader or closed transport consumer. Application extraction uses withThreadAttachmentAccess; filing tools route through bound private bridge; MCP context captured at server construction and HTTP disabled. Metadata/type imports do not read bytes.",
       "queries": [
         "526f608724370f95444e33c5612c0e74433d58c43a161bda8d2a0bde820caab5"
-      ]
-    },
-    {
-      "file": "lib/ask-run-admission.ts",
-      "function": "admitAskRun",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Verified session/person, transaction-local actor, explicit owned live-thread predicate and requireThreadAccess before admitted INSERT; immutable DB principal/continuation guards.",
-      "queries": [
-        "c83f388a79608c1f23d27407be9faeba3e3747b756ded7496117242c0f2f75fc",
-        "1272f2b1f7b4d84e9295c860769884cd0192e3eec0659a481034c759508ce438"
       ]
     },
     {
@@ -1888,102 +1788,6 @@
       "explanation": "Non-SQL private-source inventory: upload root/reader or closed transport consumer. Application extraction uses withThreadAttachmentAccess; filing tools route through bound private bridge; MCP context captured at server construction and HTTP disabled. Metadata/type imports do not read bytes.",
       "queries": [
         "eababf3bfdf6ed4b0f5bc09bd9c85276538428148529580d9ac13ba3b45e5d28"
-      ]
-    },
-    {
-      "file": "lib/dev-agents.ts",
-      "function": "runPrincipalStillValid",
-      "classification": "not-private",
-      "reason": "owner-health-opaque-ids",
-      "explanation": "Internal runtime revocation check reads only opaque principal ID/start/active and returns a fixed validity reason, never source chat content.",
-      "queries": [
-        "f0d5b77233b54d415aa6c333e20462f3dcbe9ad765945dc717333ee497cf2cf1"
-      ]
-    },
-    {
-      "file": "lib/dev-agents.ts",
-      "function": "hermesChat",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Internal owned-turn runtime stores instruction version metadata on its captured steer.runId; user-selected run IDs are not an input to this provider API.",
-      "queries": [
-        "83e87abc3140c7f9aa8116e2e9d31b8d4f94f1d9c179711f83345fa7c44ead17"
-      ]
-    },
-    {
-      "file": "lib/dev-agents.ts",
-      "function": "startClaudeRun",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Human thread launches use admitAskRun/requireThreadAccess; poll and stop requireRunThreadAccess. Internal unbound background branches cannot bind a private thread. Poll reaper explicitly scopes current actor/live thread.",
-      "queries": [
-        "9932f7a470ebf8f3ac42ccb06061d68f5cc9bb78181f94d7005c4b3d964c3292",
-        "9286f3f522f60c111e14d0b4297a1ee740550973511e2557c248b40fa7173283"
-      ]
-    },
-    {
-      "file": "lib/dev-agents.ts",
-      "function": "getDevAgentRun",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Human thread launches use admitAskRun/requireThreadAccess; poll and stop requireRunThreadAccess. Internal unbound background branches cannot bind a private thread. Poll reaper explicitly scopes current actor/live thread.",
-      "queries": [
-        "67bdea32bde558a49db261c8373708a8748cbc16bb11573e83469d0f0456e4ba",
-        "f3576f8a988502e9d427df14780e0b000e6abb08f6ab2236ce31a91be82daa7e"
-      ]
-    },
-    {
-      "file": "lib/dev-agents.ts",
-      "function": "stopDevAgentRun",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Human thread launches use admitAskRun/requireThreadAccess; poll and stop requireRunThreadAccess. Internal unbound background branches cannot bind a private thread. Poll reaper explicitly scopes current actor/live thread.",
-      "queries": [
-        "74223921c952dc8bddd3006542dea83aab8a399252b46b64f9239d2e39d0e852",
-        "fc1737ad07d920fd56f6bc1f0e764ea4a8b8aa2498f7e8f1fbc63d2019e69dce"
-      ]
-    },
-    {
-      "file": "lib/dev-agents.ts",
-      "function": "runHermesTurnTracked",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Human thread launches use admitAskRun/requireThreadAccess; poll and stop requireRunThreadAccess. Internal unbound background branches cannot bind a private thread. Poll reaper explicitly scopes current actor/live thread.",
-      "queries": [
-        "6cfeef62cfa17e05ec65e27aba3695d1fcb0ce58c72c87fd33867f48e9947473",
-        "3d514f0ddef70c0f2a94be233991a7b76e9151ac45332fbee37fbbf11cf6bb69",
-        "1ab5a5d616ede97009ee276d16986f07a1f133fd76b071b9be49a7547ff73b3e"
-      ]
-    },
-    {
-      "file": "lib/dev-agents.ts",
-      "function": "pingConversation",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Human thread launches use admitAskRun/requireThreadAccess; poll and stop requireRunThreadAccess. Internal unbound background branches cannot bind a private thread. Poll reaper explicitly scopes current actor/live thread.",
-      "queries": [
-        "60e388eb4999a9963de37d44048573f0b0c728b07e86416b495dba194db65a7b",
-        "50d3cc1fbd7ab1a888659b1a4cd75ee9e366043abc39de80868ee118cd472d93"
-      ]
-    },
-    {
-      "file": "lib/dev-agents.ts",
-      "function": "retryFailedApprovalPings",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Secret cron sweep counts only unbound background attempts by shared business subject; private conversation runs explicitly excluded.",
-      "queries": [
-        "68890d9176355038c1e93e3b2bd1ee7bf08d9810cbdb5f7e277bc2142459172f"
-      ]
-    },
-    {
-      "file": "lib/dev-agents.ts",
-      "function": "failStaleRuns",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Human thread launches use admitAskRun/requireThreadAccess; poll and stop requireRunThreadAccess. Internal unbound background branches cannot bind a private thread. Poll reaper explicitly scopes current actor/live thread.",
-      "queries": [
-        "bb3f66fd968a7fb1a90024add4b5d844abaf1c3d83219c3d0508c81614e5b987"
       ]
     },
     {
@@ -2758,16 +2562,6 @@
         "1cd967c4b8dfcd61db7fce398003a2459571efb428c6b103c4fa9f378d1152b7",
         "22b1aa757d422bcdb9f5d6de466db395616288203348f79e3a1fed9112e021ad",
         "43c4719b5f8fb4bba3a9d51f2d4a74be14cd8ab99b114fc618be22e2d59a2baf"
-      ]
-    },
-    {
-      "file": "lib/orchestrator/thread.ts",
-      "function": "lastAnsweringAgent",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "getThreadMessages requiresThreadAccess before continuity/model-input reads; fallback run query is restricted to that exact immutable owned conversation.",
-      "queries": [
-        "7d632dd0240e63548265ea40aef16df6a2cd4434350f4a24c2c1705459af94bd"
       ]
     },
     {
@@ -4194,16 +3988,6 @@
       ]
     },
     {
-      "file": "scripts/db-roles-apply.mjs",
-      "function": "<module>",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Owner-invoked schema/import/repair/report CLI, not a request reader. Migration 0105 removes automatic private reply fan-out, scopes runtime derivatives with FORCE RLS and restricts repair execution to the website session identity. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
-      "queries": [
-        "12c062e37b7e80f581220f122f7e36e72a3ba3304856531c00668b9c9569dc3b"
-      ]
-    },
-    {
       "file": "scripts/import-brain-archives.mjs",
       "function": "uniqueSlug",
       "classification": "trusted-background",
@@ -4320,155 +4104,6 @@
         "0ee7946ec03291e551e544f7fe9d9dab5884afc99ca9648cc92216abb5c82f2a",
         "c7dd9ea60ed1635ef6a7e313dfe8f3ea34590379767c365c513ed865935e2a22",
         "d634ecead7308ec9a447e55ecf61052c4a671eb2cb9bd6f6d45a9bfdded7f8ff"
-      ]
-    },
-    {
-      "file": "scripts/run-claude-agent.mjs",
-      "function": "finish",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
-      "queries": [
-        "8b1560c6e168c30b18795c952ebe3d55ec5c3ee09258ac0079f2de4ca6aedfb7"
-      ]
-    },
-    {
-      "file": "scripts/run-claude-agent.mjs",
-      "function": "loadBusinessInstructions",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
-      "queries": [
-        "83e87abc3140c7f9aa8116e2e9d31b8d4f94f1d9c179711f83345fa7c44ead17"
-      ]
-    },
-    {
-      "file": "scripts/run-claude-agent.mjs",
-      "function": "withPrivateThread",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
-      "queries": [
-        "93d74da8c9eb24d497fdefbb0fd22ca8d0b79a22e0da5955fd2efd88da8a456d"
-      ]
-    },
-    {
-      "file": "scripts/run-claude-agent.mjs",
-      "function": "unseenTranscriptAllowed",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
-      "queries": [
-        "59d12e8789ee21d5b8143a6ffdbc3d13c4ec12dfaa1351af896d917acbf9c98c",
-        "88ebd7459751936276e24f654300874ccc2b0431fa6fbf3935d9dd7895b3b87e",
-        "a0c5dadf661aeddf80daa8af477357d27a581a4551b72a42f93cba4a433dde82",
-        "3001bf15f9b15fc5ac94156ef0a22e59ef7837b674abb96849f9511149c12b5b"
-      ]
-    },
-    {
-      "file": "scripts/run-claude-agent.mjs",
-      "function": "flushActivity",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
-      "queries": [
-        "774fe30d11c3b50c0c837c45c0cf4e359ea0154cb37ddd10843f1cd98142d5ce"
-      ]
-    },
-    {
-      "file": "scripts/run-claude-agent.mjs",
-      "function": "recordEffect",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
-      "queries": [
-        "dfa194b218f6dd80fc76c7950de629320e3acdfccb1a61029f86c636a4fb70a8"
-      ]
-    },
-    {
-      "file": "scripts/run-claude-agent.mjs",
-      "function": "steerText",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
-      "queries": [
-        "9279a9ca37f0534a1614678e4a41bb63fefab65a6d3602c4d1d6df16c3db9871"
-      ]
-    },
-    {
-      "file": "scripts/run-claude-agent.mjs",
-      "function": "takeSteers",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
-      "queries": [
-        "b45f19824a96ecc80a7f3676263b451fc05c0db722ddd64f28585fceb3d1be78"
-      ]
-    },
-    {
-      "file": "scripts/run-claude-agent.mjs",
-      "function": "takeSteersAllowed",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
-      "queries": [
-        "30f0ea9bc857d2472671122a0f35de79b5f157e797e2adbc7e62ca8fa56e9401"
-      ]
-    },
-    {
-      "file": "scripts/run-claude-agent.mjs",
-      "function": "onResult",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
-      "queries": [
-        "984bd9c89085de18d4500cabb58a6d3ac5c270653585ae73453838cbab89b435",
-        "9ffb1462e668c9e896b46d01f5fc282506ccd7967370f8e2e678e60e945cc37d"
-      ]
-    },
-    {
-      "file": "scripts/run-claude-agent.mjs",
-      "function": "runClaude",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
-      "queries": [
-        "a19e42712b7ba67e916466a0ade96bb32d1fe7f23871e5d56cfc61460e88faa6",
-        "4e0c26c09d9b576f717c7f5e328fd70b29c245e7a98e12f2f34aaea0089687b4"
-      ]
-    },
-    {
-      "file": "scripts/run-claude-agent.mjs",
-      "function": "main",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
-      "queries": [
-        "89343d8319760171f6d576c3b203d2163f4110db777f7e799347876c2bfdc1b8",
-        "cdecc5e9352632e0c945e53fed5dccedf0f835c79fcdef8f4812d243875b0430",
-        "523561b2f0d205478554236b20b1c250cf91b8f364c8d768fe285d79d3a1977e",
-        "4674d168b640e71936987e9becd18f18ac9ba704b64568eefa2ffec057ff9591"
-      ]
-    },
-    {
-      "file": "scripts/run-claude-agent.mjs",
-      "function": "recordUsage",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
-      "queries": [
-        "b0ed78c6cf5b9a2e00965c9ee4a646e5a598ada81509183fd9ed4dd1631894b8"
-      ]
-    },
-    {
-      "file": "scripts/run-claude-agent.mjs",
-      "function": "persistToConversationAllowed",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged. R1 final review: schema-aware ordinary file predicates use to_jsonb(row) to keep the same profile exclusion before/after 0108; missing schema is selected only from trusted to_regclass, never from a failed provenance call. Other changes retain journal/thread/actor gates and use guarded pg.",
-      "queries": [
-        "ee628970cbfd2e5421846752fddffefc5b1b1658ec2146ee9161a334c26d3a99",
-        "2dea732b7c2df176ce9e3d81b69ed2b9291420f257f1a0ce2b558b36ab9ebee9"
       ]
     },
     {
@@ -5302,16 +4937,6 @@
       ]
     },
     {
-      "file": "db/schema.sql",
-      "function": "<sql>",
-      "classification": "trusted-background",
-      "reason": "trusted-background",
-      "explanation": "Owner-only canonical schema snapshot after merging main (0107/0109/0112 Ask/Canvas/phone-copy guards and 0114 floor references) with additive Browser 0101–0104. Hash manifests, floor references, Browser ciphertext, named grants, review/execution, provenance and audit are website-only; no model/narrow SQL readers or secret-key storage; SECURITY DEFINER triggers take the conversation row lock. Browser runtime admission and flags stay disabled.",
-      "queries": [
-        "9fb28d72e2d294afee2980a52314ef0fb1220f6d3c88923b9388b2253e4e153c"
-      ]
-    },
-    {
       "file": "lib/ask-thread-journal.mjs",
       "function": "latch",
       "classification": "trusted-background",
@@ -5475,226 +5100,6 @@
       "explanation": "Reviewed conservative detector hit: fixed/whitelisted business table expression or business notification producer. No Ask transcript/attachment/private reply content source. Any enclosing file change is pinned for fresh review.",
       "queries": [
         "dcc356103e8a69bdcb8a104442a18054471c1c1b4ef0da6cb753a694ec24e797"
-      ]
-    },
-    {
-      "file": "mcp/sjcos-mcp.mjs",
-      "function": "<private-files>",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
-      "queries": [
-        "3df1e00b04a5c8bde915bec1a96cc29fde3c6c6de1896bc2ed42b7b4e5447f28"
-      ]
-    },
-    {
-      "file": "mcp/sjcos-mcp.mjs",
-      "function": "currentPrincipal",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
-      "queries": [
-        "c7cc4a4ce070fe43997ec977ffa69e77c694047517cd6fb2f517d8dab09f6876",
-        "b5009f50e35a4d028e63c87eb7c129630b1ce7e014012f43f387af5dc0e501d7"
-      ]
-    },
-    {
-      "file": "mcp/sjcos-mcp.mjs",
-      "function": "<module>",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
-      "queries": [
-        "ca09fe96d9c7383d08d0cd47a0877fdc66e89e553e90fd0c96cbca4518af6d34",
-        "991c635edae1d55af18c53766f9e63f46ee3e5a9ff2f23e1bd0e777361f8c7d2"
-      ]
-    },
-    {
-      "file": "mcp/sjcos-mcp.mjs",
-      "function": "buildServer",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
-      "queries": [
-        "43c7aafdda6303de0f93195f82b057fed639bf6da9dc75c13d182ebd3f10938b",
-        "dbad29046256a4bf9f587f72902e94b8b7054c5523bf24348e7c350ccb6aaa7e",
-        "e8d3caf0f6e30d8dfdfbe4d548b9c6185e6255ddc61de0c468abf88e8b386df3",
-        "4349722923778f4ee2155cca88a90075a0d2ec5bfee00abaebc81b7f02f12f16",
-        "aa6202fdf4fba563e6570281f7b98ad159d59ca90065b72e560ad992288b86d5",
-        "709e59ac47409c9826681bc7701f3e4f5d673765149630701308f494c70b99b6",
-        "c658764e2c5851be8c200f6ceb60e8f06012c7ce5809b8d8727d0dd847606ec4",
-        "b1c9fab257d624671b96dedc6406b164c27fdaf3ef98e5369ab89d26a021994d",
-        "f5c772227c174e685e0f24cc2ee6cba30e912c1b23ce349918c68e5d3848a24b",
-        "cbc7d054f1639105b13f3a1434c91fa394f8eb54ea9163e3d8b97ee32598536a",
-        "96d4c086c5d101058cc0ee7d95b58c09840aa3bf7cd1f59d24fd20b1ec674e4e",
-        "5dd76ba4fa650926f9145106f5050e7ff5f55340402dbb0a83f1f2252acf1708",
-        "67ca4f524cc082f5a13dd1dcd0222ced354b7e101ba80e470d4d486ed3132e2a",
-        "e12c60b1cd5dad0782284d195bae6d7864afb7e485b1c9346c89d76fc11ed24e",
-        "f983044dd8459186270e4212a47bbfd07e5c47cc53c109f69ff6744cd88597a4",
-        "ed00baadfef9ef61d9f6959b0cc972c2d0d83c90c0c54b5f4393496f192c195c",
-        "b0ad301cf0a77a618015a8a85866eb0e8387ca169d0a790599399eaa2e31c070",
-        "6c7a57af7f333961b50a04becfc227843772fae76eef490d328aff0b1f7405b2",
-        "0280f5be7a528040bac6ad320e88ec0accdb7baa1616a6878b81204c48e68ef2",
-        "1646caa2acf7931767e5a0adca237c0e4466c3a639f0f4d5585204233b9ce3ff",
-        "76b4a76d3f83a6fbb97b317501ae228781d3389b1f681ce8719ca06ab1a7f01a",
-        "bd2b1808e11af4d88420fbed5c3fe586982e9358800a59915667cfda6fa9bcff",
-        "b506ac29cb9bb242b554e6689f914dbd54a31bf2b82b9333c539514c3a686f16",
-        "62229583934eb6d91dfbea6647014c0eac67d384f35357a54c83a0cde29d0997",
-        "a8bbc82d0866ba238439ec07b04d62017c2b89f210d9134c764e9bcb8b7611eb",
-        "54f092f7c30d832e5f2742e9edf312987d40fb89006ca8a2e023a31bc7e3422d",
-        "ea77518a0640c9a40b4fe5cdad789ecc362fcd5b1e38b41f0809e4c1fc00c413",
-        "97e23bdcf108130b6033908141acd3408d4762ae24efd50e4dd7d1e3e38ef8bb",
-        "cfcb0601f52dcba3052199cd0c7f39538f292c8ac521613171f566eb1dfd820a",
-        "d95863e2069acb06e2c57c4f70606f652f265b68564e5b28a034fda734f97700",
-        "a5cfed58a0074a08868658d5bba989af544da71454a6e3535a98583fa6c22426",
-        "a57f84725162e94ded2c148c4175218fb61cf4f5e7115cad2b86db39c4586c78",
-        "08efac9f35a92ec23c354c52dcceb15635edd0d16665c09b2964be3683ac82b4",
-        "41af84f2fefaea8de767172c0417045f7d5106dfdcf42907e1a4a33515489c00",
-        "abe77a6db73332df719b1376d302e7c82b4fda066559e527ad72d0fd1fdb8470",
-        "39ebcd620dfd33120a9a17ef985ac85f3b506020b13b1d4939746804f17b7c4f",
-        "99692837fedfa3d00774ce630961a04efcd5cfba59420b096cce43665c280491",
-        "7b2ac24490edf6be63e1c34f7965a478cedc4c7e32813902c03aec2a1a77279e",
-        "8e8fa3d2f4447432428a49ae50d61db26209a67cb0436a09e28f9229b1205f72",
-        "1b0b93067ce381e589e5faed793f8c0907024346b0c722724ee496a4541e492d",
-        "8bdc759971e91e5a04878ac917c63045fc81e345e1ca16bd126f44f6b022d65d",
-        "4cfe874d21888d660524ce3df189ce1a42fbde7095bdccf666ee5fb4741450e4",
-        "5b52db10f96bcfbb93e0bb202e1f8ebd4347dfa30ce8453e48c250b0c3219d8b",
-        "24f73c94f70a89ec15313893416ed976bb9540a5c1cd2a153235206a0e2bdad4",
-        "d7204ee12f81cbb923fded8868d8cbe8780f27f00a4ea5b9ea217dab92bd32a4",
-        "761b02d45b65e1091bd570c5ecd3f36a4e72434e9c81aef2a956e9a0348f1026",
-        "20b4867c82048abd15983db02f9d45b51cb80cfd606d58df3c3c5b96b6159f6b",
-        "d7f8436e822cce28840ffd7e43f9332c96c1721b1f1dca95749b0a931caeeba1",
-        "b0bd204a728af359ac7d0bb59ca3db1ede31026d7400903d2c81b2dfcab5e0ed",
-        "52ff3a5e23c99a830c9dd5d5a146b87f4aafa180303038b9225b1a296e4c99c8",
-        "faeacd882cd02555b854535bd66b7e41f1505afae77b093306e7b7d915e141f3",
-        "7199488fc27966a3d4e28c7e3156ecb669c08baac555d98dffe44026e29db760",
-        "969e8a9edc3729a61631a1cffe65e31330ba4e2a49507317936f2929e6b18b29",
-        "609ebae74b5318f36dc8d77d31de15f4c3a2a557eafb1fffe18c22399f7fb78e",
-        "2f441aa96b0a047189a5a92b4afeacbe8cdc8dde24f5aedff577112aabd1488b",
-        "a5a0f6b3180349ada20f9f3cd1f1bac9909f8090500841816f9d7a8323e6c9d7",
-        "185d092251527e74ec5da903b620265ef71c5a56beb261efe1a567632e9a8929",
-        "748457582b9b5d128b4cd21bf624174622f18db78ed5fbd2c3f695c5d6347cdb",
-        "4c4019e016a6d63debb02afdab2927d847d1650bb4bad8f05a767351e02cf609",
-        "eb9c874ee96e0717266bff114d6f2394abc8605c934b683ebbe474cabffef8e2",
-        "5304d3b581711b8667837d9e8e5f1e32f4748738737d79678b3b7131fc3fcaed",
-        "6f4364ca186bcf062241b17f33dcac3f75a778fff4e0ce84b1ed9efd7896e34f",
-        "56c610b1dd419285208163720faedfba99a347b87eca7bd0d2b23f43e0bb6d21",
-        "345bf568675afbec2c6c7d51834950983c783f17ad48ffe8bb15d3e1c7783b5a",
-        "5dad6c4434d4d0dc6e1442e90218a0500f867418ab53cbc1fd57f678b91a84e4",
-        "d9eb41fd30b7e7e19689210b6a73967d5162d0d4e21cbb2007e7c2aa0e877ad7",
-        "cadc849cd29a9e52df81211d858178fe82a69ea41c5c2d920e895829e72fd69d",
-        "18a799b9ddcff18c640e1dddb0791e197abbfec486d8d51cc0db008cb286d752",
-        "c1002fecb9e69110c0b17560a1169a95c0fdd6be0ac412a8f08c3537abd6e6a4",
-        "e7ea93f2d63b99e91132cac9cbc4ed3cd40042670d2ce8db55450738fb103041",
-        "dfd6d8d64f5a27419b48301f93a1c1176fbcaaceb591dd22994533ab38d2ac3a",
-        "2c668170d620d4daa18cfcf9ff1172fbf2fefda661857793a47b70405a430fae",
-        "5a21af19b6578f819a8dd19615f4834d418d3e51b053f653d7aed2452f0d94e9",
-        "95aa97f472c3fc24c417a7a84b25edefad68faa105024f8ca3f77a5b9eea24f1",
-        "8bc4030f97d35af6bde58593c950aa63a039cdab15321120011b51d6c562ece0",
-        "cfc1fbbdf9bfafbbb44eefbd6b8760f7f99b6b657c8d09862375a416482d1711",
-        "c2cf3c5f07c8a210bde39767f7ae4f19819c5f4367e58161f1c730f603721239",
-        "2594e90ac5e9a0cea5b087dfcd1978a59b2012509807c1735d8db97ad3eef78c",
-        "c2024aa952d037d14f6d8bc70df328b731007baa36bb6ed4edf603bc85323ae4",
-        "b75209fd30cccf2c356d52220f5609273becbb01d239392695ce5e5156c495b7",
-        "1b4d1c3cc4058f5727f217f95df1425da5c1e9c01a2340e26b49ed0a33acf4bf",
-        "c4fc9a0cf0edbb89c20634c75ba245b5456bb1fd2c6901e62112dd7f42d94d03",
-        "2897abd205baea6093b93b63f9f4d776ae944f041e90e39e98794589032b80c9",
-        "ddf406505ed9bafbfb31eb3d6a0b057cb805b4f81ffac411a07c47c283bf0b30",
-        "abde2a15da0ef67028c2c1fecd5b72e3acace4b5b9d20be866ce26f99a9eb98d",
-        "737b59d9902abb938d5d3083f71f9e83371ea31ced13129ffa45cafd74033ef9",
-        "cde203e0f520807fefcd40df250c5dc5285b5f2967cebdf7505281701e7cc79d",
-        "10f230fdcff6a7628fccaac9daee8f8f8b0e8d14b4776799bb9560d85193e274",
-        "008e515842b5493c6679ec141c8d3163bc78a8e619a7553f0fc217002c03da0c",
-        "7bba5e7559b74e33f3f5c2707bb15b0910a0d8d4dc3a97f2a2e43bf6eb3bec84",
-        "4ad81916f281e92ac2612dfce435ffee2ff207de14470eb2b669bf48ef0e8e92",
-        "d29c00a68749f45dc4553b7edaa46e5226e6db672dc7a807c21fa9906e9abdfd",
-        "e9affe601823fa25fe0d0e171673916f5e501c6e1cf474fa90bf7d65039866a0"
-      ]
-    },
-    {
-      "file": "mcp/sjcos-mcp.mjs",
-      "function": "slugToId",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
-      "queries": [
-        "b83e41480a4377ccd3d8f141076c66ef72afd1c01038b49464973e365784fd15"
-      ]
-    },
-    {
-      "file": "mcp/sjcos-mcp.mjs",
-      "function": "resolveInternalUser",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
-      "queries": [
-        "7b889e9c1198e64a578cdb12d4879e56529559004c063a4840a431192c43e420"
-      ]
-    },
-    {
-      "file": "mcp/sjcos-mcp.mjs",
-      "function": "writeAssignees",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
-      "queries": [
-        "e10111ffbf969841b4c78365c0ba846f29f36ff5dca74e91f118983f78ec1eba"
-      ]
-    },
-    {
-      "file": "mcp/sjcos-mcp.mjs",
-      "function": "approveWouldEmail",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
-      "queries": [
-        "c5f4eec8981050ef66c7b3be36ad54baf8b436759d5e1638f517e45a06e1899a",
-        "59427563ed964b573020576066ecffefa5fef7dc4d5ea190001922e23193744b",
-        "e9f86f35947d5ad9ff1df0391fd875f0a27a0d6b2545c23617141aaa8086e55c"
-      ]
-    },
-    {
-      "file": "mcp/sjcos-mcp.mjs",
-      "function": "upsertSection",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
-      "queries": [
-        "658e3ef3be21960351143700d600d273fcba40b8120c7f76bc830b13a64cc6a6",
-        "9a0770890c2df4f89b6ac4a62eac5d71b4b00b8e3d94a1445194bc113ee47168",
-        "91f47d8e56985ef3f426cee954f2b55a527b3d71be6168df451962f4f5c7ae5c"
-      ]
-    },
-    {
-      "file": "mcp/sjcos-mcp.mjs",
-      "function": "addItems",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
-      "queries": [
-        "55f224c631bb0fe445e86e667269c250e87d285ddcf1280545828c436d88bc74",
-        "9401e9d536faf5b2255631d317536156a3ecf9de59362f4aae0d45e4064fcc73",
-        "c22ed35f3e9adce650e8d84f4123d03b708fbaa799447c9e5af587ae47373931"
-      ]
-    },
-    {
-      "file": "mcp/sjcos-mcp.mjs",
-      "function": "resolveSectionParent",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
-      "queries": [
-        "1004b94fd939fe4acc0727ae27a6f6430542e2452bde58a6b3e496a4892a3110"
-      ]
-    },
-    {
-      "file": "mcp/sjcos-mcp.mjs",
-      "function": "scopedSectionId",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "Existing website/runner/MCP guards retained. 0107 uses server attachment IDs and closed stdio begin/complete before delivery; runner lineage, effective CLI policy and exact delivered bytes are recorded. R1: pg import/URL builder now enforces the active disposable harness socket before construction; runtime guards and SQL unchanged.",
-      "queries": [
-        "bfc6c8fdf7af709aae87b5da8d215171999f880835b0b5215048d16cba916929"
       ]
     },
     {
@@ -7119,6 +6524,777 @@
       "explanation": "Owner-run additive versioned generic permit/tool catalog and retention-trigger DDL, not a request-time reader. Defaults stay false, no tools or services are activated, no narrow table grants are added, and the private SECURITY DEFINER truncation guard only refuses destruction.",
       "queries": [
         "933d805150678178e9e37c0dcfca13b1c5df5ac7dcd603da9a013daba8ada691"
+      ]
+    },
+    {
+      "file": "lib/ai-chat.ts",
+      "function": "<private-files>",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Owned-thread human rendering remains separate; model getTurns/getThreadMessages now require ordinary trust, include provenance before attachment rendering, and ordinary insert refuses browser-run provenance. Existing thread-access helpers remain before reads/writes.",
+      "queries": [
+        "44dabf37722ce98bb5b6b2bc7bba4848efccafa89e08ab2856aff26cbf7d45dc"
+      ]
+    },
+    {
+      "file": "lib/ai-chat.ts",
+      "function": "listConversations",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Owned-thread human rendering remains separate; model getTurns/getThreadMessages now require ordinary trust, include provenance before attachment rendering, and ordinary insert refuses browser-run provenance. Existing thread-access helpers remain before reads/writes.",
+      "queries": [
+        "6ae2d20629627413ca1059317390b15591ab34e05205289d4fb4f55575427837"
+      ]
+    },
+    {
+      "file": "lib/ai-chat.ts",
+      "function": "listAllConversations",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Owned-thread human rendering remains separate; model getTurns/getThreadMessages now require ordinary trust, include provenance before attachment rendering, and ordinary insert refuses browser-run provenance. Existing thread-access helpers remain before reads/writes.",
+      "queries": [
+        "39bca7b9872f9bffb52d95f9f00ebd0776d21063f70fc59c6a0d22e91384a751"
+      ]
+    },
+    {
+      "file": "lib/ai-chat.ts",
+      "function": "getConversation",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Owned-thread human rendering remains separate; model getTurns/getThreadMessages now require ordinary trust, include provenance before attachment rendering, and ordinary insert refuses browser-run provenance. Existing thread-access helpers remain before reads/writes.",
+      "queries": [
+        "1f9132143493c020dcfc7df36816337bdb8c18f597199a0211c45359f4e7f2ad",
+        "bee43d854b4425dfefa4fbec234b4fcfc41ebdae964619bb0de7c08a8d3c2758",
+        "3eb0b25a9cecadc4b2c55483899ffa458a8d6fc3873d05c79eb83db87508f064"
+      ]
+    },
+    {
+      "file": "lib/ai-chat.ts",
+      "function": "getTurns",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Owned-thread human rendering remains separate; model getTurns/getThreadMessages now require ordinary trust, include provenance before attachment rendering, and ordinary insert refuses browser-run provenance. Existing thread-access helpers remain before reads/writes.",
+      "queries": [
+        "1681f626f7bf59b9e17a4acfce9672b26981b06124403c730222af647d6ecee2"
+      ]
+    },
+    {
+      "file": "lib/ai-chat.ts",
+      "function": "getThreadMessages",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Owned-thread human rendering remains separate; model getTurns/getThreadMessages now require ordinary trust, include provenance before attachment rendering, and ordinary insert refuses browser-run provenance. Existing thread-access helpers remain before reads/writes.",
+      "queries": [
+        "86fcefc7a62ca6ecc6212936b1ae8885b286af9177398446d46e4fba1682624e"
+      ]
+    },
+    {
+      "file": "lib/ai-chat.ts",
+      "function": "insertConversation",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Owned-thread human rendering remains separate; model getTurns/getThreadMessages now require ordinary trust, include provenance before attachment rendering, and ordinary insert refuses browser-run provenance. Existing thread-access helpers remain before reads/writes.",
+      "queries": [
+        "36afe138ece30f524cd2c1d9be521baa1af8cd1f6306cbf410e109ac1d2c2050",
+        "0932c716af6d2cc2c08ba4bcc74d0f79cbba547b8193c243e5dec34808534321"
+      ]
+    },
+    {
+      "file": "lib/ai-chat.ts",
+      "function": "insertMessage",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Owned-thread human rendering remains separate; model getTurns/getThreadMessages now require ordinary trust, include provenance before attachment rendering, and ordinary insert refuses browser-run provenance. Existing thread-access helpers remain before reads/writes.",
+      "queries": [
+        "cb57938d80eb1df903b2ef660c0164d84386e4696f41e286173c08d05545082a",
+        "ef02204d34cb18aae53332dff21b83a4bca453fdd26f5683f29313b156326f8f",
+        "23f07a19c832c913d4c1cbd28b09534c6547ba41aab79d10ed2e8f7e72822496"
+      ]
+    },
+    {
+      "file": "lib/ai-chat.ts",
+      "function": "autoTitleIfNeeded",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Owned-thread human rendering remains separate; model getTurns/getThreadMessages now require ordinary trust, include provenance before attachment rendering, and ordinary insert refuses browser-run provenance. Existing thread-access helpers remain before reads/writes.",
+      "queries": [
+        "f5c77295f74113d069a9c8ca023e74c3b3e0434e1a99b6f04f83edd784785482"
+      ]
+    },
+    {
+      "file": "lib/ask-run-admission.ts",
+      "function": "admitAskRun",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Authenticated session/recovery/owned-thread transaction now also rejects any privileged conversation reuse after browser taint; Browser remains refused at this ordinary admission boundary.",
+      "queries": [
+        "c83f388a79608c1f23d27407be9faeba3e3747b756ded7496117242c0f2f75fc",
+        "1272f2b1f7b4d84e9295c860769884cd0192e3eec0659a481034c759508ce438"
+      ]
+    },
+    {
+      "file": "lib/browser/model-history.mjs",
+      "function": "assertOrdinaryConversation",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Explicit caller-owned client only. Model filtering excludes unknown and cross-task provenance. Tainted ordinary conversation only returns a boolean. Website-only tagged insert is additionally checked by immutable task/thread/run SQL trigger; narrow service/agent cannot tag.",
+      "queries": [
+        "cb9df3bdbc37d771b108d64956b7e2ce652438d69acbe748a1da19e0edf4bee0"
+      ]
+    },
+    {
+      "file": "lib/browser/model-history.mjs",
+      "function": "appendBrowserMessage",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Explicit caller-owned client only. Model filtering excludes unknown and cross-task provenance. Tainted ordinary conversation only returns a boolean. Website-only tagged insert is additionally checked by immutable task/thread/run SQL trigger; narrow service/agent cannot tag.",
+      "queries": [
+        "acf68fdbcc3e41eb7cf9543c15e6a37cb1453732dd185a2219a3ed4211275e37"
+      ]
+    },
+    {
+      "file": "lib/browser/repository.mjs",
+      "function": "<module>",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Strict A0 argument/result schemas and parameterized calls to explicit function-only SQL catalog. No default DB or authority inferred from IDs; each SQL function rechecks session_user and persisted proof.",
+      "queries": [
+        "c40155e342c3b92d035dba85498daacf6aeec7164a0b8340d683ee906bcf5eaa",
+        "b537a201655b094c0d587868b3a1d68a6394352f53c6948f622622760f4aee5d",
+        "f19ba859d075172638c8b25e5c9e53e460d92cf60d84d252d481913b63ae7c9a",
+        "4186d2efdaac023c56345efe9f9383e574d00c39d284a78862fd258684089ea3",
+        "244db5859668983a6c03914d408ef5292ee916392b1511f6d278324ce8ffa5e1",
+        "3311755164736cee90a7b03ef666a7b50cf4e468778c5ca00ad84c9733f7f325",
+        "fc007609e1e907f346f6b388e1a44bcf68cc8acb707a1755a84996c874caf3c1",
+        "0bff15ea87f755e541459a43d84d0f0ded4125b297edc8e941741c162cca66e4",
+        "f551c5642402d8cbd8b5f00d4e0f3718d879157280ab165bf508bb251539d551",
+        "8b7151d95418eb3460bf8e7d06146a7464af5010365cca8e328d2ba3e9a8ce12",
+        "b32fd1858d6aca3472b622087217f1e30aa2bc87e677be4df2770932c57aa960",
+        "6b09ad5a80c69de7034fd9fb1aa93d4e94ac96a0dfe49752cfcf0f5bfaa0f15d",
+        "ae5890b33089a351285daade17e5bf3ad7497c621a5a6cd497fb58f45d918eb5",
+        "a0c48d56b8c6e4863407085bc3748df84fccebadb381c7ba8e8217eac8cf0ab2",
+        "aa14bfa92efbc44143926123d4412eacf48fde29ae734f3ce4137e18646c784a",
+        "cb9686bbceb9f07314e86fa5d33329aad919a8624233ed02c654cf40b7d4efea",
+        "c33705fe3110303869faeeda8cf0eedd7720c72dcdb1dd072c1bd99adde4a2a9",
+        "231ca0ea5fb4421637cf1ac934b0d57545bfa8cc5f92a6ba7ae58d348d319200",
+        "b2f5d8d1b1d24bb90d31275d8c1b5db2ac142e49793daf8fc35a418f2077be5a",
+        "63fc59b7a4296a20feba94480abb9852f1d825e30e0a5a18d8b94c16f33486d3",
+        "bc8c865afc232296d6428b5143b7479666d648855792d7b1c594db7301b9e5ea",
+        "a52380451e8b7be628f7db80add8862d02c52af9c02ba6fca056bda91b462cd2",
+        "3ff411522e2bc96dbc5341f0ea3a10b687f85b422c2acb064dd31241105bdf5a",
+        "e886e70d6c300e2826a8d2461a3d727ffbe16f8aa26a103b88e9510afc6fc2fa",
+        "0c303c8df8a2921c04a426c77a33e3ff38c3b9cc3518bde595fbf2fe5515f6d2"
+      ]
+    },
+    {
+      "file": "lib/browser/root-fixture.mjs",
+      "function": "dnsConfiguration",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Disposable root acceptance fixture DNS configuration and fixed synthetic hosts only. No production principal/message bodies or authorization from a fixture; root test paths remain separate.",
+      "queries": [
+        "44da0e74f4acd35dde34635f40679379bd5e9e0629d17c818a8729a72e5a46fb"
+      ]
+    },
+    {
+      "file": "lib/dev-agents.ts",
+      "function": "runPrincipalStillValid",
+      "classification": "not-private",
+      "reason": "owner-health-opaque-ids",
+      "explanation": "Ordinary runner still refuses browser profile; Hermes session reuse now checks no browser-tagged conversation or Browser run before gateway I/O. Existing current-person and shared admission fences remain.",
+      "queries": [
+        "f0d5b77233b54d415aa6c333e20462f3dcbe9ad765945dc717333ee497cf2cf1"
+      ]
+    },
+    {
+      "file": "lib/dev-agents.ts",
+      "function": "hermesChat",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Ordinary runner still refuses browser profile; Hermes session reuse now checks no browser-tagged conversation or Browser run before gateway I/O. Existing current-person and shared admission fences remain.",
+      "queries": [
+        "83e87abc3140c7f9aa8116e2e9d31b8d4f94f1d9c179711f83345fa7c44ead17"
+      ]
+    },
+    {
+      "file": "lib/dev-agents.ts",
+      "function": "startClaudeRun",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Ordinary runner still refuses browser profile; Hermes session reuse now checks no browser-tagged conversation or Browser run before gateway I/O. Existing current-person and shared admission fences remain.",
+      "queries": [
+        "9932f7a470ebf8f3ac42ccb06061d68f5cc9bb78181f94d7005c4b3d964c3292",
+        "9286f3f522f60c111e14d0b4297a1ee740550973511e2557c248b40fa7173283"
+      ]
+    },
+    {
+      "file": "lib/dev-agents.ts",
+      "function": "getDevAgentRun",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Ordinary runner still refuses browser profile; Hermes session reuse now checks no browser-tagged conversation or Browser run before gateway I/O. Existing current-person and shared admission fences remain.",
+      "queries": [
+        "67bdea32bde558a49db261c8373708a8748cbc16bb11573e83469d0f0456e4ba",
+        "f3576f8a988502e9d427df14780e0b000e6abb08f6ab2236ce31a91be82daa7e"
+      ]
+    },
+    {
+      "file": "lib/dev-agents.ts",
+      "function": "stopDevAgentRun",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Ordinary runner still refuses browser profile; Hermes session reuse now checks no browser-tagged conversation or Browser run before gateway I/O. Existing current-person and shared admission fences remain.",
+      "queries": [
+        "74223921c952dc8bddd3006542dea83aab8a399252b46b64f9239d2e39d0e852",
+        "fc1737ad07d920fd56f6bc1f0e764ea4a8b8aa2498f7e8f1fbc63d2019e69dce"
+      ]
+    },
+    {
+      "file": "lib/dev-agents.ts",
+      "function": "runHermesTurnTracked",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Ordinary runner still refuses browser profile; Hermes session reuse now checks no browser-tagged conversation or Browser run before gateway I/O. Existing current-person and shared admission fences remain.",
+      "queries": [
+        "6cfeef62cfa17e05ec65e27aba3695d1fcb0ce58c72c87fd33867f48e9947473",
+        "3d514f0ddef70c0f2a94be233991a7b76e9151ac45332fbee37fbbf11cf6bb69",
+        "1ab5a5d616ede97009ee276d16986f07a1f133fd76b071b9be49a7547ff73b3e"
+      ]
+    },
+    {
+      "file": "lib/dev-agents.ts",
+      "function": "pingConversation",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Ordinary runner still refuses browser profile; Hermes session reuse now checks no browser-tagged conversation or Browser run before gateway I/O. Existing current-person and shared admission fences remain.",
+      "queries": [
+        "60e388eb4999a9963de37d44048573f0b0c728b07e86416b495dba194db65a7b",
+        "50d3cc1fbd7ab1a888659b1a4cd75ee9e366043abc39de80868ee118cd472d93"
+      ]
+    },
+    {
+      "file": "lib/dev-agents.ts",
+      "function": "retryFailedApprovalPings",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Ordinary runner still refuses browser profile; Hermes session reuse now checks no browser-tagged conversation or Browser run before gateway I/O. Existing current-person and shared admission fences remain.",
+      "queries": [
+        "68890d9176355038c1e93e3b2bd1ee7bf08d9810cbdb5f7e277bc2142459172f"
+      ]
+    },
+    {
+      "file": "lib/dev-agents.ts",
+      "function": "failStaleRuns",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Ordinary runner still refuses browser profile; Hermes session reuse now checks no browser-tagged conversation or Browser run before gateway I/O. Existing current-person and shared admission fences remain.",
+      "queries": [
+        "bb3f66fd968a7fb1a90024add4b5d844abaf1c3d83219c3d0508c81614e5b987"
+      ]
+    },
+    {
+      "file": "lib/orchestrator/thread.ts",
+      "function": "lastAnsweringAgent",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Model histories use ordinary-only getThreadMessages, transcript rendering additionally rejects nonordinary provenance, and last-agent fallback excludes Browser runs. Attachments are rendered only after trust filtering.",
+      "queries": [
+        "68f0024ff1e6c2e9bf33d62d500418b412ed731202bb078a47fa5f43a145d65b"
+      ]
+    },
+    {
+      "file": "mcp/sjcos-mcp.mjs",
+      "function": "<private-files>",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Exact browser stdio branch precedes ordinary DB/env lookup/registration. Kernel rendezvous and actual narrow LOGIN complete before four projected tools register; no HTTP Browser control. Existing ordinary transports unchanged.",
+      "queries": [
+        "a4df96c50838b291f30c83d43576b657f712b084dd105b26cca83fe1bc7830bb"
+      ]
+    },
+    {
+      "file": "mcp/sjcos-mcp.mjs",
+      "function": "currentPrincipal",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Exact browser stdio branch precedes ordinary DB/env lookup/registration. Kernel rendezvous and actual narrow LOGIN complete before four projected tools register; no HTTP Browser control. Existing ordinary transports unchanged.",
+      "queries": [
+        "c7cc4a4ce070fe43997ec977ffa69e77c694047517cd6fb2f517d8dab09f6876",
+        "b5009f50e35a4d028e63c87eb7c129630b1ce7e014012f43f387af5dc0e501d7"
+      ]
+    },
+    {
+      "file": "mcp/sjcos-mcp.mjs",
+      "function": "<module>",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Exact browser stdio branch precedes ordinary DB/env lookup/registration. Kernel rendezvous and actual narrow LOGIN complete before four projected tools register; no HTTP Browser control. Existing ordinary transports unchanged.",
+      "queries": [
+        "ca09fe96d9c7383d08d0cd47a0877fdc66e89e553e90fd0c96cbca4518af6d34",
+        "991c635edae1d55af18c53766f9e63f46ee3e5a9ff2f23e1bd0e777361f8c7d2"
+      ]
+    },
+    {
+      "file": "mcp/sjcos-mcp.mjs",
+      "function": "buildServer",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Exact browser stdio branch precedes ordinary DB/env lookup/registration. Kernel rendezvous and actual narrow LOGIN complete before four projected tools register; no HTTP Browser control. Existing ordinary transports unchanged.",
+      "queries": [
+        "43c7aafdda6303de0f93195f82b057fed639bf6da9dc75c13d182ebd3f10938b",
+        "dbad29046256a4bf9f587f72902e94b8b7054c5523bf24348e7c350ccb6aaa7e",
+        "e8d3caf0f6e30d8dfdfbe4d548b9c6185e6255ddc61de0c468abf88e8b386df3",
+        "4349722923778f4ee2155cca88a90075a0d2ec5bfee00abaebc81b7f02f12f16",
+        "aa6202fdf4fba563e6570281f7b98ad159d59ca90065b72e560ad992288b86d5",
+        "709e59ac47409c9826681bc7701f3e4f5d673765149630701308f494c70b99b6",
+        "c658764e2c5851be8c200f6ceb60e8f06012c7ce5809b8d8727d0dd847606ec4",
+        "b1c9fab257d624671b96dedc6406b164c27fdaf3ef98e5369ab89d26a021994d",
+        "f5c772227c174e685e0f24cc2ee6cba30e912c1b23ce349918c68e5d3848a24b",
+        "cbc7d054f1639105b13f3a1434c91fa394f8eb54ea9163e3d8b97ee32598536a",
+        "96d4c086c5d101058cc0ee7d95b58c09840aa3bf7cd1f59d24fd20b1ec674e4e",
+        "5dd76ba4fa650926f9145106f5050e7ff5f55340402dbb0a83f1f2252acf1708",
+        "67ca4f524cc082f5a13dd1dcd0222ced354b7e101ba80e470d4d486ed3132e2a",
+        "e12c60b1cd5dad0782284d195bae6d7864afb7e485b1c9346c89d76fc11ed24e",
+        "f983044dd8459186270e4212a47bbfd07e5c47cc53c109f69ff6744cd88597a4",
+        "ed00baadfef9ef61d9f6959b0cc972c2d0d83c90c0c54b5f4393496f192c195c",
+        "b0ad301cf0a77a618015a8a85866eb0e8387ca169d0a790599399eaa2e31c070",
+        "6c7a57af7f333961b50a04becfc227843772fae76eef490d328aff0b1f7405b2",
+        "0280f5be7a528040bac6ad320e88ec0accdb7baa1616a6878b81204c48e68ef2",
+        "1646caa2acf7931767e5a0adca237c0e4466c3a639f0f4d5585204233b9ce3ff",
+        "76b4a76d3f83a6fbb97b317501ae228781d3389b1f681ce8719ca06ab1a7f01a",
+        "bd2b1808e11af4d88420fbed5c3fe586982e9358800a59915667cfda6fa9bcff",
+        "b506ac29cb9bb242b554e6689f914dbd54a31bf2b82b9333c539514c3a686f16",
+        "62229583934eb6d91dfbea6647014c0eac67d384f35357a54c83a0cde29d0997",
+        "a8bbc82d0866ba238439ec07b04d62017c2b89f210d9134c764e9bcb8b7611eb",
+        "54f092f7c30d832e5f2742e9edf312987d40fb89006ca8a2e023a31bc7e3422d",
+        "ea77518a0640c9a40b4fe5cdad789ecc362fcd5b1e38b41f0809e4c1fc00c413",
+        "97e23bdcf108130b6033908141acd3408d4762ae24efd50e4dd7d1e3e38ef8bb",
+        "cfcb0601f52dcba3052199cd0c7f39538f292c8ac521613171f566eb1dfd820a",
+        "d95863e2069acb06e2c57c4f70606f652f265b68564e5b28a034fda734f97700",
+        "a5cfed58a0074a08868658d5bba989af544da71454a6e3535a98583fa6c22426",
+        "a57f84725162e94ded2c148c4175218fb61cf4f5e7115cad2b86db39c4586c78",
+        "08efac9f35a92ec23c354c52dcceb15635edd0d16665c09b2964be3683ac82b4",
+        "41af84f2fefaea8de767172c0417045f7d5106dfdcf42907e1a4a33515489c00",
+        "abe77a6db73332df719b1376d302e7c82b4fda066559e527ad72d0fd1fdb8470",
+        "39ebcd620dfd33120a9a17ef985ac85f3b506020b13b1d4939746804f17b7c4f",
+        "99692837fedfa3d00774ce630961a04efcd5cfba59420b096cce43665c280491",
+        "7b2ac24490edf6be63e1c34f7965a478cedc4c7e32813902c03aec2a1a77279e",
+        "8e8fa3d2f4447432428a49ae50d61db26209a67cb0436a09e28f9229b1205f72",
+        "1b0b93067ce381e589e5faed793f8c0907024346b0c722724ee496a4541e492d",
+        "8bdc759971e91e5a04878ac917c63045fc81e345e1ca16bd126f44f6b022d65d",
+        "4cfe874d21888d660524ce3df189ce1a42fbde7095bdccf666ee5fb4741450e4",
+        "5b52db10f96bcfbb93e0bb202e1f8ebd4347dfa30ce8453e48c250b0c3219d8b",
+        "24f73c94f70a89ec15313893416ed976bb9540a5c1cd2a153235206a0e2bdad4",
+        "d7204ee12f81cbb923fded8868d8cbe8780f27f00a4ea5b9ea217dab92bd32a4",
+        "761b02d45b65e1091bd570c5ecd3f36a4e72434e9c81aef2a956e9a0348f1026",
+        "20b4867c82048abd15983db02f9d45b51cb80cfd606d58df3c3c5b96b6159f6b",
+        "d7f8436e822cce28840ffd7e43f9332c96c1721b1f1dca95749b0a931caeeba1",
+        "b0bd204a728af359ac7d0bb59ca3db1ede31026d7400903d2c81b2dfcab5e0ed",
+        "52ff3a5e23c99a830c9dd5d5a146b87f4aafa180303038b9225b1a296e4c99c8",
+        "faeacd882cd02555b854535bd66b7e41f1505afae77b093306e7b7d915e141f3",
+        "7199488fc27966a3d4e28c7e3156ecb669c08baac555d98dffe44026e29db760",
+        "969e8a9edc3729a61631a1cffe65e31330ba4e2a49507317936f2929e6b18b29",
+        "609ebae74b5318f36dc8d77d31de15f4c3a2a557eafb1fffe18c22399f7fb78e",
+        "2f441aa96b0a047189a5a92b4afeacbe8cdc8dde24f5aedff577112aabd1488b",
+        "a5a0f6b3180349ada20f9f3cd1f1bac9909f8090500841816f9d7a8323e6c9d7",
+        "185d092251527e74ec5da903b620265ef71c5a56beb261efe1a567632e9a8929",
+        "748457582b9b5d128b4cd21bf624174622f18db78ed5fbd2c3f695c5d6347cdb",
+        "4c4019e016a6d63debb02afdab2927d847d1650bb4bad8f05a767351e02cf609",
+        "eb9c874ee96e0717266bff114d6f2394abc8605c934b683ebbe474cabffef8e2",
+        "5304d3b581711b8667837d9e8e5f1e32f4748738737d79678b3b7131fc3fcaed",
+        "6f4364ca186bcf062241b17f33dcac3f75a778fff4e0ce84b1ed9efd7896e34f",
+        "56c610b1dd419285208163720faedfba99a347b87eca7bd0d2b23f43e0bb6d21",
+        "345bf568675afbec2c6c7d51834950983c783f17ad48ffe8bb15d3e1c7783b5a",
+        "5dad6c4434d4d0dc6e1442e90218a0500f867418ab53cbc1fd57f678b91a84e4",
+        "d9eb41fd30b7e7e19689210b6a73967d5162d0d4e21cbb2007e7c2aa0e877ad7",
+        "cadc849cd29a9e52df81211d858178fe82a69ea41c5c2d920e895829e72fd69d",
+        "18a799b9ddcff18c640e1dddb0791e197abbfec486d8d51cc0db008cb286d752",
+        "c1002fecb9e69110c0b17560a1169a95c0fdd6be0ac412a8f08c3537abd6e6a4",
+        "e7ea93f2d63b99e91132cac9cbc4ed3cd40042670d2ce8db55450738fb103041",
+        "dfd6d8d64f5a27419b48301f93a1c1176fbcaaceb591dd22994533ab38d2ac3a",
+        "2c668170d620d4daa18cfcf9ff1172fbf2fefda661857793a47b70405a430fae",
+        "5a21af19b6578f819a8dd19615f4834d418d3e51b053f653d7aed2452f0d94e9",
+        "95aa97f472c3fc24c417a7a84b25edefad68faa105024f8ca3f77a5b9eea24f1",
+        "8bc4030f97d35af6bde58593c950aa63a039cdab15321120011b51d6c562ece0",
+        "cfc1fbbdf9bfafbbb44eefbd6b8760f7f99b6b657c8d09862375a416482d1711",
+        "c2cf3c5f07c8a210bde39767f7ae4f19819c5f4367e58161f1c730f603721239",
+        "2594e90ac5e9a0cea5b087dfcd1978a59b2012509807c1735d8db97ad3eef78c",
+        "c2024aa952d037d14f6d8bc70df328b731007baa36bb6ed4edf603bc85323ae4",
+        "b75209fd30cccf2c356d52220f5609273becbb01d239392695ce5e5156c495b7",
+        "1b4d1c3cc4058f5727f217f95df1425da5c1e9c01a2340e26b49ed0a33acf4bf",
+        "c4fc9a0cf0edbb89c20634c75ba245b5456bb1fd2c6901e62112dd7f42d94d03",
+        "2897abd205baea6093b93b63f9f4d776ae944f041e90e39e98794589032b80c9",
+        "ddf406505ed9bafbfb31eb3d6a0b057cb805b4f81ffac411a07c47c283bf0b30",
+        "abde2a15da0ef67028c2c1fecd5b72e3acace4b5b9d20be866ce26f99a9eb98d",
+        "737b59d9902abb938d5d3083f71f9e83371ea31ced13129ffa45cafd74033ef9",
+        "cde203e0f520807fefcd40df250c5dc5285b5f2967cebdf7505281701e7cc79d",
+        "10f230fdcff6a7628fccaac9daee8f8f8b0e8d14b4776799bb9560d85193e274",
+        "008e515842b5493c6679ec141c8d3163bc78a8e619a7553f0fc217002c03da0c",
+        "7bba5e7559b74e33f3f5c2707bb15b0910a0d8d4dc3a97f2a2e43bf6eb3bec84",
+        "4ad81916f281e92ac2612dfce435ffee2ff207de14470eb2b669bf48ef0e8e92",
+        "d29c00a68749f45dc4553b7edaa46e5226e6db672dc7a807c21fa9906e9abdfd",
+        "e9affe601823fa25fe0d0e171673916f5e501c6e1cf474fa90bf7d65039866a0"
+      ]
+    },
+    {
+      "file": "mcp/sjcos-mcp.mjs",
+      "function": "slugToId",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Exact browser stdio branch precedes ordinary DB/env lookup/registration. Kernel rendezvous and actual narrow LOGIN complete before four projected tools register; no HTTP Browser control. Existing ordinary transports unchanged.",
+      "queries": [
+        "b83e41480a4377ccd3d8f141076c66ef72afd1c01038b49464973e365784fd15"
+      ]
+    },
+    {
+      "file": "mcp/sjcos-mcp.mjs",
+      "function": "resolveInternalUser",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Exact browser stdio branch precedes ordinary DB/env lookup/registration. Kernel rendezvous and actual narrow LOGIN complete before four projected tools register; no HTTP Browser control. Existing ordinary transports unchanged.",
+      "queries": [
+        "7b889e9c1198e64a578cdb12d4879e56529559004c063a4840a431192c43e420"
+      ]
+    },
+    {
+      "file": "mcp/sjcos-mcp.mjs",
+      "function": "writeAssignees",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Exact browser stdio branch precedes ordinary DB/env lookup/registration. Kernel rendezvous and actual narrow LOGIN complete before four projected tools register; no HTTP Browser control. Existing ordinary transports unchanged.",
+      "queries": [
+        "e10111ffbf969841b4c78365c0ba846f29f36ff5dca74e91f118983f78ec1eba"
+      ]
+    },
+    {
+      "file": "mcp/sjcos-mcp.mjs",
+      "function": "approveWouldEmail",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Exact browser stdio branch precedes ordinary DB/env lookup/registration. Kernel rendezvous and actual narrow LOGIN complete before four projected tools register; no HTTP Browser control. Existing ordinary transports unchanged.",
+      "queries": [
+        "c5f4eec8981050ef66c7b3be36ad54baf8b436759d5e1638f517e45a06e1899a",
+        "59427563ed964b573020576066ecffefa5fef7dc4d5ea190001922e23193744b",
+        "e9f86f35947d5ad9ff1df0391fd875f0a27a0d6b2545c23617141aaa8086e55c"
+      ]
+    },
+    {
+      "file": "mcp/sjcos-mcp.mjs",
+      "function": "upsertSection",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Exact browser stdio branch precedes ordinary DB/env lookup/registration. Kernel rendezvous and actual narrow LOGIN complete before four projected tools register; no HTTP Browser control. Existing ordinary transports unchanged.",
+      "queries": [
+        "658e3ef3be21960351143700d600d273fcba40b8120c7f76bc830b13a64cc6a6",
+        "9a0770890c2df4f89b6ac4a62eac5d71b4b00b8e3d94a1445194bc113ee47168",
+        "91f47d8e56985ef3f426cee954f2b55a527b3d71be6168df451962f4f5c7ae5c"
+      ]
+    },
+    {
+      "file": "mcp/sjcos-mcp.mjs",
+      "function": "addItems",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Exact browser stdio branch precedes ordinary DB/env lookup/registration. Kernel rendezvous and actual narrow LOGIN complete before four projected tools register; no HTTP Browser control. Existing ordinary transports unchanged.",
+      "queries": [
+        "55f224c631bb0fe445e86e667269c250e87d285ddcf1280545828c436d88bc74",
+        "9401e9d536faf5b2255631d317536156a3ecf9de59362f4aae0d45e4064fcc73",
+        "c22ed35f3e9adce650e8d84f4123d03b708fbaa799447c9e5af587ae47373931"
+      ]
+    },
+    {
+      "file": "mcp/sjcos-mcp.mjs",
+      "function": "resolveSectionParent",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Exact browser stdio branch precedes ordinary DB/env lookup/registration. Kernel rendezvous and actual narrow LOGIN complete before four projected tools register; no HTTP Browser control. Existing ordinary transports unchanged.",
+      "queries": [
+        "1004b94fd939fe4acc0727ae27a6f6430542e2452bde58a6b3e496a4892a3110"
+      ]
+    },
+    {
+      "file": "mcp/sjcos-mcp.mjs",
+      "function": "scopedSectionId",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Exact browser stdio branch precedes ordinary DB/env lookup/registration. Kernel rendezvous and actual narrow LOGIN complete before four projected tools register; no HTTP Browser control. Existing ordinary transports unchanged.",
+      "queries": [
+        "bfc6c8fdf7af709aae87b5da8d215171999f880835b0b5215048d16cba916929"
+      ]
+    },
+    {
+      "file": "scripts/run-claude-agent.mjs",
+      "function": "finish",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Ordinary runner rejects Browser task/profile and now any tainted conversation before provider session reuse; unseen transcript SQL filters ordinary trust before body and attachment rendering.",
+      "queries": [
+        "8b1560c6e168c30b18795c952ebe3d55ec5c3ee09258ac0079f2de4ca6aedfb7"
+      ]
+    },
+    {
+      "file": "scripts/run-claude-agent.mjs",
+      "function": "loadBusinessInstructions",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Ordinary runner rejects Browser task/profile and now any tainted conversation before provider session reuse; unseen transcript SQL filters ordinary trust before body and attachment rendering.",
+      "queries": [
+        "83e87abc3140c7f9aa8116e2e9d31b8d4f94f1d9c179711f83345fa7c44ead17"
+      ]
+    },
+    {
+      "file": "scripts/run-claude-agent.mjs",
+      "function": "withPrivateThread",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Ordinary runner rejects Browser task/profile and now any tainted conversation before provider session reuse; unseen transcript SQL filters ordinary trust before body and attachment rendering.",
+      "queries": [
+        "93d74da8c9eb24d497fdefbb0fd22ca8d0b79a22e0da5955fd2efd88da8a456d"
+      ]
+    },
+    {
+      "file": "scripts/run-claude-agent.mjs",
+      "function": "unseenTranscriptAllowed",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Ordinary runner rejects Browser task/profile and now any tainted conversation before provider session reuse; unseen transcript SQL filters ordinary trust before body and attachment rendering.",
+      "queries": [
+        "bf62fcce99b8179da1500a865dda4f9c81e4ece15927abb1875837d293dea339",
+        "88ebd7459751936276e24f654300874ccc2b0431fa6fbf3935d9dd7895b3b87e",
+        "a0c5dadf661aeddf80daa8af477357d27a581a4551b72a42f93cba4a433dde82",
+        "3001bf15f9b15fc5ac94156ef0a22e59ef7837b674abb96849f9511149c12b5b"
+      ]
+    },
+    {
+      "file": "scripts/run-claude-agent.mjs",
+      "function": "flushActivity",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Ordinary runner rejects Browser task/profile and now any tainted conversation before provider session reuse; unseen transcript SQL filters ordinary trust before body and attachment rendering.",
+      "queries": [
+        "774fe30d11c3b50c0c837c45c0cf4e359ea0154cb37ddd10843f1cd98142d5ce"
+      ]
+    },
+    {
+      "file": "scripts/run-claude-agent.mjs",
+      "function": "recordEffect",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Ordinary runner rejects Browser task/profile and now any tainted conversation before provider session reuse; unseen transcript SQL filters ordinary trust before body and attachment rendering.",
+      "queries": [
+        "dfa194b218f6dd80fc76c7950de629320e3acdfccb1a61029f86c636a4fb70a8"
+      ]
+    },
+    {
+      "file": "scripts/run-claude-agent.mjs",
+      "function": "steerText",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Ordinary runner rejects Browser task/profile and now any tainted conversation before provider session reuse; unseen transcript SQL filters ordinary trust before body and attachment rendering.",
+      "queries": [
+        "9279a9ca37f0534a1614678e4a41bb63fefab65a6d3602c4d1d6df16c3db9871"
+      ]
+    },
+    {
+      "file": "scripts/run-claude-agent.mjs",
+      "function": "takeSteers",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Ordinary runner rejects Browser task/profile and now any tainted conversation before provider session reuse; unseen transcript SQL filters ordinary trust before body and attachment rendering.",
+      "queries": [
+        "b45f19824a96ecc80a7f3676263b451fc05c0db722ddd64f28585fceb3d1be78"
+      ]
+    },
+    {
+      "file": "scripts/run-claude-agent.mjs",
+      "function": "takeSteersAllowed",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Ordinary runner rejects Browser task/profile and now any tainted conversation before provider session reuse; unseen transcript SQL filters ordinary trust before body and attachment rendering.",
+      "queries": [
+        "30f0ea9bc857d2472671122a0f35de79b5f157e797e2adbc7e62ca8fa56e9401"
+      ]
+    },
+    {
+      "file": "scripts/run-claude-agent.mjs",
+      "function": "onResult",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Ordinary runner rejects Browser task/profile and now any tainted conversation before provider session reuse; unseen transcript SQL filters ordinary trust before body and attachment rendering.",
+      "queries": [
+        "984bd9c89085de18d4500cabb58a6d3ac5c270653585ae73453838cbab89b435",
+        "9ffb1462e668c9e896b46d01f5fc282506ccd7967370f8e2e678e60e945cc37d"
+      ]
+    },
+    {
+      "file": "scripts/run-claude-agent.mjs",
+      "function": "runClaude",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Ordinary runner rejects Browser task/profile and now any tainted conversation before provider session reuse; unseen transcript SQL filters ordinary trust before body and attachment rendering.",
+      "queries": [
+        "a19e42712b7ba67e916466a0ade96bb32d1fe7f23871e5d56cfc61460e88faa6",
+        "4e0c26c09d9b576f717c7f5e328fd70b29c245e7a98e12f2f34aaea0089687b4"
+      ]
+    },
+    {
+      "file": "scripts/run-claude-agent.mjs",
+      "function": "main",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Ordinary runner rejects Browser task/profile and now any tainted conversation before provider session reuse; unseen transcript SQL filters ordinary trust before body and attachment rendering.",
+      "queries": [
+        "89343d8319760171f6d576c3b203d2163f4110db777f7e799347876c2bfdc1b8",
+        "cdecc5e9352632e0c945e53fed5dccedf0f835c79fcdef8f4812d243875b0430",
+        "523561b2f0d205478554236b20b1c250cf91b8f364c8d768fe285d79d3a1977e",
+        "4674d168b640e71936987e9becd18f18ac9ba704b64568eefa2ffec057ff9591"
+      ]
+    },
+    {
+      "file": "scripts/run-claude-agent.mjs",
+      "function": "recordUsage",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Ordinary runner rejects Browser task/profile and now any tainted conversation before provider session reuse; unseen transcript SQL filters ordinary trust before body and attachment rendering.",
+      "queries": [
+        "b0ed78c6cf5b9a2e00965c9ee4a646e5a598ada81509183fd9ed4dd1631894b8"
+      ]
+    },
+    {
+      "file": "scripts/run-claude-agent.mjs",
+      "function": "persistToConversationAllowed",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Ordinary runner rejects Browser task/profile and now any tainted conversation before provider session reuse; unseen transcript SQL filters ordinary trust before body and attachment rendering.",
+      "queries": [
+        "ee628970cbfd2e5421846752fddffefc5b1b1658ec2146ee9161a334c26d3a99",
+        "2dea732b7c2df176ce9e3d81b69ed2b9291420f257f1a0ce2b558b36ab9ebee9"
+      ]
+    },
+    {
+      "file": "scripts/db-roles-apply.mjs",
+      "function": "<module>",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "A0 fifth-role support uses explicit role manifest/function grants and column ACLs; no broad table grants or impersonated service privileges. Disposable actual LOGIN gates cover the catalog.",
+      "queries": [
+        "12c062e37b7e80f581220f122f7e36e72a3ba3304856531c00668b9c9569dc3b"
+      ]
+    },
+    {
+      "file": "db/migrations/0115_browser_phase1_runtime.sql",
+      "function": "<sql>",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "A0 single migration adds definer catalog, strict session_user website/service boundary, immutable task/run/message trust, one-use read consumption and separate verified checkpoint. No production keys/approval grants in SQL. Actual-login and upgrade/replay gates passed.",
+      "queries": [
+        "2bd8bbd9d991f903ba743e41494f3d5d4117c18395b4964b2db773cc4ff3fe7f"
+      ]
+    },
+    {
+      "file": "db/schema.sql",
+      "function": "<sql>",
+      "classification": "trusted-background",
+      "reason": "trusted-background",
+      "explanation": "Canonical A0 schema mirrors migration 0115 including explicit protected function grants and provenance guards; schema snapshot is deployment/harness input, not model-visible data.",
+      "queries": [
+        "7818232f2f060f9f70e71e3cd6bd4b7bf7500491b6ccffe896728562915d878a"
+      ]
+    },
+    {
+      "file": "lib/browser/web.ts",
+      "function": "loadTask",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Phase 1 B website SQL reviewed for this source snapshot: current cookie/sid and active user precede route handling; authorize gates own task or explicit session-bound owner claim plus areas/record/thread. Internal task/viewer rows are projected before response, public URLs and confirmed answers remain human-only. Proof creation binds task/session/viewer/HMAC with five-second expiry in the mutation transaction; service calls use scoped catalog. Stream freshness rechecks task/privacy/stream epochs and session. Owner-only in-use/settings do not expose staff thread bodies. This inventory is a source-change detector, not runtime readiness; unfinished admission/classifier/input integration and answer source column defect are recorded in A handoff.",
+      "queries": [
+        "f817378366ae646840cbb7d81354763653f44607981005c831340010c3c8e316"
+      ]
+    },
+    {
+      "file": "lib/browser/web.ts",
+      "function": "ownThread",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Phase 1 B website SQL reviewed for this source snapshot: current cookie/sid and active user precede route handling; authorize gates own task or explicit session-bound owner claim plus areas/record/thread. Internal task/viewer rows are projected before response, public URLs and confirmed answers remain human-only. Proof creation binds task/session/viewer/HMAC with five-second expiry in the mutation transaction; service calls use scoped catalog. Stream freshness rechecks task/privacy/stream epochs and session. Owner-only in-use/settings do not expose staff thread bodies. This inventory is a source-change detector, not runtime readiness; unfinished admission/classifier/input integration and answer source column defect are recorded in A handoff.",
+      "queries": [
+        "66cfcf228a268d5aad2faaa08daff06a57f36f8da2e41536827004729bbf7782"
+      ]
+    },
+    {
+      "file": "lib/browser/web.ts",
+      "function": "authorize",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Phase 1 B website SQL reviewed for this source snapshot: current cookie/sid and active user precede route handling; authorize gates own task or explicit session-bound owner claim plus areas/record/thread. Internal task/viewer rows are projected before response, public URLs and confirmed answers remain human-only. Proof creation binds task/session/viewer/HMAC with five-second expiry in the mutation transaction; service calls use scoped catalog. Stream freshness rechecks task/privacy/stream epochs and session. Owner-only in-use/settings do not expose staff thread bodies. This inventory is a source-change detector, not runtime readiness; unfinished admission/classifier/input integration and answer source column defect are recorded in A handoff.",
+      "queries": [
+        "5347720c6579a338791dadd8dac8d836432fd57e68e28763faf205c7b36f0ab0",
+        "af8b3775de3abdb525c95363b26d5d848276df4ac311846d42902d82cc43fe6f"
+      ]
+    },
+    {
+      "file": "lib/browser/web.ts",
+      "function": "loadViewer",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Phase 1 B website SQL reviewed for this source snapshot: current cookie/sid and active user precede route handling; authorize gates own task or explicit session-bound owner claim plus areas/record/thread. Internal task/viewer rows are projected before response, public URLs and confirmed answers remain human-only. Proof creation binds task/session/viewer/HMAC with five-second expiry in the mutation transaction; service calls use scoped catalog. Stream freshness rechecks task/privacy/stream epochs and session. Owner-only in-use/settings do not expose staff thread bodies. This inventory is a source-change detector, not runtime readiness; unfinished admission/classifier/input integration and answer source column defect are recorded in A handoff.",
+      "queries": [
+        "165a6d6c66d0c39452f6f070d5441f74f5865822ca37a4081129770eb3cabf4f"
+      ]
+    },
+    {
+      "file": "lib/browser/web.ts",
+      "function": "proof",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Phase 1 B website SQL reviewed for this source snapshot: current cookie/sid and active user precede route handling; authorize gates own task or explicit session-bound owner claim plus areas/record/thread. Internal task/viewer rows are projected before response, public URLs and confirmed answers remain human-only. Proof creation binds task/session/viewer/HMAC with five-second expiry in the mutation transaction; service calls use scoped catalog. Stream freshness rechecks task/privacy/stream epochs and session. Owner-only in-use/settings do not expose staff thread bodies. This inventory is a source-change detector, not runtime readiness; unfinished admission/classifier/input integration and answer source column defect are recorded in A handoff.",
+      "queries": [
+        "38fbb5c91c653885637a6f4d923343165c8b8117fb2c3f041ec2724adfa9e73f",
+        "e226dc72a3842ddf53c74bf6974fcf0d42f79a870c400561d6005c1b83c7b226",
+        "dec39067b9a7095f4916b7c19c0d8d8af1586b26d699f12313260c6b1962c875"
+      ]
+    },
+    {
+      "file": "lib/browser/web.ts",
+      "function": "currentManifest",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Phase 1 B website SQL reviewed for this source snapshot: current cookie/sid and active user precede route handling; authorize gates own task or explicit session-bound owner claim plus areas/record/thread. Internal task/viewer rows are projected before response, public URLs and confirmed answers remain human-only. Proof creation binds task/session/viewer/HMAC with five-second expiry in the mutation transaction; service calls use scoped catalog. Stream freshness rechecks task/privacy/stream epochs and session. Owner-only in-use/settings do not expose staff thread bodies. This inventory is a source-change detector, not runtime readiness; unfinished admission/classifier/input integration and answer source column defect are recorded in A handoff.",
+      "queries": [
+        "5ce36780031473292e59e93c795c25d03e50a9ef2ddb81fdf5cf5ce10a6650ff"
+      ]
+    },
+    {
+      "file": "lib/browser/web.ts",
+      "function": "review",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Phase 1 B website SQL reviewed for this source snapshot: current cookie/sid and active user precede route handling; authorize gates own task or explicit session-bound owner claim plus areas/record/thread. Internal task/viewer rows are projected before response, public URLs and confirmed answers remain human-only. Proof creation binds task/session/viewer/HMAC with five-second expiry in the mutation transaction; service calls use scoped catalog. Stream freshness rechecks task/privacy/stream epochs and session. Owner-only in-use/settings do not expose staff thread bodies. This inventory is a source-change detector, not runtime readiness; unfinished admission/classifier/input integration and answer source column defect are recorded in A handoff.",
+      "queries": [
+        "12f9a736f54704bb8f055b7719459fb6f65902f3a111aff0a894ea0bd06b475f",
+        "2246aa9c6feac74c105655465688548d29d8e740f5ebbcc09f505a10d2b0ec7b"
+      ]
+    },
+    {
+      "file": "lib/browser/web.ts",
+      "function": "execute",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "Phase 1 B website SQL reviewed for this source snapshot: current cookie/sid and active user precede route handling; authorize gates own task or explicit session-bound owner claim plus areas/record/thread. Internal task/viewer rows are projected before response, public URLs and confirmed answers remain human-only. Proof creation binds task/session/viewer/HMAC with five-second expiry in the mutation transaction; service calls use scoped catalog. Stream freshness rechecks task/privacy/stream epochs and session. Owner-only in-use/settings do not expose staff thread bodies. This inventory is a source-change detector, not runtime readiness; unfinished admission/classifier/input integration and answer source column defect are recorded in A handoff.",
+      "queries": [
+        "0167ef9da2c8db7c4f0c9203b5a2e14ab0dd3f0f7046dfcd37d86df70eacd7ae",
+        "dddfdd2d8938bda475c9920b7c0fa98d006205995b5e7e0dc939fcd79c741a4a",
+        "34a3fcedb88f18d9818a01e23f83dfce1a22e93044d79374416bf1fd0b55673f",
+        "70d57aff22d2662680db5a6c322356a38dbc6c867cdbc6f9d58f578d0c6b7c5c",
+        "e2f7cd682c0ac0e8e0c254a3b5f55756b79ba171fe830128f2bef20f400a79e5",
+        "cd3e058f3fcc342e3de73382c7191c974474de0218bc8297915e3a154a4e7ddc",
+        "08ef275a04e10601eb62eaab0178568b090a78e568b7b59c2115930166830575",
+        "16c7c6c0e355834c24a27268f27321384dbd812b83290d3d69b4e997f55a71af",
+        "937a269c22dbc680663022bcaf1fe36f580c10b188b13d2a319afb6d29dbf654",
+        "138bd9698c6efe61242cd64e86a8b1c9cf52b1b8e2f9a401cb31f628d7d9d990",
+        "c5656a0094713fb6b92a3e4041c38047c5993387a3b4668b7a72838b63f7d831",
+        "58c98c1d2789847181efe7269b540d7e0b2021b74f2a5840364da9e3b900c45d",
+        "457983fd8b16b86c1c44300802b47ea894285a2fe9d6c55607e5dddd16e1a6c7"
       ]
     }
   ]

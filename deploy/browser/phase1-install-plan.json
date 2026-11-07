@@ -1,0 +1,10 @@
+{
+  "v": 1,
+  "status": "review-only-incomplete-not-installed",
+  "requires": ["owner deployment window", "root Phase 1 acceptance for exact hashes", "complete common workload ancestor census", "reviewed installation bridge", "production namespace and gate integration"],
+  "journal": "/var/lib/sjcos-browser-supervisor/install-journal.json",
+  "before_each_mutation": ["record old digest and owner/mode or absence", "write new exact digest and destination", "fsync journal and parent"],
+  "steps": ["verify sjcos-browser account resolves existing uid 998", "resolve Joe UID without creating or moving accounts", "verify all workloads under hard common cap", "stage units with Joe UID substitution", "stage credentials through systemd only", "verify independently signed Phase 1 evidence", "owner-authorized enable of named pilot only"],
+  "rollback": ["emergency browser master off", "fence all browser listeners and input", "stop only browser execution units after owner authorization", "restore journaled unit files or remove files that did not exist", "retain persistent latch, audit, keys and narrow cleanup", "never restart live applications or replay old commands"],
+  "does_not_execute": true
+}

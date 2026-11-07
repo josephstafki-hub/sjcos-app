@@ -53,6 +53,8 @@ export async function admitAskRun(input: AskRunInput, source: AskLaunchSource): 
     if(!thread)throw new Error('ASK_THREAD_UNAVAILABLE');
     if(!Object.hasOwn(thread.record,'owner_user_id'))throw new Error('ASK_THREAD_PRIVACY_REQUIRED');
     await requireThreadAccess(input.conversationId,person,c);
+    const {assertOrdinaryConversation}=await import('@/lib/browser/model-history.mjs');
+    await assertOrdinaryConversation(c,input.conversationId);
     if(input.resumeSessionId && input.resumeSessionId!==thread.claude_session_id)throw new Error('ASK_RESUME_MISMATCH');
     const profile=profileFor({role:person.role,active:person.active},input.requestedProfile) as 'operator'|'business';
     const {rows}=await c.query(`INSERT INTO dev_agent_runs(agent,prompt,page_context,status,conversation_id,model,mode,effort,subject_work_item_id,with_mcp,orchestration_task_id,profile,principal_user_id,activity,launch_source,continuation_of_run_id)

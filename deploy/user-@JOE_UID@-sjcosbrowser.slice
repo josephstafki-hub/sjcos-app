@@ -1,0 +1,12 @@
+# REVIEW TEMPLATE ONLY. Parent user-@JOE_UID@.slice must cap ALL Joe workloads.
+[Unit]
+Description=SJC OS aggregate browser budget
+[Slice]
+MemoryAccounting=yes
+CPUAccounting=yes
+TasksAccounting=yes
+MemoryHigh=2G
+MemoryMax=3G
+MemorySwapMax=0
+CPUQuota=150%
+TasksMax=256

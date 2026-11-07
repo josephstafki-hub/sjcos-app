@@ -58,8 +58,8 @@ export async function seedBrowser(c,{state='working',refresh=false,resourceCount
  // Serialize all seed invocations; no disabling triggers/constraints or schema changes.
  await c.query('SELECT pg_advisory_lock(1150099)');
  try{
-  if(previous?.fixture_revision!==2)refresh=true;
-  const scenario=previous??{v:1,database,install_id:randomUUID(),tasks:{},states:{}};scenario.install_id??=randomUUID();scenario.fixture_revision=2;
+  if(previous?.fixture_revision!==3)refresh=true;
+  const scenario=previous??{v:1,database,install_id:randomUUID(),tasks:{},states:{}};scenario.install_id??=randomUUID();scenario.fixture_revision=3;
   const asWebsite=fn=>qaIdentity(c,website,fn),asService=fn=>qaIdentity(c,'sjcos_browser',fn);
   await asWebsite(async c=>{
    for(const [role,p] of Object.entries(QA_PEOPLE)){
@@ -77,18 +77,37 @@ export async function seedBrowser(c,{state='working',refresh=false,resourceCount
   const make=async(role,kind,{archive=false}={})=>{
    const key=role+'_'+kind,person=QA_PEOPLE[role],thread=idFor(key);
    await asWebsite(c=>c.query(`INSERT INTO ai_conversations(id,agent,title,owner_user_id) VALUES($1,'claude',$2,$3) ON CONFLICT(id) DO NOTHING`,[thread,'QA Browser · '+person.name+' · '+kind,person.id]));
-   if(kind==='empty'){scenario.states[key]={url:`/panel?c=${thread}`,as:role,thread_id:thread,notes:'Choose Browser. No task has been started.'};return;}
    let live=(await asWebsite(c=>c.query(`SELECT * FROM browser_tasks WHERE initiator_user_id=$1 AND state IN ('queued','starting','active','paused')`,[person.id]))).rows[0];
    if(live){
-    // Stop queued tasks through the website too: a waiting task has no boot yet.
-    const device=randomBytes(32),join=await asWebsite(c=>qaProof(c,live,live.initiating_web_session_id,null,'join',{}, {device_secret_hash:device.toString('hex')}));
-    const viewer=await asWebsite(c=>repo.browserWebJoin(c,{tid:live.id,session:live.initiating_web_session_id,device_hash:device,role:'initiator',private_view:false,i:join.i,d:join.d}));
-    // Join may retire expired control/attendance and advance the epoch.
-    live=(await asWebsite(c=>c.query('SELECT * FROM browser_tasks WHERE id=$1',[live.id]))).rows[0];
-    const p=await asWebsite(c=>qaProof(c,live,live.initiating_web_session_id,viewer.viewer_id,'close'));
-    await asWebsite(c=>repo.browserWebControl(c,{tid:live.id,vid:viewer.viewer_id,op:'stop',epoch:Number(live.control_epoch),i:p.i,d:p.d}));
-    if(live.current_run_id)await asWebsite(c=>c.query("UPDATE dev_agent_runs SET status='done' WHERE id=$1",[live.current_run_id]));if(scenario.tasks[live.id])scenario.tasks[live.id].active=false;
+    // QA-only, slot-independent retirement. The scenario + QA principal,
+    // deterministic thread and project must all agree before any mutation.
+    await asWebsite(async c=>{
+     await c.query('BEGIN');
+     try{
+      live=(await c.query('SELECT * FROM browser_tasks WHERE id=$1 FOR UPDATE',[live.id])).rows[0];
+      const entry=scenario.tasks[live.id];
+      if(!entry||entry.as!==role||live.initiator_user_id!==person.id||live.project_id!==QA_PROJECT.id||live.conversation_id!==idFor(role+'_'+entry.state))throw Error('QA_ONLY: refusing unrelated Browser task retirement');
+      await c.query(`UPDATE browser_viewers SET left_at=clock_timestamp(),visible_until=clock_timestamp(),control_expires_at=NULL,last_frame_uuid=NULL,stream_id=gen_random_uuid(),stream_generation=stream_generation+1,owner_private_view_authorized_at=NULL,owner_private_context_generation=NULL,owner_private_authorization_revision=NULL WHERE task_id=$1 AND left_at IS NULL`,[live.id]);
+      await c.query(`UPDATE browser_owner_views SET revoked_at=clock_timestamp(),revision=revision+1 WHERE task_id=$1 AND revoked_at IS NULL`,[live.id]);
+      await c.query(`UPDATE browser_tasks SET controller_user_id=NULL,controller_device_hash=NULL,control_token_hash=NULL,control_expires_at=NULL,control_epoch=control_epoch+1,revision=revision+1 WHERE id=$1`,[live.id]);
+      // Use the real guarded join/stop transition after the old bindings are
+      // fenced, still holding the task lock. Admission limits stay unchanged.
+      const device=randomBytes(32),join=await qaProof(c,live,live.initiating_web_session_id,null,'join',{}, {device_secret_hash:device.toString('hex')});
+      const viewer=await repo.browserWebJoin(c,{tid:live.id,session:live.initiating_web_session_id,device_hash:device,role:'initiator',private_view:false,i:join.i,d:join.d});
+      live=(await c.query('SELECT * FROM browser_tasks WHERE id=$1',[live.id])).rows[0];
+      const p=await qaProof(c,live,live.initiating_web_session_id,viewer.viewer_id,'close');
+      await repo.browserWebControl(c,{tid:live.id,vid:viewer.viewer_id,op:'stop',epoch:Number(live.control_epoch),i:p.i,d:p.d});
+      // Preserve immutable capability evidence; finish the QA run's lifecycle
+      // after guarded Stop has revoked its capability.
+      await c.query("UPDATE browser_task_runs SET disposition='stopped',ended_at=coalesce(ended_at,clock_timestamp()) WHERE task_id=$1 AND disposition='running'",[live.id]);
+      // The cleanup viewer is not continuing attendance after Stop either.
+      await c.query('UPDATE browser_viewers SET left_at=clock_timestamp(),visible_until=clock_timestamp() WHERE id=$1',[viewer.viewer_id]);
+      if(live.current_run_id)await c.query("UPDATE dev_agent_runs SET status='done' WHERE id=$1",[live.current_run_id]);
+      await c.query('COMMIT');entry.active=false;
+     }catch(error){await c.query('ROLLBACK');throw error;}
+    });
    }
+   if(kind==='empty'){scenario.states[key]={url:`/panel?c=${thread}`,as:role,thread_id:thread,notes:'Choose Browser. No task has been started.'};return;}
    const sid=(await asWebsite(c=>c.query(`INSERT INTO web_sessions(user_id,auth_at,expires_at) VALUES($1,now(),now()+interval '8 hours') RETURNING id`,[person.id]))).rows[0].id;
    const boot=randomUUID(),now=Date.now(),initial=buildReadManifest({proposal:{v:1,entries:[{url:PUBLIC_URLS[0],role:'document',source:'person'}]},expectedRevision:0,actorProof:{key:createHmac('sha256',keys.request).update('browser-phase1-read-manifest-key').digest(),task:{origins,private:false,privacy_mode:'public',document_epoch:0,read_manifest_revision:0},confirmedFacts:{values:[],classifyPublicUrl:u=>PUBLIC_URLS.includes(u)},userId:person.id,sessionId:sid,sessionExpiresAt:now+3600000,authorize:()=>true}});
    let task=await asWebsite(c=>repo.browserWebAdmit(c,{conversation:thread,project:QA_PROJECT.id,kind:'public_research',manifest:{purpose:'Check public permit requirements for a residential alteration.',origins,initial_read:initial},session:sid,i:randomUUID(),d:hash(kind+role)}));
@@ -132,9 +151,7 @@ export async function seedBrowser(c,{state='working',refresh=false,resourceCount
     }
    }else{
     entry.no_frames=true;
-    if(kind!=='queued')await asService(c=>repo.browserQueueOffer(c,{boot}));
-    if(kind==='queue_expired')await asWebsite(c=>c.query("UPDATE browser_tasks SET queue_expires_at=now()-interval '1 second' WHERE id=$1",[task.id]));
-    if(kind==='offer_expired')await asWebsite(c=>c.query("UPDATE browser_tasks SET queue_offer_expires_at=now()-interval '1 second' WHERE id=$1",[task.id]));
+    if(['offer','offer_expired'].includes(kind))await asService(c=>repo.browserQueueOffer(c,{boot}));
    }
    if(archive)await control('stop');
    // Seed attendance is not an extra device competing with screenshot viewers.
@@ -146,7 +163,13 @@ export async function seedBrowser(c,{state='working',refresh=false,resourceCount
   // The unique live-person index stays intact. Archive every base state once;
   // future invocations only replace the selected live task (or --refresh).
   if(!previous)for(const role of ['owner','staff'])for(const kind of BASE_STATES)await make(role,kind,{archive:true});
-  if(!previous||previous.selected!==requested||refresh){for(const role of ['owner','staff'])await make(role,base);scenario.selected=requested;scenario.selected_at=new Date().toISOString();}
+  if(!previous||previous.selected!==requested||refresh){
+   for(const role of ['owner','staff'])await make(role,base);
+   // Expire only after both admissions/offers. Otherwise the second person's
+   // real queue sweep closes the first person's task before QA can join it.
+   if(['offer_expired','queue_expired'].includes(base))for(const role of ['owner','staff'])await asWebsite(c=>c.query(base==='offer_expired'?"UPDATE browser_tasks SET queue_offer_expires_at=clock_timestamp()-interval '1 second' WHERE id=$1":"UPDATE browser_tasks SET queue_expires_at=clock_timestamp()-interval '1 second' WHERE id=$1",[scenario.states[role+'_'+base].task_id]));
+   scenario.selected=requested;scenario.selected_at=new Date().toISOString();
+  }
   for(const role of ['owner','staff'])for(const [name,[kind,notes]] of Object.entries(RECIPES)){const original=scenario.states[role+'_'+kind];scenario.states[role+'_'+name]={...original,notes:`Select with --state ${name}. ${notes}`};}
   if(requested==='off')await asWebsite(c=>setting(c,'browser.enabled','false'));
   if(requested==='taking_over')for(const role of ['owner','staff'])scenario.tasks[scenario.states[role+'_working'].task_id].control_delay_ms=1000;

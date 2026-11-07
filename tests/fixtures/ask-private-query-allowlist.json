@@ -25,7 +25,7 @@
     "lib/agent-runtime/triggers.ts": "871c067ab7e2f46f481b893e4b7cbf5481c7a1cf09ccc23882dc35a217b32a43",
     "lib/agent-runtime/worker.ts": "cda55fbf4bf8c2a8644a17836b4b395b23a8889f15ec9c7b6b49f03aa6bcb971",
     "lib/agent-sends.ts": "0b4246843f2148177f5df5e6498ee66379415c4147d05b4cd915e75e561feb7f",
-    "lib/ai-chat.ts": "44dabf37722ce98bb5b6b2bc7bba4848efccafa89e08ab2856aff26cbf7d45dc",
+    "lib/ai-chat.ts": "1ebf515127865f7c1f3949f99900669ef702225c3e15d6c10a3891eef7b7982e",
     "lib/ai.ts": "93e2504983bb20641cbe3c3b3c9c828f14f711757bd7366a38fe8cdb16a4c62c",
     "lib/approvals.ts": "ea377225832b65b7102c411c91f68eeb04bf3ce48ef9b340c2b32d94c53c60e9",
     "lib/approve-work-item.ts": "6c97b8ff17b744fe8d3fabb7352ac8f48446372eaa8b219057dc7ae5265189dc",
@@ -259,13 +259,13 @@
     "lib/browser/repository.mjs": "c6f1149fddc88a0df338bc3efcedffb11a8f37eeb0ba5057a7b66301642b9940",
     "lib/browser/root-fixture.mjs": "53d15b2d9570bcad768e34fed730e7b3dc1d09ec48759e276d66de2bdb7af8c8",
     "db/migrations/0115_browser_phase1_runtime.sql": "9c32833548c67c87ea921bc3d87935c20e8ad10ed531e80d557fa5c134162281",
-    "lib/browser/web.ts": "d13363d40d5385180cd82059020262d106f6fb0f4dde638acccdfc951abefe3c",
+    "lib/browser/web.ts": "f31d409dae74305c686e6b7f563b6bcb6596984fffa1638a5d4e22c92dffd926",
     "lib/browser/production-bridge.mjs": "9d105379d4fe2fda50b69fce6b74d0412fec8fc32cfc9a29458869465a6a4283",
     "lib/browser/retention.mjs": "f848a6f1a9ea55131de309ebc6fc80b12b91e4237003f706c17de13fb3acde61",
-    "lib/browser/web-transport.mjs": "694d5e3ece08d3c6eb8074c83c62355bd3d91a92afdc041b96f67efb00b5fc27",
+    "lib/browser/web-transport.mjs": "e1a6031947cd0dde176a8282e785247b05e17219aed2835353a26e5005715d8b",
     "lib/browser/production-browser.mjs": "be8f7efb4d6714e2678cc0ed6429dbad62920cceecea50458d231a892d7e0afd",
     "lib/browser/record-projections.mjs": "6eaf8f982dd650e61dfbfb49f0b371462a7e2c1019b94b4be94bfa01eb87b5bd",
-    "scripts/qa-seed-browser.mjs": "36e4d403362e6c04a64734b82f69fdb0ebef06d4e478ab755e0853bd54e7ac7c",
+    "scripts/qa-seed-browser.mjs": "76fb2f41a565bd5bf92a2eec6cea37ff7b6876e3b2ecbe434c6ada3a4636ffc3",
     "scripts/qa-browser-fake-controller.mjs": "a127bc300e41d1231a147aa34a55d36c3451d5ed8a22ae58afdd2066e1e7f33f",
     "lib/browser/audit-service.mjs": "1cf4401533af45920409f7fb67f36d77f27cdc0bdb581b0db3efc8a426cab4c1"
   },
@@ -6539,9 +6539,9 @@
       "function": "<private-files>",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "Owned-thread human rendering remains separate; model getTurns/getThreadMessages now require ordinary trust, include provenance before attachment rendering, and ordinary insert refuses browser-run provenance. Existing thread-access helpers remain before reads/writes.",
+      "explanation": "Owned-thread human rendering remains separate; model getTurns/getThreadMessages now require ordinary trust, include provenance before attachment rendering, and ordinary insert refuses browser-run provenance. Existing thread-access helpers remain before reads/writes. R3 adds a separate projects-only search with current verified principal and Projects area permission (ordinary app area-based project access, no per-project ACL); only project name/slug, escaped literal search capped at 20. Existing private thread/model guards unchanged.",
       "queries": [
-        "44dabf37722ce98bb5b6b2bc7bba4848efccafa89e08ab2856aff26cbf7d45dc"
+        "1ebf515127865f7c1f3949f99900669ef702225c3e15d6c10a3891eef7b7982e"
       ]
     },
     {
@@ -7509,10 +7509,12 @@
       "function": "seedBrowser",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "R2 reviewed explicit QA bootstrap: actual QA DB/private directory/env guards plus pinned cluster/non-live port; dedicated non-superuser LOGIN URLs verified on real connections before env publication. Fixed synthetic principals and their threads/tasks/runs only, through website/service identities. Task archival and run status SQL stay scenario-scoped. Coordinator env values preserved; no send/grant/model or ambient DSN.",
+      "explanation": "R3 reviewed QA-only seed: explicit isolated QA DB, real LOGIN and private fixture/cluster guards; advisory seed lock. Retirement locks the task and checks scenario membership, exact QA principal, deterministic scenario thread and QA project before fencing attendance/stream/control/consent. Real guarded join/stop retires task/run; no extra viewer slot or production limit change. Expired deadlines set only on both selected fixture task IDs after admission. No unrelated person/task, live DB, send/grant/model path or ambient DSN.",
       "queries": [
         "3e542302927c7c0d873e9cdfc28598b83674546d29575707ac3758710b42486d",
-        "f62515345984737a62e59f4e2b3fc18bf178fef4907ca07332e963ec852210b6"
+        "f62515345984737a62e59f4e2b3fc18bf178fef4907ca07332e963ec852210b6",
+        "29e8e5df47a36bd0bb1df0181faeec96d7f5a2abd7d3dd38ef86306b7a243629",
+        "2cba2a49f42c9491e06895e7843e1af79f7b67fc14468bac9939370e1b7c1682"
       ]
     },
     {
@@ -7520,12 +7522,18 @@
       "function": "make",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "R2 reviewed explicit QA bootstrap: actual QA DB/private directory/env guards plus pinned cluster/non-live port; dedicated non-superuser LOGIN URLs verified on real connections before env publication. Fixed synthetic principals and their threads/tasks/runs only, through website/service identities. Task archival and run status SQL stay scenario-scoped. Coordinator env values preserved; no send/grant/model or ambient DSN.",
+      "explanation": "R3 reviewed QA-only seed: explicit isolated QA DB, real LOGIN and private fixture/cluster guards; advisory seed lock. Retirement locks the task and checks scenario membership, exact QA principal, deterministic scenario thread and QA project before fencing attendance/stream/control/consent. Real guarded join/stop retires task/run; no extra viewer slot or production limit change. Expired deadlines set only on both selected fixture task IDs after admission. No unrelated person/task, live DB, send/grant/model path or ambient DSN.",
       "queries": [
         "1f107fabe685a282b0851c3eee355107df9e445165a5e7ba214e7fad3c7cf168",
         "5a3da86d35e26d8493a4aa292bec2b201e3cb84e5b3eb2335619dd39bf8cb07b",
+        "e2f7cd682c0ac0e8e0c254a3b5f55756b79ba171fe830128f2bef20f400a79e5",
+        "89c221af3cc9498fea56507db2810d6e6ac6b1fea0f1d0e09161d0cd2e992507",
+        "3213f2a4661d07ac8f27eeabafb215304dfc88b58771254e59e2897cfa5f06d8",
+        "4cb0935527bf8a420ba52bcecaa984d00dc1a1c72536f93798d61879255ae4ba",
         "0986c52e4d081eff532119ffe67843b2d9808cc7fd65530fddb19697853441e6",
         "d02df7f0417a9581ba3343f1edafaf5b582de2d3ca06e62f785654600e8dd0ec",
+        "ed8e4807bbf39936db50d774eed4d5b38017198a87c2eecef7447d911179dac3",
+        "d2794b79ba7e66a9b1730b20f28c80cce577fff14664595eab9a67ceddd73352",
         "1451d16a3208a00e756f866da0d0b66922b085799bb77c3c67dc53b367de4b1b",
         "cca7a6c333212107d23073bd3fd5dd6cfc2bf82edc3824abac159596f3c14bbd",
         "65875802259a7d50d6f5e01b1433f85c85617965503b7ac4ed3bda832ebfb04e",
@@ -7533,8 +7541,6 @@
         "b67afebaf7ad62de8720959f4cb65c7dfa5f6ce5ee6422bb7c21f40d03c78d32",
         "efdd937fe816c068e650f41840adab591463886fefdc9973bb3d57699ab66abd",
         "3a572d0565e2937c67f99bd17a2333bc4f230f938c45a5c3487f6d00d6de92c4",
-        "557c4d7e0d41e28e7e924df0a5e3f70107a810d320b9774a692eb3f3645e4834",
-        "1b8939625dfff0fbafb7fa84b446ce00f514b07919b77d60453ad348bb29ad90",
         "7840452eef55fc3464f39e89ebf99bf9d6eba54cf0966f7ee6f2cc0cd21a1bf3",
         "f75827b22261d38a1efd01cb1af0ba4ce6815d610f5f47de731aaceb97e597d3"
       ]
@@ -7544,7 +7550,7 @@
       "function": "get",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "R2 reviewed explicit QA bootstrap: actual QA DB/private directory/env guards plus pinned cluster/non-live port; dedicated non-superuser LOGIN URLs verified on real connections before env publication. Fixed synthetic principals and their threads/tasks/runs only, through website/service identities. Task archival and run status SQL stay scenario-scoped. Coordinator env values preserved; no send/grant/model or ambient DSN.",
+      "explanation": "R3 reviewed QA-only seed: explicit isolated QA DB, real LOGIN and private fixture/cluster guards; advisory seed lock. Retirement locks the task and checks scenario membership, exact QA principal, deterministic scenario thread and QA project before fencing attendance/stream/control/consent. Real guarded join/stop retires task/run; no extra viewer slot or production limit change. Expired deadlines set only on both selected fixture task IDs after admission. No unrelated person/task, live DB, send/grant/model path or ambient DSN.",
       "queries": [
         "d02df7f0417a9581ba3343f1edafaf5b582de2d3ca06e62f785654600e8dd0ec"
       ]

@@ -45,7 +45,8 @@ export function createWebsiteAdapter({db,controller,key,websiteHooks={}}:{db:Poo
  const one=async(sql:string,args:unknown[]=[])=>{const {rows}=await db.query(sql,args);return rows[0]??null;};
  const loadTask=async(id:string)=>{const row=await one(`SELECT t.*,(SELECT name FROM projects WHERE id=t.project_id) job_label,coalesce((SELECT max(revision) FROM browser_read_manifests WHERE task_id=t.id),0) read_manifest_revision FROM browser_tasks t WHERE t.id=$1`,[id]);if(row)for(const k of ['control_epoch','document_epoch','context_generation','revision','read_manifest_revision']){row[k]=Number(row[k]);if(!Number.isSafeInteger(row[k]))fail('BROWSER_SERVICE_UNAVAILABLE');}return row;};
  async function settings(){const {rows}=await db.query(`SELECT key,value,updated_at FROM app_settings WHERE key LIKE 'browser.%'`);return {values:Object.fromEntries(rows.map(r=>[r.key,r.value])),revision:Math.max(1,...rows.map(r=>epoch(r.updated_at)))};}
- const taskLabel=(purpose:unknown)=>typeof purpose==='string'&&purpose.trim()?purpose.replace(/\s+/g,' ').trim().slice(0,60):'Browser task';
+ const shortTaskLabel=(purpose:string)=>{const text=purpose.replace(/\s+/g,' ').trim();if(text.length<=60)return text;const head=text.slice(0,59),end=head.lastIndexOf(' ');return (end>0?head.slice(0,end):'Browser task')+'…';};
+ const taskLabel=(purpose:unknown)=>typeof purpose==='string'&&purpose.trim()?shortTaskLabel(purpose):'Browser task';
  async function busyWith(){const row=await one("SELECT u.name person_label FROM browser_tasks t JOIN users u ON u.id=t.initiator_user_id WHERE t.state IN ('starting','active','paused') ORDER BY t.created_at LIMIT 1");return row?.person_label??null;}
  async function pilotPeople(){const {rows}=await db.query("SELECT id,name,role,permissions FROM users WHERE active AND role IN ('owner','staff') ORDER BY name,id");return rows.map(u=>({user_id:u.id,label:u.name,role:u.role,eligible:u.role==='owner'||u.permissions?.includes('ai')===true,reason_code:u.role==='owner'||u.permissions?.includes('ai')===true?null:'BROWSER_FORBIDDEN'}));}
  async function flags(session:Session){const user=await one('SELECT id,role,active,permissions FROM users WHERE id=$1',[session.userId]);return readinessSource().evaluateFlags({settings:(await settings()).values,env:process.env,user});}
@@ -132,7 +133,7 @@ export function createWebsiteAdapter({db,controller,key,websiteHooks={}}:{db:Poo
    case 'join':{
     if(b.private_view===true&&(!t.private||t.privacy_mode!=='private'))fail('BROWSER_PRIVATE_INPUT_REQUIRED');
     if(b.mode==='initiator'&&t.initiator_user_id!==session.userId)fail('BROWSER_NOT_FOUND');if(b.mode==='owner_review'&&ctx.user.role!=='owner')fail('BROWSER_FORBIDDEN');
-    const device=ctx.viewer?request.headers.get('x-sjc-browser-device')!:createHmac('sha256',key).update('browser-device-v1\0'+session.sid+'\0'+t.id+'\0'+b.idempotency_key).digest('base64url'),hash=tokenHash(device);let claim:unknown;
+    const device=ctx.viewer?request.headers.get('x-sjc-browser-device')!:createHmac('sha256',key).update('browser-device-v2\0'+session.sid+'\0'+t.id+'\0'+UUID.parse(b.device_id)).digest('base64url'),hash=tokenHash(device);let claim:unknown;
     const joined=await transaction(async c=>{if(b.mode==='owner_review'){
       await proof(c,{...ctx,viewer:null},session,'watch',b,null);claim=await repo.browserWebOwnerView(c,{tid:t.id,aid:b.action_id??null,session:session.sid,local_thread:b.local_thread_id??null,i:b.idempotency_key});
      }

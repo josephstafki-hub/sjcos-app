@@ -204,6 +204,27 @@ test('real harness seed idempotence, all recipes, signed fake RPC and frames',as
  const recovery=await qaProof(c,privateTask,ownerSid,ov.id,'presence',{}, {qa_private_watch:true});
  await client.call('presence',{...binding,viewer_id:ov.id},{proof_id:recovery.id,body:{viewer_id:ov.id,visible:true,generation:Number(ov.stream_generation),idempotency_key:randomUUID()}});
  assert.ok(await protocol.frame(ownerHello(),0));
+ // R3 expectation: refresh works with both attended slots occupied, and
+ // retires exact old stream/consent/control bindings without another slot.
+ await c.query('UPDATE browser_viewers SET left_at=now() WHERE task_id=$1',[t.id]);
+ const oldViewers=[];
+ for(const byte of [71,72]){const dev=Buffer.alloc(32,byte),p=await qaProof(c,privateTask,privateTask.initiating_web_session_id,null,'join',{}, {device_secret_hash:dev.toString('hex')});const j=await repo.browserWebJoin(c,{tid:t.id,session:privateTask.initiating_web_session_id,device_hash:dev,role:'initiator',private_view:false,i:p.i,d:p.d});oldViewers.push((await c.query('SELECT * FROM browser_viewers WHERE id=$1',[j.viewer_id])).rows[0]);}
+ await c.query("UPDATE browser_tasks SET controller_user_id=initiator_user_id,controller_device_hash=$2,control_token_hash=$2,control_expires_at=now()+interval '1 minute' WHERE id=$1",[t.id,oldViewers[0].device_hash]);
+ const outsider=randomUUID(),outsiderThread=randomUUID(),outsiderTask=randomUUID();
+ await c.query("INSERT INTO users(id,name,email,role,password_hash) VALUES($1,'Unrelated QA principal',$2,'staff','unused')",[outsider,outsider+'@example.test']);
+ await c.query("INSERT INTO ai_conversations(id,owner_user_id,agent) VALUES($1,$2,'claude')",[outsiderThread,outsider]);
+ const outsiderSid=(await c.query("INSERT INTO web_sessions(user_id,auth_at,expires_at) VALUES($1,now(),now()+interval '1 hour') RETURNING id",[outsider])).rows[0].id;
+ await c.query("INSERT INTO browser_tasks(id,initiator_user_id,conversation_id,state,origins,required_areas,initiating_web_session_id,purpose,closed_at) VALUES($1,$2,$3,'closed',$4,ARRAY['ai'],$5,'Unrelated fixture sentinel',now())",[outsiderTask,outsider,outsiderThread,{v:1,entries:[]},outsiderSid]);
+ const unrelated=(await c.query("SELECT id,state,revision FROM browser_tasks WHERE initiator_user_id NOT IN ($1,$2) ORDER BY id",[QA_PEOPLE.owner.id,QA_PEOPLE.staff.id])).rows;
+ const refreshed=await seedBrowser(admin,{state:'paused_private',refresh:true});assert.notEqual(refreshed.states.staff_paused_private.task_id,t.id);
+ const retired=(await c.query('SELECT * FROM browser_tasks WHERE id=$1',[t.id])).rows[0];assert.equal(retired.state,'closed');assert.equal(retired.controller_device_hash,null);assert.equal(retired.control_token_hash,null);
+ for(const old of oldViewers){const v=(await c.query('SELECT * FROM browser_viewers WHERE id=$1',[old.id])).rows[0];assert.ok(v.left_at);assert.notEqual(v.stream_id,old.stream_id);assert.ok(Number(v.stream_generation)>Number(old.stream_generation));assert.equal(v.owner_private_view_authorized_at,null);assert.equal(v.last_frame_uuid,null);}
+ const oldRun=(await c.query('SELECT disposition,capability_revoked_at,ended_at FROM browser_task_runs WHERE task_id=$1 AND run_id=$2',[t.id,privateTask.current_run_id])).rows[0];assert.equal(oldRun.disposition,'stopped');assert.ok(oldRun.capability_revoked_at);assert.ok(oldRun.ended_at);
+ const stalePresence=await qaProof(c,retired,retired.initiating_web_session_id,oldViewers[0].id,'presence');
+ await assert.rejects(repo.browserWebPresence(c,{vid:oldViewers[0].id,visible:true,generation:Number(oldViewers[0].stream_generation),i:stalePresence.i}));
+ assert.equal((await c.query('SELECT status FROM dev_agent_runs WHERE id=$1',[privateTask.current_run_id])).rows[0].status,'done');
+ assert.deepEqual((await c.query("SELECT id,state,revision FROM browser_tasks WHERE initiator_user_id NOT IN ($1,$2) ORDER BY id",[QA_PEOPLE.owner.id,QA_PEOPLE.staff.id])).rows,unrelated);
+ const repeated=await seedBrowser(admin,{state:'paused_private',refresh:true});assert.notEqual(repeated.states.staff_paused_private.task_id,refreshed.states.staff_paused_private.task_id);
  const next=await seedBrowser(admin,{state:'resource_20'});assert.notEqual(next.states.staff_resource_review.task_id,t.id);
  const rt=(await qaIdentity(c,website,c=>c.query('SELECT * FROM browser_tasks WHERE id=$1',[next.states.staff_resource_review.task_id]))).rows[0];
  const liveCount=(await qaIdentity(c,website,c=>c.query("SELECT count(*)::int n FROM browser_tasks WHERE state IN ('queued','starting','active','paused')"))).rows[0].n;assert.equal(liveCount,2);
@@ -223,6 +244,19 @@ test('real harness seed idempotence, all recipes, signed fake RPC and frames',as
    if(['read_review','resource_review','exact_path_review','exact_resource_review'].includes(state)){const reads=await execute('reads_get',st,staff);assert.ok(reads.candidates.every(x=>x.suggested_by==='page_link'&&x.suggested_by_label==='Page link'));}
   }
 
+  // R3: both people get real own-task queue/expired projections. A seed of
+  // the second person must not close the first person's expired offer.
+  if(['queued','offer_expired','queue_expired'].includes(state))for(const role of ['owner','staff']){
+   const queueTask=await projectTask(selected.states[role+'_'+state].task_id);assert.equal(queueTask.state,'queued',role+' '+state);
+   const person=role==='owner'?owner:staff,ws=(await c.query('SELECT *,extract(epoch FROM auth_at)::float auth_s,extract(epoch FROM expires_at)::float exp_s FROM web_sessions WHERE id=$1',[queueTask.initiating_web_session_id])).rows[0];
+   const qs={sid:ws.id,userId:person.id,generation:Number(ws.generation),authAt:ws.auth_s,exp:ws.exp_s};
+   globalThis.__phase0aDb=c;
+   const request=new Request('https://qa.example.test/api/agent-browser/tasks/'+queueTask.id+'/join');
+   const ctx=await adapter.authorize({request,session:qs,path:'/tasks/'+queueTask.id+'/join'});
+   const joined=await adapter.execute({operation:'join',request,session:qs,context:ctx,body:{mode:'initiator',device_id:randomUUID(),idempotency_key:randomUUID()},flags:{}});
+   assert.equal(joined.task.state,'queued');assert.equal(joined.offer_status,state==='queued'?'waiting':state==='offer_expired'?'expired':'queue_expired');
+  }
+  if(['empty','unsupported','settings'].includes(state))assert.equal((await c.query("SELECT count(*)::int n FROM browser_tasks WHERE initiator_user_id IN ($1,$2) AND state IN ('queued','starting','active','paused')",[QA_PEOPLE.owner.id,QA_PEOPLE.staff.id])).rows[0].n,0);
   if(['guarded_menu','reload_confirm'].includes(state))assert.equal(entry.navigation,true);
   if(state==='pre_frame_close')assert.equal(entry.no_frames,true);
   if(state==='watch_audit_pending')assert.equal(entry.audit_pending,true);
@@ -282,6 +316,16 @@ test('real harness seed idempotence, all recipes, signed fake RPC and frames',as
  const approval=await qaProof(c,fresh,fresh.initiating_web_session_id,cv.viewer_id,'review');
  await repo.browserWebReads(c,{tid:fresh.id,vid:cv.viewer_id,expected_revision:Number(discovery.revision),proposal:manifest,decision:'approve',i:approval.i,d:approval.d});
  const freshRun=await hooks.start({task:fresh,viewer:{id:cv.viewer_id},session:{sid:fresh.initiating_web_session_id}});assert.notEqual(freshRun.run_id,resumed.current_run_id);
+ // A live task belonging to these QA people but absent from the fixture
+ // scenario must be refused before attendance is touched.
+ const safeScenario=await readScenario(c,env.SJC_QA_BROWSER_FAKE),tampered=structuredClone(safeScenario);
+ const ownCurrent=(await c.query("SELECT * FROM browser_tasks WHERE initiator_user_id=$1 AND state IN ('queued','starting','active','paused')",[QA_PEOPLE.owner.id])).rows[0];
+ delete tampered.tasks[ownCurrent.id];await writeScenario(env.SJC_QA_BROWSER_FAKE,tampered);
+ const bindingsBefore=(await c.query('SELECT * FROM browser_viewers WHERE task_id=$1 ORDER BY id',[ownCurrent.id])).rows;
+ await assert.rejects(seedBrowser(admin,{state:'working',refresh:true}),/refusing unrelated Browser task retirement/);
+ assert.deepEqual((await c.query('SELECT * FROM browser_viewers WHERE task_id=$1 ORDER BY id',[ownCurrent.id])).rows,bindingsBefore);
+ assert.deepEqual((await c.query('SELECT * FROM browser_tasks WHERE id=$1',[ownCurrent.id])).rows[0],ownCurrent);
+ await writeScenario(env.SJC_QA_BROWSER_FAKE,safeScenario);
  const off=await seedBrowser(admin,{state:'off'});assert.equal(off.selected,'off');assert.equal((await qaIdentity(c,website,c=>c.query("SELECT value FROM app_settings WHERE key='browser.enabled'"))).rows[0].value,'false');
 
  }finally{await c.end();}

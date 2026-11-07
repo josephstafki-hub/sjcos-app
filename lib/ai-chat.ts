@@ -1,6 +1,7 @@
 import "server-only";
+import {hasAccess} from "@/lib/area-access";
 
-import { threadQuery as query, threadQueryOne as queryOne, requireThreadAccess } from "@/lib/thread-access";
+import { threadPrincipal, threadQuery as query, threadQueryOne as queryOne, requireThreadAccess } from "@/lib/thread-access";
 import type { PanelAgent } from "@/lib/dev-agents-meta";
 import type { ChatAttachment } from "@/lib/attachments";
 
@@ -359,4 +360,20 @@ export async function autoTitleIfNeeded(conversationId: string, firstPrompt: str
     `UPDATE ai_conversations SET title = $2 WHERE id = $1 AND ${OWN_THREAD} AND title = 'New chat'`,
     [conversationId, title],
   );
+}
+
+/** Browser job discovery follows the ordinary Projects-area record model:
+ * owner sees all; staff with Projects sees all project records (no per-project
+ * ACL exists). Only project names/slugs cross this boundary. */
+export async function searchBrowserProjects(input:string):Promise<{kind:'project';slug:string;name:string}[]> {
+  const person=await threadPrincipal();
+  if(typeof input!=='string'||input.length>120)throw Error('ASK_ACCESS_DENIED');
+  const user=await queryOne<{role:string;permissions:string[]}>(
+    'SELECT role,permissions FROM users WHERE id=$1 AND active',[person.id]);
+  if(!hasAccess(user,'projects'))throw Error('ASK_ACCESS_DENIED');
+  const pattern='%'+input.trim().replace(/[\\%_]/g,'\\$&')+'%';
+  const rows=await query<{slug:string;name:string}>(
+    `SELECT slug,name FROM projects WHERE name ILIKE $1 OR slug ILIKE $1
+     ORDER BY lower(name),slug LIMIT 20`,[pattern]);
+  return rows.rows.map(row=>({kind:'project',slug:row.slug,name:row.name}));
 }

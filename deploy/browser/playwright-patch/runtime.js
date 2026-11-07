@@ -11,19 +11,20 @@ function createSjcRuntime() {
       b = {policy, live:true, targets:new Set(), pages:new Map(), states:new Set(), listeners:new Set()};
       boots.set(browser,b);
     }
-    if (!b.live) throw error('boot-not-live');
+    if (!b.live) throw error('boot-not-live:' + (b.failReason || 'unknown'));
     return b;
   }
-  async function fail(browser) {
+  async function fail(browser, reason = 'unknown') {
     const b = boots.get(browser);
     if (!b || b.failing) return;
     b.failing = true;
+    b.failReason = String(reason).slice(0, 80); // first cause only
     b.live = false; // synchronous fence before any asynchronous revocation
     await Promise.allSettled([...b.states].map(s=>s.guard?.fail()));
     await b.policy.revokeListener();
   }
   async function deny(browser,session,target,reason='deny') {
-    try { await fail(browser); }
+    try { await fail(browser, 'deny:' + reason); }
     finally { if (target?.targetId) { const x=await session._parentSession?.send('Target.closeTarget',{targetId:target.targetId}) ?? await browser._session.send('Target.closeTarget',{targetId:target.targetId}); if(x?.success!==true) throw error('close-failed:'+reason); } }
     throw error(reason);
   }
@@ -46,21 +47,21 @@ function createSjcRuntime() {
         registerFetch:async()=>{
           // Controller callback owns only request-stage Fetch. Auth is always
           // CancelAuth; Playwright network handlers are removed by the patch.
-          session.on('Fetch.authRequired',e=>{if(b.live)void session.send('Fetch.continueWithAuth',{requestId:e.requestId,authChallengeResponse:{response:'CancelAuth'}}).catch(()=>fail(browser));});
-          session.on('Inspector.targetCrashed',()=>{void fail(browser);});
-          session.on('Inspector.targetReloadedAfterCrash',()=>{void fail(browser);});
+          session.on('Fetch.authRequired',e=>{if(b.live)void session.send('Fetch.continueWithAuth',{requestId:e.requestId,authChallengeResponse:{response:'CancelAuth'}}).catch(()=>fail(browser,'auth-cancel-failed'));});
+          session.on('Inspector.targetCrashed',()=>{void fail(browser,'target-crashed');});
+          session.on('Inspector.targetReloadedAfterCrash',()=>{void fail(browser,'reloaded-after-crash');});
           await b.policy.registerFetch(session,binding,()=>b.live);
         },
         registerChildren:async()=>{
           session.on('Target.attachedToTarget',e=>{
             const child=session.createChildSession(e.sessionId);
             const inherited={...e,targetInfo:{...e.targetInfo,browserContextId:e.targetInfo.browserContextId||target.browserContextId}};
-            void attach(browser,child,inherited).then(()=>{if(!b.live)return;const item={...inherited,__sjcSession:child};if(s.dispatch)s.dispatch(item);else s.queue.push(item);}).catch(()=>fail(browser));
+            void attach(browser,child,inherited).then(()=>{if(!b.live)return;const item={...inherited,__sjcSession:child};if(s.dispatch)s.dispatch(item);else s.queue.push(item);}).catch(e=>fail(browser,'child-attach:'+String(e?.message||'').replace(/^BROWSER_TARGET_BARRIER_REFUSED:?/,'').slice(0,60)));
           });
-          session.on('Target.detachedFromTarget',()=>{void fail(browser);});
+          session.on('Target.detachedFromTarget',()=>{void fail(browser,'child-detached');});
           await session.send('Target.setAutoAttach',{autoAttach:true,waitForDebuggerOnStart:true,flatten:true});
         },
-        revokeListener:async()=>{b.live=false;await b.policy.revokeListener();},
+        revokeListener:async(_binding,why)=>{if(!b.failReason)b.failReason='guard:'+String(why||'unknown').replace(/[^a-z0-9:_-]/gi,'').slice(0,40)+':'+String(target.type).replace(/[^a-z_]/gi,'').slice(0,24);b.live=false;await b.policy.revokeListener();},
         closeTarget:async()=>{const x=await browser._session.send('Target.closeTarget',{targetId:target.targetId});if(x?.success!==true)throw error('close-target');}
       });
       if(!s.guard.ok||!b.live)throw error(!b.live?'guard-not-live':'guard-refused');
@@ -76,14 +77,14 @@ function createSjcRuntime() {
     const s=sessions.get(session);
     if(!s||!s.b.live||s.resumed)throw error('resume-state');
     s.resumed=true;
-    if(!(await s.guard.resume()).ok||!s.b.live){await fail(s.browser);throw error('resume-refused');}
+    if(!(await s.guard.resume()).ok||!s.b.live){await fail(s.browser,'resume-refused');throw error('resume-refused');}
   }
   function ready(session,dispatch) {
     const s=sessions.get(session);if(!s||!s.b.live)throw error('ready-state');
     s.dispatch=dispatch;for(const e of s.queue.splice(0))dispatch(e);
   }
   async function detach(session) {const s=sessions.get(session);if(!s)throw error('detach-unknown');return deny(s.browser,session,s.target,'detached');}
-  function lost(session) {const s=sessions.get(session);if(s)void fail(s.browser).catch(()=>{});}
+  function lost(session) {const s=sessions.get(session);if(s)void fail(s.browser,'session-lost').catch(()=>{});}
   function prepared(session) {const s=sessions.get(session);if(!s||!s.b.live)throw error('prepared-state');}
   return {attach,resume,ready,prepared,fail,deny,boot,detach,lost,reserveContext,
     connect(parent,transport,options){if(options.persistent||!options.__sjcBarrier)throw error('connect-options');return CRBrowser.connect(parent,transport,options);}};

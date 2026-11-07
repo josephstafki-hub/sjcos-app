@@ -1,26 +1,26 @@
 {
   "version": "1.64.1",
   "upstreamBundleSha256": "829521b67ed7be90c7d6d6098ff39f2241562d47e4ad7ccab13710924a56001d",
-  "playwrightPatchSha256": "1b6e716f69d9e6d84de57edec30e42a278c8d8463668a8663121e02d54fc8b51",
-  "patchedBundleSha256": "ff2d54f56eaf11f020ee2c42c8ad37dffbf19f41e4d6dd0494aa0d706e4acea8",
+  "playwrightPatchSha256": "f8349603f189ecf9fa9adad9339f7d7bbd368dd7d94acd4c25b8e01428fca2af",
+  "patchedBundleSha256": "5d3443da0556f3c8cb9e6a674b717abd355929c3dfa1b35f9a8a1c6099e101a4",
   "patchedCensus": [
     {
-      "line": 61,
+      "line": 62,
       "text": "await session.send('Target.setAutoAttach',{autoAttach:true,waitForDebuggerOnStart:true,flatten:true});",
       "sha256": "22176b46d1115a2922f339c557c48376956a5ffef8d022fd4d19839f935f54cf"
     },
     {
-      "line": 39787,
+      "line": 39788,
       "text": "await session.send(\"Target.setAutoAttach\", { autoAttach: true, waitForDebuggerOnStart: true, flatten: true });",
       "sha256": "eab29f8140ff0a78d34a99e0ccb6c6c908f81d634439c1d9a5e403d01ea88ac4"
     },
     {
-      "line": 74763,
+      "line": 74764,
       "text": "// Called in response to Playwright's `Target.setAutoAttach` on the root session.",
       "sha256": "ad5fe673f2dcfc4457accc27327a689aae6da1facea6a74978a6b6a21380dd7f"
     },
     {
-      "line": 74930,
+      "line": 74931,
       "text": "case \"Target.setAutoAttach\": {",
       "sha256": "29bf0aabbcb6b20f2115abba725d9fb320cc86d0606e4455c467164d68a49a7d"
     }

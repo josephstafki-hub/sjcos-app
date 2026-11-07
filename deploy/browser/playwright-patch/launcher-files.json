@@ -32,6 +32,6 @@
   "lib/browser/runtime-pins.mjs": "c9e7cb68bb9cc6edcc1843f266bd6d4bbe1ff073838b6019f96ef4d8eacb7497",
   "lib/browser/runtime-readiness.mjs": "190765da2becba7d72c1c16a34444cb90d9e389052d2283c679b41fd85aeee28",
   "lib/browser/startup.mjs": "c809d06a68b05f0a996fe014aa8a30a0f9c02deef0c6404e94381d8691f44171",
-  "lib/browser/target-barrier.mjs": "927d798238fa63c4e97f49c4ee4f882d2c932acff2d64c59153a88994353876b",
+  "lib/browser/target-barrier.mjs": "1f130d62e2d89b367d80b64060a705dda89fcf1c91ff2352d1fa60e05c710b93",
   "mcp/browser-tools.mjs": "a06cb8929ce876b85bb75c5a7caa36afeffd4219ae3845f451d5e143e1b6238e"
 }

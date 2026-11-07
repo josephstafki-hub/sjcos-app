@@ -144,6 +144,18 @@ class AdapterTests(unittest.TestCase):
         self.assertEqual(len(self.o.flows), 1)
         self.assertEqual(self.o.drained('a'), 'succeeded')
 
+    def test_transport_precharge_no_double_charge(self):
+        self.o.reserve_transport('a');self.assertEqual(self.o.pools['transport'],TRANSPORT_CHARGE)
+        self.o.reserve('a',0,0);self.assertEqual(self.o.pools['transport'],TRANSPORT_CHARGE)
+        self.o.release('a');self.assertEqual(self.o.pools['transport'],0)
+    def test_transport_precharge_two_slots(self):
+        self.o.reserve_transport('a');self.o.reserve_transport('b')
+        with self.assertRaises(Refused):self.o.reserve_transport('c')
+        self.o.revoke_all();self.assertEqual(self.o.transport_reservations,{})
+    def test_transport_unreserved_abort_cleanup(self):
+        self.o.reserve_transport('a');self.o.release_transport('a');self.o.release_transport('a')
+        self.assertEqual(self.o.pools['transport'],0)
+
     # Integration regressions FIRST; all flows/connections are real mitmproxy
     # data classes, with no socket listener or browser launch.
     def runtime(self, left=1):

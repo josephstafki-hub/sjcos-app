@@ -24,6 +24,9 @@ MIB = 1024 * 1024
 PAYLOAD = 25 * MIB
 HEADER = 32768
 QUEUE = 65536
+# Per connection: bounded socket/TLS/head/h11 copies and metadata scratch.
+# Payload collection/frozen copies are charged separately, never borrowed.
+TRANSPORT_CHARGE = 2 * MIB
 CAPS = {"request": 56 * MIB, "response": 112 * MIB, "transport": 24 * MIB}
 
 
@@ -54,10 +57,24 @@ class AllocationOwner:
         self.clock = clock
         self.persist_unknown = None
         self.flows = {}
+        self.transport_reservations = {}
         self.pools = dict.fromkeys(CAPS, 0)
         self.maxima = dict.fromkeys(CAPS, 0)
         self.next_context = 0
         self.max_slots = 0
+
+    def reserve_transport(self, key):
+        if key in self.transport_reservations:
+            return
+        charge = TRANSPORT_CHARGE
+        if len(self.transport_reservations) >= 2 or self.pools['transport'] + charge > CAPS['transport']:
+            raise Refused('BROWSER_BUFFER_BUSY')
+        self.transport_reservations[key] = charge
+        self.pools['transport'] += charge
+        self.maxima['transport'] = max(self.maxima['transport'], self.pools['transport'])
+
+    def release_transport(self, key):
+        self.pools['transport'] -= self.transport_reservations.pop(key, 0)
 
     def reserve(self, key, context, size):
         if context not in (0, 1) or not isinstance(size, int) or not 0 <= size <= PAYLOAD:
@@ -65,7 +82,7 @@ class AllocationOwner:
         if key in self.flows or len(self.flows) >= 2 or any(f.context == context for f in self.flows.values()):
             raise Refused("BROWSER_BUFFER_BUSY")
         request = size * 2 + 4096
-        charge = {"request": request, "response": 56 * MIB, "transport": 6 * QUEUE}
+        charge = {"request": request, "response": 56 * MIB, "transport": 0 if key in self.transport_reservations else TRANSPORT_CHARGE}
         if any(self.pools[k] + charge[k] > CAPS[k] for k in CAPS):
             raise Refused("BROWSER_BUFFER_BUSY")
         now = self.clock()
@@ -73,6 +90,7 @@ class AllocationOwner:
         for k in CAPS:
             self.pools[k] += charge[k]
             self.maxima[k] = max(self.maxima[k], self.pools[k])
+        self.transport_reservations[key] = TRANSPORT_CHARGE
         self.max_slots = max(self.max_slots, len(self.flows))
         self.next_context = 1 - context
 
@@ -164,7 +182,7 @@ class AllocationOwner:
         self.flows.pop(key, None)
         self.pools["request"] -= f.request
         self.pools["response"] -= 56 * MIB
-        self.pools["transport"] -= 6 * QUEUE
+        self.release_transport(key)
         for _, b in f.buffers:
             if isinstance(b, bytearray):
                 v = memoryview(b)
@@ -184,6 +202,8 @@ class AllocationOwner:
                 outcomes[key] = self.release(key)
             except BaseException as exc:
                 error = error or exc
+        for key in tuple(self.transport_reservations):
+            self.release_transport(key)
         if error is not None:
             raise error
         return outcomes
@@ -534,7 +554,9 @@ class RuntimeAdapter:
         try:
             self.transport.revoke_all()  # persist unknown + close ACK, no reuse
         finally:
-            outcomes = self.owner.revoke_all()
+            # The dedicated async transport retains charges until cancelled TLS
+            # send frames unwind. Its handler finally owns terminal release.
+            outcomes = {} if getattr(self.transport, 'owns_terminal_cleanup', False) is True else self.owner.revoke_all()
         if error is not None:
             raise error
         return outcomes

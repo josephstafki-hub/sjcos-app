@@ -202,3 +202,39 @@ sudo systemd-run --scope --unit=browser-0b-rss-t1transport20261106 --slice=user-
 The new transport closes the prior Python implementation gap. Full installed
 Phase 0b acceptance is still incomplete, including runner work outside this
 sub-agent's ownership; no network/RSS/release success is claimed.
+
+## 2026-11-06 — RSS retained-flow/cancellation fix
+
+Read the a23 `rss-diagnostics` observations, client configs, gate stderr and
+origin log. Expectations-first loopback regressions reproduced both the missing
+`flow_closed`/charged reservation after repeated cancellation and an unbounded
+async decision await. A further regression reproduced a completed listener task
+remaining in `accept_tasks` when its child join was cancelled.
+
+The transport now bounds HTTP policy hooks to two seconds (also bounded by the
+original flow deadline), treats cancellation as local termination rather than a
+recursive boot revoke, cancels a socket owner only once, and finalizes storage and
+listener bookkeeping in nested `finally` blocks. `finish` is idempotent. Unknown
+persistence and actual downstream-drain requirements remain intact.
+
+Proof in `transport_tests.py`:
+- `test_rss_two_slow_readers_six_aborted_candidates`: real TLS/parsers, two blocked
+  2 MiB responses charging 112 MiB, six preallocation refusals, successful drain,
+  then six admitted clients aborting during policy; each finalizes within 750 ms,
+  with one `flow_closed`, zero handlers/reservations/pools and no boot revoke.
+- `test_request_decision_deadline_bounds_parked_policy`: a withheld policy reply
+  times out at two seconds, finalizes, and forwards no upstream plaintext.
+- `test_repeated_cancellation_during_monitor_cleanup_finalizes_once` and
+  `test_listener_repeated_cancellation_settles_accept_task`: repeated cancellation
+  cannot bypass either finalizer.
+- 33 named `test_{revoke_all,listener,cancelled_error}_parked_at_*` cases cover 11
+  lifecycle boundaries, exactly-once terminal ACK/event and complete cleanup.
+
+Final checks: Python transport **86/86**, Python parser **44/44**; Node transport
+wrapper **1/1** (all 86 Python cases), parser wrapper **44/44**. Coordinator
+`relock.sh` passed source verification plus root-runner **17/17**, runtime-boundary
+**19/19** and acceptance-integration **33/33**. Its launcher-files manifest is
+byte-identical; runtime-lock updates only the transport source hash. Parser
+adapter/patch/hash, lib/browser and raw fixture client are unchanged. No DB,
+browser, root acceptance, installed runtime or live services were used. Coordinator
+must rerun real root RSS acceptance; offline passes do not claim measured RSS.

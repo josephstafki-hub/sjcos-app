@@ -195,9 +195,10 @@ class TransportRuntime:
                     sock.close();continue
                 task=asyncio.create_task(h.run());tasks.add(task);task.add_done_callback(tasks.discard)
         finally:
-            self.revoke_listener(listener_cookie)
-            if tasks:await asyncio.gather(*tasks,return_exceptions=True)
-            self.accept_tasks.pop(listener_cookie,None)
+            try:
+                self.revoke_listener(listener_cookie)
+                if tasks:await asyncio.gather(*tasks,return_exceptions=True)
+            finally:self.accept_tasks.pop(listener_cookie,None)
     def handler(self,flow):
         h=self.handlers.get(flow.id if hasattr(flow,'id') else flow)
         if h is None or not h.listener.active or self.dead or cookie(h.listener.sock)!=h.listener.cookie:raise Refused('BROWSER_REVOKED')
@@ -298,6 +299,7 @@ class TransportRuntime:
         if not self.terminal_ack(h,'close_flow',r):raise Refused('BROWSER_CLOSE_ACK')
         return True
     def finish(self,h,success=False):
+        if self.handlers.get(h.flow.id) is not h:return
         try:
             if success:self.adapter.release(h.flow,True)
             else:self.adapter.release(h.flow,False)
@@ -373,12 +375,19 @@ class TransportHandler(ConnectionHandler):
         self.runtime.observe('hook',self,name=hook.name)
         try:
             if isinstance(hook,(_hooks.HttpConnectHook,_hooks.HttpRequestHeadersHook,_hooks.HttpRequestHook,_hooks.HttpResponseHeadersHook,_hooks.HttpResponseHook)):
-                if await self.runtime.adapter.event(hook.name,self.flow) is not True:raise Refused('BROWSER_POLICY_DENIED')
+                # Bound the owning task as well as UnixPolicy's socket timeout;
+                # a parked decision never gets the 60s body/response lifetime.
+                remaining=min(2,self.runtime.remaining(self.flow))
+                if await asyncio.wait_for(self.runtime.adapter.event(hook.name,self.flow),remaining) is not True:raise Refused('BROWSER_POLICY_DENIED')
             elif isinstance(hook,server_hooks.ServerConnectHook):
                 await self.runtime.adapter.server_connect(hook.data)
             elif isinstance(hook,server_hooks.ServerConnectedHook):
                 await self.runtime.adapter.server_connected(hook.data)
             else:raise Refused('BROWSER_HOOK')
+        except asyncio.CancelledError:
+            # Client abort / listener revoke is terminal for this connection.
+            # Do not recursively cancel every other flow (or its cleanup).
+            raise
         except BaseException:
             self.runtime.revoke_all()
             raise
@@ -486,18 +495,18 @@ class TransportHandler(ConnectionHandler):
         if self.runtime.clock()>=self.decision_deadline:raise Refused('BROWSER_DECISION_EXPIRED')
         self.read_deadline=self.deadline
     async def run(self):
+        if self.runtime.handlers.get(self.flow.id) is not self:return
         self.task=current_task()
         success=False;monitor=None
         try:
             await self.connect_request()
             await self.read_message(self.client_tls,False)
-            main=current_task()
             async def watch_client():
                 try:await self.client_io.read(1)
                 except asyncio.CancelledError:return
                 except Exception:
                     if self.closed:return
-                self.close_sockets();main.cancel()
+                self.close_sockets()
             monitor=asyncio.create_task(watch_client())
             self.body_sha=hashlib.sha256(self.flow.request.raw_content).hexdigest()
             self.request_digest=canonical_digest(self.flow.request.method,self.url,self.request_headers,self.body_sha)
@@ -541,15 +550,21 @@ class TransportHandler(ConnectionHandler):
         except BaseException:
             self.runtime.revoke_all() # unexpected dispatcher/parser failure is boot fatal
         finally:
-            if monitor:
-                monitor.cancel();await asyncio.gather(monitor,return_exceptions=True)
-            if self.flow.id in self.runtime.handlers:
-                try:self.runtime.finish(self,success)
-                except BaseException:
-                    self.runtime.revoke_all()
+            try:
+                if monitor:
+                    monitor.cancel();await asyncio.gather(monitor,return_exceptions=True)
+            finally:
+                # A second cancellation can interrupt the monitor join. Storage,
+                # terminal persistence and flow_closed must still run, without
+                # another await between them.
+                if self.flow.id in self.runtime.handlers:
+                    try:self.runtime.finish(self,success)
+                    except BaseException:
+                        self.runtime.revoke_all()
     def close_sockets(self):
+        was_closed=self.closed
         self.closed=True
-        if self.task is not None and self.task is not current_task() and not self.task.done():self.task.cancel()
+        if not was_closed and self.task is not None and self.task is not current_task() and not self.task.done():self.task.cancel()
         self.client_io.close()
         if self.upstream_io:self.upstream_io.close()
     def drop(self):

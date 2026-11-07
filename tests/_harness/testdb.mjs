@@ -122,14 +122,14 @@ export function stopCluster() {
 
 /** The narrow database logins (deploy/db-roles.md), created cluster-wide
  *  BEFORE a database loads its schema so the grant migrations (0060 onward)
- *  grant for real, as in production after Joe's bootstrap. NOLOGIN here:
- *  tests reach them with SET ROLE (or `options=-c role=…`) as the superuser. */
-export const DB_ROLES = ["sjcos_agent", "sjcos_worker", "sjcos_readonly", "sjcos_backup"];
+ *  grant for real, as in production after Joe's bootstrap. LOGIN in the disposable socket-only trust cluster; withLogin proves both
+ *  session_user/current_user. Older tests may still use urlAsRole. */
+export const DB_ROLES = ["sjcos_agent", "sjcos_worker", "sjcos_readonly", "sjcos_backup", "sjcos_browser"];
 export function ensureDbRoles(state) {
   const sql = `DO $$ DECLARE r text; BEGIN
     FOREACH r IN ARRAY ARRAY[${DB_ROLES.map((r) => `'${r}'`).join(", ")}] LOOP
       BEGIN
-        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN EXECUTE format('CREATE ROLE %I NOLOGIN', r); END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r) THEN EXECUTE format('CREATE ROLE %I LOGIN', r); END IF;
       EXCEPTION WHEN duplicate_object OR unique_violation THEN NULL; -- a parallel test file made it first
       END;
     END LOOP; END $$`;
@@ -234,6 +234,7 @@ export async function withSessionIdentity(url, identity, callback) {
     sjcos_agent: 'SET SESSION AUTHORIZATION sjcos_agent',
     sjcos_worker: 'SET SESSION AUTHORIZATION sjcos_worker',
     sjcos_readonly: 'SET SESSION AUTHORIZATION sjcos_readonly',
+    sjcos_browser: 'SET SESSION AUTHORIZATION sjcos_browser',
     sjcos_test_website: 'SET SESSION AUTHORIZATION sjcos_test_website',
   };
   if (!Object.hasOwn(identities, identity)) throw new Error('unsupported test session identity');
@@ -243,7 +244,7 @@ export async function withSessionIdentity(url, identity, callback) {
     // A distinct non-superuser table owner represents the website. Never
     // whitelist sjctest (the harness administrator) as production authority.
     await client.query(`DO $$ BEGIN
-      IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='sjcos_test_website') THEN CREATE ROLE sjcos_test_website NOLOGIN NOSUPERUSER; END IF;
+      IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='sjcos_test_website') THEN CREATE ROLE sjcos_test_website LOGIN NOSUPERUSER; END IF;
     END $$`);
     await client.query(`GRANT USAGE, CREATE ON SCHEMA public TO sjcos_test_website`);
     await client.query(`DO $$ DECLARE obj record; BEGIN
@@ -258,6 +259,7 @@ export async function withSessionIdentity(url, identity, callback) {
         WHERE n.nspname='public' AND NOT EXISTS(SELECT 1 FROM pg_depend d WHERE d.objid=p.oid AND d.deptype='e')
       LOOP EXECUTE format('ALTER FUNCTION %s OWNER TO sjcos_test_website',obj.name); END LOOP;
     END $$`);
+    await client.query(`DO $$ BEGIN IF EXISTS(SELECT 1 FROM pg_policy WHERE polname='browser_phase1_bound_thread') THEN ALTER POLICY browser_phase1_bound_thread ON ai_conversations TO sjcos_test_website; END IF; END $$`);
     await client.query(identities[identity]);
     const proof = (await client.query('SELECT session_user, current_user')).rows[0];
     if (proof.session_user !== identity || proof.current_user !== identity) throw new Error('session identity fixture failed');
@@ -272,7 +274,7 @@ export async function withSessionIdentity(url, identity, callback) {
  * production SQL/checksums, one transaction + real ledger insertion per file.
  * Never edits the shared migration directory or fabricates applied rows. */
 export async function withMigrationSubset(name, featureIds, callback) {
- if(!/^[a-z0-9_]+$/.test(name)||!featureIds.every(n=>Number.isInteger(n)&&n>=100&&n<=114))throw Error('invalid subset fixture');
+ if(!/^[a-z0-9_]+$/.test(name)||!featureIds.every(n=>Number.isInteger(n)&&n>=100&&n<=115))throw Error('invalid subset fixture');
  const state=startCluster();ensureDbRoles(state);
  const db=`sjcos_subset_${name}`,url=dbUrl(state.url,db);assertNotProduction(url);
  const admin=new pg.Client({connectionString:state.admin});await admin.connect();
@@ -296,4 +298,13 @@ export async function withMigrationSubset(name, featureIds, callback) {
   await apply(listMigrationFiles().filter(f=>f.id<100).map(f=>f.id));
   await callback({url,db:c,apply:ids=>apply(ids??featureIds),featureIds});
  }finally{await c.end();}
+}
+
+/** An actual LOGIN connection; no SET ROLE / session-authorization shortcut. */
+export async function withLogin(url,role,fn){
+ assertNotProduction(url);
+ if(![...DB_ROLES,'sjcos_test_website','sjcos_test_public'].includes(role))throw Error('unsupported login');
+ const u=new URL(url);u.username=role;u.password='';u.searchParams.delete('options');
+ const c=new pg.Client({connectionString:u.href});await c.connect();
+ try{const proof=(await c.query('SELECT session_user,current_user')).rows[0];if(proof.session_user!==role||proof.current_user!==role)throw Error('LOGIN identity mismatch');return await fn(c,proof);}finally{await c.end();}
 }

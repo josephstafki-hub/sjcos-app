@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto';
 import {seedPeople} from './phase0a-fixtures.mjs';
-import {withSessionIdentity} from './_harness/testdb.mjs';
+import {withSessionIdentity,withLogin} from './_harness/testdb.mjs';
 export const hash=Buffer.alloc(32,1);
 export async function fixture(url,db,fn){
  const people=await seedPeople(db);
@@ -26,3 +26,19 @@ export async function fixture(url,db,fn){
  });
 }
 export function fakeEnvelope(purpose,bindings){return {version:1,purpose,bindings:{version:1,purpose,...bindings},ciphertext:'AQID',nonce:Buffer.alloc(12).toString('base64'),tag:Buffer.alloc(16).toString('base64'),wrapped_key:Buffer.alloc(32).toString('base64'),wrap_nonce:Buffer.alloc(12).toString('base64'),wrap_tag:Buffer.alloc(16).toString('base64'),key_id:'v1',wrap_revision:1};}
+
+/** Phase 1 ready DB fixture only, never runtime readiness. */
+export async function phase1Fixture(url,db,fn){
+ return fixture(url,db,async x=>{
+  const {c,people,task,run,staffSid}=x;
+  await c.query(`UPDATE app_settings SET value='true' WHERE key IN ('browser.enabled','browser.staff_enabled')`);
+  await c.query(`UPDATE app_settings SET value=$1 WHERE key='browser.pilot_user_ids'`,[JSON.stringify([people.owner.id,people.staff.id])]);
+  await c.query(`UPDATE browser_tasks SET origins=$2,listener_generation=1 WHERE id=$1`,[task.id,{v:1,entries:[{origin:'https://portal.example',role:'document'}]}]);
+  await c.query(`UPDATE browser_task_runs SET capability_hash=$3,capability_expires_at=now()+interval '5 minutes' WHERE task_id=$1 AND run_id=$2`,[task.id,run,hash]);
+  const viewer=(await c.query(`INSERT INTO browser_viewers(task_id,web_session_id,user_id,device_hash,device_secret_hash,joined_role,visible_until,last_frame_uuid) VALUES($1,$2,$3,$4,$4,'initiator',now()+interval '15 seconds',$5) RETURNING *`,[task.id,staffSid,people.staff.id,hash,randomUUID()])).rows[0];
+  const proof=async(operation,{safe_result={},vid=viewer.id,digest=hash,sid=staffSid}={})=>{
+   const i=randomUUID();await c.query(`INSERT INTO browser_web_commands(task_id,session_id,viewer_id,operation,idempotency_key,body_digest,safe_result,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,clock_timestamp()+interval '5 seconds')`,[task.id,sid,vid,operation,i,digest,safe_result]);return i;
+  };
+  return withLogin(url,'sjcos_test_website',c=>fn({...x,c,viewer,proof}));
+ });
+}

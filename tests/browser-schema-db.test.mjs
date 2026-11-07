@@ -33,3 +33,105 @@ test('existing Canvas-only installation upgrades lower reserved Browser migratio
 check('real crypto envelopes persist and wrapping rotation uses revision CAS without relabelling data',async({c,people})=>{const {createVaultCrypto}=await import('../lib/browser/vault.mjs');const {randomBytes}=await import('node:crypto');const key='k'+randomUUID().replaceAll('-',''),activated_at=new Date(Date.now()-1000).toISOString();for(const k of [key,key+'new'])await c.query(`INSERT INTO browser_vault_counters(purpose,key_id,activated_at) VALUES('login',$1,$2)`,[k,activated_at]);const reserveWrap=async(p,k)=>{const r=(await c.query('SELECT * FROM browser_schema_reserve_wrap($1,$2)',[p,k])).rows[0];return {count:Number(r.count),activated_at:r.activated_at.toISOString()};};const keys={purposes:{login:{active:key,versions:{[key]:{state:'active',activated_at,key:randomBytes(32).toString('base64')}}}}};const v=createVaultCrypto({keys,reserveWrap,sessionIdentity:'sjcos_browser'}),login=randomUUID(),bindings={login_id:login,owner_user_id:people.owner.id,origin:'https://portal.example',credential_revision:1};const e=await v.seal('login',bindings,Buffer.from('private credential'));await c.query(`INSERT INTO browser_logins(id,owner_user_id,label,canonical_origin,required_areas,field_mapping,secret_envelope) VALUES($1,$2,'Rotation','https://portal.example',ARRAY['ai'],'{}',$3)`,[login,people.owner.id,e]);keys.purposes.login.versions[key].state='decrypt_only';keys.purposes.login.versions[key+'new']={state:'active',activated_at,key:randomBytes(32).toString('base64')};keys.purposes.login.active=key+'new';const rotated=createVaultCrypto({keys,reserveWrap,sessionIdentity:'sjcos_browser'}),next=await rotated.rewrap('login',bindings,e,1);const save=()=>c.query(`UPDATE browser_logins SET secret_envelope=$2 WHERE id=$1 AND revision=1 AND secret_envelope->>'wrap_revision'='1'`,[login,next]);assert.equal((await save()).rowCount,1);assert.equal((await save()).rowCount,0);assert.equal(rotated.open('login',bindings,(await c.query('SELECT secret_envelope FROM browser_logins WHERE id=$1',[login])).rows[0].secret_envelope).toString(),'private credential');});
 check('share revocation fences the dependent live context and schedules profile purge',async({c,people,ownerSid,staffSid,task,thread})=>{const login=randomUUID(),profile=randomUUID();await c.query(`INSERT INTO browser_logins(id,owner_user_id,label,canonical_origin,required_areas,field_mapping,secret_envelope) VALUES($1,$2,'Fence','https://portal.example',ARRAY['ai'],'{}',$3)`,[login,people.owner.id,fakeEnvelope('login',{login_id:login,owner_user_id:people.owner.id,origin:'https://portal.example',credential_revision:1})]);await c.query(`INSERT INTO browser_login_access(login_id,user_id,granted_by_user_id,granted_by_session_id) VALUES($1,$2,$3,$4)`,[login,people.staff.id,people.owner.id,ownerSid]);await c.query(`INSERT INTO browser_profiles(id,user_id,login_id,origin_chain_hash,state_envelope,revision,credential_revision,expires_at) VALUES($1,$2,$3,$4,$5,1,1,now()+interval '1 day')`,[profile,people.staff.id,login,hash,fakeEnvelope('profile',{profile_id:profile,user_id:people.staff.id,login_id:login,origin_chain_digest:hash.toString('hex'),credential_revision:1,profile_revision:1})]);await c.query(`UPDATE browser_tasks SET state='closed',closed_at=now() WHERE id=$1`,[task.id]);const dependent=(await c.query(`INSERT INTO browser_tasks(initiator_user_id,conversation_id,purpose,required_areas,origins,state,initiating_web_session_id,private,privacy_mode,vault_dependency,vault_login_id,vault_revision) VALUES($1,$2,'dependent',ARRAY['ai'],'{}','active',$3,true,'delegated_secret','fill',$4,1) RETURNING id`,[people.staff.id,thread,staffSid,login])).rows[0].id;await c.query('UPDATE browser_login_access SET revoked_at=now(),revision=revision+1 WHERE login_id=$1',[login]);const state=(await c.query('SELECT state,failure_code FROM browser_tasks WHERE id=$1',[dependent])).rows[0];assert.deepEqual(state,{state:'closed',failure_code:'BROWSER_LOGIN_REVOKED'});assert.equal((await c.query(`SELECT count(*)::int AS n FROM browser_maintenance_jobs WHERE object_id=$1 AND kind='profile_purge'`,[profile])).rows[0].n,1);});
 check('a tombstoned login can erase its ciphertext while retaining identity and grants',async({c,people})=>{const login=randomUUID();await c.query(`INSERT INTO browser_logins(id,owner_user_id,label,canonical_origin,required_areas,field_mapping,secret_envelope) VALUES($1,$2,'Deleted','https://portal.example',ARRAY['ai'],'{}',$3)`,[login,people.owner.id,fakeEnvelope('login',{login_id:login,owner_user_id:people.owner.id,origin:'https://portal.example',credential_revision:1})]);await deny(c.query('UPDATE browser_logins SET secret_envelope=NULL WHERE id=$1',[login]));await c.query('UPDATE browser_logins SET deleted_at=now() WHERE id=$1',[login]);await c.query('UPDATE browser_logins SET secret_envelope=NULL WHERE id=$1',[login]);assert.equal((await c.query('SELECT secret_envelope FROM browser_logins WHERE id=$1',[login])).rows[0].secret_envelope,null);await deny(c.query('DELETE FROM browser_logins WHERE id=$1',[login]));});
+
+import {phase1Fixture} from './browser-schema-fixtures.mjs';
+import {withLogin} from './_harness/testdb.mjs';
+import {createHash,createHmac} from 'node:crypto';
+import {canonicalJson} from '../lib/browser/vault.mjs';
+const p1check=(name,fn)=>test('A0 '+name,()=>withTestDb((url,db)=>phase1Fixture(url,db,x=>fn({...x,url,db}))));
+p1check('UUID viewer commands replace legacy bigint authority; mismatched sid rejected',async({c,task,run,people,viewer,staffSid,ownerSid})=>{
+ const insert=(sid,frame,legacy)=>c.query(`INSERT INTO browser_commands(task_id,run_id,initiator_user_id,epoch,seq,idempotency_key,input_digest,operation,viewer_id,web_session_id,body_digest,stream_id,stream_generation,frame_uuid,frame_id,document_epoch,control_epoch) VALUES($1,$2,$3,0,1,$4,$5,'takeover_input',$6,$7,$5,$8,1,$9,$10,0,0)`,[task.id,run,people.staff.id,randomUUID(),hash,viewer.id,sid,viewer.stream_id,frame,legacy]);
+ await deny(insert(staffSid,null,1));await deny(insert(ownerSid,randomUUID(),null));await insert(staffSid,randomUUID(),null);
+});
+p1check('browser message provenance is immutable and cross-thread tags rejected',async({c,task,run,thread,people})=>{
+ const msg=(await c.query(`INSERT INTO ai_messages(conversation_id,role,body,run_id,trust_profile,browser_task_id) VALUES($1,'assistant','public',$2,'browser',$3) RETURNING id`,[thread,run,task.id])).rows[0].id;
+ await deny(c.query(`UPDATE ai_messages SET trust_profile='ordinary',browser_task_id=NULL WHERE id=$1`,[msg]));
+ await deny(c.query(`INSERT INTO ai_messages(conversation_id,role,body,trust_profile,browser_task_id) VALUES($1,'user','forged','browser',$2)`,[people.thread,task.id]));
+});
+p1check('actual service advances epochs and enters private with vault off; cannot reopen terminal',async({c,url,task,run,boot,newAction})=>{
+ const retained=await newAction();
+ await withLogin(url,'sjcos_browser',async n=>{
+  const b=(await n.query('SELECT browser_command_begin($1,$2,$3,$4,0,1,$5,$3) r',[task.id,run,hash,randomUUID(),'observe'])).rows[0].r;
+  assert.equal(b.state,'accepted');await n.query('SELECT browser_command_finish($1,$2,$3)',[b.command_id,boot,'succeeded']);
+  const r=(await n.query('SELECT browser_enter_private($1,$2,0,$3) r',[task.id,boot,'private'])).rows[0].r;assert.equal(r.private,true);assert.equal(r.vault_dependency,'none');assert.equal(r.state,'paused');
+  await assert.rejects(n.query('SELECT browser_authorize($1,$2,$3)',[task.id,run,hash]),e=>e.code==='42501');
+ });
+ assert.equal((await c.query('SELECT state FROM browser_actions WHERE id=$1',[retained.id])).rows[0].state,'stale');
+ await deny(c.query(`UPDATE browser_tasks SET private=false,privacy_mode='public' WHERE id=$1`,[task.id]));
+ await c.query(`UPDATE browser_tasks SET state='closed',closed_at=now() WHERE id=$1`,[task.id]);
+ await deny(c.query(`UPDATE browser_tasks SET state='active',closed_at=NULL WHERE id=$1`,[task.id]));
+});
+p1check('fresh browser requires completed old-generation fence and consumes generation',async({c,task,viewer,proof})=>{
+ await c.query(`UPDATE browser_tasks SET private=true,privacy_mode='private',state='paused' WHERE id=$1`,[task.id]);
+ await deny(c.query('SELECT browser_web_control($1,$2,$3,0,$4,$5)',[task.id,viewer.id,'fresh_browser',randomUUID(),hash]));
+ const i=await proof('fresh_browser',{safe_result:{drained:true,fenced:true,context_generation:0,old_generation:0,new_boot_id:randomUUID()}});
+ const r=(await c.query('SELECT browser_web_control($1,$2,$3,0,$4,$5) r',[task.id,viewer.id,'fresh_browser',i,hash])).rows[0].r;
+ assert.equal(r.private,false);assert.equal(r.context_generation,1);assert.equal(r.state,'paused');assert.equal(r.current_run_id,null);
+ assert.deepEqual((await c.query('SELECT browser_web_control($1,$2,$3,0,$4,$5) r',[task.id,viewer.id,'fresh_browser',i,hash])).rows[0].r,r);
+});
+p1check('read use requires exact signed manifest and independently anchored request; race burns one use',async({url,c,db,task,run,boot,staffSid,people,viewer,proof})=>{
+ const key=Buffer.alloc(32,7),now=new Date().toISOString(),entry=randomUUID(),nonce=randomUUID();
+ assert.deepEqual((await c.query('SELECT session_user,current_user')).rows[0],{session_user:'sjcos_test_website',current_user:'sjcos_test_website'});
+ const j={v:1,revision:2,initial_entry_id:entry,entries:[{id:entry,role:'document',method:'GET',canonical_url:'https://portal.example/public',headers_schema_id:'anonymous_public_v1',value_schema:{v:1,kind:'exact_public',query:[],static_rule_id:null},provenance:{v:1,source:'person',classification:'public_nonbusiness',source_ref:null},approved_by:people.staff.id,approved_session_id:staffSid,approved_at:now,expires_at:new Date(Date.now()+60000).toISOString(),max_uses:1,parent_document_epoch:1,release_action_id:null}]};
+ j.digest=createHmac('sha256',key).update('browser-phase1-read-manifest:'+canonicalJson(j)).digest('hex');
+ const i=await proof('review');
+ await c.query('SELECT browser_web_reads($1,$2,1,$3,$4,$5,$6)',[task.id,viewer.id,j,'approve',i,hash]);
+ const md=Buffer.from(j.digest,'hex'),args=[task.id,boot,2,entry,md,hash,nonce,1,0];
+ await withLogin(url,'sjcos_browser',async n=>{
+  await assert.rejects(n.query('SELECT browser_read_consume($1,$2,$3,$4,$5,$6,$7,$8,$9)',args),e=>e.code==='42501');
+  const head=(await c.query('SELECT seq,digest FROM browser_audit_heads WHERE singleton')).rows[0]??{seq:0,digest:Buffer.alloc(32)};
+  const binding={boot_id:boot,context_generation:0,revision:2,entry_id:entry,manifest_digest:j.digest,request_hmac:hash.toString('hex'),flow_nonce:nonce,listener_generation:1,document_epoch:0,control_epoch:0};
+  const event_id=randomUUID(),at=new Date().toISOString(),seq=Number(head.seq)+1;
+  const data={v:1,seq,event_id,task_id:task.id,event:'read_consumed',object_id:nonce,code:'BROWSER_OK',at,previous_digest:head.digest.toString('hex'),binding};
+  const dg=createHash('sha256').update(canonicalJson(data)).digest();
+  const chain={v:1,previous_digest:data.previous_digest,digest:dg.toString('hex'),hmac:createHmac('sha256',key).update(dg).digest('hex'),key_id:'phase1',at,binding};
+  await c.query('INSERT INTO app_settings(key,value) VALUES($1,$2)',['browser.audit_event.'+event_id,JSON.stringify({verified:true,digest:chain.digest,hmac:chain.hmac,key_id:chain.key_id,expires_at:new Date(Date.now()+60000).toISOString()})]);
+  await n.query('SELECT browser_append_audit($1,$2,$3,$4,$5,$6)',[task.id,event_id,'read_consumed',nonce,'BROWSER_OK',chain]);
+  const ack='fixture_'+randomUUID().replaceAll('-',''),signature=Buffer.alloc(64,1);
+  // Disposable owner fixture stands in for the separately verified external sink.
+  await c.query('INSERT INTO app_settings(key,value) VALUES($1,$2)',['browser.checkpoint.'+ack,JSON.stringify({verified:true,through_seq:seq,digest:dg.toString('hex'),key_id:'phase1',signature:signature.toString('base64'),install_id:randomUUID(),boot_id:boot,sink_key_id:'sink1',sink_signature:signature.toString('base64'),expires_at:new Date(Date.now()+60000).toISOString()})]);
+  await n.query('SELECT browser_checkpoint($1,$2,$3,$4,$5)',[seq,dg,'phase1',signature,ack]);
+  const results=await Promise.allSettled([n.query('SELECT browser_read_consume($1,$2,$3,$4,$5,$6,$7,$8,$9) r',args),withLogin(url,'sjcos_browser',other=>other.query('SELECT browser_read_consume($1,$2,$3,$4,$5,$6,$7,$8,$9) r',args))]);
+  assert.equal(results.filter(r=>r.status==='fulfilled').length,1);assert.equal(results.filter(r=>r.status==='rejected').length,1);
+  const p=results.find(r=>r.status==='fulfilled').value.rows[0].r;(await import('../lib/browser/phase1-contracts.mjs')).ReadConsumeProof.parse(p);assert.equal(p.checkpoint_ack_id,ack);assert.equal(p.consume_seq,seq);
+ });
+ assert.equal((await c.query('SELECT count(*)::int n FROM browser_read_uses WHERE task_id=$1',[task.id])).rows[0].n,1);
+});
+test('A0 upgrade through 0114, fresh ledger and replay preserve 0115 seam',()=>withMigrationSubset('browser_p1_a0',[100,101,102,103,104,105,106,107,108,109,110,111,112,114],async({db,apply})=>{
+ await apply();await apply([115]);await apply([115]);
+ assert.equal((await db.query("SELECT count(*)::int n FROM information_schema.columns WHERE table_name='browser_tasks' AND column_name IN ('task_kind','revision','context_generation','confirmed_answers')")).rows[0].n,4);
+ const sql=(await import('node:fs')).readFileSync(new URL('../db/migrations/0115_browser_phase1_runtime.sql',import.meta.url),'utf8');await db.query(sql);
+ assert.equal((await db.query('SELECT count(*)::int n FROM schema_migrations WHERE id=115')).rows[0].n,1);
+}));
+p1check('attended admission, FIFO offer, join, heartbeat, run and capability attach execute through real logins',async({url,c,task,staffSid,people,thread})=>{
+ await c.query(`UPDATE browser_tasks SET state='closed',closed_at=now() WHERE state IN ('queued','starting','active','paused')`);
+ const key=Buffer.alloc(32,8),entry=randomUUID(),now=new Date().toISOString();
+ const read={v:1,revision:1,initial_entry_id:entry,entries:[{id:entry,role:'document',method:'GET',canonical_url:'https://portal.example/public',headers_schema_id:'anonymous_public_v1',value_schema:{v:1,kind:'exact_public',query:[],static_rule_id:null},provenance:{v:1,source:'person',classification:'public_nonbusiness',source_ref:null},approved_by:people.staff.id,approved_session_id:staffSid,approved_at:now,expires_at:new Date(Date.now()+60000).toISOString(),max_uses:1,parent_document_epoch:1,release_action_id:null}]};
+ read.digest=createHmac('sha256',key).update('browser-phase1-read-manifest:'+canonicalJson(read)).digest('hex');
+ const manifest={purpose:'Public only',origins:{v:1,entries:[{origin:'https://portal.example',role:'document'}]},initial_read:read},i=randomUUID();
+ const admit=()=>c.query('SELECT browser_web_admit($1,NULL,$2,$3,$4,$5,$6) r',[thread,'public_research',manifest,staffSid,i,hash]);
+ const t=(await admit()).rows[0].r;assert.equal(t.state,'queued');assert.equal((await admit()).rows[0].r.id,t.id);
+ const proof=async(op,vid=null,body={})=>{const id=randomUUID();await c.query(`INSERT INTO browser_web_commands(task_id,session_id,viewer_id,operation,idempotency_key,body_digest,safe_result,expires_at) VALUES($1,$2,$3,$4,$5,$6,$7,clock_timestamp()+interval '5 seconds')`,[t.id,staffSid,vid,op,id,hash,body]);return id;};
+ const ji=await proof('join',null,{device_secret_hash:hash.toString('hex')});
+ const v=(await c.query('SELECT browser_web_join($1,$2,$3,$4,false,$5,$3) r',[t.id,staffSid,hash,'initiator',ji])).rows[0].r;
+ const pi=await proof('presence',v.viewer_id,{conversation_id:thread});
+ await c.query('SELECT browser_web_presence($1,true,1,$2)',[v.viewer_id,pi]);
+ const boot=randomUUID();
+ await withLogin(url,'sjcos_browser',async n=>assert.equal((await n.query('SELECT browser_queue_offer($1) r',[boot])).rows[0].r.offered,true));
+ const qi=await proof('accept_offer',v.viewer_id,{boot_id:boot});
+ assert.equal((await c.query('SELECT browser_web_queue($1,$2,$3,$4,$5) r',[t.id,v.viewer_id,'accept',qi,hash])).rows[0].r.state,'starting');
+ const run=(await c.query(`INSERT INTO dev_agent_runs(prompt,profile,launch_source,with_mcp,principal_user_id,conversation_id,browser_task_id) VALUES('Public only','browser','panel_web',true,$1,$2,$3) RETURNING id`,[people.staff.id,thread,t.id])).rows[0].id;
+ const ai=await proof('attach_run',v.viewer_id);
+ await c.query('SELECT browser_web_attach_run($1,$2,$3,0,$4)',[t.id,run,v.viewer_id,ai]);
+ const binding={pid:123,start_ticks:1,cgroup:'/fixture-only',boot_id:boot},ci=await proof('capability',v.viewer_id,{process_binding:binding});
+ const cap=(await c.query('SELECT browser_web_capability($1,$2,$3,$4,$5,$6) r',[t.id,run,v.viewer_id,'browser',binding,ci])).rows[0].r;
+ await withLogin(url,'sjcos_browser',async n=>{
+  const args={tid:t.id,rid:run,k:Buffer.from(cap.capability_hash,'hex')};
+  const repo=await import('../lib/browser/repository.mjs');assert.equal((await repo.browserAuthorize(n,args)).current_run_id,run);
+  await assert.rejects(repo.browserCommandBegin(n,{...args,i:randomUUID(),epoch:1,seq:1,op:'fill_login',d:hash}),e=>e.code==='42501');
+  const blocked=await repo.browserCommandBegin(n,{...args,i:randomUUID(),epoch:1,seq:1,op:'prepare',d:hash});assert.equal(blocked.state,'failed');
+  const notice=await repo.browserReadState(n,{tid:t.id,k:args.k,scope:'action'});assert.equal(notice.kind,'final_blocked');assert.equal(notice.result_code,'BROWSER_PHASE1_READ_ONLY');
+  await c.query(`UPDATE users SET permissions='{}' WHERE id=$1`,[people.staff.id]);
+  await assert.rejects(repo.browserAuthorize(n,args),e=>e.code==='42501');
+ });
+});

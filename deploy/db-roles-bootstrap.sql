@@ -2,7 +2,7 @@
 --
 --   sudo -u postgres psql -d sjcos -v ON_ERROR_STOP=1 -f deploy/db-roles-bootstrap.sql
 --
--- Creates the four narrow logins (no passwords yet: set them with \password
+-- Creates the five narrow logins (no passwords yet: set them with \password
 -- right after, see the runbook) and lets them connect. Everything else — which
 -- tables each may read or change — is in the normal migrations
 -- (db/migrations/0060_db_roles.sql onward, owned by the app login sjcos), so
@@ -16,10 +16,12 @@ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sjcos_worker')   THEN CREATE ROLE sjcos_worker   LOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sjcos_readonly') THEN CREATE ROLE sjcos_readonly LOGIN; END IF;
   IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sjcos_backup')   THEN CREATE ROLE sjcos_backup   LOGIN; END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'sjcos_browser') THEN CREATE ROLE sjcos_browser LOGIN; END IF;
 END $$;
 
 -- Plain logins: no superuser, no creating roles or databases, no inheriting
 -- anything they were not given table by table.
+ALTER ROLE sjcos_browser NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS NOREPLICATION NOINHERIT CONNECTION LIMIT 8;
 ALTER ROLE sjcos_agent    NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS NOREPLICATION CONNECTION LIMIT 40;
 ALTER ROLE sjcos_worker   NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS NOREPLICATION CONNECTION LIMIT 20;
 ALTER ROLE sjcos_readonly NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS NOREPLICATION CONNECTION LIMIT 5;
@@ -34,7 +36,7 @@ DO $$
 DECLARE
   r text;
 BEGIN
-  FOREACH r IN ARRAY ARRAY['sjcos_agent', 'sjcos_worker', 'sjcos_readonly'] LOOP
+  FOREACH r IN ARRAY ARRAY['sjcos_agent', 'sjcos_worker', 'sjcos_readonly', 'sjcos_browser'] LOOP
     IF pg_has_role(r, 'pg_read_all_data', 'MEMBER') THEN EXECUTE format('REVOKE pg_read_all_data FROM %I', r); END IF;
     IF pg_has_role(r, 'pg_write_all_data', 'MEMBER') THEN EXECUTE format('REVOKE pg_write_all_data FROM %I', r); END IF;
   END LOOP;
@@ -43,9 +45,9 @@ END $$;
 -- Connect + see the schema. Table access comes from the migrations.
 DO $$
 BEGIN
-  EXECUTE format('GRANT CONNECT ON DATABASE %I TO sjcos_agent, sjcos_worker, sjcos_readonly, sjcos_backup', current_database());
+  EXECUTE format('GRANT CONNECT ON DATABASE %I TO sjcos_agent, sjcos_worker, sjcos_readonly, sjcos_backup, sjcos_browser', current_database());
 END $$;
-GRANT USAGE ON SCHEMA public TO sjcos_agent, sjcos_worker, sjcos_readonly, sjcos_backup;
+GRANT USAGE ON SCHEMA public TO sjcos_agent, sjcos_worker, sjcos_readonly, sjcos_backup, sjcos_browser;
 
 -- The migrations GRANT as the table owner; check nothing in public belongs to
 -- someone else (that table would silently get no grants).

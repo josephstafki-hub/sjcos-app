@@ -9,7 +9,8 @@
     "sjcos_agent": "MCP server (sjcos-mcp.service: Hermes, claude.ai, ChatGPT; stdio spawns), business-agent runs, staff panel turns. DATABASE_URL_AGENT.",
     "sjcos_worker": "scripts/sjcos-worker.mjs: intent dispatch, Square / Telnyx / e-sign events, runbook wakeups. DATABASE_URL_WORKER.",
     "sjcos_readonly": "scripts/sjcos-monitor.sh. DATABASE_URL_READONLY.",
-    "sjcos_backup": "pg_dump + the backup_runs ledger in scripts/backup.mjs. DATABASE_URL_BACKUP."
+    "sjcos_backup": "pg_dump + the backup_runs ledger in scripts/backup.mjs. DATABASE_URL_BACKUP.",
+    "sjcos_browser": "Function-only Browser controller. DATABASE_URL_BROWSER; no table grants, no owner DSN fallback."
   },
   "invoker_trigger_functions": {
     "sjcos_guard_narrow_writes": "must see the login that made the write; every other trigger function runs as its owner (SECURITY DEFINER, SET search_path = public, pg_temp)"
@@ -210,13 +211,13 @@
       ],
       "sjcos_worker": [
         "SELECT",
-        "INSERT",
-        "UPDATE"
+        "INSERT(id,conversation_id,role,body,page_context,cost_usd,created_at,run_id)",
+        "UPDATE(id,conversation_id,role,body,page_context,cost_usd,created_at,run_id)"
       ],
       "sjcos_readonly": [
         "SELECT"
       ],
-      "note": "Worker DELETE intentionally withheld: private Ask retention purge is website-only; INSERT/UPDATE background grants do not authorize private chat maintenance."
+      "note": "Protected immutable trust_profile/browser_task_id: website only; narrow writers cannot assign them even their defaults."
     },
     "app_change_log": {
       "sjcos_agent": [
@@ -1799,7 +1800,7 @@
       ]
     },
     "phone_lines": {
-      "note": "business phone numbers; written only from Settings › Phone lines (website). Inbound routing for narrow logins goes through phone_line_route()",
+      "note": "business phone numbers; written only from Settings \u203a Phone lines (website). Inbound routing for narrow logins goes through phone_line_route()",
       "sjcos_agent": [
         "SELECT"
       ],
@@ -2923,7 +2924,7 @@
       "note": "staff Gmail refresh tokens; only the website's own mailbox code reads them"
     },
     "users": {
-      "note": "logins and passwords: Joe's Settings › Team (website) or his own panel run only",
+      "note": "logins and passwords: Joe's Settings \u203a Team (website) or his own panel run only",
       "sjcos_agent": [
         "SELECT(id,email,name,role,initials,link_slug,active,permissions,created_at,portal_claimed_at,ai_scope,last_permission_change_at)"
       ],
@@ -3244,6 +3245,109 @@
     },
     "ask_canvas_floor_refs": {
       "note": "Private retained floor snapshot references. Owner website Canvas adapter only; no narrow reads or writes."
+    }
+  },
+  "functions": {
+    "browser_web_admit(uuid,uuid,text,jsonb,uuid,uuid,bytea)": {
+      "note": "Website session_user only; no narrow EXECUTE."
+    },
+    "browser_web_join(uuid,uuid,bytea,text,boolean,uuid,bytea)": {
+      "note": "Website session_user only; no narrow EXECUTE."
+    },
+    "browser_web_leave(uuid,uuid)": {
+      "note": "Website session_user only; no narrow EXECUTE."
+    },
+    "browser_web_presence(uuid,boolean,bigint,uuid)": {
+      "note": "Website session_user only; no narrow EXECUTE."
+    },
+    "browser_web_owner_view(uuid,uuid,uuid,uuid,uuid)": {
+      "note": "Website session_user only; no narrow EXECUTE."
+    },
+    "browser_web_sites(uuid,uuid,integer,jsonb,uuid,bytea)": {
+      "note": "Website session_user only; no narrow EXECUTE."
+    },
+    "browser_web_reads(uuid,uuid,integer,jsonb,text,uuid,bytea)": {
+      "note": "Website session_user only; no narrow EXECUTE."
+    },
+    "browser_web_attach_run(uuid,uuid,uuid,bigint,uuid)": {
+      "note": "Website session_user only; no narrow EXECUTE."
+    },
+    "browser_web_capability(uuid,uuid,uuid,text,jsonb,uuid)": {
+      "note": "Website session_user only; no narrow EXECUTE."
+    },
+    "browser_web_control(uuid,uuid,text,bigint,uuid,bytea)": {
+      "note": "Website session_user only; no narrow EXECUTE."
+    },
+    "browser_web_input(uuid,uuid,uuid,jsonb,bigint,uuid,bytea)": {
+      "note": "Website session_user only; no narrow EXECUTE."
+    },
+    "browser_authorize(uuid,uuid,bytea)": {
+      "sjcos_browser": [
+        "EXECUTE"
+      ]
+    },
+    "browser_read_state(uuid,bytea,text)": {
+      "sjcos_browser": [
+        "EXECUTE"
+      ]
+    },
+    "browser_command_begin(uuid,uuid,bytea,uuid,bigint,bigint,text,bytea)": {
+      "sjcos_browser": [
+        "EXECUTE"
+      ]
+    },
+    "browser_command_finish(uuid,uuid,text)": {
+      "sjcos_browser": [
+        "EXECUTE"
+      ]
+    },
+    "browser_enter_private(uuid,uuid,bigint,text)": {
+      "sjcos_browser": [
+        "EXECUTE"
+      ]
+    },
+    "browser_runtime_transition(uuid,uuid,bigint,text,text)": {
+      "sjcos_browser": [
+        "EXECUTE"
+      ]
+    },
+    "browser_run_end(uuid,uuid,text,uuid)": {
+      "sjcos_browser": [
+        "EXECUTE"
+      ]
+    },
+    "browser_maintenance_claim(uuid,integer)": {
+      "sjcos_browser": [
+        "EXECUTE"
+      ]
+    },
+    "browser_maintenance_finish(uuid,uuid,text,jsonb)": {
+      "sjcos_browser": [
+        "EXECUTE"
+      ]
+    },
+    "browser_append_audit(uuid,uuid,text,uuid,text,jsonb)": {
+      "sjcos_browser": [
+        "EXECUTE"
+      ]
+    },
+    "browser_checkpoint(bigint,bytea,text,bytea,text)": {
+      "sjcos_browser": [
+        "EXECUTE"
+      ]
+    },
+    "browser_read_consume(uuid,uuid,integer,uuid,bytea,bytea,uuid,bigint,bigint)": {
+      "sjcos_browser": [
+        "EXECUTE"
+      ]
+    },
+    "browser_web_queue(uuid,uuid,text,uuid,bytea)": {
+      "note": "Website session_user only; no narrow EXECUTE."
+    },
+    "browser_queue_offer(uuid)": {
+      "sjcos_browser": [
+        "EXECUTE"
+      ]
     }
   }
 }

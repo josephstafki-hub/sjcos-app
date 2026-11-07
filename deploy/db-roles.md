@@ -157,3 +157,42 @@ operator runs; the MCP server uses the narrow login otherwise. Terminal Claude
 sessions on this box (`claude mcp` stdio) get the narrow login too; add
 `"env": {"SJC_DB_LOGIN": "owner"}` to that server in `~/.claude.json` only if
 you want them on the owner login.
+
+## Browser Phase 1 (0115; dark until separate acceptance)
+
+`sjcos_browser` is the fifth narrow login. Bootstrap creates it with LOGIN,
+NOINHERIT, NOSUPERUSER, NOCREATEDB, NOCREATEROLE, NOBYPASSRLS and an eight-connection
+limit. Provision its password/socket authentication separately; no bootstrap,
+password, live SQL or deployment is performed by A0. A1 must add explicit
+`DATABASE_URL_BROWSER` runtime selection with no owner/environment-file fallback.
+The repository accepts an already connected client and never resolves a DSN.
+
+It receives **zero table privileges**, including SELECT. Only the service entries
+in `deploy/db-roles.manifest.json.functions` receive EXECUTE; website APIs and
+internal helpers revoke PUBLIC EXECUTE. `node scripts/db-roles-sql.mjs --functions`
+prints the exclusive function grants. `db-roles-apply.mjs` applies/checks both
+catalogs; table revocation also removes old column ACLs. The static scan starts
+at the Browser repository: no direct service table access is expected.
+
+`session_user` is the authority boundary. Definer ownership does not make an
+agent/worker/readonly session a website or Browser session. All browser tables
+retain their private guards. The service guard allows only the catalog's runtime
+columns/inserts, monotonic privacy/epochs and terminal fencing, never approval,
+principal/area changes or fresh-public authority. The conversation SELECT policy
+applies only to the actual table-owner role executing the definer catalog and
+checks the actual Browser session plus immutable task/person binding. It grants
+no raw conversation access or ordinary model-history access.
+
+`ai_messages.trust_profile` and `browser_task_id` cannot be assigned by narrow
+writers, including explicit DEFAULT assignments. The worker's existing ordinary
+background INSERT/UPDATE rights are column grants. Browser message tagging and
+confirmed-answer writes belong to the website; provenance cannot be rewritten.
+
+Browser pilot/preference lists and internal verifier attestations are owner-only
+settings. HMAC/signing keys remain outside PostgreSQL. A1's trusted verifier must
+stage exact, expiring `browser.audit_event.<event UUID>` and
+`browser.checkpoint.<external ACK>` attestations after independently verifying
+signatures. Service cannot write these settings. A digest, HMAC-shaped string or
+signature-shaped byte array alone never authorizes a read. See
+[the frozen A0 handoff](../docs/plans/build/browser-phase1-A0-HANDOFF.md) for the
+attestation and preflight → checkpoint → one-use consume protocol.

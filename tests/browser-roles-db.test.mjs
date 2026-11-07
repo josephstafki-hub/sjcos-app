@@ -44,3 +44,27 @@ for(const role of ['sjcos_agent','sjcos_worker','sjcos_readonly','sjcos_browser'
   }else await withSessionIdentity(url,role,attack);
  });
 }));
+
+import {withLogin} from './_harness/testdb.mjs';
+import {loadManifest} from '../scripts/db-roles-sql.mjs';
+import {phase1Fixture} from './browser-schema-fixtures.mjs';
+for(const role of ['sjcos_browser','sjcos_agent','sjcos_worker','sjcos_readonly','sjcos_test_public'])test(`A0 real LOGIN ${role}: function ACL, no forgery or escalation`,()=>withTestDb(async(url,db)=>{
+ await phase1Fixture(url,db,async({c,task,run,boot,people})=>{
+  await db.query(`DO $$ BEGIN IF NOT EXISTS(SELECT 1 FROM pg_roles WHERE rolname='sjcos_test_public') THEN CREATE ROLE sjcos_test_public LOGIN; END IF; END $$`);
+  await withLogin(url,role,async(n,identity)=>{
+   assert.deepEqual(identity,{session_user:role,current_user:role});
+   for(const [sig,e] of Object.entries(loadManifest().functions))assert.equal((await n.query("SELECT has_function_privilege(current_user,$1,'EXECUTE') ok",[sig])).rows[0].ok,!!e[role]?.includes('EXECUTE'),sig);
+   for(const table of [...tables,...privateTables])for(const op of ['SELECT','INSERT','UPDATE','DELETE'])assert.equal((await n.query('SELECT has_table_privilege(current_user,$1,$2) ok',[table,op])).rows[0].ok,false);
+   for(const sql of ['SET ROLE sjcos_test_website',`UPDATE browser_tasks SET private=false`,`UPDATE browser_tasks SET required_areas=ARRAY['ai']`,`UPDATE users SET role='owner'`,`UPDATE browser_actions SET state='approved'`,`UPDATE app_settings SET value='true'`])await assert.rejects(n.query(sql),e=>e.code==='42501');
+   await assert.rejects(n.query("INSERT INTO ai_messages(conversation_id,role,body,trust_profile,browser_task_id) VALUES($1,'user','forged',DEFAULT,DEFAULT)",[task.conversation_id]),e=>e.code==='42501');
+   await n.query(`SELECT set_config('sjcos.ask_actor',$1,false),set_config('browser.authorized','true',false)`,[people.owner.id]);
+   if(role==='sjcos_browser'){
+    const result=(await n.query('SELECT browser_authorize($1,$2,$3) r',[task.id,run,hash])).rows[0].r;assert.equal(result.id,task.id);
+    for(const args of [[task.id,run,Buffer.alloc(32,9)],[task.id,crypto.randomUUID(),hash],[crypto.randomUUID(),run,hash]])await assert.rejects(n.query('SELECT browser_authorize($1,$2,$3)',args),e=>e.code==='42501');
+    await assert.rejects(n.query('SELECT browser_enter_private($1,$2,0,$3)',[task.id,crypto.randomUUID(),'private']),e=>e.code==='42501');
+    await assert.rejects(n.query('SELECT browser_enter_private($1,$2,0,$3)',[task.id,boot,'public']),e=>e.code==='42501');
+    await assert.rejects(n.query('SELECT browser_checkpoint(1,$1,$2,$3,$4)',[hash,'phase1',Buffer.alloc(64),'forged_ack']),e=>e.code==='42501');
+   }else await assert.rejects(n.query('SELECT browser_authorize($1,$2,$3)',[task.id,run,hash]),e=>e.code==='42501');
+  });
+ });
+}));

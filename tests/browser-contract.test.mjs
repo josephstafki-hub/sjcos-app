@@ -90,3 +90,37 @@ test('stdio wrapper refuses global/unverified registration and has exact v1 cata
  for(const input of [{task_id:'22222222-2222-4222-8222-222222222222'},{task_id:taskId,approve:true}]){const result=await h(input);assert.equal(result.isError,true);assert.equal(calls,0);}
  const result=await h({task_id:taskId});assert.equal(calls,1);assert.equal(result.isError,true);assert.equal(result.content[0].text.includes('secret'),false);
 });
+
+// A0 expectations written before implementation: reject ambiguous or forged wire authority.
+import {phase1Frame,phase1TaskSafe,phase1Envelope} from './fixtures/browser-contract-v1.mjs';
+import * as P1 from '../lib/browser/phase1-contracts.mjs';
+const draft={...task,run_id:null};
+for(const [name,schema,value] of [
+ ['MCP null run',()=>P1.Task,{...draft}],
+ ['uppercase UUID',()=>P1.Task,{...task,task_id:id.toUpperCase()}],
+ ['fractional epoch',()=>P1.Task,{...task,control_epoch:0.5}],
+ ['unsafe revision',()=>P1.TaskMetadata,{revision:Number.MAX_SAFE_INTEGER+1,context_generation:0}],
+ ['SQL URL leak',()=>P1.TaskSafe,{...phase1TaskSafe,url:'https://secret.example'}],
+ ['notice executable state',()=>P1.ReviewNotice,{id,task_id:id,original_run_id:null,revision:1,kind:'final_blocked',state:'approved',server_deadline:null,result_code:'BROWSER_PHASE1_READ_ONLY',read_revision:null}],
+ ['web exception string',()=>P1.WebError,{ok:false,code:'BROWSER_BAD_INPUT',message:'secret',retryable:false}],
+ ['read-only retry',()=>P1.WebError,{ok:false,code:'BROWSER_PHASE1_READ_ONLY',message:'BROWSER_PHASE1_READ_ONLY',retryable:true}],
+ ['bigint frame',()=>P1.Frame,{...phase1Frame,frame_id:1}],
+ ['fractional frame seq',()=>P1.Frame,{...phase1Frame,seq:1.5}],
+ ['CDP RPC',()=>P1.WebEnvelopeV1,{...phase1Envelope,method:'Runtime.evaluate'}],
+ ['forged input authority',()=>P1.ManualInput,{authorized:true}],
+ ['queue roster leak',()=>P1.QueueOffer,{task_id:id,position:1,person_label:'other'}],
+ ['later phase file event',()=>P1.EventPayloads.file,{available:true}],
+]) test('A0 rejects '+name,()=>assert.throws(()=>schema().parse(value)));
+test('A0 draft stays separate from immutable MCP run identity',()=>{
+ assert.deepEqual(P1.TaskDraft.parse(draft),draft);assert.deepEqual(P1.TaskUI.parse(task),task);
+ assert.equal(P1.RPC_METHODS.includes('read_state'),true);assert.equal(P1.RPC_METHODS.includes('stream_open'),true);
+ assert.deepEqual(P1.EVENT_NAMES,['state','frame','action','file','reauth','closed']);
+});
+
+test('A0 complete client fixtures, exact RPC reads and bounded frame bytes',()=>{
+ assert.deepEqual(P1.TaskSafe.parse(phase1TaskSafe),phase1TaskSafe);
+ assert.deepEqual(P1.Frame.parse(phase1Frame),phase1Frame);
+ assert.deepEqual(P1.WebEnvelopeV1.parse(phase1Envelope),phase1Envelope);
+ assert.throws(()=>P1.WebEnvelopeV1.parse({...phase1Envelope,payload:{proof_id:null,body:{authorized:true}}}));
+ assert.throws(()=>P1.Frame.parse({...phase1Frame,jpeg_base64:Buffer.alloc(160*1024+1).toString('base64')}));
+});

@@ -44,3 +44,7 @@ export const outputs = {
   browser_stage_upload:{ok:true,action_id:id,state:'pending',needs_owner:true,expires_at:'2026-11-05T18:00:00.000Z'},
   browser_close:{ok:true,task_id:id,state:'closed'},
 };
+
+export const phase1Frame={stream_id:id,stream_generation:1,frame_id:id,seq:0,control_epoch:0,document_epoch:1,viewport:{width:1280,height:800},width:960,height:600,jpeg_base64:'AQID'};
+export const phase1TaskSafe={id,current_run_id:id,state:'active',private:false,privacy_mode:'public',vault_dependency:'none',manifest_revision:1,read_manifest_revision:1,control_epoch:0,document_epoch:1,controller_boot_id:id,context_generation:0,revision:1,attention:'none'};
+export const phase1Envelope={v:1,method:'health',task_id:null,original_run_id:null,viewer_id:null,boot_id:id,command_id:id,sequence:1,issued_at:'2026-11-07T00:00:00.000Z',expires_at:'2026-11-07T00:00:05.000Z',nonce:id,body_digest:'00'.repeat(32),payload:{proof_id:null,body:{}},signature:'00'.repeat(32)};

@@ -265,3 +265,14 @@ test('0105 actual MCP/worker sessions cannot claim private Ask identity with GUC
   });
  });
 });
+
+test('A0 Browser repository uses explicit real LOGIN client and parameterized function calls',async()=>{
+ const {withLogin}=await import('./_harness/testdb.mjs');
+ const {phase1Fixture,hash}=await import('./browser-schema-fixtures.mjs');
+ const {browserAuthorize,browserReadState}=await import('../lib/browser/repository.mjs');
+ await withTestDb((url,db)=>phase1Fixture(url,db,async({task,run})=>withLogin(url,'sjcos_browser',async c=>{
+  assert.equal((await browserAuthorize(c,{tid:task.id,rid:run,k:hash})).id,task.id);
+  assert.deepEqual(await browserReadState(c,{tid:task.id,k:hash,scope:'files'}),[]);
+  await assert.rejects(browserAuthorize(c,{tid:task.id,rid:run,k:hash,principal:'forged'}));
+ })));
+});

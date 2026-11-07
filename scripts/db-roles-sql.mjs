@@ -15,7 +15,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-export const NARROW_ROLES = ["sjcos_agent", "sjcos_worker", "sjcos_readonly", "sjcos_backup"];
+export const NARROW_ROLES = ["sjcos_agent", "sjcos_worker", "sjcos_readonly", "sjcos_backup", "sjcos_browser"];
 
 export function loadManifest() {
   return JSON.parse(readFileSync(path.join(REPO, "deploy", "db-roles.manifest.json"), "utf8"));
@@ -44,10 +44,26 @@ export function grantLines(manifest, tables) {
 if (import.meta.url === `file://${process.argv[1]}`) {
   const manifest = loadManifest();
   const argv = process.argv.slice(2);
+  if(argv.includes("--functions")){console.log(functionGrantLines(manifest).join("\n"));} else {
   const tables = argv.includes("--all") ? Object.keys(manifest.tables).sort() : argv;
   if (!tables.length) {
     console.error("usage: node scripts/db-roles-sql.mjs <table> [table…] | --all");
     process.exit(2);
   }
   console.log(grantLines(manifest, tables).join("\n"));
+  }
+}
+
+/** Exclusive function EXECUTE catalog. Revoke PUBLIC and every narrow role. */
+export function functionGrantLines(manifest){
+ const out=[];
+ for(const [signature,entry] of Object.entries(manifest.functions??{})){
+  if(!/^[a-z_]+\((?:[a-z]+(?:,[a-z]+)*)?\)$/.test(signature))throw Error('invalid function signature');
+  out.push(`REVOKE ALL ON FUNCTION ${signature} FROM PUBLIC;`);
+  for(const role of NARROW_ROLES){
+   out.push(`DO $$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='${role}') THEN REVOKE ALL ON FUNCTION ${signature} FROM ${role}; END IF; END $$;`);
+   if(entry[role]?.includes('EXECUTE'))out.push(`DO $$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='${role}') THEN GRANT EXECUTE ON FUNCTION ${signature} TO ${role}; END IF; END $$;`);
+  }
+ }
+ return out;
 }

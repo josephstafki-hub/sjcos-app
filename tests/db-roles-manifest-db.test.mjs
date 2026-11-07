@@ -267,3 +267,11 @@ test("sjcos_grant is a no-op with a notice while a login does not exist (fresh d
     await assert.rejects(client.query(`SELECT sjcos_grant('sjcos_agent', 'ALL; DROP TABLE x', 'work_items')`), /unexpected privilege list/);
   });
 });
+
+test('0115 function catalog is exclusive, definer and has a protected search path',()=>withTestDb(async(url,c)=>{
+ for(const [sig,entry] of Object.entries(manifest.functions)){
+  const f=(await c.query("SELECT prosecdef,proconfig,EXISTS(SELECT 1 FROM aclexplode(proacl) a WHERE a.grantee=0 AND a.privilege_type='EXECUTE') AS public_execute FROM pg_proc WHERE oid=$1::regprocedure",[sig])).rows[0];
+  assert.equal(f.prosecdef,true);assert.ok(f.proconfig.includes('search_path=public, pg_temp'));assert.equal(f.public_execute,false);
+  for(const role of DB_ROLES)assert.equal((await c.query("SELECT has_function_privilege($1,$2,'EXECUTE') ok",[role,sig])).rows[0].ok,!!entry[role]?.includes('EXECUTE'),`${sig} ${role}`);
+ }
+}));

@@ -33,6 +33,7 @@ const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const ROLE_OPTIONS = { sjcos_agent: { aliases: false }, sjcos_worker: { aliases: true } };
 
 export const ENTRY_POINTS = {
+  sjcos_browser: ["lib/browser/repository.mjs"],
   sjcos_agent: [
     "mcp/sjcos-mcp.mjs",
     "mcp/interact-mcp.mjs",

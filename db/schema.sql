@@ -4556,3 +4556,37 @@ DO $$ DECLARE tab text; BEGIN
  EXECUTE format('DROP TRIGGER IF EXISTS guard_browser_truncate_schema ON %I',tab);
  EXECUTE format('CREATE TRIGGER guard_browser_truncate_schema BEFORE TRUNCATE ON %I FOR EACH STATEMENT EXECUTE FUNCTION browser_schema_no_truncate()',tab);
  END LOOP; END $$;
+
+-- 0115 additive snapshot; functions/guards/grants installed by ordered ledger.
+-- Browser Phase 1 A0. Additive seam; does not activate a runtime.
+ALTER TABLE browser_tasks ADD COLUMN IF NOT EXISTS task_kind text NOT NULL DEFAULT 'public_research' CHECK(task_kind IN ('public_research','permit','invoice','purchase'));
+ALTER TABLE browser_tasks ADD COLUMN IF NOT EXISTS revision bigint NOT NULL DEFAULT 1 CHECK(revision>0);
+ALTER TABLE browser_tasks ADD COLUMN IF NOT EXISTS context_generation bigint NOT NULL DEFAULT 0 CHECK(context_generation>=0);
+ALTER TABLE browser_tasks ADD COLUMN IF NOT EXISTS confirmed_answers jsonb NOT NULL DEFAULT '[]';
+ALTER TABLE browser_tasks ADD COLUMN IF NOT EXISTS attention text NOT NULL DEFAULT 'none' CHECK(attention IN ('none','person','joe','check_result'));
+ALTER TABLE browser_tasks ADD COLUMN IF NOT EXISTS listener_generation bigint NOT NULL DEFAULT 0 CHECK(listener_generation>=0);
+ALTER TABLE browser_viewers ADD COLUMN IF NOT EXISTS last_frame_uuid uuid;
+ALTER TABLE browser_commands ADD COLUMN IF NOT EXISTS frame_uuid uuid;
+DO $$ DECLARE c record; BEGIN
+ FOR c IN SELECT conname FROM pg_constraint WHERE conrelid='browser_commands'::regclass AND contype='c' AND pg_get_constraintdef(oid) LIKE '%frame_id%' LOOP
+ EXECUTE format('ALTER TABLE browser_commands DROP CONSTRAINT %I',c.conname); END LOOP;
+END $$;
+ALTER TABLE browser_commands DROP CONSTRAINT IF EXISTS browser_commands_viewer_uuid_binding;
+ALTER TABLE browser_commands ADD CONSTRAINT browser_commands_viewer_uuid_binding CHECK(
+ (viewer_id IS NULL AND web_session_id IS NULL AND frame_uuid IS NULL) OR
+ (viewer_id IS NOT NULL AND web_session_id IS NOT NULL AND body_digest IS NOT NULL AND stream_id IS NOT NULL AND stream_generation>0 AND frame_uuid IS NOT NULL AND document_epoch>=0 AND control_epoch>=0));
+ALTER TABLE browser_web_commands DROP CONSTRAINT IF EXISTS browser_web_commands_operation_check;
+ALTER TABLE browser_web_commands ADD CONSTRAINT browser_web_commands_operation_check CHECK(operation IN ('admit','join','leave','presence','takeover','release','pause','resume','close','review','watch','publish_manifest','fresh_browser','input','attach_run','capability','queue','offer','accept_offer'));
+ALTER TABLE ai_messages ADD COLUMN IF NOT EXISTS trust_profile text NOT NULL DEFAULT 'ordinary' CHECK(trust_profile IN ('ordinary','browser'));
+ALTER TABLE ai_messages ADD COLUMN IF NOT EXISTS browser_task_id uuid REFERENCES browser_tasks(id) ON DELETE RESTRICT;
+ALTER TABLE ai_messages DROP CONSTRAINT IF EXISTS ai_messages_browser_provenance;
+ALTER TABLE ai_messages ADD CONSTRAINT ai_messages_browser_provenance CHECK((trust_profile='browser')=(browser_task_id IS NOT NULL));
+INSERT INTO app_settings(key,value) VALUES('browser.pilot_user_ids','[]'),('browser.takeover_confirm_suppressed_user_ids','[]') ON CONFLICT DO NOTHING;
+-- Roster/preference and purpose keys are owner-only reads too.
+DROP POLICY IF EXISTS browser_settings_private ON app_settings;
+CREATE POLICY browser_settings_private ON app_settings AS RESTRICTIVE FOR SELECT USING(
+ key NOT LIKE 'browser.%' OR session_user=pg_get_userbyid((SELECT relowner FROM pg_class WHERE oid='app_settings'::regclass)));
+
+ALTER TABLE browser_audit ADD COLUMN IF NOT EXISTS phase1_binding jsonb;
+ALTER TABLE browser_audit_outbox DROP CONSTRAINT IF EXISTS browser_audit_outbox_event_check;
+ALTER TABLE browser_audit_outbox ADD CONSTRAINT browser_audit_outbox_event_check CHECK(event IN ('action_prepared','action_approved','action_denied','action_consumed','action_result','action_stale','vault_changed','file_changed','handoff_changed','task_admitted','run_attached','run_ended','task_transition','viewer_joined','viewer_left','manifest_published','command_begin','command_finish','read_consumed','maintenance'));

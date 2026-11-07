@@ -16,7 +16,7 @@
 
 import pg from "../lib/guarded-pg.mjs";
 import { resolveDatabaseUrl } from "../lib/db-login.mjs";
-import { grantLines, loadManifest, NARROW_ROLES } from "./db-roles-sql.mjs";
+import { grantLines, functionGrantLines, loadManifest, NARROW_ROLES } from "./db-roles-sql.mjs";
 
 const check = process.argv.includes("--check");
 const manifest = loadManifest();
@@ -55,7 +55,11 @@ try {
       await client.query(`REVOKE ALL ON ALL TABLES IN SCHEMA public FROM ${r}`);
       await client.query(`REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM ${r}`);
     }
+    const cols=(await client.query(`SELECT c.relname t,att.attname col,r.rolname role FROM pg_attribute att JOIN pg_class c ON c.oid=att.attrelid JOIN pg_namespace ns ON ns.oid=c.relnamespace CROSS JOIN LATERAL aclexplode(att.attacl) a JOIN pg_roles r ON r.oid=a.grantee WHERE ns.nspname='public' AND r.rolname=ANY($1)`,[NARROW_ROLES])).rows;
+    const quote=x=>'"'+x.replaceAll('"','""')+'"';
+    for(const {t,col,role} of cols)await client.query(`REVOKE SELECT (${quote(col)}),INSERT (${quote(col)}),UPDATE (${quote(col)}),REFERENCES (${quote(col)}) ON ${quote(t)} FROM ${quote(role)}`);
     for (const line of grantLines(manifest, Object.keys(manifest.tables).filter((t) => present.has(t)))) await client.query(line);
+    for(const line of functionGrantLines(manifest))await client.query(line);
     await client.query("COMMIT");
     console.log(`applied deploy/db-roles.manifest.json to ${present.size} tables as ${me}`);
   }
@@ -89,6 +93,14 @@ try {
         console.log(`${t} / ${role}: ${lacking.length ? `missing ${lacking.join(", ")}` : ""}${lacking.length && extra.length ? "; " : ""}${extra.length ? `extra ${extra.join(", ")}` : ""}`);
       }
     }
+  }
+  for(const [sig,entry] of Object.entries(manifest.functions??{})){
+    for(const role of NARROW_ROLES){
+      const have=(await client.query("SELECT has_function_privilege($1,$2,'EXECUTE') ok",[role,sig])).rows[0].ok;
+      if(have!==!!entry[role]?.includes('EXECUTE')){diffs++;console.log(`${sig} / ${role}: EXECUTE differs`);}
+    }
+    const publicExecute=(await client.query("SELECT EXISTS(SELECT 1 FROM pg_proc p CROSS JOIN LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a WHERE p.oid=$1::regprocedure AND a.grantee=0 AND a.privilege_type='EXECUTE') ok",[sig])).rows[0].ok;
+    if(publicExecute){diffs++;console.log(`${sig}: PUBLIC EXECUTE must be revoked`);}
   }
   const { rows: probe } = await client.query(
     `SELECT has_table_privilege('sjcos_agent', 'public.users', 'SELECT') AS agent_reads_users,

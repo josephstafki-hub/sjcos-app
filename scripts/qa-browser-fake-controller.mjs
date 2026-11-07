@@ -10,6 +10,7 @@ import {createProductionRpc,encodeFrame,frameReader} from '../lib/browser/contro
 import {encodeBinaryFrame} from '../lib/browser/live-view.mjs';
 import * as repo from '../lib/browser/repository.mjs';
 import {createProtectedAuditWriter} from '../lib/browser/audit-service.mjs';
+import {createWebsiteDiscovery} from '../lib/browser/production-bridge.mjs';
 import {UUID,WebEnvelopeV1} from '../lib/browser/phase1-contracts.mjs';
 
 export const QA_ROOT='/home/joe/qa-sjcos/browser-p1';
@@ -80,12 +81,38 @@ export async function qaAttachRun(c,task,viewer,session){
 /** Only called after the runtime triple guard in web.ts; rechecked per hook. */
 export async function createQaWebsiteHooks({db,key,dir}){
  await readScenario(db,dir);
+ const transaction=async fn=>{const c=await db.connect();try{await c.query('BEGIN');const result=await fn(c);await c.query('COMMIT');return result;}catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}};
+ const confirmedFacts=async()=>({values:[],classifyPublicUrl:url=>PUBLIC_URLS.includes(url)||url==='https://city.example/permits/details'||/^https:\/\/city\.example\/assets\/public-[0-9]+\.css$/.test(url)});
+ const discover=createWebsiteDiscovery({transaction,proofKey:key,confirmedFacts});
  return {
+  discover:async input=>{await readScenario(db,dir);return discover({...input,proposal:input.proposal??{v:1,entries:[{url:PUBLIC_URLS[0],role:'document',source:'person'}]}});},
+  navigation:async({task})=>{const s=await readScenario(db,dir),e=s.tasks[task.id];return e?.navigation?{guarded:true,back:true,forward:false,reload:true,targets:['qa-permit','qa-payment']}:null;},
   authorizePrivateWatch:async input=>{await readScenario(db,dir);const t=(await db.query('SELECT * FROM browser_tasks WHERE id=$1',[input.task_id])).rows[0];if(!t||input.binding?.viewer_id!==input.object_id)refused();const v=(await db.query('SELECT * FROM browser_viewers WHERE id=$1 AND task_id=$2',[input.object_id,t.id])).rows[0];if(!v||v.joined_role!=='owner_review'||v.web_session_id!==input.binding.sid)refused();const body={viewer_id:v.id,visible:true,generation:Number(v.stream_generation),idempotency_key:randomUUID()},p=await qaProof(db,t,input.binding.sid,input.object_id,'presence',body,{qa_private_watch:true});return qaSignedCall(db,dir,key,{task_id:t.id,original_run_id:t.current_run_id,viewer_id:input.object_id,boot_id:t.controller_boot_id},{proof_id:p.id,body});},
   classifyTask:async input=>{const s=await readScenario(db,dir);if(!Object.values(s.states).some(x=>x.thread_id===input.conversation_id&&QA_PEOPLE[x.as]?.id===input.user_id)||input.project_id||input.lead_slug)refused();return {task_kind:/** @type {const} */('public_research'),catalog_version:1};},
-  confirmedFacts:async()=>{await readScenario(db,dir);return {values:[],classifyPublicUrl:url=>PUBLIC_URLS.includes(url)||/^https:\/\/city\.example\/assets\/public-[0-9]+\.css$/.test(url)};},
+  confirmedFacts:async()=>{await readScenario(db,dir);return confirmedFacts();},
   projection:async({task,viewer,session})=>{const s=await readScenario(db,dir),entry=s.tasks[task.id];if(!entry)refused();const watch=(await db.query('SELECT 1 FROM browser_owner_views WHERE task_id=$1 AND revoked_at IS NULL AND expires_at>clock_timestamp() LIMIT 1',[task.id])).rows.length>0;return {state_reason:entry.idle_closes_at&&Date.parse(entry.idle_closes_at)<=Date.now()?'idle_closed':entry.reason??null,reason_code:entry.code??null,idle_closes_at:entry.idle_closes_at??null,controller:task.controller_user_id?(task.controller_user_id===session.userId?(viewer&&task.controller_device_hash?.equals(viewer.device_hash)?'self':'other_device'):'owner'):'none',window_count:entry.windows??1,watching_owner:watch,owner_label:QA_PEOPLE.owner.name};},
-  start:async({task,viewer,session})=>{await readScenario(db,dir);const c=await db.connect();try{await c.query('BEGIN');const fresh=(await c.query('SELECT * FROM browser_tasks WHERE id=$1 FOR UPDATE',[task.id])).rows[0];const result=fresh.current_run_id?{run_id:fresh.current_run_id}:await qaAttachRun(c,fresh,viewer,session);await c.query('COMMIT');return result;}catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}},
+  start:async({task,viewer,session})=>{
+   await readScenario(db,dir);
+   return transaction(async c=>{
+    const fresh=(await c.query('SELECT * FROM browser_tasks WHERE id=$1 FOR UPDATE',[task.id])).rows[0];
+    // Match the website's reviewed-next-document check before attaching a new turn.
+    const read=await c.query(`SELECT 1 FROM browser_read_manifests m
+     CROSS JOIN LATERAL jsonb_array_elements(m.public_entries->'entries') e
+     WHERE m.task_id=$1 AND m.revoked_at IS NULL AND m.authorization_state='approved'
+     AND m.expires_at>clock_timestamp() AND e->>'role'='document'
+     AND (e->>'parent_document_epoch')::bigint=$2+1
+     AND NOT EXISTS(SELECT 1 FROM browser_read_uses u WHERE u.task_id=m.task_id AND u.revision=m.revision AND u.entry_id=(e->>'id')::uuid)
+     AND m.revision=(SELECT max(revision) FROM browser_read_manifests WHERE task_id=$1)`,[fresh.id,Number(fresh.document_epoch)]);
+    if(!read.rowCount)throw Error('BROWSER_REVIEW_REQUIRED');
+    const result=await qaAttachRun(c,fresh,viewer,session);
+    const current=(await c.query('SELECT * FROM browser_tasks WHERE id=$1',[fresh.id])).rows[0];
+    // This is an inert QA process binding, never an actual broker/runner claim.
+    const binding={pid:1,start_ticks:'1',cgroup:'/qa-no-process',boot_id:current.controller_boot_id};
+    const p=await qaProof(c,current,session.sid,viewer.id,'capability',{}, {process_binding:binding});
+    await repo.browserWebCapability(c,{tid:current.id,rid:result.run_id,vid:viewer.id,server_kind:'browser',process_binding:binding,i:p.i});
+    return result;
+   });
+  },
  };
 }
 
@@ -106,21 +133,28 @@ export async function createFakeProtocol({db,keys,website}){
   const t=x.task_id?await taskFor(x):null,b=x.payload.body;
   if(x.method==='health')return {ok:true,qa_fixture:true};
   if(x.method==='stream_open'){opened.set(x.viewer_id,{task_id:x.task_id,boot_id:x.boot_id,stream_id:b.stream_id,stream_generation:b.stream_generation,expires_at:b.expires_at});return {ok:true};}
-  if(x.method==='stream_close'){opened.delete(x.viewer_id);return {ok:true};}
+  if(x.method==='stream_close'){const current=opened.get(x.viewer_id);if(current&&['stream_id','stream_generation'].some(k=>current[k]!==b[k]))return {ok:false,code:'BROWSER_STREAM_STALE'};opened.delete(x.viewer_id);return {ok:true};}
   if(x.method==='control'){
    const s=await readScenario(db,await qaGuard(db)),entry=s.tasks[t.id];
+   if(['back','forward','reload','switch_tab'].includes(b.action)){
+    const m=(await websiteCall(c=>c.query('SELECT revision,authorization_state,expires_at FROM browser_read_manifests WHERE task_id=$1 AND revoked_at IS NULL ORDER BY revision DESC LIMIT 1',[t.id]))).rows[0];
+    if(!entry.navigation||t.private||Number(t.control_epoch)!==b.expected_epoch||Number(t.context_generation)!==b.context_generation||Number(t.document_epoch)!==b.expected_document_epoch||Number(m?.revision)!==b.read_manifest_revision)return {ok:false,code:'BROWSER_REVIEW_STALE'};
+    if(m.authorization_state!=='approved'||new Date(m.expires_at).getTime()<=Date.now())return {ok:false,code:'BROWSER_REVIEW_REQUIRED'};
+    if(b.action==='forward'||b.action==='switch_tab'&&!['qa-permit','qa-payment'].includes(b.target_id))return {ok:false,code:'BROWSER_FORBIDDEN'};
+    return {ok:true,qa_navigation_only:true};
+   }
    if(entry.control_delay_ms&&b.action==='take_over')await new Promise(r=>setTimeout(r,Math.min(1000,entry.control_delay_ms)));
    if(entry.pause_fails&&b.action==='pause')return {ok:false,code:'BROWSER_REVIEW_PENDING'};
    if(b.action==='take_over'&&!t.private)await serviceCall(c=>repo.browserEnterPrivate(c,{tid:t.id,boot:t.controller_boot_id,expected_epoch:Number(t.control_epoch),mode:'private'}));
    const current=(await websiteCall(c=>c.query('SELECT * FROM browser_tasks WHERE id=$1',[t.id]))).rows[0];
-   return {ok:true,proof_metadata:{drained:true,fenced:true,context_generation:Number(current.context_generation),control_epoch:Number(current.control_epoch),...(b.action==='fresh_browser'?{old_generation:Number(current.context_generation),new_boot_id:randomUUID()}:{} )}};
+   return {ok:true,proof_metadata:{drained:true,fenced:true,context_generation:Number(current.context_generation),control_epoch:Number(current.control_epoch),...(b.action==='fresh_browser'?{old_generation:Number(current.context_generation),new_boot_id:current.controller_boot_id}:{} )}};
   }
   if(x.method==='read_availability')return {ok:true,enabled:true,can_start:true,qa_fixture:true};
   // In B these mutations commit through the website SQL adapter, not RPC.
   // Like A's metadata handlers, report current state; never reapply a mutation.
-  if(['admit','join','leave','presence','sites'].includes(x.method))return {ok:true,task:await websiteCall(c=>c.query('SELECT browser_p1_safe(t) result FROM browser_tasks t WHERE id=$1',[t.id])).then(r=>r.rows[0].result)};
+  if(['admit','join','leave','sites'].includes(x.method))return {ok:true,task:await websiteCall(c=>c.query('SELECT browser_p1_safe(t) result FROM browser_tasks t WHERE id=$1',[t.id])).then(r=>r.rows[0].result)};
   if(x.method==='manual_input')return {ok:true,accepted_seq:b.seq};
-  if(x.method==='presence'){const p=(await websiteCall(c=>c.query('SELECT safe_result FROM browser_web_commands WHERE id=$1',[x.payload.proof_id]))).rows[0];if(p?.safe_result?.qa_private_watch===true){const dir=await qaGuard(db);return {ok:true,...await anchorQaPrivateView({db,dir,website,task:t,viewer:x.viewer_id})};}}
+  if(x.method==='presence'){const p=(await websiteCall(c=>c.query('SELECT safe_result FROM browser_web_commands WHERE id=$1',[x.payload.proof_id]))).rows[0];if(p?.safe_result?.qa_private_watch===true){const dir=await qaGuard(db),s=await readScenario(db,dir);if(s.tasks[t.id].audit_pending)return {ok:true,qa_pending_audit:true};return {ok:true,...await anchorQaPrivateView({db,dir,website,task:t,viewer:x.viewer_id})};}return {ok:true};}
   if(x.method==='read_state')return {ok:true,task:await websiteCall(c=>c.query('SELECT browser_p1_safe(t) result FROM browser_tasks t WHERE id=$1',[t.id])).then(r=>r.rows[0].result)};
   if(['read_manifest','read_review','read_answers','read_in_use'].includes(x.method)){
    const s=await readScenario(db,await qaGuard(db));const items=x.method==='read_answers'?t.confirmed_answers:x.method==='read_in_use'?Object.values(s.tasks).filter(e=>e.active).map(e=>({task_id:e.task_id,person_label:QA_PEOPLE[e.as].name,state:e.state})):x.method==='read_review'?(s.tasks[t.id].reviews??[]):await websiteCall(c=>c.query('SELECT public_entries FROM browser_read_manifests WHERE task_id=$1 ORDER BY revision DESC LIMIT 1',[t.id])).then(r=>r.rows[0]?.public_entries.entries??r.rows[0]?.public_entries.candidates??[]);

@@ -12,9 +12,16 @@ export const RECIPES={
  off:['empty','Owner: disable Browser in settings; restore after shot.'],unsupported:['empty','Select a non-Claude agent; return to Claude afterward.'],
  sites_empty:['empty','Open Browser, then Sites. Cancel without starting.'],sites_added:['working','Open Sites: city.example and county.example; exact approved addresses are listed.'],
 
+ guarded_menu:['working','Open ⋯: Back/Reload enabled, Forward disabled; both QA windows. No real browser history.'],
+ reload_confirm:['working','Open ⋯ → Reload; capture warning, Cancel and explicit Reload.'],
+ exact_path_review:['read_review','Review exact same-origin /permits/details; approval does not navigate.'],
+ exact_resource_review:['resource_review','Review exact document and CSS together, then explicitly Reload.'],
+ watch_consent_reask:['working','Owner opens public Watch; staff takes over. Old image clears; Show the page is required again.'],
+ watch_audit_pending:['paused_private','Owner explicitly Show the page: local QA checkpoint withheld; waiting placeholder, no private frames. Reseed owner_watch_after to recover.'],
+ pre_frame_close:['working','No JPEG; switch Browser → Chat/Canvas and inspect exact planned-close ACK before GET abort.'],
  loading:['starting','Opening state. Earlier view requires a real previous frame and delayed reload; see limits.'],
  takeover_confirm:['working','Tap Take over; leave confirmation open. Owner also captures the own-confirm checkbox.'],
- taking_over:['working','Confirm Take over; the signed fake ACK is immediate. Slow fence needs a coordinator delay; see limits.'],
+ taking_over:['working','Confirm Take over; the signed fake ACK delays one second.'],
  controlling:['working','Take over → confirm; token stays in memory. Then test Keyboard/IME/Escape, Zoom/Fit and Pause live view.'],
  done:['working','Take over → confirm → Done. Capture first prompt, then Keep paused and leave/return.'],
  fresh_confirm:['paused_private','Open menu → Fresh browser. Capture cancel, then confirm and verify private image/consent clears.'],
@@ -68,12 +75,18 @@ export async function seedBrowser(c,{state='working',refresh=false,resourceCount
    await asWebsite(c=>c.query(`INSERT INTO ai_conversations(id,agent,title,owner_user_id) VALUES($1,'claude',$2,$3) ON CONFLICT(id) DO NOTHING`,[thread,'QA Browser · '+person.name+' · '+kind,person.id]));
    if(kind==='empty'){scenario.states[key]={url:`/panel?c=${thread}`,as:role,thread_id:thread,notes:'Choose Browser. No task has been started.'};return;}
    const live=(await asWebsite(c=>c.query(`SELECT * FROM browser_tasks WHERE initiator_user_id=$1 AND state IN ('queued','starting','active','paused')`,[person.id]))).rows[0];
-   if(live){await asService(c=>repo.browserRuntimeTransition(c,{tid:live.id,boot:live.controller_boot_id,epoch:Number(live.control_epoch),next:'closed',code:'BROWSER_SERVICE_UNAVAILABLE'}));if(live.current_run_id)await asWebsite(c=>c.query("UPDATE dev_agent_runs SET status='done' WHERE id=$1",[live.current_run_id]));if(scenario.tasks[live.id])scenario.tasks[live.id].active=false;}
+   if(live){
+    // Stop queued tasks through the website too: a waiting task has no boot yet.
+    const device=randomBytes(32),join=await asWebsite(c=>qaProof(c,live,live.initiating_web_session_id,null,'join',{}, {device_secret_hash:device.toString('hex')}));
+    const viewer=await asWebsite(c=>repo.browserWebJoin(c,{tid:live.id,session:live.initiating_web_session_id,device_hash:device,role:'initiator',private_view:false,i:join.i,d:join.d}));
+    const p=await asWebsite(c=>qaProof(c,live,live.initiating_web_session_id,viewer.viewer_id,'close'));
+    await asWebsite(c=>repo.browserWebControl(c,{tid:live.id,vid:viewer.viewer_id,op:'stop',epoch:Number(live.control_epoch),i:p.i,d:p.d}));
+    if(live.current_run_id)await asWebsite(c=>c.query("UPDATE dev_agent_runs SET status='done' WHERE id=$1",[live.current_run_id]));if(scenario.tasks[live.id])scenario.tasks[live.id].active=false;
+   }
    const sid=(await asWebsite(c=>c.query(`INSERT INTO web_sessions(user_id,auth_at,expires_at) VALUES($1,now(),now()+interval '8 hours') RETURNING id`,[person.id]))).rows[0].id;
    const boot=randomUUID(),now=Date.now(),initial=buildReadManifest({proposal:{v:1,entries:[{url:PUBLIC_URLS[0],role:'document',source:'person'}]},expectedRevision:0,actorProof:{key:createHmac('sha256',keys.request).update('browser-phase1-read-manifest-key').digest(),task:{origins,private:false,privacy_mode:'public',document_epoch:0,read_manifest_revision:0},confirmedFacts:{values:[],classifyPublicUrl:u=>PUBLIC_URLS.includes(u)},userId:person.id,sessionId:sid,sessionExpiresAt:now+3600000,authorize:()=>true}});
    let task=await asWebsite(c=>repo.browserWebAdmit(c,{conversation:thread,project:null,kind:'public_research',manifest:{purpose:'Check public permit requirements for a residential alteration.',origins,initial_read:initial},session:sid,i:randomUUID(),d:hash(kind+role)}));
-   // Boot binding is installation metadata, not a public RPC or readiness claim.
-   await asWebsite(c=>c.query('UPDATE browser_tasks SET controller_boot_id=$2 WHERE id=$1',[task.id,boot]));
+   // The real queue offer persists the fixture kernel boot; acceptance initializes both generations.
    const device=hash('QA seed viewer '+task.id),p=await asWebsite(c=>qaProof(c,task,sid,null,'join',{}, {device_secret_hash:device.toString('hex')}));
    const joined=await asWebsite(c=>repo.browserWebJoin(c,{tid:task.id,session:sid,device_hash:device,role:'initiator',private_view:false,i:p.i,d:p.d}));const vid=joined.viewer_id;
    const get=async()=>{const t=(await asWebsite(c=>c.query('SELECT * FROM browser_tasks WHERE id=$1',[task.id]))).rows[0];return {...t,control_epoch:Number(t.control_epoch),document_epoch:Number(t.document_epoch),context_generation:Number(t.context_generation),revision:Number(t.revision)};};
@@ -90,7 +103,8 @@ export async function seedBrowser(c,{state='working',refresh=false,resourceCount
       const command=await asService(c=>repo.browserCommandBegin(c,{tid:task.id,rid:run.run_id,k:Buffer.from(cap.capability_hash,'hex'),i:randomUUID(),epoch:task.control_epoch,seq:1,op:'prepare',d:hash('QA prepare')}));task=await get();
       let reviewKind=kind==='read_review'?'public_read':kind==='resource_review'?'resource_read':kind;
       if(kind==='read_review'||kind==='resource_review'){
-       const candidates=Array.from({length:kind==='resource_review'?resourceCount:1},(_,i)=>({id:randomUUID(),url:kind==='resource_review'?`https://city.example/assets/public-${i+1}.css`:PUBLIC_URLS[1],role:kind==='resource_review'?'resource':'document',source:'page',code:'BROWSER_REVIEW_REQUIRED',server_deadline:new Date(Date.now()+59000).toISOString(),parent_document_epoch:task.document_epoch+1}));
+       const candidates=Array.from({length:kind==='resource_review'?resourceCount:1},(_,i)=>({id:randomUUID(),url:kind==='resource_review'?`https://city.example/assets/public-${i+1}.css`:requested==='exact_path_review'?'https://city.example/permits/details':PUBLIC_URLS[1],role:kind==='resource_review'?'resource':'document',source:'page',code:'BROWSER_REVIEW_REQUIRED',server_deadline:new Date(Date.now()+59000).toISOString(),parent_document_epoch:task.document_epoch+1}));
+       if(requested==='exact_resource_review')candidates.unshift({...candidates[0],id:randomUUID(),url:PUBLIC_URLS[0],role:'document'});
        const p=await asWebsite(c=>qaProof(c,task,sid,vid,'review'));await asWebsite(c=>repo.browserWebReadCandidates(c,{tid:task.id,vid,expected_revision:1,proposal:{v:1,candidates},i:p.i,d:p.d}));
       }
       task=await get();const review={id:command.command_id,task_id:task.id,original_run_id:run.run_id,revision:task.revision,kind:reviewKind,state:'pending',server_deadline:reviewKind.endsWith('read')?new Date(Date.now()+59000).toISOString():null,result_code:reviewKind.endsWith('blocked')?'BROWSER_PHASE1_READ_ONLY':null,read_revision:reviewKind.endsWith('read')?2:null};
@@ -114,9 +128,10 @@ export async function seedBrowser(c,{state='working',refresh=false,resourceCount
     if(kind==='queue_expired')await asWebsite(c=>c.query("UPDATE browser_tasks SET queue_expires_at=now()-interval '1 second' WHERE id=$1",[task.id]));
     if(kind==='offer_expired')await asWebsite(c=>c.query("UPDATE browser_tasks SET queue_offer_expires_at=now()-interval '1 second' WHERE id=$1",[task.id]));
    }
+   if(archive)await control('stop');
    // Seed attendance is not an extra device competing with screenshot viewers.
    await asWebsite(c=>c.query('UPDATE browser_viewers SET left_at=now(),visible_until=now() WHERE id=$1',[vid]));
-   if(archive){task=await get();await asService(c=>repo.browserRuntimeTransition(c,{tid:task.id,boot,epoch:task.control_epoch,next:'closed',code:'BROWSER_SERVICE_UNAVAILABLE'}));if(task.current_run_id)await asWebsite(c=>c.query("UPDATE dev_agent_runs SET status='done' WHERE id=$1",[task.current_run_id]));}
+   if(archive){task=await get();if(task.current_run_id)await asWebsite(c=>c.query("UPDATE dev_agent_runs SET status='done' WHERE id=$1",[task.current_run_id]));}
    scenario.states[key]={url:`/panel?c=${thread}`,as:role,thread_id:thread,task_id:task.id,watch_url:role==='staff'?`/today?browser=${task.id}`:null,notes:`Select with --state ${kind} before capturing; choose Operator > Browser. ${archive?'Historical terminal fixture; not currently selected.':'Selected.'}`};
   };
   // The unique live-person index stays intact. Archive every base state once;
@@ -127,6 +142,7 @@ export async function seedBrowser(c,{state='working',refresh=false,resourceCount
   if(requested==='off')await asWebsite(c=>setting(c,'browser.enabled','false'));
   if(requested==='taking_over')for(const role of ['owner','staff'])scenario.tasks[scenario.states[role+'_working'].task_id].control_delay_ms=1000;
   if(requested==='pause_failed')for(const role of ['owner','staff'])scenario.tasks[scenario.states[role+'_working'].task_id].pause_fails=true;
+  for(const role of ['owner','staff']){const entry=scenario.tasks[scenario.states[role+'_'+base]?.task_id];if(entry){entry.navigation=['guarded_menu','reload_confirm','exact_path_review','exact_resource_review'].includes(requested);entry.windows=entry.navigation?2:1;entry.audit_pending=requested==='watch_audit_pending';if(requested==='pre_frame_close')entry.no_frames=true;}}
   scenario.states.owner_settings={url:'/settings/browser',as:'owner',notes:'Pilot list contains Taylor and Abigail. All four later flags off.'};
   await writeScenario(dir,scenario);
   return scenario;

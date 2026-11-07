@@ -119,12 +119,17 @@ thread in Operator to test sheet/dock. Owner Watch uses the **staff** entry's
 | `working`, `paused`, `paused_private`, `other_device` | Real attached public run / paused transition / private barrier. Another device has a distinct persisted device hash. |
 | `takeover_confirm`, `taking_over`, `controlling` | Start public; Take over → confirm. Taking-over ACK delays1s (below B's2s RPC timeout). Control token is minted by the real web route, in memory only. |
 | `done` | Take over → confirm → Done; first prompt then Keep paused. Leave/return; no private Continue. |
-| `fresh_confirm` | Private rest → menu → Fresh browser → cancel/confirm. New boot/generation fence uses real SQL. |
+| `fresh_confirm` | Private rest → menu → Fresh browser → cancel/confirm. Stable kernel boot and rotated context/listener generation use real SQL; a new pending read must be approved before Continue. |
 | `idle_warning`, `idle_closed`, `crashed`, `latched`, `absent`, `turn_ended`, `owner_paused`, `unknown` | Fixed reason projection; idle warning has60s remaining and becomes idle-closed presentation. Terminal/revoked presentation sends no new frames. These are screenshot projections, not physical runtime fault/idle acceptance. |
 | `auth_expired`, `access_removed`, `closed`, `service_unavailable` | Safe fixed error projection; not an actual revoked session/access mutation. |
 | `read_review`, `resource_review`, `resource_20`, `resource_expired` | SQL-staged candidates and original59s deadlines; 1 or20 exact resources. Expired: wait60s, don't reseed mid-shot. |
 | `write_blocked`, `final_blocked` | Real SQL prepare notice, with QA presentation kind for write. Final copy: “This version stops here. Nothing was submitted.” Close only; no grant/action submitted. |
 | `owner_watch_before`, `owner_watch_after`, `public_watch`, `in_use` | Owner opens staff Watch URL. Private before: no image, even though canned private frame exists. After: explicitly Show the page (real POST + signed local QA checkpoint). In use: owner empty thread → In use → Watch. Staff watching indicator comes from real owner claims. |
+| `guarded_menu`, `reload_confirm` | Open ⋯: Back/Reload enabled, Forward disabled, two bounded QA targets. Capture keyboard/focus, reload warning, Cancel and explicit Reload. Fake validates current epoch/context/document/read revision but only acknowledges navigation; canned pixels do not change. |
+| `exact_path_review`, `exact_resource_review` | Same-origin `https://city.example/permits/details`, or document + CSS review together. Original 59s deadlines/revisions remain SQL-owned. Read once/Allow these files once, then a NEW explicit Reload; no automatic navigation. Sites accepts these exact catalog addresses through the real discovery adapter. |
+| `watch_consent_reask` | Owner opens public staff Watch; staff takes over. Capture pixel clearing and Show the page again. Public advance consent is forbidden by SQL. |
+| `watch_audit_pending` | Owner opens staff Watch and explicitly Show the page. Fake withholds its local checkpoint: real SQL stays unauthorized and UI shows “Waiting to show the private page…”. Reseed `owner_watch_after --refresh`, reload the new Watch URL and explicitly consent for recovery. This replaces the task; it is not same-stream outage recovery evidence. |
+| `pre_frame_close` | No JPEG emitted. Switch Browser→Chat/Canvas; inspect authenticated state stream identity and exact planned-close ACK before GET abort. A second device must stay attended. Failed/lost ACK and delayed bootstrap remain coordinator transport checks. |
 | `leave_confirm`, `pause_failed` | Leave confirmation is a real user action. Pause-failed: owner Watch → Pause agent → confirm; fake refuses fenced ACK. |
 | `disconnected`, `reconnected` | Coordinator stops/starts only the fake, then explicit reconnect. |
 | `settings` | Owner only; two named pilots, own-confirm preference and all later flags off/disabled. |
@@ -172,25 +177,30 @@ No test opens a listener: B's real Unix client runs with only Node socket/filesy
 IO mocked. A's actual RPC signer and B's actual response/frame verifiers run.
 
 ```bash
-SJC_TEST_CLUSTER_TAG=browser-p1-qa-1107fixture node --test tests/qa-browser-fixture.test.mjs
-SJC_TEST_CLUSTER_TAG=browser-p1-qa-1107fixture node --test tests/browser-routes.test.mjs
-SJC_TEST_CLUSTER_TAG=browser-p1-qa-1107fixture node --test tests/browser-live-view.test.mjs
-SJC_TEST_CLUSTER_TAG=browser-p1-qa-1107fixture node --test tests/browser-flags-db.test.mjs
-SJC_TEST_CLUSTER_TAG=browser-p1-qa-1107fixture node scripts/test-db.mjs stop
+SJC_TEST_CLUSTER_TAG=browser-p1-qafix-7b91 node --test tests/qa-browser-fixture.test.mjs
+SJC_TEST_CLUSTER_TAG=browser-p1-qafix-7b91 node --test tests/browser-routes.test.mjs
+SJC_TEST_CLUSTER_TAG=browser-p1-qafix-7b91 node --test tests/browser-live-view.test.mjs
+SJC_TEST_CLUSTER_TAG=browser-p1-qafix-7b91 node --test tests/browser-flags-db.test.mjs
+SJC_TEST_CLUSTER_TAG=browser-p1-qafix-7b91 node scripts/test-db.mjs stop
 flock /tmp/sjcos-tsc.lock nice -n 19 npx tsc --noEmit -p .
 ```
 
-Final counts: fixture15/15, routes41/41, live-view13/13, flags DB12/12 (81 passed). An earlier routes run
-observed the preexisting navigation test-stub seam while concurrent repair was
-in progress; it passes after that owner's stub update. No unowned test was edited
-by this builder. Locked tsc initially passed; the final shared-tree result is
-recorded below. The tagged cluster was explicitly stopped (no cluster running).
+R1 fixture repair: **fixture 15/15, routes 45/45, live-view 13/13,
+flags DB 12/12 (85 passed; zero failed/skipped)**. Routes, live-view and flags
+were each run once. Fixture test 15 additionally selects/replays every base state
+and recipe, checks signed exact navigation bindings and pre-frame close, renewed
+consent/checkpoint invalidation, audit-pending denial/recovery, distinct Continue
+runs/capabilities, stable-boot fresh fences and real exact-path/resource discovery.
+All DB tests used only the tagged disposable harness. Its cluster was stopped.
+Locked tsc: **exit 0**. No browser/server/Next command, live DB/service action,
+QA :5499 connection, dependency install, source inventory refresh or exit137.
 
 Not covered / must not be claimed:
 
-- Added-site discovery is not supplied by this fixture's trusted catalog; the
-  concurrent `discover` hook remains an installation dependency. Existing seeded
-  sites/approved addresses render; don't claim a successful arbitrary add-site.
+- Discovery uses the real website adapter with a closed fictional QA catalog:
+  the two PUBLIC_URLS, city `/permits/details` and `/assets/public-N.css`.
+  Arbitrary added addresses remain refused. This does not attest runtime Fetch
+  discovery, CDP navigation, actual history or window switching.
 - Production build/bundling/start, actual Unix listener IO/systemd lifecycle,
   HTTPS/cookies/CSRF/SSE through the side host, visual geometry, device/IME or
   screenshots. Coordinator must exercise these before accepting the fixture.
@@ -214,14 +224,14 @@ Not covered / must not be claimed:
   builder; no approval success is fabricated. Retained command-notice Watch links
   may hit the existing owner-view SQL action-table check; this fixture supplies
   own notices and current Watch, not a bypass for that seam or bell dispatch.
-- Fresh reset clears the run in SQL. Continue/new launch uses only the QA hook;
-  no real runner is attached. Manual input is acknowledged against the real
+- Fresh reset clears the run and revokes reads in SQL; the QA discovery hook
+  stages a new pending review. Continue checks reviewed next-document reads and
+  attaches a distinct immutable run/capability through real SQL. The process
+  binding is inert QA metadata; no real runner is attached. Manual input is acknowledged against the real
   web boundary but does not edit a canned JPEG.
 
-Final locked shared-tree tsc: **exit1**, TS2322 in the concurrent production
-`discover` adapter signature (`website-bridge.mjs` requires `{task,...}` while
-`WebsiteHooks.discover` currently takes generic `Row`). The QA hook compiled
-successfully before that concurrent change. This builder did not cast away or
-edit the other owner's type. Resolve and rerun tsc before the coordinator build.
-The root source inventory also needs coordinator refresh after all builders
-freeze; changing phase-flags changes its recorded hash. No source locks refreshed.
+R1 root source inventory still needs coordinator refresh after all builders
+freeze. This repair changes no product hook lines and refreshes no source locks.
+The existing side-unit commands are unchanged; select the new states with the
+same `node scripts/qa-seed-browser.mjs sjcos_qa_browser_p1 --state STATE --refresh`
+command and refresh `urls.json`. No push or deploy.

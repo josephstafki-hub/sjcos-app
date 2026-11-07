@@ -11,6 +11,8 @@ Round-4 revision: design items 1–4 and engineering item 1 against HEAD
 Round-5 revision: design items 1–3 against HEAD `febc1e26`; round-5
 engineering and security 10/10 contracts retained. Changes are layout, device
 definitions, copy and proposed acceptance cases only; see Round-5 fixes appendix.
+Payment amendment P1 (2026-11-07): round-4 payment decision governs Phase 3 only;
+Phase 1 being built now is unaffected.
 Normative owner decisions: `_context-agent-browser-canvas.md`, “Joe's decisions.”
 This plan owns the browser; `ask-canvas-plan.md` owns Canvas. Both depend on the
 shared host/auth prerequisites (§6.2); neither renderer requires the other enabled. Technical names below are implementation names, not UI copy.
@@ -28,7 +30,9 @@ an encrypted vault and people can take over for 2FA or CAPTCHA. Always stop befo
 final Submit / Pay / Sign. **Joe approves every company-committing final submit, sign and pay, including
 staff runs. Saved logins are shared per site with named staff who never see
 the password.** Pick the
-first city later.** These are requirements, not questions awaiting another decision.
+first city later.** These are requirements, not questions awaiting another decision. Joe also chose
+securely stored company payment details, with permission right before every use
+(Amendment P1, Phase 3); payment cards are owner-only, never shared logins.
 
 Smallest useful result: in the Ask window, open an allowed public site, watch the
 agent read it, take over on a computer/iPad, and stop it. The first phase includes
@@ -55,7 +59,9 @@ evidence that the permit was issued. No change to construction-start gates here.
 | Mark finished / Didn't finish / Don't finish | Confirm a human-reported hand-off outcome, never proof of a portal result |
 | Show the page | Explicitly join a private page as an authorized human viewer, without control |
 | Stop browser | Close this task's browser, preserve already saved files |
-| Saved logins / Save a login / Fill login | Vault list, entry form, server-side fill |
+| Saved logins / Save a login / Fill login | Login vault list, entry form, server-side login fill |
+| Payment card / Add card / Replace card / Remove card | Joe-only settings, Phase 3 Amendment P1; never a Fill card button |
+| Pays with Visa ending 4242 | Joe-only saved-card line on the exact Pay review, Amendment P1 |
 | Only me / Shared with Abigail, Mark / From Joe | Owner-only, named sharing shown to Joe, delegated row shown to staff |
 | Private — login or account details / Private — you took over. The agent can't see this page. | No page content is sent to the agent; reason distinguishes vault/restore from manual public-page take-over |
 | Open a fresh browser / Keep paused | Live task: replace private context anonymously on same task/sites; closed hand-off destination: review Sites and create a fresh attempt/task in same Joe chat / leave private task paused |
@@ -817,7 +823,10 @@ Server Action result that echoes a submitted value. Password fields have
 `type=password`, `autocomplete=new-password`; no password reveal/copy API, no
 secret in analytics, error reports, request-body logs or APM. TLS and no-store
 for the web form. Manual login secrets use the private input endpoint, not a
-chat composer. Don't put card numbers/CVV/2FA seeds/recovery codes in this vault.
+chat composer. Never store 2FA seeds or recovery codes. Stored company card
+number, expiry, cardholder name, billing address/ZIP and security code use only
+Amendment P1's separate owner-only `payment_card` purpose in Phase 3; the login
+vault and its named-staff sharing rules never contain or authorize a card.
 
 Hand-off answers use their own handoff_answers KEK/purpose and immutable bindings
 below; web-authorized Unix RPC encrypts the trusted snapshot and decrypts it only
@@ -853,6 +862,7 @@ revision. Plaintext hash stays encrypted, ciphertext hash can be public.
 | Purpose tag | Required immutable data bindings in addition to version/purpose |
 |---|---|
 | login | login_id, owner_user_id, exact origin, credential_revision |
+| payment_card (Phase 3, Amendment P1) | card_id, owner_user_id, card_revision, installation_id; own independent KEK; no mutable merchant origin on a reusable stored card |
 | profile | profile_id, user_id, login_id, origin_chain_digest, credential_revision, profile_revision |
 | request_body | artifact_id, task_id, action_id, initiating_user_id, origin, action_revision |
 | read_manifest | manifest_id, task_id, initiating_user_id, origins_digest, task_origins_revision, manifest_revision |
@@ -872,7 +882,9 @@ old wrap metadata, interrupted rewrap and backup restore. Exclude plaintext
 
 ### 5.2 Visibility and filling
 
-Each entry belongs to one SJC OS user. Staff creates/updates/deletes only their
+This subsection describes login entries; Amendment P1 alone governs payment
+card ownership, visibility, fill and the additional sticky payment dependency.
+Each login entry belongs to one SJC OS user. Staff creates/updates/deletes only their
 own entries. Joe manages Joe-owned entries and can grant named staff **use** of selected
 company entries, with required areas. Joe can disable delegated access, but does
 not get a “show staff password” feature. Staff never enumerates another user's
@@ -924,7 +936,8 @@ to provide safe adapter continuation leaves paused/unsupported, never shared vie
 
 Vault dependency is authoritative and separate from privacy. Persist on each
 runtime context `vault_dependency=none|fill|restore`, login ID and credential/
-profile revision plus context generation. `none` means anonymous manual-only;
+profile revision plus context generation (P1 adds a separate payment dependency
+only in Phase 3). `none` here means no login/profile dependency;
 only a service guarded transition under the context lock can set fill/restore,
 **before decrypt/restore** and before any secret can affect the context. It is
 sticky for that context, even if fill fails or fields/cookies are cleared. It
@@ -932,8 +945,9 @@ cannot be set/reset by a client/model or inferred from whether inputs look secre
 A fresh anonymous context alone resets dependency to none after destroying/fencing
 the old context (§6.1). Disabled vault denies login/profile decrypt/fill/restore/profile save;
 on disable, revoke proofs and close all fill/restore-dependent contexts, including
-delegated_secret, within 5 s. A `none` anonymous context made permanently private
-by manual take-over continues with no model observation and all effective write/
+delegated_secret, within 5 s. A `none` anonymous context with no P1 payment
+dependency, made permanently private by manual take-over, continues with no
+model observation and all effective write/
 file flags enforced. Never enable vault merely to obtain take-over or turn a
 manual context public. This permits Phase 1 with vault/files/final flags off.
 
@@ -1018,7 +1032,9 @@ code is never an adapter. Private downloads can save to project files for people
 but model-read APIs/attachments must honor the file's restricted provenance (§8).
 **All** manual inputs use the no-log private endpoint regardless of field type;
 no detection-after-typing exception. The service rejects attempts to type into
-password/OTP/card/account-secret fields via ordinary `browser_act`; it redirects to Take over. Don't solicit secrets in chat.
+password/OTP/card/account-secret fields via ordinary `browser_act`; it redirects
+to private Take over, or to Amendment P1's Joe-only Pay review for a saved card.
+Don't solicit secrets in chat.
 
 ### 5.3 Origin binding and sites
 
@@ -1026,8 +1042,10 @@ Bind to canonical HTTPS origin (scheme, IDNA host, port=443), not substring,
 eTLD+1, wildcard or a matching page title. `city.example.evil`, userinfo URLs,
 trailing-dot tricks, alternate ports and subdomains are different. Validate
 origin again immediately before fill under the same serialized context lock;
-navigation epoch changes abort. No fill into a cross-origin iframe, even if a
-popup resembles the saved login. SSO is an explicit list of individually reviewed
+navigation epoch changes abort. No login fill into a cross-origin iframe, even
+if a popup resembles the saved login; the separately reviewed payment-processor
+iframe exception is only Amendment P1, never a login exception. SSO is an explicit
+list of individually reviewed
 HTTPS origins; each credential belongs only to its IdP origin, and no passwords
 are copied across origins. Cookie domain scope must not broaden beyond an
 approved chain. Redirect to an unapproved site pauses before request; saved
@@ -1698,6 +1716,7 @@ and chat/browser minima, rails collapse; never four squeezed columns.
 │ Application ready.                 │ [live image]                           │
 │ Ready to pay [Open review]          │ Ready to pay · Larson bath             │
 │                                    │ $125.00 USD to City of Fargo            │
+│                                    │ Pays with Visa ending 4242              │
 │                                    │ Review image · Files: plan.pdf          │
 │                                    │ Expires in 0:48                        │
 │                                    │ [Pay $125.00 once] [Don't pay]          │
@@ -1756,6 +1775,14 @@ followed by the common full template. Show exact address/parcel/license values
 and recipient from trusted confirmed facts. Uses short window if holding a
 request, even for GET; origin approval alone cannot send it. Phase 1 blocks this
 release; Phase 3 supplies the exact owner grant. No task-wide release list.
+
+**Stored-card Pay review (Phase 3):** Joe sees **“Pays with Visa ending 4242”**
+under payee/amount in Joe's own-task §6.3 layouts, including 820 and short landscape;
+expiry and approved processor origin are in Review details (Amendment P1).
+The action stays **[Pay $125.00 once] [Don't pay]**; no separate fill or remembered
+permission. Staff never see the saved-card line or any card metadata. Joe's
+owner layer on a staff task has no saved-card option; P1.1 requires hand-off
+to a fresh Joe task and a new review before stored-card use.
 
 **One staff waiting template (all company reviews):**
 **“Waiting for Joe to {submit the application | pay $125.00 to City of Fargo |
@@ -1965,6 +1992,10 @@ ends.” only on tablet/computer. Staff then sees “Joe is in control.” Queue
 for Joe names user; staff never sees someone else's identity/job.
 
 ### 6.4 Saved logins, field mapping and private file save
+
+Joe-only **Payment card** settings are separate from Saved logins: Amendment
+P1.4 specifies the 360/820/1280 screens, entry, replacement and removal; no staff
+sharing control, card row in Saved logins or Fill card button.
 
 ```text
 360 full-height; 820/1280 same fields in 420 side sheet
@@ -2250,7 +2281,8 @@ authority and exact action stay the same.
 | Idle close | “Browser closed after 5 minutes without activity.” | Open again; forms may need re-entry |
 | Resource cap | “Browser stopped because the server is busy. Your saved files are safe.” | Close; Joe checks host before restart |
 | Crash | “Browser stopped. Check the site before repeating a final step.” | Open again; private state may require sign-in |
-| Key unavailable | “Saved logins are unavailable. You can sign in yourself.” | Take over; Save/Fill disabled; no plaintext fallback |
+| Key unavailable | “Saved logins are unavailable. You can sign in yourself.” | Take over; Save/Fill disabled; no plaintext fallback; payment key errors use Amendment P1.4 |
+| Stored-card Pay / settings (Phase 3) | Joe: “Pays with Visa ending 4242”; all add/replace/remove/empty/error/success states in Amendment P1.4 | Exact Pay once / Don't pay only; staff “Waiting for Joe”, no card details; P1 expiry/drift never autofills |
 | Auth expired | “Sign in again to continue.” | Sign in; blank private image immediately |
 | Access removed | “Your access changed. Browser stopped.” | Close; erase frame DOM/object URLs |
 | Service unavailable | “Couldn't connect to the browser.” | Try again / Close; never launch a second service |
@@ -2368,13 +2400,15 @@ encrypted if durably retained. Controller holds only its bounded control handle;
 CDP may continue it into the closed gate for full-body collection, never upstream. Only a pre-click adapter approval card can
 last longer (§7.3); an expired network request is **not replayed**. A card depending on that buffered
 request becomes stale at 60 s (display shorter countdown); a pre-click adapter
-review can last 5 min and create its request only after approval. Rebuild
+review can last 5 min and create its request only after approval (Phase 4);
+Amendment P1's narrow Phase 3 stored-card review instead expires within 60 s. Rebuild
 the review from the current page; require a new person click if the live request
 was lost. Server must never “test click” a final button against a live site just
 to discover its behavior. Unknown bodies, ambiguous submission semantics or
 multiple unbounded mutation requests mean **Take over / unsupported**, not an
-unreviewed macro. The later Phase 4 pre-click adapter contract allows **one** final request per review. Any earlier
-prepare/save request is a separate exact review/action; read-only prerequisites
+unreviewed macro. The later Phase 4 pre-click adapter contract, and only the
+narrow Phase 3 stored-card exception in Amendment P1, allow **one** final request
+per review. Any earlier prepare/save request is a separate exact review/action; read-only prerequisites
 need their own read manifest. No multi-mutation macro or wildcard subordinate
 approval; reject a second mutation even if sent to the same endpoint.
 
@@ -2420,8 +2454,9 @@ human-input nonce (5 s, target + control/document epochs), and verifies that
 the on-screen action, amount/payee and category are determinable. It records
 `approval_method=direct_person_click` and uses the web-only approval command.
 For Joe's company payment/sign/submit it mints and consumes the same exact owner
-grant; no second agent approval is needed. For staff owner-only actions it
-creates Waiting for Joe and transmits nothing. If the snapshot is ambiguous,
+grant; no second agent approval is needed, except stored-card use always
+requires Amendment P1's explicit first-party Pay review before any fill. For
+staff owner-only actions it creates Waiting for Joe and transmits nothing. If the snapshot is ambiguous,
 show the first-party review card; never infer permission from arbitrary keydown,
 a programmatic site click, a hidden element or stale human input. A site-driven
 request without the correlated human nonce remains guarded as an agent request.
@@ -2432,8 +2467,9 @@ Review card contains server-derived canonical origin/payee, task + project,
 action type, full plain summary, field/value manifest excluding login secrets,
 attachments with file hashes, amount in integer cents + displayed currency,
 terms/attestation text when relevant, **protected human-only screenshot** and
-time. Unknown fee is “Fee: not shown,” never $0. Human-only screenshot of a
-private context is never a model image attachment or ordinary files row. Page
+time. Stored-card Pay adds Amendment P1's card revision, processor/frame/field
+bindings and saved-card line, never card values. Unknown fee is “Fee: not shown,”
+never $0. Human-only screenshot of a private context is never a model image attachment or ordinary files row. Page
 strings are untrusted; render escaped text only and visibly distinguish them
 from trusted origin/amount/accounting labels. Agent summary is supplemental,
 never the sole source of payment amount. Login/action secret fields are omitted
@@ -2505,9 +2541,12 @@ which only the web browser review command can write. A granted row by itself
 never dispatches. Add Open review UI to GrantCard/Permissions rather than a
 second generic Approve button. This preserves the meaning of always ask **here**.
 
-Approval/execution protocol: **two paths**, no remote I/O inside SQL, no automated final click
+Approval/execution protocol: **two general paths**, no remote I/O inside SQL, no automated final click
 before human approval and no live “test click.” Both keep the gate closed until
-an actual request is bound and exact evidence anchored.
+an actual request is bound and exact evidence anchored. Amendment P1.3 is the
+sole Phase 3 stored-card extension: consume before decrypt/fill, then bind the
+actual request once without a second consume; its dedicated functions and
+executing state supersede the generic arm/bind ordering only for that path.
 
 1. **Prepare buffered request.** Gate has complete bounded immutable bytes and
    creates HMAC digest, flow nonce and listener generation. Service creates action
@@ -2833,7 +2872,9 @@ denial **“Not sent.”**; staff uses §6.3's waiting template. Client/vendor-f
 company attestation requires Joe's grant under §7; a company upload, including a draft upload,
 requires Joe's exact release approval. Browser cannot send private files to another
 site without person review and appropriate owner authority. Payment card entry
-is Joe's private take-over; never saved, extracted or transcripted.
+is Joe-only: private manual take-over, or Amendment P1's Phase 3 encrypted
+stored-card form and exact approved Pay execution; never model extraction,
+transcript entry, file upload or ordinary login fill.
 
 #### Private file path inventory, cross-UID save and rollback reader
 
@@ -2960,6 +3001,8 @@ allowlist edits, grant decisions or secret payloads. New referenced file/site is
 an ask to the person. Browser profile's SJC tool allowlist prevents page injection
 from exfiltrating via email/knowledge capture or creating another privileged run.
 Standard owner-grant gates apply in addition to browser gates, never instead.
+Amendment P1.6 adds payment-page injection, look-alike origin, hidden field,
+script exfiltration and replay cases; page instructions never authorize card use.
 
 Public pages may still contain malicious content aimed at model reasoning.
 Technical guards contain effects; prompts are supplementary. In private mode,
@@ -2978,6 +3021,8 @@ Unpushed branches cannot be discovered. Reserve **0100–0104 for Browser**,
 leave **0105–0109 to Canvas**. Recheck before implementation/merge, coordinate
 by feature filename; never renumber an applied migration. No migrations created
 by this planning task; copy canonical DDL to `db/schema.sql` during the build.
+Amendment P1.5 reserves a later additive Phase 3 payment migration, **number
+assigned at Phase 3 build**; never add its tables/columns to Phase 1 migrations.
 
 ### 9.1 Tables, constraints and indexes
 
@@ -3033,6 +3078,10 @@ bypasses existing compliance readers. Enums may be CHECK text to ease additive
 updates; enumerate exact transitions in guarded command functions and tests.
 
 ### 9.2 Protected writes and narrow-role matrix
+
+Amendment P1.5 extends this catalog only in Phase 3: website-only payment-card
+management, no narrow direct access, and a dedicated service one-use execution
+proof; `browser_read_secret` never accepts `payment_card`.
 
 All browser tables have **no grants** to `sjcos_agent`, `sjcos_worker` or
 `sjcos_readonly`, with a manifest `note` explaining private browser/vault data.
@@ -3194,7 +3243,11 @@ thread deletion/recovery; keep safe audit tombstones after draft ciphertext purg
 No new narrow-role rights: add all new relations/functions to the manifest and
 migration generator output/revokes under the rules above.
 
-**Atomic grant SQL implementation:** `browser_bind_consume_action` locks task, action,
+**Atomic grant SQL implementation (general buffered/pre-click paths only):**
+Amendment P1.3 uses separate payment begin/take/bind functions: consume before
+decrypt, require executing proof and once-bind actual bytes without a second
+grant use; generic arm/bind functions reject its payment_card review mode.
+`browser_bind_consume_action` locks task, action,
 then exact owner_grants row and, for a hand-off company action, its bound effect.
 Verify effect eligibility/evidence revision and CAS executing in the same consume
 transaction, so new runs/CSRF cannot bypass a received/unresolved effect. Check web-approved action and approver session,
@@ -3266,6 +3319,8 @@ Deleted vault ciphertext and unused wrapped keys purged within 24 h. Backup
 copies age under the existing backup policy; deletion cannot erase old backups
 instantly. Exclude runtime/tmpfs/quarantine directories from backup inventories;
 DB ciphertext may be backed up, key escrow separately. Restore starts off.
+Amendment P1.5 sets stricter card-bearing request retention, content-free card
+audit, replacement/removal purge and disabled-on-restore payment behavior.
 
 Controller's one-second housekeeping expires controls/requests; separate bounded
 minute cleanup removes expired files/profiles and reconciles staged saves.
@@ -3373,6 +3428,10 @@ capability, manifest and state references. `PermitBrowserHandoffV1` (§11) uses
 Version fixture `tests/fixtures/browser-contract-v1.json` verifies all three.
 
 ### 10.2 Web API and components
+
+Amendment P1.4–P1.5 adds Phase 3 owner-only `/browser/payment-card` settings and
+`/api/agent-browser/payment-card` management routes; no payment-card MCP tool or
+model-visible values, card list, fill endpoint or decrypt API.
 
 Routes are `app/api/agent-browser/**/route.ts` (`runtime='nodejs'`), authenticated
 cookie session only in v1. No new public mobile Bearer API. Use `await params`,
@@ -3860,8 +3919,11 @@ lost-key/manual-login path work; coordinator checks Save/Fill form copy.
 ### Phase 3 — exact final-step approvals
 
 Enable final review execution and owner-grant extensions from 0102; apply 0104
-settings/catalog/runbook seed. Make existing permission surfaces browser-aware
-before enabling dispatch. Still no chosen city automation and no unattended use.
+settings/catalog/runbook seed, plus Amendment P1's later reserved payment
+migration (number assigned at Phase 3 build). Make existing permission surfaces
+browser-aware before enabling dispatch. Stored-card management and exact Pay execution ship
+only in Phase 3 under P1; Phase 1 being built now and Phase 2 scope are unaffected.
+Still no chosen city automation and no unattended use.
 
 * `tests/browser-approval-db.test.mjs`: simultaneous staff/Joe decisions, duplicate
   clicks, stale screenshot/form/amount/file/payee/terms, revoked/expired/wildcard
@@ -3920,14 +3982,37 @@ before enabling dispatch. Still no chosen city automation and no unattended use.
   parts, expiry and crash at each arm/click/bind/anchor boundary fail closed;
   no second click/consume/replay. Synthetic reviewed adapter only, not a live
   test click. No atomic-remote-delivery fiction.
-* `tests/browser-retention.test.mjs`: 24 h artifacts/quarantine, 30-day profiles/
+* `tests/browser-payment-card-db.test.mjs`: P1 owner-only management/metadata,
+  real-login denials, immutable envelope/card revision, dedicated one-use execution
+  proof, consume-before-decrypt and actual-bind-without-second-consume; removal/
+  replacement/disable/expiry races, zero approval authority in service functions.
+* `tests/browser-payment-card.test.mjs`: P1 origin/processor/field/amount/payee/
+  epoch drift, hidden/ambiguous fields, script exfiltration, injection/look-alikes,
+  replay and all execution crash boundaries; zero fill before fresh Joe approval,
+  no public/delegated fill or secret in any output/retained image/profile/body.
+  Runtime canaries must exercise the pinned gate/controller, not only mocks.
+* `tests/browser-payment-card-ui.test.mjs`: P1.4 at 360/820/1280 and existing
+  short-landscape review, add/replace/remove/empty/error/success/unsaved states,
+  owner Pay line/refusal/expiry, staff Waiting for Joe with no card metadata,
+  varied runtime names, focus/keyboard/48 px targets and no app/service-browser
+  card persistence.
+* `tests/browser-payment-card-crypto.test.mjs`: independent payment KEK/AAD
+  substitution/tamper/counters, rotation interruption, lost key, backup inventory
+  and disabled restore; deletion never resurrects a card or proof.
+* `tests/browser-flags-db.test.mjs` P1 extension: payment/final/vault/global
+  flags off at entry/save/review/approve/begin/decrypt/fill/bind/transmit, sticky
+  payment dependency, close/clear fence and no replay on re-enable.
+* `tests/browser-retention.test.mjs`: P1 card/request purge and content-free audit
+  plus 24 h artifacts/quarantine, 30-day profiles/
   safe results, two-year audit, tombstone/unlink crash, no temp backup, stale
   cleanup disables fill/download admission.
 
 Gate: sandbox payment/submit/sign fixtures with both owner/staff roles; no real
 company charge. Joe confirms UI role matrix by using exact final cards on phone
 while initiating staff/tablet remains present. Payment buttons state amount and
-recipient; only a verified remote receipt yields Paid.
+recipient, with Joe-only “Pays with Visa ending 4242” for P1. Its sandbox gates
+include the stored-card hand-off into a fresh Joe task and every P1.6 abuse case;
+only a verified remote receipt yields Paid.
 
 ### Required regression and runtime gate additions by phase
 
@@ -3952,6 +4037,9 @@ replace, the above tests and make every round-1/round-2/round-3 fix falsifiable:
 | 2 `tests/browser-file-validator.test.mjs` | Valid malicious PDF actions/JS/embedded payloads/forms, polyglots, decompression/pixel/page bombs, malformed parser input, sanitizer/scan crash/timeouts/stale signatures; reject without raw preview/save; original and sanitized hashes distinct, rebuilt PDF has no active content; bounded no-network/no-key sandbox. |
 | 2 `tests/browser-files-db.test.mjs` | All actual read/export/signed/base64/text/pages/mobile/portal/thumbnail/attachment/ingestion variants; overwrite/tag clear/trash restore preserve provenance, purge old cached exports; cross-UID crash at stage/DB/publish/commit, repeated-save changed body, reader authorization HEAD/Range and closed task; feature off/controller down/rollback/backup restore retains compatible reader; shared-secret artifacts always Joe-only, only separate fixed-schema safe output can be released. |
 | 3 `tests/browser-approval-db.test.mjs` | Every company submit/sign/pay plus “nonbinding”/draft company request staff-denied, staff direct click cannot bypass; personal own-login/contact and named delegated login-only self-approvals. Grant/token/audit consume concurrent and atomic; wildcard/wrong snapshot rejected, original run preserved, absent either person disallows dispatch. |
+| 3 `tests/browser-payment-card-db.test.mjs` + `tests/browser-payment-card.test.mjs` | P1 owner-only roles/one-use executing proof; consume before fill, actual flow bind once, no second consume; wrong card/action/revision/origin/payee/amount/currency/epoch/image digest/processor/field refused; staff/public/delegated/hidden/ambiguous fields denied; injection, look-alike, script exfil, replay, removal and all crash races with upstream canaries. |
+| 3 `tests/browser-payment-card-ui.test.mjs` | P1.4 360/820/1280 settings and Pay reviews; empty/error/success/replacement/removal/unsaved, masked entry/no reveal, sticky decisions/focus/refusal, plain runtime names; staff Waiting for Joe receives zero card metadata. |
+| 3 `tests/browser-payment-card-crypto.test.mjs` + `tests/browser-flags-db.test.mjs` + `tests/browser-retention.test.mjs` | Independent payment KEK and immutable AAD; rotation/escrow/lost key/restore disabled; no plaintext persistence or card-bearing retained artifacts, immediate proof revocation and ≤24 h ciphertext purge; payment flag default OFF and conjunction with final/vault/global, every boundary rechecked, dependent context closed, no replay. |
 | 3 `tests/browser-audit.test.mjs` | Approval and consume evidence durable with grant use; failed chain/checkpoint write blocks gate; mutate/delete/truncate/restore old DB detected against independent sink; retained-boundary checkpoint, key rotation/verifier, signed consume receipt bound to flow; no best-effort logging-only execution. |
 
 **Browser additions to the shared fixture test list**
@@ -3997,7 +4085,8 @@ created/invalidated/denied/expired, approval/grant consumed, request dispatched,
 result confirmed/unknown, file committed, ciphertext/profile purged. Include
 correlation task/run/action/command IDs, boot ID, safe code and durations.
 Do not put full URLs, usernames, text, bodies, passwords, image base64, tokens
-or cookie headers in stdout/journal/analytics/traces. Test failure paths too.
+or cookie headers in stdout/journal/analytics/traces; Amendment P1 also excludes
+card numbers, security codes, cardholder and billing fields. Test failure paths too.
 User sees the relevant durable outcome; owner sees redacted event history through
 Open review; staff only own. No viewer/input recording “for debugging.”
 
@@ -4014,7 +4103,7 @@ worker retry. Audit/receipt calls use safe IDs/results, not private page content
 
 Owner-owned app settings (no narrow writes), default false:
 `browser.enabled`, `browser.staff_enabled`, `browser.vault_enabled`,
-`browser.files_enabled`, `browser.final_steps_enabled`,
+`browser.files_enabled`, `browser.final_steps_enabled`, `browser.payment_card_enabled`,
 `browser.permit_handoff_enabled`. Optional named-user pilot allowlist and global
 resource/admission latch live in owner-only configuration. Environment
 `SJC_BROWSER_ENABLED=0` is an overriding emergency off switch, not a model input.
@@ -4022,9 +4111,11 @@ Service rechecks effective flags at admission/every action; live kill switch
 invalidates controls/approvals and closes contexts within 5 s. Staff flag off
 closes only staff execution contexts; accepted independent Joe hand-offs keep
 Joe's own authorization and do not transfer staff attendance. Vault flag off denies
-login/profile decrypt/fill/restore/profile save and closes **only vault-dependent**
-fill/restore contexts (§5.2 sticky binding), including delegated_secret. Anonymous
-manual-only private contexts (dependency none) continue with no model observation;
+login/profile decrypt/fill/restore/profile save and closes **vault-dependent**
+fill/restore contexts (§5.2 sticky binding), including delegated_secret; in
+Phase 3 it also fences/closes P1 payment-dependent contexts. Anonymous
+manual-only private contexts (login dependency none and no P1 payment dependency)
+continue with no model observation;
 privacy never becomes public and Phase 1 never needs vault enabled. Files and
 final dispatch flags still apply inside them. Final-steps off denies creation,
 approval, arm, bind/consume and transmission and cancels all undispatched
@@ -4038,6 +4129,10 @@ delegated **login-only** under its own gates. Neither exception authorizes
 personal_contact/company account change, business values, write or charge.
 Unsupported/ambiguous login refuses; no broad phase/name-based exemption.
 Phase 1 permits neither login submits nor any other outside writes.
+`browser.payment_card_enabled` defaults **OFF**, Phase 3 only, and is meaningful
+only with `browser.final_steps_enabled` (also requires global/vault enabled);
+Amendment P1.7 specifies management/decrypt/fill/transmit fences and immediate
+proof revocation/closure on disable. No Phase 1/2 card capability or migration.
 File flag off denies new download/upload/save; existing authorized project files
 still readable by people. No historical backfill of browser profiles/tasks.
 
@@ -4166,7 +4261,10 @@ tests. Appendix Round-4 maps each required change to these §13 boundaries.
 ## 14. Remaining business decisions and known limits
 
 No new business question is introduced; no business answer blocks the generic build. Decisions 1–9 govern this
-plan. Decision 5 is settled: saved logins are shared **per site with named staff**,
+plan, together with Joe's round-4 payment decision in Amendment P1. Securely
+stored company card details, including security code under P1's explicit risk
+rule, are owner-only Phase 3; permission is required right before every use.
+Phase 1 being built now is unaffected. Decision 5 is settled: saved logins are shared **per site with named staff**,
 default Only me; Joe's share sheet says “Let these people use this login” / “They
 can sign in without seeing the password.” Decision 6 is settled: **Joe approves
 every final step committing the company**, even “nonbinding” staff requests and
@@ -4182,7 +4280,10 @@ remote input needs iPad/computer; generic authenticated forms are filled by the
 person using Your answers; delegated staff login works only with reviewed safe
 controls and outputs, otherwise Joe finishes or staff use their own authorized
 account; no arbitrary model private-page vision; no password reveal/export;
-WebSocket/pinned-TLS/unknown request portals may remain unsupported. Read-only
+WebSocket/pinned-TLS/unknown request portals may remain unsupported. Amendment
+P1 adds no virtual cards, bank accounts or staff card use: unsupported payment
+fields/processors remain manual Joe-only work, and saved-card use cannot bypass
+the exact Pay review or the private-context/no-model boundary. Read-only
 Phase 1 blocks even POST search. The reviewed TLS gate, session/thread prerequisites,
 common resource hierarchy and independent audit sink are deploy gates, not claims
 that existing infrastructure already provides them. PDF filing stays off if the
@@ -4199,6 +4300,504 @@ browser, server, build, tsc or test suite run by this revision. This plan alone
 is staged/committed; real-device, fail-closed network, file sandbox and resource
 acceptance belong to the authorized coordinator. Proposed tests are not claimed
 as passing.
+
+## Amendment P1 — Stored payment card (Joe, 2026-11-07)
+
+Joe, verbatim: **“No separate virtual cards would be too complicated on my end.
+A secure way to store payment details would be great. Permission always needed
+right before use.”** Source: `_context-agent-browser-canvas.md`, “Joe's decisions,
+round 4: payment details (2026-11-07).” This amendment supersedes the earlier
+card-exclusion/manual-entry-only rule, not the owner-approval or private-mode
+boundaries. It is normative **Phase 3** scope; **Phase 1 being built now is
+unaffected**, as is Phase 2. No source edits, migration, runtime test, payment,
+service change or deployment is authorized or claimed by this amendment.
+
+### P1.1 Contents, ownership and limits
+
+One active company card for Joe in v1. Store **card number (PAN), expiry month/
+year, cardholder name, billing ZIP/postcode and billing address, and security
+code (CVV/CVC)** together inside the encrypted payload. No separate virtual or
+single-merchant cards, bank accounts, client cards, 2FA seeds or recovery codes.
+The card is a password-manager-style store of the company's own payment details,
+not merchant card processing; do not infer a merchant-processing authorization
+or compliance certification from this plan.
+
+**Chosen security-code rule: store it encrypted with the card**, at the same
+highest sensitivity, to supply the complete saved payment details Joe requested.
+This is the plan's explicit implementation choice, not a verbatim decision about
+CVV from Joe. Trade-off: possession of a decrypted card plus security code makes
+unauthorized card-not-present use easier; keeping the code out would reduce that
+exposure but require Joe to enter it for each payment. The chosen rule accepts
+that added vault-compromise risk and requires every protection below; encryption
+is not a promise against a compromised authorized service or payment recipient.
+Never put the code in metadata or retain it in a payment receipt/request copy.
+
+**Joe alone** may add, replace, remove, select or approve use of the card. Staff
+can never create, enumerate, see (including brand/last 4/expiry), reveal, copy,
+fill, share or approve it, regardless of area/role/login-sharing grants. No staff
+card fallback and no model/MCP card-management tool. Named-staff sharing remains
+**login-only** (§5). Entry is not permission to pay, and approval of one payment
+is not a reusable permission to fill.
+
+A staff Pay step retains **“Waiting for Joe”** and §6.3's full action/countdown/
+Cancel request template, with no card details. Existing manual owner approval
+remains available under §7. For a **saved-card** payment originating with staff,
+Joe uses the existing confirmed §6.4 hand-off to a fresh Joe-owned task/context,
+then a **new** Pay action/review in that task. Fence/cancel the old undispatched
+staff action before hand-off; never move its action, approval or grant to Joe's
+task. Nothing filled into a staff/delegated context. Source staff see only fixed
+hand-off status/outcome; Mark finished is still human report, never payment proof.
+If hand-off is unavailable or any old effect is executing/unknown, refuse saved-
+card use there; reconcile first. All-attempt logical-effect history still prevents
+double payment. Phone can approve an already prepared Joe-owned review; accepting/
+working a hand-off still uses §6.2's iPad/computer rule.
+
+### P1.2 Encryption, entry and safe projections
+
+Use §5.1's full envelope format, counters, domain prefixes, JCS immutable AAD,
+fresh 32-byte DEK per card revision, independent 96-bit data/wrap nonces and
+128-bit tags. New purpose **`payment_card` has its own independent 256-bit KEK**,
+active/decrypt-only key versions and LoadCredential provisioning; never reuse
+login/profile/request/backup/Gmail/session/audit keys. Required data bindings:
+`{version:1,purpose:'payment_card',card_id,owner_user_id,card_revision,
+installation_id}`. IDs are server-derived, owner is the configured Joe account,
+revision is positive, installation ID stable and verified on restore. Wrong
+purpose/record/owner/revision/install or any tag/nonce/wrap mismatch denies use.
+A reusable stored card has no merchant origin in its data AAD; each individual
+use binds the exact merchant/processor origins in the approved action instead.
+Replacing card contents creates new immutable revision + DEK; never relabel old
+ciphertext. Rewrap alone changes wrapping metadata, never the content revision.
+
+**No plaintext at rest or in any retained output anywhere**: DB, files, backups,
+profiles, chat, model context, screenshots, clipboard, logs, APM, telemetry,
+exception payloads, request-body logging, proxy dumps, traces, HAR or crash dumps.
+Plaintext necessarily exists transiently in Joe's entry form, TLS endpoint,
+controller/gate memory and the exact approved site's card fields/request during
+use; that is the only exception, not a plaintext store. Bound request/form
+HMACs use secret-aware typed slots, never raw PAN/CVV hashes outside encryption.
+Best-effort zero short-lived buffers; managed runtimes cannot promise erasure of
+every copy (§5.2), so process/dump/network isolation remains mandatory.
+
+Entry: direct authenticated **password-style form**, cookie-only Joe session,
+CSRF + same-origin checks, TLS, `Cache-Control: no-store`, no Server Action echo,
+chat message, agent row, URL/query, sessionStorage/localStorage/IndexedDB or
+client form-persistence library. Save goes directly to the private API and
+web-authorized encrypt RPC; transient web buffers never enter SQL. No analytics/
+third-party scripts on this settings screen; disable body capture at every proxy/
+error layer. Validate bounds and fields without echoing entered values; failed
+request clears sensitive inputs. Navigation/reload/back restores no submitted
+values. Native app offers external Safari only, no Bearer card writes.
+
+PAN and security code use masked password inputs + numeric input mode, no reveal/
+copy control; block copying/cutting secret fields. Use appropriate semantic
+`autocomplete` tokens: `cc-number`, `cc-exp-month`, `cc-exp-year`, `cc-name`,
+`cc-csc`, `billing postal-code` and the appropriate `billing address-line*`,
+`billing address-level*`, `billing country` for address inputs; form-level
+`autocomplete=off`. Semantic attributes aid entry/accessibility, **not permission
+for SJC OS to save in a browser**: no save-card API/integration, app-side cache,
+or browser storage. User-browser autocomplete may ignore off; do not claim the
+website can forbid an OS/password manager outside its control. The remote service
+Chromium's password manager, payment autofill, sync and disk state stay disabled.
+Verify these settings; never use native browser autofill to perform payment.
+
+After submission, all human UI/API **card-content projections** return only
+`brand`, `last4`, `expiry_month`, `expiry_year`; fixed status, opaque ID/revision
+and CSRF/idempotency metadata may accompany them, never PAN, security code,
+cardholder/billing values, length/error excerpts or a general decrypt/reveal/copy
+route. No prefilled edit form: **Replace card** requires full re-entry. Brand and
+last 4 derive server-side from validated entry, not user-supplied display text.
+Expired cards cannot be approved or used; Joe sees **“This card has expired.
+Replace it before paying.” [Replace card] [Close]**.
+Masking a field is not the isolation boundary: agent/model gets no values, card
+metadata or private page observation, even if a page reflects/encodes the card.
+
+### P1.3 Just-approved Pay, fill and single dispatch
+
+No **Fill card** action, early checkout autofill, “remember permission”, blanket
+Express permission, recurring charge consent, direct-click bypass or reusable
+fill proof. A saved card is used only inside execution of an exact **Phase 3
+final Pay action Joe has just approved on the first-party review card**. Even a
+$0 authorization needs a fresh exact Joe review. The button says **“Pay $125.00
+once”**; denial **“Don't pay” → “Not paid.”** No card filled on opening a site,
+opening a review, choosing a card, creating a grant or approving another action.
+
+Only a reviewed, version-pinned **payment field/submit adapter** may use this
+path in Phase 3. This is a narrow exception to Phase 4's generic pre-click adapter
+placement; it adds no city automation, blind private continuation or permission
+to inspect private pages. Unknown portals remain Joe manual-only. A generic
+buffered request prepared before approval cannot be retrofitted with a saved
+card. No live discovery/test click, no tokenization/validation/save-card request
+before review, and no multi-request mutation pipeline. Processors requiring
+several mutating steps are unsupported here; each independently authorized step
+would need a separately designed review, never implicit card reuse.
+
+Review is prepared **with fields empty**, before any decrypt. It has §7.3's
+human-only image + summary and immutable digest, and binds at least:
+`task_id,original_run_id,initiating_user_id,owner_user_id,action_id,
+action_revision,card_id,card_revision,context_boot_id,context_generation,
+control_epoch,document_epoch,canonical_https_origin,payee_as_shown,
+amount_cents,currency,review_image_digest,form_manifest_hmac,
+field_manifest_hmac,processor_origins,frame_identities,adapter_id,
+adapter_version,read_manifest_revision/digest,submit_target,expires_at`.
+Payee as shown is human-reviewed, escaped untrusted text, verified against the
+adapter's exact payment endpoint/account; a logo/name alone is insufficient.
+Show merchant origin, exact payee, total including fees, currency, processor
+origin and expected fields; unknown/inconsistent facts disable Pay. The image
+digest binds §7.3's encrypted human-only review artifact, never a model image.
+
+**Pending review expires at min(created+60 s, any shorter session/task deadline)**;
+no 5-minute P1 card. Approved token is one-use, random 256-bit, hashed, expires
+within **30 s of approval** and no later than the review/attendance deadline.
+Actual fill→submit begins immediately after the checks below and must complete
+within **10 s of execution start**, also bounded by token/review/session expiry;
+no pause, human editing or second agent turn between fill and submit. An expired
+review is **“This review expired. Nothing was paid. Review the payment again.”**
+[Review again] [Close] in Joe's task; Review again captures a new empty-field
+snapshot/action and mints no permission. Staff-source hand-off has its ordinary
+status, not this button or a stored-card countdown. No renewal or replay.
+
+Execution protocol (P1-specific extension of §7.3/§9.2):
+
+1. Website approval verifies fresh Joe cookie/session/CSRF, exact action/revision/
+   image/card binding and required attendance, then creates the exact
+   `external_browser_pay` owner grant with `max_uses=1` plus token and approval
+   audit. Action remains approved; **nothing is decrypted or filled**. A generic
+   grant editor, direct person site click, Telegram callback or model cannot
+   approve this stored-card path. Approval records only nonsecret bindings.
+2. Controller serializes the context and sets irreversible private mode **before
+   decrypt**, using §5.2's stop/ack/drain of every public/model observer. Require
+   Joe-owned private, never public or delegated-secret, context; mark additional
+   sticky payment dependency `(card_id,card_revision,context_generation)` before
+   secret access. Keep the login `vault_dependency` unchanged; P1 adds its own
+   dependency columns in the later migration. A context holding card values may
+   never save a profile, expose raw downloads or return to agent observation.
+3. Under task→action→grant→card locks (then hand-off effect where applicable),
+   `browser_payment_begin` rechecks all bindings, enabled flags, live Joe presence,
+   current card revision/not removed, fields/frames/epochs/amount/payee/origin,
+   approval and logical-effect history. Atomically approved→**executing**, consume
+   token and the one grant use, reserve one command and one **card-use proof**,
+   write chained consume evidence. Proof binds the complete approved snapshot,
+   card revision, context/boot and deadline above; hash stored, raw proof only
+   controller memory. No remote I/O in SQL. Independent checkpoint acknowledgment
+   for approval+consume must precede secret access as well as network dispatch.
+   This path has **no armed state**: generic pre-click arm/consume is not called.
+4. Service-only `browser_payment_take` atomically consumes the card-use proof
+   once, while the action is executing, same boot/context/current card and flags
+   valid; returns the encrypted envelope to controller only. Controller rechecks
+   under the context lock, decrypts once, fills only the exact approved fields
+   via trusted fixed handles, then immediately dispatches the one approved submit.
+   No returned plaintext, model call, separate login fill or second command. Any
+   hidden card/billing field, extra/ambiguous/duplicate field, changed target or
+   missing expected field refuses before fill. Cross-origin iframe fields refuse **unless** each iframe
+   origin is the exact approved HTTPS payment-processor origin explicitly listed
+   in the review, with its frame identity/parent chain/field manifest bound.
+   Same-origin resemblance, wildcards and processor redirects are insufficient.
+5. Before each field and immediately before submit, revalidate amount/payee,
+   origin, field manifest, frame identities and document epoch. The adapter's own
+   writes to the exact declared fields are the only permitted manifest change;
+   any other drift after approval aborts, including new hidden fields. If nothing
+   filled, leave empty; if partially filled, clear **all** card/billing fields
+   and destroy/fence the context (clear failure means close immediately), discard
+   buffers and revoke proof/command. No further page event/input may run after
+   abort. Never reuse this card-use proof/action, even if no charge was made.
+6. Gate keeps upstream closed throughout fill/click. Dedicated
+   `browser_payment_bind_request` verifies the fully buffered actual request
+   against approved endpoint/business values, exact card slots/serialization,
+   field/frame/processor manifest, proof-use/command and current revisions/flags;
+   binds one digest/flow nonce/listener generation by CAS to the already executing
+   action, **without consuming the grant/token again**. It emits signed actual-
+   bind evidence; gate requires its independent checkpoint ack plus prior consume
+   ack before one transmission. Reject extras, changed bytes, a second flow or
+   unapproved processor request. No reusing generic armed-state bind to bypass
+   the executing proof. Request bytes stay bounded gate memory, never plaintext
+   journal or reusable request artifact; no replay after restart.
+7. After submit, clear/destroy the card-bearing context as soon as bounded
+   verified result evidence is collected, or on timeout/denial/drift/disable/
+   removal/lost presence/crash. No profile/cookie-state save from this generation.
+   Confirmed receipt alone → Paid; definitively blocked before transmission →
+   failed/Not paid; any possible transmission/lost ack → unknown, check the site
+   before trying again, never refund/retry. Retain original consumed grant/proof
+   and effect history. New payment needs a new action, fresh Joe approval and
+   fresh card-use proof, even with the same merchant/amount/card.
+
+**Field confidentiality includes humans and scripts.** Pause all screencast/frame
+publication before fill, including Joe's live view; replace it with **“Approved.
+Paying $125.00 now…”**. No unmasked post-fill image can be published or persisted.
+Any post-fill screenshot/review image must mask all card/billing fields **before
+capture/encoding** using the trusted field manifest; if coverage/echo safety is
+uncertain, take no image and retain only the pre-fill review. No raw intermediate
+frame, DOM/accessibility snapshot, console event or reflected error is permitted.
+Only separately verified fixed-schema receipt facts leave the private adapter.
+
+Autofill injects values into a page; page scripts at that origin could read them.
+A private context alone does not prevent that. The reviewed adapter must inventory
+permitted script/frame code and demonstrate that no unapproved third-party script
+can execute/read card fields (approved processor code is itself a sensitive
+recipient, not an exemption). Independently, from before decrypt until context
+destruction, gate denies **all** egress except the one approved exact card request
+and separately fixed-schema receipt reads; no beacons, analytics, image/query/
+path/header/referrer leaks, redirects, WebSocket, workers, preflight side channel,
+new frame or same-origin alternate endpoint. Existing §3.2/§8.1 network barriers
+still apply, with no cached bypass. Refuse if the script/field isolation and exact
+egress set cannot be established on the pinned runtime; never sell “masking” as
+protection from a third-party script. Close context even after failure so a
+script cannot defer leaking a retained value to a later allowed request.
+
+### P1.4 Screens, exact copy and recovery (§6.3/§6.5 extension)
+
+Entry point for Joe only: Browser **⋯ › Payment card** and authenticated settings
+route **`/browser/payment-card`** under the ordinary app shell; links appear only
+when Phase 3 is installed; effective P1 flags gate Add/Replace/use, while
+owner-only safe metadata/removal remain available when flags are off. Saved
+logins remains login-only.
+No live browser/capacity admission needed to manage the card. Owner checks at the
+route/API, not just hidden controls; staff direct URL gets **“This page is only
+for Joe.” [Back]**, no existence/brand/card details. Use configured authorized
+owner display name everywhere Joe appears; never infer gendered pronouns.
+
+Same app paper/ink/rule/type tokens, 44 px controls, 48 px primary/confirmation
+buttons. 360 is a full-height page with one scrolling form and sticky Save/Cancel;
+820 is app shell + centered ≤560 px form; 1280 is app shell + ≤560 px form beside
+explanatory text. No new Operator host, pop-out, browser server or remote input.
+Keyboard scrolls field into view; focus order is heading → fields → Save → Cancel;
+errors focus error summary then inline field. Enter saves the local form only,
+never a payment; Escape cancels or opens unsaved confirmation, never approves.
+Pay review keeps §6.3's phone/sticky decisions and landscape geometry; the saved-
+card line scrolls with summary, never pushes decision buttons offscreen.
+
+```text
+360 · owner settings (empty -> Add card; Replace uses same blank form)
+┌──────────────────────────────────┐
+│ ‹ Back · Payment card            │
+│ Only you can use this card.      │
+│ No card saved.                   │
+│ [Add card]                       │
+│ Add card                         │
+│ Card number [••••••••          ] │
+│ Expiry month [MM]  Year [YYYY]   │
+│ Name on card [                 ] │
+│ Billing address [              ] │
+│ City [           ] State [     ] │
+│ ZIP / postal code [            ] │
+│ Country [                      ] │
+│ Security code [•••             ] │
+│ The security code is saved too. │
+│ You must approve each payment   │
+│ right before the card is used.  │
+│ [Save card                    ] │ ← sticky 48 px
+│ [Cancel                       ] │
+└──────────────────────────────────┘
+820 · owner settings, centered form ≤560 px
+┌───────────────────────────────────────────────────────────────┐
+│ App navigation · Settings                                     │
+│       Payment card                                            │
+│       Visa ending 4242 · Expires 08/2029                       │
+│       Only you can use this card.                             │
+│       [Replace card] [Remove card]                            │
+│       Replace card · all fields blank, same order as 360       │
+│       Card number [••••] · Expiry [MM] [YYYY]                  │
+│       Name / billing address / city / state / ZIP / country    │
+│       Security code [•••] · saved too                          │
+│       [Save replacement] [Cancel]                             │
+└───────────────────────────────────────────────────────────────┘
+1280 · owner settings, app shell; form ≤560 px
+┌───────────────┬──────────────────────────────┬─────────────────────────┐
+│ App navigation│ Payment card                 │ Only you can use this   │
+│ Settings      │ Visa ending 4242             │ card. Staff cannot see  │
+│               │ Expires 08/2029               │ or use it.              │
+│               │ [Replace card] [Remove card] │ You must approve each   │
+│               │ Add/replace: same blank form │ payment right before    │
+│               │ and field order as 360       │ the card is used.       │
+│               │ [Save …] [Cancel]             │ Security code saved too.│
+└───────────────┴──────────────────────────────┴─────────────────────────┘
+```
+
+Empty summary and Add form are successive states, not two simultaneously active
+forms; on Add focus Card number, on Replace focus replacement heading then number.
+Expanded 820/1280 forms show the **same full labels and security-code notice** as
+360; wireframe shorthand never removes them. Summary only shows safe metadata;
+no name/billing/code preview. Save is disabled while pending, field buffers clear
+on completion/cancel; no optimistic Card saved or optimistic replacement.
+
+| State / event | Exact copy / controls and outcome |
+|---|---|
+| Empty | “No card saved. Only you can use this card. You must approve each payment right before the card is used.” [Add card] |
+| Entry notice | “The security code is saved too. If the card store is compromised, the code could be exposed with the card. You must approve each payment right before the card is used.” Visible before Save, including after validation errors; no compliance badge or claim of risk-free storage. |
+| Invalid | “Check the card number.” / “Enter a valid expiry date.” / “Enter the name on the card.” / “Enter the billing address and ZIP or postal code.” / “Enter the security code.” Fixed text, never echo input; respect country-specific address/postcode formats. |
+| Saving | “Saving card…” or “Replacing card…”; disable repeat Save, Cancel can leave UI but cannot claim rollback of an accepted write; reload reads safe metadata only. |
+| Added | “Card saved. You'll be asked right before each payment.” Visa ending 4242 · Expires 08/2029 [Replace card] [Remove card]; no Fill/Reveal/Copy/Share. |
+| Replace | “Replace this card? You'll need to enter all the details again. Any payment waiting for approval will need a new review.” [Replace card] [Cancel]; confirmed form blank; existing card remains until successful atomic replacement. |
+| Replaced | “Card replaced. Review any waiting payment again.” Revoke old proofs/reviews; never patch the card on an approved action. |
+| Remove | “Remove this card? It won't be available for another payment. A payment already sent may still go through.” [Remove card] [Cancel]; Escape = Cancel; fence before success. |
+| Removed | “Card removed.” then empty state; original receipt/unknown history preserved. |
+| Already executing | “A payment is in progress. Removing the card stops any payment that hasn't been sent. Check the site before trying again.” Remove remains available; never blocks owner revocation or promises a refund. |
+| Save/service failure | “Card couldn't be saved. Enter the details again.” [Try again] [Cancel]; no echo, clear fields; existing card unchanged on failed replacement. |
+| Revision conflict | “The saved card changed. Open Payment card again.” [Open Payment card] [Cancel]; no retry with old secret payload. |
+| Key unavailable | “Saved card is unavailable. Nothing was filled.” [Close]; management disabled; lost key recovery requires full re-entry, never plaintext fallback. |
+| Unsaved exit | “This card hasn't been saved. Leave without saving?” [Leave] [Keep editing]; Leave clears form, Keep editing returns focus, Escape = Keep editing. |
+| Joe Pay review | “Ready to pay” / “$125.00 USD” / “To: City of Fargo” / “Pays with Visa ending 4242”; Review details: expires 08/2029, merchant origin and “Card fields on https://payments.example” if approved processor iframe; [Review image] [Pay $125.00 once] [Don't pay]. Mask/omit all secret/billing values. |
+| No saved card / disabled | No saved-card line or enabled saved-card use; Joe sees “No card available for this payment.” Manual Joe flow stays subject to §7; no silent saved-card fallback or flag bypass. |
+| Staff Pay | “Waiting for Joe”; full §6.3 action/amount/payee/status template and [See request] [Cancel request], no brand/last 4/expiry/settings/control. Saved-card route requires P1.1 hand-off. |
+| Drift / unsupported | “The payment page changed. Nothing was paid. Review it again.” / “This page can't safely use the saved card. Finish the payment yourself.” Only if definitely unsent; [Close] or Joe's own iPad/computer [Take over] after card-bearing context destroyed, fresh page/review; no override fill. |
+| Card removed/replaced while pending | “The saved card changed. Nothing was filled. Review the payment again.” [Review again] [Close]; new action/image/card revision required. |
+| Expired / executing / confirmed / unknown | P1.3 lapse, “Approved. Paying $125.00 now…”, §6.5 verified Paid or unknown copy respectively; no unmask, Retry pay, automatic retry or inferred success. |
+
+The processor origin/field list is always in the human review when applicable,
+not merely hidden in API metadata. Review details/Review image are human-only.
+Joe can deny on phone; adding card uses the ordinary local form on phone and
+requires no remote key capture. Runtime-named templates use authorized display
+names, including staff waiting/hand-off copy, with no gendered pronouns.
+
+### P1.5 Later schema, protected functions, retention and audit
+
+Reserve **one later additive migration, number assigned at Phase 3 build** after
+checking main/open branch allocations. Do not take a new number here or modify
+0100–0104 already being built. Update canonical schema, role manifest, bootstrap/
+generator/scanner and actual-login tests in that later build; paste the actual
+`node scripts/db-roles-sql.mjs <table>` output in the migration (zero grants may
+print none; explicit revokes/default-privilege checks still required). All new
+trigger/definer functions use `SECURITY DEFINER SET search_path = public, pg_temp`,
+fixed SQL/types, no PUBLIC execute and §9.2's real session_user checks.
+
+| Proposed relation / extension | Enforceable contract |
+|---|---|
+| `browser_payment_cards` | id UUID, owner_user_id→users (configured Joe only), installation_id UUID, current_revision int>0, disabled_at/deleted_at NULL, created_at/updated_at; partial UNIQUE(owner_user_id) for one active card. Identity immutable, no staff access rows. Current revision is a protected pointer to same-card/owner revision. |
+| `browser_payment_card_revisions` | PK(card_id,card_revision), immutable owner/install binding, envelope per P1.2, brand enum/last4 exactly 4 digits/expiry_month 1–12/expiry_year integers, created_at, revoked_at/purge_at. Same-card composite FK, nonempty ciphertext/wrapped key, nonce/tag lengths 12/16, no plaintext/name/address/CVV columns. New content always new revision/DEK. |
+| `browser_payment_uses` | id UUID, action_id UNIQUE FK→browser_actions, card_id/card_revision composite FK, owner_user_id, task/run/context_generation/boot, snapshot_digest, command_id UNIQUE, proof_hash UNIQUE 32 bytes, issued_at, deadline, proof_consumed_at NULL, invalidated_at NULL, actual_flow_nonce/listener_generation/request_hmac NULL once-bound, terminal_code NULL. CHECK deadline ≤ approval+30 s/review and execution-start+10 s via guarded functions; action must be exact Joe-approved company_payment. Immutable identity, one proof/take/flow, no raw token/secret field/body. |
+| `browser_actions` P1 extension | payment_mode NULL/manual/stored_card; stored requires card_id/revision, processor/field/frame manifest HMAC, adapter version and P1 snapshot bindings. Extend review_mode with payment_card in this later migration, using P1's approved→executing path and bypassing no generic state check. Store sensitive manifest in encrypted action envelope, safe card label only in Joe UI projection; no card value in general snapshot/grant details. Once approved no card/mode/revision substitution. |
+| `browser_tasks` P1 extension | additional sticky payment_card_id/payment_card_revision/payment_context_generation, all NULL until guarded dependency bind, never model-set; separate from Phase 1 login dependency. Once set closes on revoke/disable and never saves profile from that generation. |
+
+**Website-only management writes**, using the website owner login through guarded
+commands, require fresh configured-owner cookie + CSRF and expected revision/
+idempotency UUID; service may encrypt a web-authorized entry, never create a card
+or decide a payment itself. Proposed `browser_web_payment_card_save` and
+`browser_web_payment_card_remove` functions accept authorized ciphertext/metadata
+or exact current revision, never plaintext SQL arguments. Save/replacement/removal
+serializes with execution via card lock/generation fence; stale body gets 409.
+No approval through management functions. Safe projection returns P1.2 metadata
+only to Joe; staff get denial regardless of guessed ID or existence.
+
+`sjcos_agent`, `sjcos_worker`, `sjcos_readonly` and `sjcos_browser` have **no direct
+SELECT/INSERT/UPDATE/DELETE** on payment tables; no PUBLIC/default/inherited grants.
+Agent/worker/readonly cannot EXECUTE payment functions. Website-only functions
+are not executable by service. Service's only execution functions are scoped
+`browser_payment_begin`, `browser_payment_take`, `browser_payment_bind_request`
+and fixed result/revoke transitions under P1.3; they can never mint approval or
+read another action/card. `browser_read_secret` and file reader reject this
+purpose. Service can get a payment envelope for decrypt **only inside an
+executing, exact Joe-approved Pay action with the one-use card-use proof**; no
+maintenance/health/preview decrypt. Key rotation/entry encryption is a separate
+owner deployment/web-authorized maintenance path, never a plaintext card reader.
+Backup role retains encrypted backup ability per §9.2, no decrypt/function rights.
+
+Proposed routes: GET `/api/agent-browser/payment-card` → safe metadata or empty;
+POST → add, PUT → complete replacement with expected revision; DELETE → remove
+with expected revision. Each requires owner cookie/CSRF where mutating, bounded
+body, no-store, Origin enforcement, no caching or request-body capture, response
+metadata/status only, no Server Action echo. No GET with secret params, card
+field fill route or MCP registration. Existing `/actions/[id]/decision` is the
+only approval route and must recognize stored_card mode + P1 immutable bindings.
+Service RPC carries exact signed short-lived web entry/execute proofs, never
+raw model arguments; remote browser code receives no keys/proofs.
+
+Removal/replacement/disable **immediately invalidates** old reviews/tokens/proofs;
+controller/gate serialize a revocation fence with fill/bind/transmit. Removal
+returns success only once all unsent uses are fenced and affected contexts
+cleared/closed (≤5 s; timeout returns pending safe status, no false Removed).
+In-flight transmitted bytes cannot be recalled: preserve unknown/receipt and
+consumed history. No grandfathered fill after deletion, including a controller
+holding an old decrypted buffer. Tombstone old revision immediately; purge its
+ciphertext/wrapped DEK within **24 h**, retaining ID/revision/revocation tombstone
+for action/audit history, never retaining a decryptable revision for receipts.
+Active card kept until removal/replacement; no background revalidation charge.
+
+Payment-bearing request bodies are **never durable**, even encrypted: no storing
+PAN/CVV again under `request_body`, no HAR/request retry queue. P1 retains only
+the encrypted pre-fill review/secret-free manifest for §9.3's outcome+24 h;
+any retained post-fill image must satisfy P1.3's pre-capture mask/no-echo rule.
+Content-free action/use/audit IDs, digests and outcomes follow the two-year audit
+rule; safe receipt documents follow project retention with no cardholder,
+billing/card values or code. Brand/last4 are Joe-only display metadata, not audit
+payload. General staff receipts use verified safe business facts only.
+
+Append-only chained **content-free** events: card_added/replaced/removed,
+card_review_prepared/denied/expired/stale, card_use_started/proof_taken,
+card_fill_aborted, card_request_bound/dispatched/result, card_key_rotated,
+card_ciphertext_purged. Allow IDs, actor/task/run/action/card revision, safe result
+code, sequence/time and HMAC/chain/checkpoint data only; no brand/last4/expiry,
+PAN/code/name/address, field values/locators, page text, URL query or bodies.
+Atomic approval/consume/bind and independent audit acknowledgment remain dispatch
+gates; audit failure never becomes best-effort permission. No keystroke replay.
+
+Rotation follows §5.1 independent payment KEK versions/counters + revision CAS;
+rewrap verifies round trip, revokes executing proofs before swapping active key,
+never discards old key until live rows and backup retention no longer need it.
+Failure keeps prior wrapped data usable but denies affected new execution until
+verified. Lost key → **Joe re-enters the complete card**, never password guessing,
+plaintext fallback or recover-from-page. Separate encrypted offline escrow; key
+files/runtime paths excluded from host/app/DB backup inventories. Ciphertext can
+age out of existing encrypted backups, so removal cannot instantly erase them.
+
+Restore defaults **global Browser, final steps and payment-card flags disabled**;
+no card-use proof/token/session/action may resume. Reconcile independent audit
+anchors and owner revocation tombstones beyond the restored snapshot before any
+card is eligible; absent/newer revocation evidence means keep card disabled and
+ask for full re-entry, never resurrect a removed card. Verify installation/AAD/
+keys/counters, finish role/crypto gates, then Joe explicitly re-enables settings
+and creates a new attended review. Restore/rotation does not restore permission.
+
+### P1.6 Required abuse and failure gates
+
+These extend §8.3/§12, not prompts that replace enforcement. Tests use synthetic
+card canaries and sandbox processors only; capture the **actual** upstream bytes
+and every model/log/frame/backup path on the pinned runtime before enabling P1.
+
+| Case | Required behavior / proof |
+|---|---|
+| Injection says pay elsewhere, skip review or expose CVV | No card tool/secret model output; exact task/origin/recipient/amount/grant checks deny, Joe needs a fresh independent review; no page-created approval. |
+| Look-alike payment page / processor | IDNA canonical HTTPS, exact origin/frame/endpoint/account binding; logo/name/substring/domain suffix or similar title never qualifies; wrong TLS/SNI/redirect/tenant denied before fill. |
+| Amount/currency/payee/origin/fields/epoch changes after approval | Revalidation fails at begin/take/every field/pre-submit/bind; zero fill or clear+destroy, zero upstream unapproved bytes, old review terminal; after possible transmission unknown, never claim unsent. |
+| Extra hidden/duplicate or ambiguous card fields | Hidden card/billing fields always refuse fill. Field inventory including hidden descendants/frames/shadow roots must exactly match reviewed handles/types; unexpected secret sink refuses, no heuristic pick-first. Uninspectable field/iframe is unsupported. |
+| Cross-origin processor frame swaps | Only explicitly displayed approved processor origin and exact frame/parent chain; OOPIF/popup/redirect/new frame cannot inherit proof; pinned target barrier tested before first execution. |
+| Third-party script reads autofill and leaks via beacon/image/query/header/worker | No unapproved script may read fields; all encoded egress except exact one request denied independently; upstream and model/log canaries prove zero leak. Cannot prove isolation → refuse saved-card use; clear/close prevents deferred leak. Approved processor necessarily receives the exact approved card request. |
+| Replay/double click/crash/old approval token | One token/grant/use proof/command/flow; duplicates return state with no second decrypt/fill/click/transmission; crash at each consume/take/fill/bind/anchor/transmit/result boundary never retries. |
+| Card removed/replaced mid-action; flag/access/attendance lost | Card/generation lock + gate fence; queued/unsent action stopped and cleared/closed before success response; already sent retains verified/unknown outcome, never refund promise. Stale cached envelope cannot fill. |
+| Rotation/interrupted rewrap/wrong AAD/missing key | Independent key, JCS bindings, counters and CAS fail closed; no generic decrypt oracle, old key retained until backups expire; lost key requires re-entry. |
+| Old backup restore / deleted card reappears | Flags off, all approvals/proofs revoked, anchor/revocation reconciliation mandatory, removed card cannot regain eligibility, uncertainty requires re-entry. No host backup key leakage. |
+| Malicious page reflects card into image/error/receipt/profile | Zero raw post-fill pixels/DOM/errors/model output or profile save; pre-capture mask or no image; fixed receipt facts only; close generation after execution. |
+| Staff guesses settings/card IDs or uses named login grant | Uniform owner-only denial; no metadata, create/fill/decrypt/approve rights, including direct SQL/functions/API and delegated contexts. Staff always waits for Joe. |
+
+### P1.7 Flags, rollout and scope preservation
+
+New **`browser.payment_card_enabled=false`** by default, owner-owned setting with
+no narrow writes. Effective use requires **global Browser + vault + final steps +
+payment card all enabled**, fresh Joe session/presence and the exact approved
+Pay action. Payment-card flag is meaningful only with `browser.final_steps_enabled`.
+Add/replace also require those effective flags; flag off hides those actions
+and saved-card Pay, while Joe-only safe metadata/removal remain available for
+revocation. Off settings copy: **“Saved card is off. It cannot be used for a
+payment.” [Remove card] [Close]**; never enables a payment or secret reveal.
+No Phase 1/2 entry UI, card field/table migration or fill capability.
+
+Recheck effective flags at entry/save/review/approve/begin/take/decrypt/every fill/
+submit/bind/transmit, not merely at route rendering. Any effective flag off
+revokes pending reviews/tokens/proofs immediately and fences/closes payment-
+dependent contexts within 5 s; independent gate denies unsent bytes without
+waiting for closure. Global/vault/final disable includes this payment dependency
+in addition to §13's login dependencies. Unrelated manual-none private tasks keep
+the existing rules, never become public. Re-enable never replays a card/action.
+Executing/possibly sent actions keep unknown until definitive evidence.
+
+Deploy only after §12's Phase 3 card DB/crypto/UI/hostile-runtime/flag/retention
+and real-login gates pass, payment KEK/escrow and backup exclusions are installed,
+and Joe reviews 360/820/1280 settings + exact Pay/refusal on phone/iPad/computer.
+Start with synthetic card sandbox, no company charge during acceptance. Later
+owner-authorized live pilot remains one exact approved Pay, no standing grant.
+Rollback turns payment flag off, fences contexts/proofs and preserves encrypted
+card/audit/revocation tombstones and needed keys; no down migration or permission
+resurrection. First permit city remains the already deferred decision in §14;
+**no new business answer is needed for this amendment**. Screens/tests here are
+proposed acceptance requirements, not claims of built security or passing tests.
 
 ## Appendix — Round-1 fixes
 

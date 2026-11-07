@@ -253,8 +253,8 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(h.client_io.sock.fileno(),-1)
         result=await control.dispatch(dict(op='events'))
         self.assertIn('fault',[e['event'] for e in result['events']])
-        for _ in range(100):self.runtime.observe('counter')
-        self.assertEqual(len(self.runtime.event_log),64);self.assertGreater(self.runtime.dropped_events,0)
+        for _ in range(600):self.runtime.observe('counter')
+        self.assertEqual(len(self.runtime.event_log),512);self.assertGreater(self.runtime.dropped_events,0)
     async def test_dns_cname_a_aaaa_each_link(self):
         from mitmproxy.dns import ResourceRecord as RR
         resolver=FreshResolver(clock=lambda:self.now);calls=[]

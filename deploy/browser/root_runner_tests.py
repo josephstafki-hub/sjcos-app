@@ -36,4 +36,45 @@ class CrashTests(unittest.TestCase):
             with self.assertRaises(SystemExit):r.fault_point('before_request_decision',None)
             end.assert_called_once_with(70)
 
+class LeaseTests(unittest.IsolatedAsyncioTestCase):
+    async def test_abrupt_policy_loss_closes_active_sockets_without_callback(self):
+        from transport_control import supervise_policy
+        calls=[]
+        class Runtime:
+            dead=False
+            def observe(self,*a):calls.append('loss')
+            def revoke_all(self):calls.append('socket-close');self.dead=True
+            async def settled(self):calls.append('settled')
+        class Policy:
+            def call(self,*a):raise ConnectionResetError()
+        await supervise_policy(Runtime(),Policy(),interval=.001,timeout=.01)
+        self.assertEqual(calls,['loss','socket-close','settled'])
+    async def test_stalled_policy_lease_is_bounded(self):
+        from transport_control import supervise_policy
+        from unittest.mock import patch
+        r=SimpleNamespace(dead=False,observe=lambda *a:None,revoke_all=lambda:None,settled=lambda:asyncio.sleep(0))
+        async def stuck(*a):await asyncio.Future()
+        with patch('asyncio.to_thread',stuck):await asyncio.wait_for(supervise_policy(r,None,timeout=.01),.1)
+
+class SupervisorTests(unittest.TestCase):
+    def test_eof_kills_browser_group_and_waits_independently(self):
+        import importlib.util
+        from pathlib import Path
+        from unittest.mock import patch,Mock
+        spec=importlib.util.spec_from_file_location('fixture_io',Path(__file__).parent/'fixtures/fixture-io.py');io=importlib.util.module_from_spec(spec);spec.loader.exec_module(io)
+        child=Mock(pid=123,returncode=-9);child.poll.return_value=None
+        with patch('subprocess.Popen',return_value=child),patch('select.select',return_value=([io.sys.stdin.buffer],[],[])),patch('os.read',return_value=b''),patch('os.killpg') as kill,patch('builtins.print'):
+            self.assertEqual(io.supervise_browser(['1000','1000','fake-browser']),-9)
+            kill.assert_called_once_with(123,io.signal.SIGKILL);child.wait.assert_called_once_with(timeout=2)
+    def test_response_metadata_measures_body_not_headers(self):
+        import importlib.util,hashlib
+        from pathlib import Path
+        from unittest.mock import patch,Mock
+        spec=importlib.util.spec_from_file_location('fixture_io',Path(__file__).parent/'fixtures/fixture-io.py');io=importlib.util.module_from_spec(spec);spec.loader.exec_module(io)
+        for body in [b'test',b'te']:
+            sock=Mock();sock.recv.side_effect=[bytes([b]) for b in b'HTTP/1.1 200 Connection Established\r\n\r\n']+[b'HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\n'+body,b'']
+            ctx=Mock();ctx.wrap_socket.return_value=sock
+            with patch.object(io.socket,'socket',return_value=sock),patch.object(io.ssl,'create_default_context',return_value=ctx):result=io.request(dict(host='fixture.example',path='/',ca='unused'))
+            self.assertEqual(result['bodyBytes'],len(body));self.assertEqual(result['bodySha256'],hashlib.sha256(body).hexdigest());self.assertEqual(result['complete'],len(body)==4)
+
 if __name__=='__main__':unittest.main()

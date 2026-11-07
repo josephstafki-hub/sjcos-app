@@ -108,7 +108,7 @@ class ControlServer:
         if op=='stats':
             r=self.runtime
             queues=[r.max_queue]+[io.max_queue for h in r.handlers.values() for io in (h.client_io,h.upstream_io) if io]
-            return dict(ok=True,flows=len(r.owner.flows),handlers=len(r.handlers),reservations=len(r.owner.transport_reservations),pools=r.owner.pools,maxima=r.owner.maxima,maxResponseSlots=r.owner.max_slots,activeResponseSlots=len(r.owner.flows),maxHandlers=r.max_handlers,maxDirectionalQueueBytes=max(queues),listeners=len(r.listeners),dead=r.dead)
+            return dict(ok=True,flows=len(r.owner.flows),handlers=len(r.handlers),reservations=len(r.owner.transport_reservations),pools=r.owner.pools,maxima=r.owner.maxima,maxResponseSlots=r.owner.max_slots,activeResponseSlots=len(r.owner.flows),maxHandlers=r.max_handlers,maxDirectionalQueueBytes=max(queues),listeners=len(r.listeners),dead=r.dead,downstreamTails=[dict(id=h.flow.id,bytes=h.downstream_plaintext_bytes,tail=h.tail_pending,reserved=h.flow.id in r.owner.flows) for h in r.handlers.values() if h.tail_pending>0])
         raise Refused('BROWSER_CONTROL')
     async def serve(self,path):
         from transport_runtime import AsyncSocket
@@ -142,6 +142,19 @@ class ControlServer:
             sock.close();self.runtime.revoke_all()
             if os.path.exists(path) and os.lstat(path).st_ino==inode:os.unlink(path)
 
+async def supervise_policy(runtime,policy,interval=.1,timeout=.4):
+    # Independent ongoing lease: transfer loops cannot outlive their controller.
+    while not runtime.dead:
+        try:
+            ack=await asyncio.wait_for(asyncio.to_thread(policy.call,dict(event='liveness'),timeout),timeout)
+            if not isinstance(ack,dict) or ack.get('ok') is not True:raise Refused('BROWSER_CONTROLLER_LOST')
+        except BaseException:
+            runtime.observe('controller_lost')
+            runtime.revoke_all() # close listeners/sockets before persistence awaits
+            await runtime.settled()
+            return
+        await asyncio.sleep(interval)
+
 async def run(c,verify):
     from transport_runtime import create_runtime
     def leaf(host):
@@ -153,8 +166,10 @@ async def run(c,verify):
     control=ControlServer(r,c['listenHost'],c['listenPorts'])
     task=asyncio.current_task();loop=asyncio.get_running_loop()
     for sig in (signal.SIGTERM,signal.SIGINT):loop.add_signal_handler(sig,task.cancel)
+    lease=asyncio.create_task(supervise_policy(r,r.policy))
     try:await control.serve(c['controlSocket'])
     finally:
+        lease.cancel();await asyncio.gather(lease,return_exceptions=True)
         r.revoke_all()
         for task in control.tasks.values():task.cancel()
         await asyncio.gather(*control.tasks.values(),return_exceptions=True)

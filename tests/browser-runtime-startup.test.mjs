@@ -7,6 +7,20 @@ import {randomUUID} from 'node:crypto';
 import {strictStartup,strictDatabaseUrl,PROCESS_ROLES,protectedFile} from '../lib/browser/startup.mjs';
 import {buildBrowserLaunch,spawnBrowserCli,browserPrompt,historyPartition,ALLOWED_TOOLS,requireCliSupport} from '../lib/browser/cli-launch.mjs';
 import {LaunchRegistry} from '../lib/browser/rendezvous.mjs';
+function completeChild(child,{timeout=5000,paused=false}={}){
+ let out='',err='',timer;
+ child.stdout.on('data',x=>out+=x);child.stderr.on('data',x=>err+=x);
+ if(paused){child.stdout.pause();child.once('exit',()=>setTimeout(()=>child.stdout.resume(),30));}
+ return new Promise((resolve,reject)=>{
+  timer=setTimeout(()=>{child.kill('SIGKILL');reject(Error('child close timeout'));},timeout);
+  child.once('error',e=>{clearTimeout(timer);reject(e);});
+  child.once('close',(code,signal)=>{clearTimeout(timer);resolve({code,signal,out,err});});
+ });
+}
+test('stdout paused until after exit parses complete JSON at close',async()=>{
+ const {spawn}=await import('node:child_process');const child=spawn(process.execPath,['-e','process.stdout.write(JSON.stringify({complete:true}))']);
+ const result=await completeChild(child,{paused:true});assert.equal(result.code,0);assert.deepEqual(JSON.parse(result.out),{complete:true});
+});
 for(const [kind,role]of Object.entries(PROCESS_ROLES))test(kind+' strict startup: no owner/env/SET ROLE fallback, positive session',async()=>{
  let called=0;const key=role==='sjcos_agent'?'DATABASE_URL_AGENT':'DATABASE_URL_BROWSER',dsn='postgresql://'+role+':unused@invalid/unused';
  const connect=async()=>{called++;return {query:async()=>({rows:[{session_user:role,current_user:role,rolsuper:false,rolbypassrls:false}]}),end:async()=>{}}}; const opts={connect,env:{[key]:dsn}};
@@ -68,7 +82,7 @@ test('real fake CLI → MCP, kernel peer registration, protected delivery, actua
   await writeFile(fake,`#!/usr/bin/node\nconst {spawn}=require('node:child_process'),fs=require('node:fs');process.stdin.once('data',()=>{const args=process.argv.slice(2),config=JSON.parse(fs.readFileSync(args[args.indexOf('--mcp-config')+1]));const s=config.mcpServers.browser;const c=spawn(s.command,s.args,{stdio:'inherit'});c.on('exit',code=>process.exit(code??1));});`,{mode:0o700});
   const ids={root:path.join(root,'history'),userId:randomUUID(),taskId:randomUUID(),runId:randomUUID(),conversationId:randomUUID(),sessionId:randomUUID(),model:'sonnet',servers:{browser:mcp,sjcos:mcp,interact:mcp}};
   const launch=await buildBrowserLaunch(ids);
-  await writeFile(launcher,`import {spawn} from 'node:child_process';import {once} from 'node:events';import {exchangeRendezvous} from '${repo}lib/browser/rendezvous-client.mjs';const launch=${JSON.stringify(launch)};const c=spawn(${JSON.stringify(fake)},launch.args,{cwd:launch.cwd,env:launch.env,stdio:['pipe','inherit','inherit']});await once(c,'spawn');await exchangeRendezvous({socketPath:${JSON.stringify(socket)},request:{op:'register',runId:${JSON.stringify(ids.runId)},taskId:${JSON.stringify(ids.taskId)},principalId:${JSON.stringify(ids.userId)},pid:c.pid},validate:x=>{if(!x.registered)throw Error();}});c.stdin.end('confirmed facts only\\n');const [code]=await once(c,'exit');process.exit(code??1);`);
+  await writeFile(launcher,`import {spawn} from 'node:child_process';import {once} from 'node:events';import {exchangeRendezvous} from '${repo}lib/browser/rendezvous-client.mjs';const launch=${JSON.stringify(launch)};const c=spawn(${JSON.stringify(fake)},launch.args,{cwd:launch.cwd,env:launch.env,stdio:['pipe','inherit','inherit']});await once(c,'spawn');await exchangeRendezvous({socketPath:${JSON.stringify(socket)},request:{op:'register',runId:${JSON.stringify(ids.runId)},taskId:${JSON.stringify(ids.taskId)},principalId:${JSON.stringify(ids.userId)},pid:c.pid},validate:x=>{if(!x.registered)throw Error();}});c.stdin.end('confirmed facts only\\n');const [code]=await once(c,'close');process.exit(code??1);`);
   const python=String.raw`
 import sys,os,socket,hashlib,json
 sys.path.insert(0,sys.argv[1]+'/deploy/browser')
@@ -83,9 +97,9 @@ try:
   with c:exchange(c,root+'/registry','test-boot',policy,owner_uid=os.getuid())
 finally:s.close()
 `;
-  broker=spawn('python3',['-B','-u','-c',python,repo,root,process.execPath],{stdio:['ignore','pipe','pipe']});brokerExit=once(broker,'exit');let errors='';broker.stderr.on('data',x=>errors+=x);
-  await Promise.race([once(broker.stdout,'data'),brokerExit.then(()=>{throw Error(errors);}),new Promise((_,reject)=>setTimeout(()=>reject(Error('broker timeout')),5000).unref())]);
-  const child=launcherChild=spawn(process.execPath,[launcher],{stdio:['ignore','pipe','pipe'],detached:true});let out='',err='';child.stdout.on('data',x=>out+=x);child.stderr.on('data',x=>err+=x);const [code]=await Promise.race([once(child,'exit'),new Promise((_,reject)=>setTimeout(()=>reject(Error('CLI timeout')),5000).unref())]);assert.equal(code,0,err+errors);
+  broker=spawn('python3',['-B','-u','-c',python,repo,root,process.execPath],{stdio:['ignore','pipe','pipe']});brokerExit=once(broker,'close');let errors='';broker.stderr.on('data',x=>errors+=x);
+  let readyTimer;try{await Promise.race([once(broker.stdout,'data'),brokerExit.then(()=>{throw Error(errors);}),new Promise((_,reject)=>{readyTimer=setTimeout(()=>reject(Error('broker timeout')),5000);})]);}finally{clearTimeout(readyTimer);}
+  const child=launcherChild=spawn(process.execPath,[launcher],{stdio:['ignore','pipe','pipe'],detached:true});const completion=completeChild(child);const {code,out,err}=await completion;assert.equal(code,0,err+errors);
   const result=JSON.parse(out);assert.equal(result.replay,true);assert.equal(result.verifiedRun.taskId,ids.taskId);assert.equal(result.verifiedRun.dsn,undefined);assert.equal(out.includes(dsn),false);
   const [brokerCode]=await brokerExit;assert.equal(brokerCode,0,errors);
  },{fresh:true});}finally{try{if(launcherChild?.pid)process.kill(-launcherChild.pid,'SIGKILL');}catch{}broker?.kill('SIGKILL');stopCluster();await rm(root,{recursive:true,force:true});}

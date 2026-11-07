@@ -60,3 +60,6 @@ test('actual patched CRBrowser fake transport performs only version + sole root 
  assert.deepEqual(sent,['Browser.getVersion','Target.setAutoAttach']);
  transport.close();await new Promise(r=>setImmediate(r));assert.equal(revoked,1);
 });
+test('external policy fatal fence synchronously closes the independent barrier boot',async()=>{
+ let fence;const x=setup('page',{registerFence:f=>fence=f});await x.runtime.attach(x.browser,x.session,x.event);fence();assert.throws(()=>x.runtime.boot(x.browser));await assert.rejects(x.runtime.resume(x.session));assert.equal(x.calls.includes('Runtime.runIfWaitingForDebugger'),false);await x.runtime.fail(x.browser);
+});

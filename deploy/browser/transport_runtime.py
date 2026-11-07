@@ -102,6 +102,7 @@ class AsyncSocket:
                 self.bytes_written+=n;self.pending_write-=n;view=view[n:]
         finally:self.pending_write=0
     async def drain(self):
+        handler=getattr(self,'handler',None)
         # Linux SIOCOUTQ includes unsent AND unacknowledged TCP bytes. A final
         # send() can succeed while a slow peer's receive window is still full.
         # Keep the response reservation through this bounded terminal wait.
@@ -109,12 +110,16 @@ class AsyncSocket:
         while True:
             self.remaining()
             pending=struct.unpack('=i',fcntl.ioctl(self.sock,0x5411,struct.pack('=i',0)))[0]
+            if handler is not None:
+                handler.tail_pending=pending
+                if pending and not getattr(handler,'tail_recorded',False):
+                    handler.tail_recorded=True;handler.runtime.observe('outstanding_tcp_tail',handler,bytes=pending,bodyBytes=len(handler.flow.response.raw_content) if handler.flow.response else 0,reserved=handler.flow.id in handler.runtime.owner.flows)
             if pending==0:return
             await asyncio.sleep(min(.01,self.remaining()))
     def close(self):
         try:self.sock.shutdown(socket.SHUT_RDWR)
         except OSError:pass
-        self.sock.close();self.scratch[:]=b'\0'*QUEUE
+        self.sock.close();self.handler=None;self.scratch[:]=b'\0'*QUEUE
 
 class TransportRuntime:
     owns_terminal_cleanup=True
@@ -153,7 +158,7 @@ class TransportRuntime:
         self.event_sequence+=1
         item=dict(seq=self.event_sequence,event=event,at=self.clock(),**fields)
         if h:item.update(id=h.flow.id,listenerCookie=h.listener.cookie,generation=h.listener.binding['generation'],targetId=h.binding['targetId'],requestDigest=getattr(h,'request_digest',None))
-        if len(self.event_log)==64:self.event_log.pop(0);self.dropped_events+=1
+        if len(self.event_log)==512:self.event_log.pop(0);self.dropped_events+=1
         self.event_log.append(item)
 
     def fault_point(self,point,h):
@@ -370,10 +375,10 @@ class TransportHandler(ConnectionHandler):
         self.flow=http.HTTPFlow(client,self.context.server,live=True)
         self.flow.request=None;self.flow.response=None
         runtime.owner.reserve_transport(self.flow.id)
-        self.client_io=AsyncSocket(sock,self.io_remaining);self.upstream_io=None
+        self.client_io=AsyncSocket(sock,self.io_remaining);self.client_io.handler=self;self.upstream_io=None
         self.client_tls=None;self.server_tls=None;self.drained=False;self.closed=False;self.task=None
         self.hostname=None;self.decision=None;self.decision_deadline=0;self.unknown_token=None
-        self.request_headers=None;self.url=None;self.dns=None;self.dns_deadline=self.deadline
+        self.tail_pending=0;self.request_headers=None;self.url=None;self.dns=None;self.dns_deadline=self.deadline
     def io_remaining(self):
         left=min(self.deadline,self.read_deadline)-self.runtime.clock()
         if left<=0 or self.closed:raise Refused('BROWSER_DEADLINE')
@@ -533,6 +538,7 @@ class TransportHandler(ConnectionHandler):
             await self.open_connection(commands.OpenConnection(self.context.server))
             self.runtime.fault_point('after_connect',self)
             self.runtime.handler(self.flow)
+            self.read_deadline=min(self.deadline,self.decision_deadline)
             # Build only a bounded header; body is the attested frozen copy.
             request=self.flow.request
             head=(request.method+' '+request.path+' HTTP/1.1\r\n').encode('ascii')+b''.join(k.encode('ascii')+b': '+v.encode('latin1')+b'\r\n' for k,v in self.request_headers)+b'\r\n'
@@ -541,6 +547,7 @@ class TransportHandler(ConnectionHandler):
             self.upstream_plaintext_bytes+=len(head)
             await self.server_tls.write(request.raw_content)
             self.upstream_plaintext_bytes+=len(request.raw_content)
+            self.read_deadline=self.deadline
             # No fresh writes can happen after this; only the admitted response.
             await self.read_message(self.server_tls,True)
             await self.handle_hook(_hooks.HttpResponseHook(self.flow))
@@ -552,6 +559,7 @@ class TransportHandler(ConnectionHandler):
             if len(head)>HEADER:raise Refused('BROWSER_HEADER_LIMIT')
             self.runtime.fault_point('before_drain',self)
             self.runtime.owner.response_complete(self.flow.id)
+            self.runtime.observe('response_buffered',self,bodyBytes=len(response.raw_content))
             await self.client_tls.write(head)
             await self.client_tls.write(response.raw_content)
             await self.client_io.drain()

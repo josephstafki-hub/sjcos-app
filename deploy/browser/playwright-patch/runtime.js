@@ -10,8 +10,9 @@ function createSjcRuntime() {
       if (!policy || ['guardTarget','bindTarget','validateBinding','registerFetch','revokeListener'].some(k => typeof policy[k] !== 'function')) throw error('policy');
       b = {policy, live:true, targets:new Set(), pages:new Map(), states:new Set(), listeners:new Set()};
       boots.set(browser,b);
+      policy.registerFence?.(()=>{b.live=false;});
     }
-    if (!b.live) throw error('boot-not-live:' + (b.failReason || 'unknown'));
+    if (!b.live || b.policy.isLive?.()===false) throw error('boot-not-live:' + (b.failReason || 'unknown'));
     return b;
   }
   async function fail(browser, reason = 'unknown') {

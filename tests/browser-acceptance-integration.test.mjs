@@ -26,7 +26,17 @@ for(const [name,mutate] of [
 test('signature from different signer fails',()=>assert.throws(()=>verify(envelope(document(),other.privateKey))));
 test('noncanonical signed bytes fail including duplicate JSON keys',()=>{for(const bytes of [Buffer.from(JSON.stringify(document(),null,2)),Buffer.from(canonical(document()).replace('"format":1','"format":1,"format":1'))])assert.throws(()=>verify(envelope(document(),keys.privateKey,bytes)));});
 test('extra envelope field and malformed base64 fail',()=>{for(const e of [{...envelope(),key:'caller-key'},{...envelope(),payload:'$bad'},{...envelope(),signature:'AA=='}])assert.throws(()=>verify(e));});
-const network=()=>({runId:'nonce',kind:'network',realRuntime:true,simulated:false,runtimeLockSha256:hash,cases:NETWORK_CASES.map(name=>({name,passed:true,measurement:{packets:0}})),unapprovedUpstreamBytes:0,privatePackets:0,captureIngressVerified:true,guardOrderingVerified:true});
+const network=()=>({runId:'nonce',kind:'network',parserTransportIntegrated:true,realRuntime:true,simulated:false,runtimeLockSha256:hash,cases:NETWORK_CASES.map(name=>({name,passed:true,measurement:{packets:2,wireBytes:200,durationMs:100,originRequests:1,eventCount:6,controllerEventCount:6,remainingFlows:0,remainingReservations:0,unapprovedUpstreamBytes:0,privatePackets:0,pcapSha256:hash,originLogSha256:hash,eventSha256:hash,controllerEventsSha256:hash,clientResultSha256:hash,receiptSha256:hash,guardOrderingVerified:true,artifactHashesVerified:true,capture:{complete:true,capturedPackets:2,receivedPackets:2,droppedPackets:0,exitCode:0,signal:null,stderrSha256:hash},childBarrierVerified:true,faultProof:{pid:123,code:null,signal:'SIGKILL',sessionId:'session',acknowledged:true},browserSurvivors:[],faultObserved:({'controller-loss-keepalive':'controller-SIGKILL-active-transfer','fetch-detach-buffered-write':'actual-session-detach'})[name]??null}})),unapprovedUpstreamBytes:0,privatePackets:0,captureIngressVerified:true,guardOrderingVerified:true});
+for(const [name,mutate] of [
+ ['fabrication',e=>e.cases[0].measurement={fake:true}],
+ ['diagnostic',e=>e.diagnosticOnly=true],
+ ['retained reservation',e=>e.cases[0].measurement.remainingReservations=1],
+ ['missing receipt hash',e=>delete e.cases[0].measurement.receiptSha256],
+ ['capture count mismatch',e=>e.cases[0].measurement.capture.capturedPackets=3],
+ ['aggregate mismatch',e=>e.unapprovedUpstreamBytes=1],
+ ['fault substitute',e=>e.cases.find(c=>c.name==='controller-loss-keepalive').measurement.faultObserved='graceful-revoke'],
+ ['browser survivor',e=>e.cases.find(c=>c.name==='gate-crash').measurement.browserSurvivors=[123]],
+])test('real-shaped evidence refuses '+name,()=>{const e=network();mutate(e);assert.throws(()=>validateEvidence(e,{runId:'nonce',kind:'network'}));});
 test('complete measurement inventory is still not release approval',()=>assert.deepEqual(validateEvidence(network(),{runId:'nonce',kind:'network'}),{ok:true,releaseReady:false}));
 for(const [name,measurement] of [['missing',undefined],['null',null],['empty',{}],['array',[]],['string','counter'],['NaN',{packets:NaN}],['infinite',{bytes:Infinity}],['negative',{bytes:-1}],['nested invalid',{capture:{bytes:NaN}}],['oversized',{note:'x'.repeat(32769)}]])test('driver rejects '+name+' measurement',()=>{const e=network();e.cases[0].measurement=measurement;assert.throws(()=>validateEvidence(e,{runId:'nonce',kind:'network'}));});
 test('driver rejects stale invocation nonce',()=>assert.throws(()=>validateEvidence(network(),{runId:'stale',kind:'network'})));

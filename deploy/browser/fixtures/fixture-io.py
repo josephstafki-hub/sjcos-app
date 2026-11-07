@@ -70,7 +70,7 @@ def origin(config):
         threading.Thread(target=serve,args=(s,),daemon=True).start()
 
 def request(c):
-    result={'connected':False,'tls':False,'received':0,'responseSha256':None};s=None
+    result={'connected':False,'tls':False,'received':0,'responseSha256':None,'bodyBytes':0,'bodySha256':None,'complete':False};s=None
     try:
         s=socket.socket();s.setsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF,8192);s.settimeout(c.get('timeout',65));s.connect(('10.203.0.2',c.get('port',18081)));result['connected']=True
         h=c.get('connectHost',c['host']);s.sendall(('CONNECT '+h+':443 HTTP/1.1\r\nHost: '+h+':443\r\n\r\n').encode());head=bytearray()
@@ -88,17 +88,36 @@ def request(c):
             while left:
                 n=min(left,len(block));s.sendall(block[:n]);left-=n
         elif body:s.sendall(body)
+        if c.get('sentReady'):Path(c['sentReady']).write_text('sent')
+        if c.get('readRelease'):
+            end=time.monotonic()+55
+            while not Path(c['readRelease']).exists():
+                if time.monotonic()>end:raise OSError('read release timeout')
+                time.sleep(.02)
         if c.get('hold'):time.sleep(c['hold'])
         if c.get('abort'):return result
-        digest=hashlib.sha256()
+        digest=hashlib.sha256();body_digest=hashlib.sha256();head=bytearray();declared=None
         while True:
             b=s.recv(65536)
             if not b:break
             result['received']+=len(b);digest.update(b)
+            if declared is None:
+                head.extend(b)
+                at=head.find(b'\r\n\r\n')
+                if at<0:
+                    if len(head)>32768:raise RuntimeError('RESPONSE_HEAD_LIMIT')
+                    continue
+                fields=bytes(head[:at]).split(b'\r\n');status=fields[0].split(b' ')
+                if len(status)<2 or status[1]!=b'200':raise OSError('response status')
+                lengths=[v.strip() for k,v in (r.split(b':',1) for r in fields[1:]) if k.lower()==b'content-length']
+                if len(lengths)!=1 or not lengths[0].isdigit():raise OSError('response framing')
+                declared=int(lengths[0]);result['declaredBodyBytes']=declared
+                b=bytes(head[at+4:]);head.clear()
+            result['bodyBytes']+=len(b);body_digest.update(b)
             if result['received']>26*1048576:raise RuntimeError('RESPONSE_LIMIT')
             if c.get('second'):
                 s.sendall(b'GET /unauthorized HTTP/1.1\r\nHost: fixture.example\r\n\r\n');c['second']=False
-        result['responseSha256']=digest.hexdigest()
+        result['responseSha256']=digest.hexdigest();result['bodySha256']=body_digest.hexdigest();result['complete']=declared is not None and result['bodyBytes']==declared
     except (OSError,ssl.SSLError) as e:result['closed']=type(e).__name__
     finally:
         if s:s.close()
@@ -113,8 +132,31 @@ def probe(c):
     finally:s.close()
     return result
 
+def supervise_browser(argv):
+    # Independent parent, private lifetime pipe. EOF/SIGKILL of the JS controller
+    # cannot bypass cleanup. Chromium remains nonroot and in its own process group.
+    import subprocess,select
+    uid,gid=int(argv[0]),int(argv[1])
+    def identity():
+        os.setsid();os.setgroups([]);os.setgid(gid);os.setuid(uid)
+    child=subprocess.Popen(argv[2:],stdin=subprocess.DEVNULL,stdout=subprocess.DEVNULL,stderr=None,preexec_fn=identity)
+    print(json.dumps({'browserPid':child.pid}),flush=True)
+    try:
+        while child.poll() is None:
+            readable,_,_=select.select([sys.stdin.buffer],[],[],.1)
+            if readable:
+                if not os.read(sys.stdin.fileno(),1):break
+                raise RuntimeError('INVALID_LIFETIME_PIPE')
+    finally:
+        try:os.killpg(child.pid,signal.SIGKILL)
+        except ProcessLookupError:pass
+        child.wait(timeout=2)
+    return child.returncode
+
 def main():
     mode=sys.argv[1]
+    if mode=='supervise-browser':
+        supervise_browser(sys.argv[2:]);return
     if mode=='kill-netns':
         namespace,pid=sys.argv[2:];pid=int(pid)
         if os.geteuid()!=0 or not re.fullmatch('b0b-[a-f0-9]{8}-[bgf]',namespace):raise RuntimeError('OWNED_NAMESPACE_REQUIRED')

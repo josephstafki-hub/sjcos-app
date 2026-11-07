@@ -77,12 +77,16 @@ for(const hung of [false,true])test('fatal shutdown independently kills and awai
 });
 import {fixtureBody} from '../lib/browser/root-fixture.mjs';
 const settled={flows:0,handlers:0,reservations:0,pools:{request:0,response:0,transport:0}};
-function slowFixture(){return {state:{maxSlots:2,tailObserved:true,holdWindow:{start:100,end:1700},samples:[...Array.from({length:17},(_,i)=>({at:100+i*100,slots:2,pools:{response:112*1048576,request:50*1048576}})),{at:1800,slots:1},{at:1900,slots:0}]},origins:[{}],result:{candidates:{18081:8,18082:8},clients:Array.from({length:2},()=>({complete:true,declaredBodyBytes:25*1048576,bodyBytes:25*1048576,bodySha256:fixtureBody(25*1048576)}))},stats:settled};}
+function slowFixture(){return {state:{maxSlots:2,tailObserved:true,tailHoldSamples:Array.from({length:5},()=>({slots:2,response:112*1048576,tails:[{id:'a',tail:1,reserved:true},{id:'b',tail:1,reserved:true}]})),holdWindow:{start:100,end:1700},samples:[...Array.from({length:17},(_,i)=>({at:100+i*100,slots:2,pools:{response:112*1048576,request:50*1048576}})),{at:1800,slots:1},{at:1900,slots:0}]},origins:[{}],result:{candidates:{18081:8,18082:8},clients:Array.from({length:2},()=>({complete:true,declaredBodyBytes:25*1048576,bodyBytes:25*1048576,bodySha256:fixtureBody(25*1048576)}))},stats:settled};}
 for(const [name,mutate]of [
  ['transient charge',s=>s.state.samples[5].pools.response=1],
  ['short hold',s=>s.state.holdWindow.end=500],
  ['missing one-slot release',s=>s.state.samples.splice(-2,1)],
  ['no outstanding TCP tail',s=>s.state.tailObserved=false],
+ ['missing controlled tail samples',s=>delete s.state.tailHoldSamples],
+ ['unreserved tail',s=>s.state.tailHoldSamples[0].tails[1].reserved=false],
+ ['already acknowledged tail',s=>s.state.tailHoldSamples[0].tails[1].tail=0],
+ ['same tail counted twice',s=>s.state.tailHoldSamples[0].tails[1].id='a'],
  ['partial second body',s=>s.result.clients[1].bodyBytes=1],
  ['wrong digest',s=>s.result.clients[1].bodySha256='b'.repeat(64)],
  ['only four candidates/context',s=>s.result.candidates[18082]=4],
@@ -148,4 +152,24 @@ test('verifyChildBarrier OOPIF: navigation via parent before attach, exact child
   assert.throws(()=>verifyChildBarrier(name,ctl.map(e=>e.targetId==='F'&&e.event==='guard_registered'?{...e,seq:12}:e),gate,origins),/child own/);
   // Popup still strict: a popup request on the parent target does not count.
   assert.throws(()=>verifyChildBarrier('popup-first-request',[{seq:1,event:'target_attached',targetId:'P',type:'page'},{seq:2,event:'resume',targetId:'P'},{seq:3,event:'fetch_paused',targetId:'P',url:'https://child.example/popup-first-request'}],[],[]),/missing paused child/);
+});
+
+// Root-flake shutdown expectations precede implementation: the browser kill
+// never waits on revocation, every failed boundary has a content-free code,
+// cleanup always runs, and confirmed shutdown is idempotent.
+for(const [failure,code] of [['revoke','revoke-failed'],['timeout','revoke-timeout'],['kill','kill-failed'],['cleanup','cleanup-failed'],['fence','fence-failed']])test('shutdown identifies '+code+' and still kills/cleans',async()=>{
+ const calls=[];const close=createFatalShutdown({timeout:20,fence:()=>{calls.push('fence');if(failure==='fence')throw Error('secret');},revoke:async()=>{calls.push('revoke');if(failure==='revoke')throw Error('secret');if(failure==='timeout')await new Promise(()=>{});},kill:async()=>{calls.push('kill');if(failure==='kill')throw Error('secret');},cleanup:async()=>{calls.push('cleanup');if(failure==='cleanup')throw Error('secret');}});
+ const p=close();assert.equal(close(),p);await assert.rejects(p,{message:'BROWSER_LAUNCH_REFUSED:'+code});assert.equal(calls.filter(x=>x==='kill').length,1);assert.equal(calls.filter(x=>x==='cleanup').length,1);
+});
+test('busy confirmed revoke does not delay kill or fail normal shutdown',async()=>{
+ let confirm,killed=false,cleaned=false;const close=createFatalShutdown({timeout:500,fence:()=>{},revoke:()=>new Promise(r=>confirm=r),kill:async()=>{killed=true;},cleanup:async()=>{cleaned=true;}});
+ const p=close();await new Promise(r=>setImmediate(r));assert.equal(killed,true);assert.equal(cleaned,false);confirm();await p;assert.equal(cleaned,true);assert.equal(close(),p);
+});
+test('policy denial returns before fatal revoke ACK (no gate/control circular wait)',async()=>{
+ let cut=false,confirm;const pending=new Promise(r=>confirm=r);
+ const handler=createGateAuthority({authority:{},networkConfig:{appHosts:['app.example'],serviceHosts:[],hostPublicAddresses:['9.9.9.9']},bindingFor:async()=>null,fetchFor:async()=>null,onFatal:()=>{cut=true;return pending;}});
+ let timer;try{const result=await Promise.race([handler({event:'bad'}),new Promise((_,reject)=>timer=setTimeout(()=>reject(Error('circular revoke wait')),50))]);assert.deepEqual(result,{ok:false});assert.equal(cut,true);}finally{clearTimeout(timer);confirm();}
+});
+test('fatal fence reentry shares the published shutdown promise',async()=>{
+ let close,reentered,kills=0;close=createFatalShutdown({fence:()=>{reentered=close();},revoke:async()=>{},kill:async()=>kills++,cleanup:async()=>{}});const p=close();assert.equal(reentered,p);await p;assert.equal(kills,1);
 });

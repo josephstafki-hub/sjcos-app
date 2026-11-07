@@ -52,7 +52,7 @@ test('actual gate flow requires target attach/guard/Fetch order; invented pass b
  assert.throws(()=>verifyOrdering(events,[]));
 });
 test('RSS slow-slot acceptance requires simultaneous observed reservations and terminal cleanup',()=>{
- const s={state:{maxSlots:2,holdWindow:{start:100,end:1700},tailObserved:true,samples:[...Array.from({length:17},(_,i)=>({at:100+i*100,slots:2,pools:{response:112*1048576}})),{at:1800,slots:1},{at:1900,slots:0}]},origins:[{}],result:{clients:Array.from({length:2},()=>({complete:true,declaredBodyBytes:25*1048576,bodyBytes:25*1048576,bodySha256:fixtureBody(25*1048576)}))},stats:{flows:0,handlers:0,reservations:0,pools:{request:0,response:0,transport:0}}};
+ const s={state:{maxSlots:2,holdWindow:{start:100,end:1700},tailObserved:true,tailHoldSamples:Array.from({length:5},()=>({slots:2,response:112*1048576,tails:[{id:'a',tail:1,reserved:true},{id:'b',tail:1,reserved:true}]})),samples:[...Array.from({length:17},(_,i)=>({at:100+i*100,slots:2,pools:{response:112*1048576}})),{at:1800,slots:1},{at:1900,slots:0}]},origins:[{}],result:{clients:Array.from({length:2},()=>({complete:true,declaredBodyBytes:25*1048576,bodyBytes:25*1048576,bodySha256:fixtureBody(25*1048576)}))},stats:{flows:0,handlers:0,reservations:0,pools:{request:0,response:0,transport:0}}};
  assert.doesNotThrow(()=>validateRssCase('two-25MiB-slow-readers',s));
  assert.throws(()=>validateRssCase('two-25MiB-slow-readers',{...s,state:{...s.state,samples:[]}}));
  assert.throws(()=>validateRssCase('declared-length',{...s,stats:{...s.stats,reservations:1}}));

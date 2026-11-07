@@ -366,8 +366,9 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
             result=base(meta,remaining)
             if meta['event']=='request':
                 if policy:policy(meta,remaining)
-                result.update(allow=True,requestDigest=meta['requestDigest'],decisionId=meta['id'],expiresInMs=2000,pin=dict(hostname='permit.example',address='93.184.216.34'),kind='write' if write else 'read')
-                if write:result.update(consumed=True,unknownToken='receipt-'+meta['id'])
+                consumed=write(meta) if callable(write) else write
+                result.update(allow=True,requestDigest=meta['requestDigest'],decisionId=meta['id'],expiresInMs=2000,pin=dict(hostname='permit.example',address='93.184.216.34'),kind='write' if consumed else 'read')
+                if consumed:result.update(consumed=True,unknownToken='receipt-'+meta['id'])
             return result
         self.policy.call.side_effect=authorize
         real_apply=self.runtime.apply_verified
@@ -649,6 +650,161 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                 await self.wait_state(lambda:not self.runtime.handlers)
                 writer.close()
             self.assertEqual(len(self.rss_origins),4)
+
+    # Root-flake expectations, written before changing the transport/fixture:
+    # A revoke ACK is independent of peer reads, cancels the owning IO frames,
+    # clears all charges, and durably marks a consumed POST unknown exactly once.
+    # A tail proof requires a controlled no-read interval at the final TLS record;
+    # continuous reads are allowed to ACK everything before drain() first runs.
+    async def root_flake_load(self, *, tail_hold=False, fixture_clients=False):
+        import threading
+        from transport_control import ControlServer
+        review=threading.Event();entered=threading.Event();read=threading.Event()
+        tails=[threading.Event(),threading.Event()];releases=[threading.Event(),threading.Event()]
+        if fixture_clients:
+            import tempfile
+            from pathlib import Path
+            directory=tempfile.TemporaryDirectory();self.addCleanup(directory.cleanup)
+            class Marker:
+                def __init__(self,name):self.path=Path(directory.name)/name
+                def set(self):self.path.write_text('release')
+                def is_set(self):return self.path.exists()
+            read=Marker('read');tails=[Marker('tail'+str(i)) for i in range(2)];releases=[Marker('release'+str(i)) for i in range(2)]
+        for event in [review,read,*releases]:self.addCleanup(event.set)
+        def parked(meta,remaining):
+            if meta.get('method')=='POST':
+                entered.set()
+                if not review.wait(1.5):raise TimeoutError('review not released')
+        ctx=await self.rss_fixture(parked,responder=self.rss_response,write=lambda meta:meta['method']=='POST')
+        control=ControlServer(self.runtime,'127.0.0.1',[])
+        options=lambda i:dict(tail=tails[i],finish_tail=releases[i]) if tail_hold else {}
+        if fixture_clients:
+            import importlib.util
+            spec=importlib.util.spec_from_file_location('fixture_io','deploy/browser/fixtures/fixture-io.py')
+            fixture=importlib.util.module_from_spec(spec);spec.loader.exec_module(fixture)
+            group=[]
+            for i in range(2):
+                sock,ck=self.listener(**(dict(contextId='context2',guardId='guard2',targetId='target2') if i else {}))
+                config=dict(host='permit.example',path='/preallocation-backpressure',port=sock.getsockname()[1],ca=self.cert_file,
+                    method='POST' if i else 'GET',bodyBytes=25*1048576 if i else 0,
+                    readRelease=str(read.path),tailReady=str(tails[i].path),tailRelease=str(releases[i].path))
+                client=asyncio.create_task(asyncio.to_thread(fixture.request,config,proxy_host='127.0.0.1'))
+                peer,_=await asyncio.get_running_loop().sock_accept(sock);self.sockets.append(peer)
+                h=self.runtime.adopt(peer,ck);self.runtime.register_guard(ck,h.binding['guardId'],h.binding['targetId'])
+                run=asyncio.create_task(h.run());self.addAsyncCleanup(self.cancel_runs,[run]);group.append((h,run,client))
+        else:
+            group=[await self.rss_start_raw(ctx,'preallocation-backpressure',second=bool(i),
+                read=read,body_size=25*1048576 if i else 0,**options(i)) for i in range(2)]
+        await self.wait_state(entered.is_set,timeout=6)
+        self.assertGreaterEqual(self.runtime.owner.pools['request'],50*1048576)
+        self.assertEqual(len(self.runtime.owner.flows),2)
+        review.set()
+        await self.wait_state(lambda:all(h.client_io.pending_write for h,_,_ in group),timeout=6)
+        accepts=[asyncio.create_task(self.runtime.serve_listener(h.listener.cookie)) for h,_,_ in group]
+        self.addAsyncCleanup(self.cancel_runs,accepts)
+        for i in range(14):
+            c=socket.socket();c.setblocking(False);self.sockets.append(c)
+            await asyncio.get_running_loop().sock_connect(c,group[i%2][0].listener.address)
+            c.close()
+        await self.wait_state(lambda:sum(e['event']=='admission_refused' for e in self.runtime.event_log)==14)
+        self.assert_slot_stats(await control.dispatch(dict(op='stats')),2)
+        return control,group,read,tails,releases
+
+    async def test_root_flake_continuous_reads_can_ack_before_drain_observation(self):
+        import fcntl,struct
+        from transport_runtime import AsyncSocket
+        original=AsyncSocket.drain
+        async def scheduled_after_ack(io):
+            # A permitted scheduling delay before the first real ioctl sample.
+            # Every byte/ACK is real; no reservation or pending count is mocked.
+            while struct.unpack('=i',fcntl.ioctl(io.sock,0x5411,struct.pack('=i',0)))[0]:await asyncio.sleep(.01)
+            await original(io)
+        control,group,read,_,_=await self.root_flake_load()
+        with patch.object(AsyncSocket,'drain',scheduled_after_ack):
+            read.set()
+            results=await asyncio.wait_for(asyncio.gather(*(c for _,_,c in group)),10)
+            await asyncio.wait_for(asyncio.gather(*(r for _,r,_ in group)),3)
+        self.assertTrue(all(r['received']==25*1048576 for r in results))
+        self.assertFalse(any(e['event']=='outstanding_tcp_tail' for e in self.runtime.event_log))
+        self.assert_finalized([h.flow.id for h,_,_ in group])
+
+    async def test_root_flake_actual_root_client_holds_both_tcp_tails(self):
+        control,group,read,tails,releases=await self.root_flake_load(tail_hold=True,fixture_clients=True)
+        read.set();await self.wait_state(lambda:all(t.is_set() for t in tails),timeout=10)
+        await self.wait_state(lambda:all(h.tail_pending>0 and not h.client_io.pending_write for h,_,_ in group))
+        for _ in range(5):
+            stats=await control.dispatch(dict(op='stats'));self.assert_slot_stats(stats,2)
+            self.assertEqual({t['id'] for t in stats['downstreamTails'] if t['reserved'] and t['tail']>0},{h.flow.id for h,_,_ in group})
+            await asyncio.sleep(.025)
+        for i in range(2):
+            releases[i].set();result=await asyncio.wait_for(group[i][2],4);await asyncio.wait_for(group[i][1],4)
+            self.assertTrue(result['complete']);self.assertEqual(result['bodyBytes'],25*1048576)
+            self.assertEqual(result['bodySha256'],hashlib.sha256(b'x'*(25*1048576)).hexdigest())
+            self.assert_slot_stats(await control.dispatch(dict(op='stats')),1-i)
+
+    async def test_root_flake_revoke_all_cuts_25mib_load_promptly(self):
+        import time
+        control,group,read,_,_=await self.root_flake_load()
+        start=time.monotonic()
+        ack=await asyncio.wait_for(control.dispatch(dict(op='revoke_all')),0.75)
+        self.assertLess(time.monotonic()-start,0.75)
+        self.assertEqual(ack,dict(ok=True,closed=True,durable=True))
+        for h,_,_ in group:self.assertEqual(h.client_io.sock.fileno(),-1)
+        self.assert_finalized([h.flow.id for h,_,_ in group])
+        self.assertEqual(self.runtime.owner.pools,dict(request=0,response=0,transport=0))
+        for h,_,_ in group:
+            self.assertEqual(sum(c.args[0]['event']=='persist_unknown' and c.args[0]['id']==h.flow.id for c in self.policy.call.call_args_list),int(h is group[1][0]))
+        read.set()
+        await asyncio.wait_for(asyncio.gather(*(c for _,_,c in group)),3)
+
+    async def test_root_flake_revoke_listener_cuts_only_its_loaded_context(self):
+        control,group,read,_,_=await self.root_flake_load()
+        h=group[0][0]
+        ack=await asyncio.wait_for(control.dispatch(dict(op='revoke',listenerCookie=h.listener.cookie,generation=h.binding['generation'])),.75)
+        self.assertTrue(ack['closed']);self.assert_finalized([h.flow.id])
+        self.assertEqual(h.listener.sock.fileno(),-1);self.assertEqual(h.client_io.sock.fileno(),-1)
+        self.assert_slot_stats(await control.dispatch(dict(op='stats')),1)
+        self.assertFalse(group[1][0].closed);self.assertFalse(self.runtime.dead)
+        read.set();results=await asyncio.wait_for(asyncio.gather(*(c for _,_,c in group)),10)
+        await asyncio.wait_for(asyncio.gather(*(r for _,r,_ in group)),3)
+        self.assertEqual(results[1]['received'],25*1048576)
+        self.assert_slot_stats(await control.dispatch(dict(op='stats')),0)
+
+    async def test_root_flake_revoke_unconfirmed_terminal_fails_without_blocking_control(self):
+        import time
+        control,group,read,_,_=await self.root_flake_load()
+        base=self.policy.call.side_effect
+        def unavailable(meta,remaining):
+            if meta['event'] in ('persist_unknown','close_flow'):
+                self.assertTrue(all(h.client_io.sock.fileno()==-1 for h,_,_ in group))
+                time.sleep(min(remaining,2))
+                raise TimeoutError('terminal authority unavailable')
+            return base(meta,remaining)
+        self.policy.call.side_effect=unavailable
+        start=time.monotonic();pending=asyncio.create_task(control.dispatch(dict(op='revoke_all')))
+        await asyncio.sleep(.05)
+        self.assertLess(time.monotonic()-start,.3,'terminal RPC must not block the control event loop')
+        with self.assertRaisesRegex(Refused,'BROWSER_TERMINAL_UNCONFIRMED'):
+            await asyncio.wait_for(pending,1.5)
+        self.assert_finalized([h.flow.id for h,_,_ in group])
+        self.assertEqual(self.runtime.owner.pools,dict(request=0,response=0,transport=0))
+        read.set();await asyncio.wait_for(asyncio.gather(*(c for _,_,c in group)),3)
+
+    async def test_root_flake_controlled_tcp_tails_retain_both_reservations(self):
+        control,group,read,tails,releases=await self.root_flake_load(tail_hold=True)
+        read.set()
+        await self.wait_state(lambda:all(t.is_set() for t in tails),timeout=10)
+        await self.wait_state(lambda:all(h.tail_pending>0 and not h.client_io.pending_write for h,_,_ in group))
+        for _ in range(10):
+            stats=await control.dispatch(dict(op='stats'))
+            self.assert_slot_stats(stats,2)
+            self.assertEqual({t['id'] for t in stats['downstreamTails'] if t['reserved']}, {h.flow.id for h,_,_ in group})
+            await asyncio.sleep(.01)
+        for i in range(2):
+            releases[i].set()
+            result=await asyncio.wait_for(group[i][2],4);await asyncio.wait_for(group[i][1],4)
+            self.assertEqual(result['received'],25*1048576)
+            self.assert_slot_stats(await control.dispatch(dict(op='stats')),1-i)
 
     async def rss_single_case(self, name):
         import threading,time

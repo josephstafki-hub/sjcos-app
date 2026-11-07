@@ -128,3 +128,78 @@ controller-loss/detach/gate-crash browser and gate socket disappearance **before
 fixture cleanup, no interrupted write reaching origin, unique consume correlation,
 and each child target's own barrier trace. The strict IPv6 attribution intentionally
 refuses unfamiliar control structures rather than weakening the packet claim.
+
+## Root-run flakes
+
+Follow-up to coordinator ROOT evidence `r1o-evidence` (2026-11-07), implemented
+without ROOT, Chromium, Playwright, sudo, installed-runtime writes, or live
+services/database access.
+
+**A — shutdown confirmation.** The transfer-drain hypothesis is refuted by
+`test_root_flake_revoke_all_cuts_25mib_load_promptly`: actual mitmproxy
+ConnectionHandler/HTTPFlow/h11/TLS on loopback, two 25 MiB responses, a held
+25 MiB POST, and fourteen aborting candidates revoke without releasing the
+readers. Listener-specific revoke also leaves the other loaded context alive.
+The reproducible blocking path is synchronous terminal policy RPC inside the
+handler's cleanup: two unavailable terminal replies per consumed flow blocked
+the event loop for about four seconds each (eight seconds across two flows in
+the initial reproduction), hiding behind the launcher's bare refusal. A policy
+failure could also await `onFatal -> revoke -> settled -> terminal policy reply`,
+a circular wait proved by the Node `policy denial returns before fatal revoke
+ACK` test. The original bare ROOT error cannot distinguish timeout from a
+rejected revoke/kill; the new codes provide that distinction on the next run.
+
+Terminal RPCs now execute off the control loop with a 400 ms bound per call,
+two calls maximum per flow, concurrent across the two contexts. Listener/socket
+CUT still happens first. Shielded finalization keeps both body representations
+charged until IO frames unwind and terminal persistence/drop completes, even
+under repeated cancellation. Unconfirmed persistence/close is sticky and
+`settled()` fails with `BROWSER_TERMINAL_UNCONFIRMED`; control cannot issue a
+successful durable revoke ACK for that outcome. Consumed writes are marked
+unknown once and never retried. Node policy denial fences immediately and
+returns its denial without awaiting the control-channel revoke. Shutdown
+publishes its idempotent promise before callbacks, always kills and cleans up,
+and reports fixed `revoke-timeout`, `revoke-failed`, `kill-failed`,
+`cleanup-failed`, or `fence-failed` codes. A confirmed busy revoke still succeeds.
+`test_root_flake_revoke_unconfirmed_terminal_fails_without_blocking_control`
+failed before these changes and passes afterward, checking immediate socket CUT,
+control-loop responsiveness, failed confirmation within 1.5 s, and zero pools.
+
+**B — uncontrolled tail observation, not premature response release.**
+`test_root_flake_continuous_reads_can_ack_before_drain_observation` reproduces
+complete, correctly accounted 25 MiB transfers with no tail event: a legitimate
+scheduling delay lets the continuously reading peer ACK the last send before
+the first real SIOCOUTQ sample. No pending-byte counts or reservations are
+mocked. The root client now stops exactly before the final 16 KiB plaintext
+record using bounded recv sizes and ready/release markers. The root fixture
+requires both real TCP tails to remain positive and reserved, with exactly two
+slots/112 MiB charged in five samples, before independently releasing them and
+checking 2 -> 1 -> 0 plus complete payload digests. Existing tail-event, no-read
+hold, candidate count, frozen POST storage, and zero-terminal-allocation checks
+remain required. `test_root_flake_actual_root_client_holds_both_tcp_tails` runs
+the actual changed `fixture-io.py` client over loopback against real mitmproxy
+classes; the separate raw-client controlled-tail test proves the same boundary.
+Node negative tests reject missing samples, unreserved/ACKed tails, and counting
+one flow twice.
+
+Expectations were written before the production fixes: the initial Node file
+had six failing expectations; the initial slow-terminal loopback test exposed
+the multi-second event-loop stall. Validation:
+
+- Final full `transport_tests.py`: **114/114** passed (87.7 s), including all
+  RSS cases, the listener-specific load test, and all 36 cancellation
+  boundaries. Focused rechecks also passed: **6/6** root-flake tests and
+  **36/36** cancellation tests.
+- `tests/browser-round1.test.mjs`: **66/66** passed.
+- `/home/joe/qa-sjcos/browser-acc/relock.sh`: source/pin verification passed;
+  root runner **17/17**, runtime boundaries **19/19**, acceptance integration
+  **42/42**. Both JSON inventories refreshed. Neither parser_adapter.py nor
+  the Playwright runtime patch changed, so no parser-pin override/repatch.
+- Unique local tag `browser-flakes-20261107`; these files create no DB cluster.
+  Loopback test listeners/threads/tasks are cleaned up by their fixtures. No
+  resource-limit kill occurred. `git diff --check` passed.
+
+Coordinator handoff: re-run ROOT network/RSS acceptance and repeat
+preallocation-backpressure. Confirm two controlled final-tail samples/IDs,
+independent release, durable unknown on interrupted POST, and no browser/socket
+survivors. No new ROOT pass claim or acceptance promotion is made here.

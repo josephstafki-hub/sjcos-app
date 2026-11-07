@@ -82,13 +82,13 @@ class ControlServer:
                 self.runtime.revoke_listener(c)
                 task=self.tasks.pop(c,None)
                 if task:task.cancel();await asyncio.gather(task,return_exceptions=True)
-                await self.runtime.settled(c)
+                if not await self.runtime.settled(c):raise Refused('BROWSER_REVOKE_UNCONFIRMED')
             return dict(ok=True,closed=op=='revoke',durable=True)
         if op=='revoke_all':
             self.runtime.revoke_all() # keep root-only terminal stats available until process shutdown
             for task in self.tasks.values():task.cancel()
             await asyncio.gather(*self.tasks.values(),return_exceptions=True);self.tasks.clear()
-            await self.runtime.settled()
+            if not await self.runtime.settled():raise Refused('BROWSER_REVOKE_UNCONFIRMED')
             return dict(ok=True,closed=True,durable=True)
         if op=='case_begin':
             import re

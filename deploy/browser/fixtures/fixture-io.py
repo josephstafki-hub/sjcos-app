@@ -69,10 +69,10 @@ def origin(config):
         if not slots.acquire(False):s.close();continue
         threading.Thread(target=serve,args=(s,),daemon=True).start()
 
-def request(c):
+def request(c, *, proxy_host='10.203.0.2'):
     result={'connected':False,'tls':False,'received':0,'responseSha256':None,'bodyBytes':0,'bodySha256':None,'complete':False};s=None
     try:
-        s=socket.socket();s.setsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF,8192);s.settimeout(c.get('timeout',65));s.connect(('10.203.0.2',c.get('port',18081)));result['connected']=True
+        s=socket.socket();s.setsockopt(socket.SOL_SOCKET,socket.SO_RCVBUF,8192);s.settimeout(c.get('timeout',65));s.connect((proxy_host,c.get('port',18081)));result['connected']=True
         h=c.get('connectHost',c['host']);s.sendall(('CONNECT '+h+':443 HTTP/1.1\r\nHost: '+h+':443\r\n\r\n').encode());head=bytearray()
         while b'\r\n\r\n' not in head:
             b=s.recv(1)
@@ -98,7 +98,19 @@ def request(c):
         if c.get('abort'):return result
         digest=hashlib.sha256();body_digest=hashlib.sha256();head=bytearray();declared=None
         while True:
-            b=s.recv(65536)
+            maximum=65536
+            if c.get('tailReady'):
+                # Stop exactly before the last plaintext TLS record. Bounded
+                # recv sizes prevent OpenSSL read-ahead from swallowing it.
+                if declared is None:maximum=1
+                elif result['bodyBytes']<declared-16384:maximum=min(maximum,declared-16384-result['bodyBytes'])
+                elif result['bodyBytes']==declared-16384:
+                    Path(c['tailReady']).write_text('tail')
+                    end=time.monotonic()+15
+                    while not Path(c['tailRelease']).exists():
+                        if time.monotonic()>end:raise OSError('tail release timeout')
+                        time.sleep(.01)
+            b=s.recv(maximum)
             if not b:break
             result['received']+=len(b);digest.update(b)
             if declared is None:

@@ -28,6 +28,9 @@ from transport_dns import FreshResolver, hostname, public_address
 from transport_tls import TLSChannel
 
 SO_COOKIE=57 # Linux uapi; missing kernel support fails closed.
+# At most two terminal RPCs per flow, with both flows finalizing concurrently.
+# Leave headroom under the launcher's 2s revoke bound, including control IPC.
+TERMINAL_RPC_TIMEOUT=.4
 
 def current_task():
     try:return asyncio.current_task()
@@ -131,7 +134,7 @@ class TransportRuntime:
         self.guards={};self.fetches={};self.accept_tasks={}
         self.event_sequence=0;self.event_log=[];self.dropped_events=0;self.case=None;self.fault=None
         self.adapter=RuntimeAdapter(self.owner,policy,self,verify_deployment,key)
-        self.max_queue=0;self.max_handlers=0
+        self.max_queue=0;self.max_handlers=0;self.terminal_error=False
     def attested(self):
         return (not self.dead and importlib.metadata.version('mitmproxy')=='12.3.1'
                 and self.verify_deployment() is True and isinstance(self.owner,AllocationOwner)
@@ -293,13 +296,36 @@ class TransportRuntime:
         return answer
     def terminal_ack(self,h,event,result):
         return isinstance(result,dict) and result.get('ok') is True and all(result.get(k)==v for k,v in dict(event=event,id=h.flow.id,generation=h.binding['generation'],listenerCookie=h.listener.cookie,guardId=h.binding['guardId']).items())
+    def terminal_call(self,h,event,meta):
+        if h.terminal_results is None:return self.policy.call(meta,2)
+        result=h.terminal_results[event]
+        if isinstance(result,BaseException):raise result
+        return result
+    async def finish_async(self,h,success=False):
+        # IO/TLS frames have unwound before we enter here. Cut first, then do
+        # bounded terminal RPC off the control loop. No response/body drain is
+        # allowed to delay revocation. Keep charges until local drop completes.
+        h.close_sockets();h.terminal_results={}
+        f=self.owner.flows.get(h.flow.id)
+        events=['persist_unknown'] if not success and f and f.consumed and not f.unknown_attempted else []
+        events.append('close_flow')
+        for event in events:
+            meta=h.terminal_metadata(event,**(dict(unknownToken=h.unknown_token) if event=='persist_unknown' else dict(success=success)))
+            try:
+                result=await asyncio.wait_for(asyncio.to_thread(self.policy.call,meta,TERMINAL_RPC_TIMEOUT),TERMINAL_RPC_TIMEOUT)
+            except BaseException as error:result=error
+            h.terminal_results[event]=result
+        try:self.finish(h,success)
+        except BaseException:
+            self.terminal_error=True
+            raise
     def persist_unknown(self,key):
         h=self.handlers.get(key)
         if h is None:raise Refused('BROWSER_UNKNOWN_LOST')
         # Works even AFTER generation revoke; never authorize a fresh action.
         meta=h.terminal_metadata('persist_unknown');meta['unknownToken']=h.unknown_token
         try:
-            r=self.policy.call(meta,2)
+            r=self.terminal_call(h,'persist_unknown',meta)
             if not self.terminal_ack(h,'persist_unknown',r) or r.get('durable') is not True:raise Refused('BROWSER_UNKNOWN_LOST')
         except BaseException:
             self.dead=True
@@ -311,7 +337,7 @@ class TransportRuntime:
         if h is None:return not success
         if success and (not h.drained or h.client_io.pending_write):return False
         h.close_sockets()
-        r=self.policy.call(h.terminal_metadata('close_flow',success=success),2)
+        r=self.terminal_call(h,'close_flow',h.terminal_metadata('close_flow',success=success))
         if not self.terminal_ack(h,'close_flow',r):raise Refused('BROWSER_CLOSE_ACK')
         return True
     def finish(self,h,success=False):
@@ -360,6 +386,7 @@ class TransportRuntime:
         tasks={h.task for h in matching if h.task and h.task is not current_task()}
         tasks.update(t for c,t in self.accept_tasks.items() if (listener_cookie is None or c==listener_cookie) and t is not current_task())
         if tasks:await asyncio.gather(*tasks,return_exceptions=True)
+        if self.terminal_error:raise Refused('BROWSER_TERMINAL_UNCONFIRMED')
         if listener_cookie is not None:return not any(h.listener.cookie==listener_cookie for h in self.handlers.values())
         return not self.handlers and not self.owner.flows and not self.owner.transport_reservations
 
@@ -378,6 +405,7 @@ class TransportHandler(ConnectionHandler):
         self.client_io=AsyncSocket(sock,self.io_remaining);self.client_io.handler=self;self.upstream_io=None
         self.client_tls=None;self.server_tls=None;self.drained=False;self.closed=False;self.task=None
         self.hostname=None;self.decision=None;self.decision_deadline=0;self.unknown_token=None
+        self.terminal_results=None
         self.tail_pending=0;self.request_headers=None;self.url=None;self.dns=None;self.dns_deadline=self.deadline
     def io_remaining(self):
         left=min(self.deadline,self.read_deadline)-self.runtime.clock()
@@ -579,13 +607,18 @@ class TransportHandler(ConnectionHandler):
                 if monitor:
                     monitor.cancel();await asyncio.gather(monitor,return_exceptions=True)
             finally:
-                # A second cancellation can interrupt the monitor join. Storage,
-                # terminal persistence and flow_closed must still run, without
-                # another await between them.
+                # A second cancellation can interrupt the monitor join. Join
+                # shielded terminal work before the owner task can settle.
                 if self.flow.id in self.runtime.handlers:
-                    try:self.runtime.finish(self,success)
-                    except BaseException:
-                        self.runtime.revoke_all()
+                    finalizer=asyncio.create_task(self.runtime.finish_async(self,success))
+                    # Repeated cancellation must not detach terminal cleanup or
+                    # let settled() ACK while body representations remain live.
+                    while not finalizer.done():
+                        try:await asyncio.shield(finalizer)
+                        except asyncio.CancelledError:continue
+                        except BaseException:break
+                    try:finalizer.result()
+                    except BaseException:self.runtime.revoke_all()
     def close_sockets(self):
         was_closed=self.closed
         self.closed=True
@@ -604,7 +637,7 @@ class TransportHandler(ConnectionHandler):
         self.flow.request=None;self.flow.response=None
         self.flow.live=False
         self.context.layers.clear();self.request_headers=None;self.decision=None;self.dns=None;self.unknown_token=None
-        self.layer=None;self.transports.clear();self.task=None
+        self.layer=None;self.transports.clear();self.task=None;self.terminal_results=None
 
 def create_runtime(policy,tls_config,verify_deployment,key,*,denied_addresses=()):
     runtime=TransportRuntime(policy,tls_config,verify_deployment,key,resolver=FreshResolver(denied_addresses))

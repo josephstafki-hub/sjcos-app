@@ -43,9 +43,9 @@
     "lib/browser/runtime-readiness.mjs": "38bc165ec71a85163f35f6bee126deec9588ec0b457e052f3fd35ed9fea2778f",
     "lib/browser/startup.mjs": "149c796afe4110618ef4e2659fcb141d20e96859294300d011c959a8bc60171d",
     "lib/browser/target-barrier.mjs": "48d758b85f0eb1c9b66f1684ece37fafc6906ce743b88155cd72f1d19a720e5c",
-    "deploy/browser/acceptance-interface.md": "b3ee2fb65f7e1f0d44cc244773c7aecde29c4da18dc6a22d1744500d32e885bf",
+    "deploy/browser/acceptance-interface.md": "31a2bfc9bf681a88d85b328360336fb61f989e7a6887ec0ac0f1a595980caf30",
     "deploy/browser/parser_adapter.py": "1cf731ab44e87f409012af1ccf54eb1cb2d2a4158a2cd98306a7d655602dd44b",
-    "deploy/browser/fixtures/network-driver.py": "10edd7f088e6bed51d2e2ac91c4f822d6471b56c691a43436327c375c73a46f2",
+    "deploy/browser/fixtures/network-driver.py": "1da540314a27f8d7b74eb21349bbfcf7fc7198ef4c7a8d8927f1fdd1a1b1bae5",
     "deploy/browser/fixtures/rss-driver.py": "93a7f44a08504e24d4c9754943f6ace0c0da2c2f8a7c4dc3f5f18596f4757732",
     "deploy/browser/install-acceptance.sh": "9f88dac9fed25b0f91faf85c17cf69ff27f610117e4862fb55f0e20509eadd42"
   },

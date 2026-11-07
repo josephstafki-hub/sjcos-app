@@ -163,7 +163,7 @@ def main():
                                           lambda: probe(args.browser_ns,spec))
                 evidence['cases'].append({'name':name,'passed':measurement['packets']==0,
                                           'measurement':measurement})
-            p = children.start([str(launcher),*sys.argv[1:]],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
+            p = children.start(['/usr/sbin/ip','netns','exec',args.browser_ns,str(launcher),*sys.argv[1:]],stdout=subprocess.PIPE,stderr=subprocess.DEVNULL)
             # Bound stdout at read, not after communicate has allocated it.
             output = bytearray()
             import select,time

@@ -10,7 +10,7 @@ an attested transport and deployment verifier; neither a marker nor parser unit
 tests can authorize stock startup.
 
 P's dedicated launcher must expose its reviewed acceptance executable as
-`/opt/sjcos-browser/fixtures/launcher-driver`. N's network-driver invokes it with:
+`/opt/sjcos-browser/fixtures/launcher-driver`. N's network-driver invokes it via `ip netns exec <browser-ns>` with:
 
 ```
 launcher-driver --kind network --run-id UUID --browser-ns NAME --gate-ns NAME --fixture-ns NAME

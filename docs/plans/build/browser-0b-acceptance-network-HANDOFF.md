@@ -166,3 +166,9 @@ sudo systemd-run --scope --unit=browser-0b-rss-n20261106 --slice=user-1010-sjcos
 No real containment/RSS result or completed Phase 0b acceptance is claimed.
 The remaining code gaps in items 1 and 2 prevent the coordinator from completing
 acceptance with this commit alone. Keep all Browser flags OFF.
+
+Post-commit interface alignment: P has now supplied a launcher-driver source
+entrypoint in the shared worktree. N invokes the installed launcher from INSIDE
+the disposable browser namespace (via ip netns exec), as P requires. P's entry
+still delegates prepareAcceptance/runNetworkCases to the protected controller;
+this does not close the missing network/RSS transport/controller implementation.

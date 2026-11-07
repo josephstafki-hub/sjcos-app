@@ -378,3 +378,11 @@ receipts/no retry, zero survivors before cleanup, the child's own subresource
 consume/digest/write on its iframe target, same-session detach causality, and
 real sustained no-read/overlap/two-tail/independent-release storage evidence.
 This builder makes no new root acceptance or release approval claim.
+
+## Round 2 — root re-acceptance (2026-11-07, run `r2a` at `7b102970`)
+
+Full root acceptance PASSED on the first run after the round 2 fixes: network **28/28**, RSS **15/15**,
+realRuntime true, simulated false, releaseReady false. Evidence: `~/qa-sjcos/browser-acc/r2a/`.
+Covers the new dispatch fence (controller killed between consume and dispatch → zero upstream request bytes,
+durable unknown/no-retry), the OOPIF child's own guarded subresource Fetch→consume→write, session-bound
+detach evidence and independently recomputed capture/RSS artifacts.

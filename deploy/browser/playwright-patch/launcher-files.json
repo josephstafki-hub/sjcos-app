@@ -20,7 +20,7 @@
   "lib/browser/controller.mjs": "e9d1c9c9b62edfa060753db8ea0eeaf2550c4caf0bd525bfdce09d90ca521e9b",
   "lib/browser/fixture-controller.mjs": "49c339406d7b0be7bd000e882194cb0a0e4f2046296433114850b158f6592023",
   "lib/browser/gate.mjs": "b47a21ea59043ecf4b4a0d30a516b9c6aea6a0f2f44d9b231abdd2457708704c",
-  "lib/browser/launcher.mjs": "f27987632a905280314ee8e64c33a87714e991405a2f65f7bdb305c21f456e3a",
+  "lib/browser/launcher.mjs": "1dfb38c813306e2cdcc7637131a9cc3418a78a519ac3702086b363aad39d32d3",
   "lib/browser/network-policy.mjs": "dbf4e620ea43a345d27d8072a0834436b034bd4f66823a3605707ab83cdfd69d",
   "lib/browser/pane-host.mjs": "d965fd1ef913608acb1692513c827063815dbd300496e64355bb324c37357bca",
   "lib/browser/protected-bootstrap.mjs": "b8126b2c2db2470983b6a35fbd9b2b874568abf817aece5670ea96352454b560",

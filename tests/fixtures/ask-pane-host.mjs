@@ -37,10 +37,10 @@ export async function browserSessionHarness(factory) {
   useRef(initial){const i=index++;return slots[i]??=( {current:initial} );},
   useMemo(fn,deps){const i=index++;if(!slots[i]||!same(slots[i].deps,deps))slots[i]={value:fn(),deps};return slots[i].value;},
   useCallback(fn,deps){return dispatcher.useMemo(()=>fn,deps);},
-  useEffect(fn,deps){const i=index++;if(!slots[i]||!same(slots[i].deps,deps)){const old=slots[i];slots[i]={deps,cleanup:old?.cleanup};effects.push(()=>{slots[i].cleanup?.();slots[i].cleanup=fn();});}}
+  useEffect(fn,deps){const i=index++;if(!slots[i]||!same(slots[i].deps,deps)){const old=slots[i];slots[i]={deps,fn,cleanup:old?.cleanup};effects.push(()=>{slots[i].cleanup?.();slots[i].cleanup=fn();});}}
  };
  dispatcher.useLayoutEffect=dispatcher.useEffect;
  dispatcher.useSyncExternalStore=(subscribe,get)=>{const [snapshot,set]=dispatcher.useState(get);dispatcher.useEffect(()=>subscribe(()=>set(get())),[subscribe,get]);return snapshot;};
  function flush(){let rounds=0;while(dirty){if(++rounds>60)throw Error('hook render loop');dirty=false;index=0;const saved=internals.H;internals.H=dispatcher;try{value=factory();}finally{internals.H=saved;}const run=effects;effects=[];run.forEach(fn=>fn());}return value;}
- return {get value(){return flush();},async settle(){for(let i=0;i<8;i++){flush();await new Promise(resolve=>setImmediate(resolve));}return flush();},render(){dirty=true;return flush();},dispose(){slots.forEach(s=>s?.cleanup?.());}};
+ return {get value(){return flush();},async settle(){for(let i=0;i<8;i++){flush();await new Promise(resolve=>setImmediate(resolve));}return flush();},render(){dirty=true;return flush();},replayEffects(){slots.forEach(s=>{if(s?.fn)s.cleanup?.();});slots.forEach(s=>{if(s?.fn)s.cleanup=s.fn();});return flush();},dispose(){slots.forEach(s=>s?.cleanup?.());}};
 }

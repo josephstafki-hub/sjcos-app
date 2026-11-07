@@ -27,3 +27,21 @@ test('R1 private Watch with no server audit signal remains hidden despite local 
 test('R2 4/6/9 Watch has one state line with trusted site and job, no duplicate pane',()=>{for(const width of [360,800,820,1180,1280]){const html=view({width,privatePage:false,projectLabel:'Larson bath'}),text=html.replace(/<[^>]+>/g,' ');assert.equal(text.split('Agent is working').length-1,1);assert.match(html,/city.example/);assert.match(html,/Larson bath/);assert.doesNotMatch(html,/Watch the page. The agent stays/);}});
 test('R2 7 owner pause branch names staff, staff branch names owner',()=>{assert.match(view({state:'owner_paused',privatePage:false}),/Agent paused. Abigail can tap Continue./);assert.match(render(BrowserView,{model:{...base,ownerView:false,privatePage:false,state:'owner_paused',ownerName:'Taylor'},slot:'all',onAction(){}}),/Taylor paused the agent./);});
 test('R2 5/8/10 owner does not watch self, paused/private Watch offers no Pause agent or disabled Type it',()=>{for(const width of [360,800,1280]){const html=view({width,state:'paused_private',watchingOwner:true,availableControls:['pause'],answers:[{id:'a',label:'Address',value:'123 Main'}]});assert.doesNotMatch(html,/Joe is watching|>Pause agent<|>Type it</);assert.match(html,/Abigail's answers/);}});
+
+test('R3 1 Watch portrait meta cannot consume image or private-wait height',()=>{
+ for(const width of [360,820])for(const state of ['working','other_device']){
+  const html=view({width,state,privateConsented:true,privateViewStatus:'authorized',frameUrl:'frame'});assert.match(html,/aspect-\[16\/10\] w-full max-h-full shrink-0/);
+  const roots=[...html.matchAll(/<div[^>]*class="([^"]*)"[^>]*data-browser-state/g)].map(x=>x[1]);assert.ok(roots.length>=3);assert.doesNotMatch(roots[0],/\bh-full\b/);assert.match(roots[1],/\bh-full\b/);
+  assert.match(view({width,state,privateViewStatus:'pending_audit'}),/Waiting to show the private page…/);
+ }
+ for(const slot of ['all','content','actions','title','meta']){const html=render(BrowserView,{model:base,slot,onAction(){}});assert.equal(/^<div[^>]*class="[^"]*\bh-full\b/.test(html),['all','content','actions'].includes(slot));}
+});
+test('R3 2 owner dialogs have only their own decisions at portrait split and landscape sizes',()=>{
+ for(const width of [360,820,1280])for(const landscape of [false,true])for(const dialog of ['replace','fresh','pause_owner']){
+  const html=view({width,landscape,dialog,privatePage:false,availableControls:['take_over','pause','fresh_browser'],frameUrl:'frame'});
+  const label=dialog==='replace'?'Take over':dialog==='fresh'?'Open a fresh browser':'Pause agent';assert.equal((html.match(new RegExp('>'+label+'</button>','g'))??[]).length,1);assert.doesNotMatch(html,/>Zoom<|>Pause live view</);
+ }
+});
+test('R3 10 owner header separates Back from the independently wrapping title',()=>{
+ for(const width of [360,820,1280]){const html=view({width,projectLabel:'Maple Ave kitchen'});assert.match(html,/<header[^>]*gap-2/);assert.match(html,/<\/button><span[^>]*min-w-0[^>]*>Abigail's browser — Maple Ave kitchen<\/span>/);assert.doesNotMatch(html,/<span[^>]*> · Abigail/);}
+});

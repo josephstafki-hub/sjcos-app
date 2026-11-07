@@ -3,7 +3,7 @@ import {can,getCurrentUser} from '@/lib/dal';
 import {threadPrincipal,requireThreadAccess,askFailure,threadQueryOne} from '@/lib/thread-access';
 /** Shared pane identity is independent of either feature flag. No capability. */
 export async function browserPaneIdentity(threadId:string|null){
- try{const user=await threadPrincipal();if(threadId)await requireThreadAccess(threadId,user);return {ok:true as const,userId:user.id,isOwner:user.role==='owner',name:(await getCurrentUser())?.name??null};}catch(e){return askFailure(e);}
+ try{const user=await threadPrincipal();if(threadId)await requireThreadAccess(threadId,user);return {ok:true as const,userId:user.id,isOwner:user.role==='owner',canChooseProject:can(await getCurrentUser(),'projects'),name:(await getCurrentUser())?.name??null};}catch(e){return askFailure(e);}
 }
 
 /** Trusted job metadata from the caller's own chat folder; never page text. */

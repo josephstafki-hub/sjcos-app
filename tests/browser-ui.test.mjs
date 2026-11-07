@@ -20,7 +20,7 @@ const render=await browserRenderHarness();
 const {BrowserView}=await import('../components/panel/BrowserView.tsx');
 const {classifyBrowserDevice,stableBrowserDevice}=await import('../components/panel/browser/device.ts');
 const {browserModel,afterBrowserControl,letterboxPoint}=await import('../components/panel/browser/model.ts');
-const base={state:'working',origin:'city.example',phone:false,ownerName:'Joe',personName:'Abigail',width:360};
+const base={canChooseProject:true,state:'working',origin:'city.example',phone:false,ownerName:'Joe',personName:'Abigail',width:360};
 const view=(p={})=>render(BrowserView,{model:{...base,...p},slot:'all',onAction(){}});
 test('C01 real pane renders 360, 820, 1280 with contained image and state accessible name',()=>{for(const width of [360,820,1280]){const html=view({width,frameUrl:'data:image/jpeg;base64,/9j/'});assert.match(html,/object-contain/);assert.match(html,/Live view of city.example. Agent is working./);assert.match(html,/Stop browser/);assert.match(html,/Zoom/);assert.match(html,/Pause live view/);}});
 test('C02 phone replaces every takeover variant with exact instruction',()=>{for(const state of ['working','paused_private','other_device','write_blocked']){const html=view({state,phone:true,frameUrl:'frame'});assert.doesNotMatch(html,/>Take over(?: again| here)?</);if(state!=='write_blocked')assert.match(html,/Take over on a tablet or computer. Open SJC OS on your iPad or computer, then Operator › Browser./);}});
@@ -116,14 +116,14 @@ test('R1 stale document/context/read/target never produces a navigation binding'
  for(const change of [{navigation:null},{context_generation:1},{task:{document_epoch:2,read_manifest_revision:4}},{task:{document_epoch:3,read_manifest_revision:5}},{available_controls:[]}])assert.equal(navigationBinding({...d,...change},'reload'),null);assert.equal(navigationBinding(d,'switch_tab','stale'),null);
 });
 
-async function sessionFixture({ownerView=false,viewerId='viewer',detail:initial,events}={}){
+async function sessionFixture({ownerView=false,viewerId='viewer',detail:initial,events,claimExpires='2099-01-01T00:00:00Z'}={}){
  const {browserSessionHarness}=await import('./fixtures/ask-pane-host.mjs'),{browserAPI}=await apiTools(),{useBrowserSession}=await import('../components/panel/useBrowserSession.ts');
  const saved={...browserAPI},doc=globalThis.document,win=globalThis.window,interval=globalThis.setInterval,clear=globalThis.clearInterval,timers=new Set();globalThis.setInterval=(fn,ms)=>{const timer={fn,ms};timers.add(timer);return timer;};globalThis.clearInterval=timer=>timers.delete(timer);globalThis.document=Object.assign(new EventTarget(),{hidden:false});globalThis.window={screen:{width:1280,height:900}};
  let status=initial??{revision:1,context_generation:2,server_time:new Date().toISOString(),task:{state:'active',control:'agent',control_epoch:7,document_epoch:3,read_manifest_revision:4,private:false,allowed_sites:['https://city.example'],required_areas:[]},navigation,available_controls:['back','forward','reload','switch_tab','stop'],pending_action:null};
- const joined={viewer_id:viewerId,device_secret:'secret',expires_at:'2099-01-01T00:00:00Z',...(ownerView?{owner_review_claim:{claim_id:'claim',expires_at:'2099-01-01T00:00:00Z'}}:{})},calls=[];let eventCallback;
+ const joined={viewer_id:viewerId,device_secret:'secret',expires_at:'2099-01-01T00:00:00Z',...(ownerView?{owner_review_claim:{claim_id:'claim',expires_at:claimExpires}}:{})},calls=[];let eventCallback;
  Object.assign(browserAPI,{join:async()=>({...status,...joined}),detail:async()=>status,answers:async()=>({answers:[]}),leave:async()=>{},presence:async()=>({}),closeStream:async(_id,_v,binding)=>({closed:true,planned:true,...binding}),reads:async()=>({candidates:[],candidates_status:'none'}),control:async(...args)=>{calls.push(args);return status;},events:events??(async(_id,_v,signal,onEvent)=>{eventCallback=onEvent;onEvent('state',{...status,stream_id:'stream',stream_generation:1});await new Promise(resolve=>signal.addEventListener('abort',resolve,{once:true}));})});
  const props={taskId:'task',conversationId:'thread',visible:true,ownerView},h=await browserSessionHarness(()=>useBrowserSession(props));await h.settle();
- return {h,props,calls,async poll(){for(const timer of timers)if(timer.ms===5000)await timer.fn();await h.settle();},setStatus(next){status=next;},get status(){return status;},emit(name,data){eventCallback(name,data);},async dispose(){h.dispose();await h.settle();Object.assign(browserAPI,saved);globalThis.document=doc;globalThis.window=win;globalThis.setInterval=interval;globalThis.clearInterval=clear;}};
+ return {h,props,calls,async poll(ms=5000){for(const timer of timers)if(timer.ms===ms)await timer.fn();await h.settle();},setStatus(next){status=next;},get status(){return status;},emit(name,data){eventCallback(name,data);},async dispose(){h.dispose();await h.settle();Object.assign(browserAPI,saved);globalThis.document=doc;globalThis.window=win;globalThis.setInterval=interval;globalThis.clearInterval=clear;}};
 }
 test('R1 real session menu cancel is local; reload confirms then sends current epochs once',async()=>{
  const f=await sessionFixture();try{await f.h.value.action('menu');assert.match(view(f.h.value.model),/Browser options/);await f.h.value.action('cancel');assert.equal(f.h.value.model.dialog,null);assert.equal(f.calls.length,0);await f.h.value.action('reload');assert.match(view(f.h.value.model),/Reload this page\?/);assert.equal(f.calls.length,0);await f.h.value.action('confirm_reload');await f.h.settle();assert.equal(f.calls.length,1);assert.deepEqual(f.calls[0].slice(2),['reload',7,{expected_document_epoch:3,context_generation:2,read_manifest_revision:4}]);assert.equal(f.h.value.model.dialog,null);}finally{await f.dispose();}
@@ -204,19 +204,19 @@ test('R2 1 accepted revision drives pane and chat snapshot despite stale pause r
  const f=await sessionFixture();try{f.setStatus({...f.status,revision:4,projection_status:'available',state_reason:'absent'});await f.poll();assert.equal(f.h.value.model.state,'working');assert.equal(f.h.value.model.taskRevision,4);assert.equal(f.h.value.snapshot.revision,'4');assert.equal(f.h.value.snapshot.status,'active');f.setStatus({...f.status,revision:3,task:{...f.status.task,state:'paused'}});await f.poll();assert.equal(f.h.value.model.taskRevision,4);assert.equal(f.h.value.model.state,'working');}finally{await f.dispose();}
 });
 test('R2 2 human status row words and closed row hidden',async()=>{
- const {browserRowStatus}=await import('../components/panel/browser/model.ts');for(const [state,label] of [['active','Agent is working'],['paused','Paused'],['queued','Browser is busy.'],['starting','Opening browser…'],['failed','Browser stopped.'],['closed',null]])assert.equal(browserRowStatus({status:state,attention:'none'}),label);assert.equal(browserRowStatus({status:'paused',attention:'needs_you'}),'Needs you');
+ const {browserRowStatus}=await import('../components/panel/browser/model.ts');for(const [state,label] of [['active','Agent is working'],['paused','Paused'],['queued','Browser is busy.'],['starting','Opening browser…'],['failed','Stopped'],['closed',null]])assert.equal(browserRowStatus({status:state,attention:'none'}),label);assert.equal(browserRowStatus({status:'paused',attention:'needs_you'}),'Needs you');
 });
 test('R2 3 In use uses trusted task and job labels and never raw task kinds',()=>{const html=view({state:'empty',isOwner:true,inUse:[{task_id:'staff',person_label:'Abigail',task_label:'Permit',job_label:'Larson bath',task_kind:'public_research',state:'active'}]});assert.match(visibleText(html),/Abigail · Permit — Larson bath · Agent is working/);assert.doesNotMatch(html,/public_research/);assert.match(view({state:'empty',isOwner:true,inUse:[{task_id:'staff',person_label:'Abigail',task_kind:'public_research',state:'active'}]}),/Public pages/);});
 test('R2 4 each no-frame status/error sentence appears once',()=>{for(const state of ['empty','queued','auth_expired','closed','crashed','final_blocked','service_unavailable']){const html=view({state,error:state==='service_unavailable'?"Couldn't connect to the browser.":undefined});const headings=[...html.matchAll(/<h3[^>]*>(.*?)<\/h3>/g)];assert.equal(headings.length,1);const sentence=headings[0][1];assert.equal(visibleText(html).split(sentence).length-1,1);}});
 test('R2 5 watching-owner indicator is staff-only',()=>{assert.match(view({watchingOwner:true,ownerName:'Taylor'}),/Taylor is watching/);assert.doesNotMatch(view({watchingOwner:true,ownerView:true,ownerName:'Taylor'}),/Taylor is watching/);});
 test('R2 8 Pause agent only while working and advertised',()=>{for(const state of ['paused','paused_private','owner_paused','other_device'])assert.doesNotMatch(view({state,ownerView:true,availableControls:['pause']}),/>Pause agent</);assert.doesNotMatch(view({ownerView:true}),/>Pause agent</);assert.match(view({ownerView:true,availableControls:['pause']}),/>Pause agent</);});
-test('R2 10-11 answers belong to person, input only in eligible controlled desktop state',()=>{assert.match(view({ownerView:true,answers}),/Abigail's answers/);assert.doesNotMatch(view({phone:true,answers,state:'controlling'}),/>Type it</);assert.match(view({answers}),/Take over to type these/);for(const state of ['final_blocked','write_blocked','read_review','resource_review','access_removed','queued','crashed','closed','idle_closed','service_unavailable'])assert.doesNotMatch(view({state,answers}),/Your answers|Type it|123 Main/);assert.match(view({state:'controlling',answers}),/>Type it</);});
+test('R2 10-11 answers belong to person, input only in eligible controlled desktop state',()=>{assert.match(view({ownerView:true,answers}),/Abigail's answers/);assert.doesNotMatch(view({phone:true,answers,state:'controlling'}),/>Type it</);assert.match(view({answers,availableControls:['take_over']}),/Take over to type these/);for(const state of ['final_blocked','write_blocked','read_review','resource_review','access_removed','queued','crashed','closed','idle_closed','service_unavailable'])assert.doesNotMatch(view({state,answers}),/Your answers|Type it|123 Main/);assert.match(view({state:'controlling',answers}),/>Type it</);});
 test('R2 12 no media or takeover instruction before frame or in service failure',()=>{for(const state of ['working','queued','service_unavailable'])assert.doesNotMatch(view({state,phone:true}),/>Zoom<|>Pause live view<|Take over on a tablet/);});
 test('R2 13-14 narrow actions wrap and frame status can wrap two lines',()=>{const html=view({width:320,frameUrl:'frame',state:'unknown'});assert.match(html,/flex-wrap/);assert.match(html,/line-clamp-2/);assert.doesNotMatch(html,/min-w-0 truncate[^>]*>The site/);});
 test('R2 15 Starting offers only Cancel',()=>{const html=view({state:'starting'});assert.match(html,/>Cancel</);assert.doesNotMatch(html,/>Take over<|>Stop browser</);});
 test('R2 16 exact write card has no invented extra sentence',()=>{assert.doesNotMatch(view({state:'write_blocked'}),/Sending information isn't available in this version/);});
 test('R2 17 candidates show trusted supplier and explain over-20 fallback',()=>{for(const [suggested_by,label] of [['agent','Suggested by the agent'],['person','You entered this'],['page_link','Linked from the page']])assert.match(view({state:'read_review',readUrls:['https://city.example/a'],readSuggestions:[{suggested_by}]}),new RegExp(label));assert.match(view({state:'resource_review',readUrls:Array(21).fill('https://city.example/a')}),/Too many files to review at once/);});
-test('R2 18 Review page addresses is an action and reload warning is exact',async()=>{for(const dialog of ['menu','sites'])assert.match(view({dialog}),/<button[^>]*>Review page addresses<\/button>/);assert.match(view({dialog:'reload'}),/Reloading may clear what you've entered. Nothing will be sent./);const {browserErrorCopy}=await import('../components/panel/browser/model.ts');assert.equal(browserErrorCopy('BROWSER_READ_PROVENANCE_UNKNOWN'),'Read this page?');});
+test('R2 18 Review page addresses is an action and reload warning is exact',async()=>{for(const dialog of ['menu','sites'])assert.match(view({dialog,approvedReadUrls:['https://city.example/a']}),/<button[^>]*>Review page addresses<\/button>/);assert.match(view({dialog:'reload'}),/Reloading may clear what you've entered. Nothing will be sent./);const {browserErrorCopy}=await import('../components/panel/browser/model.ts');assert.equal(browserErrorCopy('BROWSER_READ_PROVENANCE_UNKNOWN'),'Read this page?');});
 test('R2 19 settings lists named people, owner first, preserves IDs only in save',async()=>{const {BrowserSettingsView}=await import('../components/panel/BrowserSettings.tsx');const html=render(BrowserSettingsView,{ownerUserId:'owner',settings:{people:[{user_id:'staff',label:'Abigail',role:'staff',eligible:true},{user_id:'owner',label:'Taylor',role:'owner',eligible:true}],pilot_user_ids:['owner'],flags:{},revision:1,takeover_confirm_suppressed_user_ids:[]},selected:['owner'],onSelect(){},onSave(){}});assert.match(html,/Who can use Browser/);assert.match(html,/Taylor/);assert.match(html,/Abigail/);assert.ok(html.indexOf('Taylor')<html.indexOf('Abigail'));assert.doesNotMatch(html,/Pilot user IDs|One user ID|textarea/);});
 test('R2 21 owner queue names current person, staff remains anonymous',()=>{assert.match(view({state:'queued',isOwner:true,busyWithLabel:'Abigail'}),/Browser is busy. Abigail is using it./);assert.doesNotMatch(view({state:'queued',busyWithLabel:'Abigail'}),/Abigail/);});
 test('R2 22 private reconnect and absence offer Take over again',()=>{for(const state of ['reconnected','absent','turn_ended','owner_paused']){const html=view({state,privatePage:true});assert.match(html,/>Take over again</);assert.doesNotMatch(html,/>Continue<|>Resume</);}});
@@ -249,4 +249,154 @@ test('R2 1 real feed cannot replace the pane revision with a stale list snapshot
  const scope={userId:'owner',threadId:'thread',claimToken:'test'};registry.setAskPaneScope(scope);let status={revision:4,context_generation:2,server_time:new Date().toISOString(),task:{task_id:'task',run_id:null,state:'active',control:'agent',control_epoch:7,document_epoch:3,read_manifest_revision:4,private:false,allowed_sites:['https://city.example'],required_areas:[]},projection_status:'available',state_reason:'absent',available_controls:['stop'],pending_action:null};
  Object.assign(browserAPI,{availability:async()=>({enabled:true,can_start:true,revision:1}),tasks:async()=>({tasks:[{...status.task,state:'paused'}],snapshots:[{kind:'browser',id:'task',task_id:'task',revision:'2',label:'Browser',status:'paused'}]}),join:async()=>({...status,viewer_id:'viewer',device_secret:'secret'}),detail:async()=>status,answers:async()=>({answers:[]}),leave:async()=>{},presence:async()=>({}),events:async()=>{},inUse:async()=>({items:[]})});
  const h=await browserSessionHarness(()=>useBrowserFeed(scope,'claude',true,false));try{await h.settle();let row=registry.getAskPaneFeed().snapshots.find(x=>x.id==='task');assert.equal(row.revision,'4');assert.equal(row.status,'active');for(const timer of [...timers])if(timer.ms===5000)await timer.fn();await h.settle();row=registry.getAskPaneFeed().snapshots.find(x=>x.id==='task');assert.equal(row.revision,'4');assert.equal(row.status,'active');status={...status,revision:5,task:{...status.task,state:'closed',control:'none'},state_reason:null};for(const timer of [...timers])if(timer.ms===5000)await timer.fn();await h.settle();assert.equal(registry.getAskPaneFeed().snapshots.find(x=>x.id==='task').status,'closed');}finally{h.dispose();registry.setAskPaneScope(null);Object.assign(browserAPI,saved);globalThis.document=doc;globalThis.window=win;globalThis.setInterval=interval;globalThis.clearInterval=clear;}
+});
+
+// R3 expectations precede the UI changes. Real renderer + real hook; no browser.
+test('R3 2 dialogs suppress the pane actions in every layout',()=>{
+ for(const dialog of ['takeover','fresh','leave','sites','pause_owner','replace','menu','reload','addresses'])for(const landscape of [false,true]){
+  const model={...base,dialog,landscape,frameUrl:'frame',availableControls:['take_over','stop','reload']};
+  const html=render(BrowserView,{model,slot:'actions',onAction(){}});assert.doesNotMatch(html,/<button|<a |<summary/);
+  const all=render(BrowserView,{model,slot:'all',onAction(){}});assert.equal((all.match(/>Take over<\/button>/g)??[]).length,['takeover','replace'].includes(dialog)?1:0);
+ }
+});
+test('R3 3 only read and file cards show expired-address copy',()=>{
+ for(const state of ['read_review','resource_review','write_blocked','final_blocked']){
+  const html=view({state,readExpired:true,readUrls:['https://city.example/a']});
+  assert.equal(html.includes('These page addresses need a fresh review before they can be allowed.'),['read_review','resource_review'].includes(state));if(['final_blocked','write_blocked'].includes(state))assert.doesNotMatch(html,/https:\/\/city.example\/a|Suggestion source/);
+ }
+});
+test('R3 3 accepted transition out of read review clears expiry',async()=>{const f=await sessionFixture();try{
+ f.setStatus({...f.status,revision:2,pending_action:{kind:'read',state:'pending'}});await f.poll();assert.equal(f.h.value.model.readExpired,true);
+ f.setStatus({...f.status,revision:3,pending_action:{kind:'final_blocked',state:'pending'}});await f.poll();assert.equal(f.h.value.model.readExpired,false);await f.poll(1000);assert.equal(f.h.value.model.readExpired,false);assert.doesNotMatch(view(f.h.value.model),/fresh review/);
+}finally{await f.dispose();}});
+function elements(node){if(!node||typeof node!=='object')return [];return [node,...[node.props?.children].flat(Infinity).flatMap(elements)];}
+test('R3 5 menu address button invokes actual address review',async()=>{
+ const {browserSessionHarness}=await import('./fixtures/ask-pane-host.mjs');const f=await sessionFixture();let ui;
+ try{await f.h.value.action('menu');ui=await browserSessionHarness(()=>BrowserView({model:f.h.value.model,slot:'content',onAction:f.h.value.action}));const button=elements(ui.value).find(e=>e.type==='button'&&e.props.children==='Review page addresses');await button.props.onClick();await f.h.settle();assert.equal(f.h.value.model.dialog,'addresses');assert.match(view(f.h.value.model),/aria-label="Review page addresses"/);assert.doesNotMatch(view(f.h.value.model),/This task can use these sites/);}finally{ui?.dispose();await f.dispose();}
+});
+test('R3 6 Sites hides empty address review and keeps purpose Job sites address review order',()=>{
+ const empty=view({state:'empty',dialog:'sites'});assert.doesNotMatch(empty,/Pages this task may read|>Review page addresses</);
+ const html=view({dialog:'sites',sites:['https://city.example'],approvedReadUrls:['https://city.example/a']});
+ const order=['What should the agent read?','>Job<','https://city.example</li>','Page address','Pages this task may read','>Review page addresses<'].map(x=>html.indexOf(x));assert.ok(order.every((x,i)=>x>=0&&(!i||x>order[i-1])),order.join(','));
+});
+test('R3 8 queue snapshot and rendered row agree; failed row reads Stopped',async()=>{
+ const {browserRowStatus}=await import('../components/panel/browser/model.ts');const f=await sessionFixture();try{
+ for(const [state,label] of [['offer','Browser is ready.'],['offer_expired','You missed your turn.'],['queue_expired','You left the line.']]){
+  f.h.value.patch({state});await f.h.settle();const row=f.h.value.snapshot;assert.equal(row.stateLabel,label);assert.equal(row.attention,state==='offer'?'none':'needs_you');assert.equal(browserRowStatus(row),label);assert.match(view(f.h.value.model),state==='offer'?/Browser is ready/:state==='offer_expired'?/You missed your turn/:/You left the line/);
+ }assert.equal(browserRowStatus({status:'failed',attention:'none'}),'Stopped');
+ }finally{await f.dispose();}
+});
+test('R3 9 meta joins present parts and drops windows on review cards',()=>{
+ const meta=p=>visibleText(render(BrowserView,{model:{...base,...p},slot:'meta',onAction(){}}));
+ assert.equal(meta({watchingOwner:true,ownerName:'Taylor'}),'Taylor is watching.');assert.equal(meta({windowCount:2}),'2 windows');
+ assert.equal(meta({state:'read_review',windowCount:2}),'');assert.equal(meta({frameUrl:'frame',watchingOwner:true,ownerName:'Taylor',windowCount:2}),'Agent is working · Taylor is watching. · 2 windows');
+});
+test('R3 11 answers only suggest takeover when the control is offered',()=>{
+ for(const p of [{availableControls:[]},{privatePage:true,ownerView:true,availableControls:['take_over']},{privatePage:true,ownerView:true,privateViewStatus:'pending_audit',availableControls:['take_over']},{phone:true,availableControls:['take_over']}])assert.doesNotMatch(view({...p,answers}),/Take over to type these/);
+ assert.match(view({answers,availableControls:['take_over']}),/Take over to type these/);
+});
+
+async function joinFixture(){
+ const {browserSessionHarness}=await import('./fixtures/ask-pane-host.mjs'),{browserAPI}=await apiTools(),{useBrowserSession}=await import('../components/panel/useBrowserSession.ts');
+ const saved={...browserAPI},doc=globalThis.document,win=globalThis.window;globalThis.document=Object.assign(new EventTarget(),{hidden:false});globalThis.window={screen:{width:1280,height:900}};
+ const status={revision:1,context_generation:1,server_time:new Date().toISOString(),task:{task_id:'task',state:'active',control:'agent',control_epoch:1,document_epoch:1,read_manifest_revision:1,private:false,allowed_sites:['https://city.example'],required_areas:[]},available_controls:['stop']};
+ const joins=[],leaves=[];let resolveJoin,rejectJoin;
+ Object.assign(browserAPI,{join:(...args)=>{joins.push(args);return new Promise((r,reject)=>{rejectJoin=reject;resolveJoin=()=>r({...status,task:{...status.task,task_id:args[0]},viewer_id:'viewer-'+args[0],device_secret:'secret'});});},leave:async(...args)=>{leaves.push(args);},answers:async()=>({answers:[]}),detail:async()=>status});
+ const props={taskId:'task',conversationId:'thread',visible:false};const h=await browserSessionHarness(()=>useBrowserSession(props));h.value;
+ return {h,props,joins,leaves,getResolver(){return resolveJoin;},resolve(){resolveJoin();},reject(error){rejectJoin(error);},async dispose(){h.dispose();await new Promise(r=>setTimeout(r,5));await h.settle();Object.assign(browserAPI,saved);globalThis.document=doc;globalThis.window=win;}};
+}
+test('R3 ENG1 mount joins once through delayed identity, rerenders and StrictMode effect replay',async()=>{const f=await joinFixture();try{
+ f.h.replayEffects();f.props.identity={personName:'Abigail',ownerName:'Taylor',isOwner:false};f.h.render();await f.h.settle();assert.equal(f.joins.length,1);assert.equal(f.leaves.length,0);
+ f.resolve();await f.h.settle();f.h.replayEffects();await f.h.settle();assert.equal(f.joins.length,1);assert.equal(f.leaves.length,0);assert.match(view(f.h.value.model),/Agent is working/);
+ }finally{await f.dispose();}assert.equal(f.leaves.length,1);
+});
+test('R3 ENG1 reconnect preserves viewer credential; real unmount cleans delayed join',async()=>{
+ const f=await joinFixture();try{f.resolve();await f.h.settle();await f.h.value.action('reconnect');await f.h.settle();assert.equal(f.joins.length,2);assert.equal(f.joins[1][2]?.viewer_id,'viewer-task');assert.equal(f.joins[1][2]?.device_secret,'secret');assert.equal(f.leaves.length,0);f.resolve();await f.h.settle();}finally{await f.dispose();}assert.equal(f.leaves.length,1);
+ const late=await joinFixture();late.h.dispose();late.resolve();await late.h.settle();await late.dispose();assert.equal(late.leaves.length,1);
+});
+test('R3 ENG1 superseded task late reply leaves only the old viewer',async()=>{const f=await joinFixture();try{
+ const oldReply=f.getResolver();f.props.taskId='next';f.h.render();await f.h.settle();assert.equal(f.joins.length,2);f.resolve();await f.h.settle();oldReply();await f.h.settle();await new Promise(r=>setTimeout(r,5));assert.equal(f.leaves.length,1);assert.equal(f.leaves[0][0],'task');assert.equal(f.h.value.model.taskId,'next');
+ }finally{await f.dispose();}assert.equal(f.leaves.length,2);
+});
+
+test('R3 ENG1 join identity survives failed retries and owner renewals, independent mounts differ',async()=>{
+ const f=await joinFixture();try{
+  const first=f.joins[0][1].device_id;assert.match(first??'',/^[0-9a-f-]{36}$/);f.resolve();await f.h.settle();await f.h.value.action('reconnect');await f.h.settle();assert.equal(f.joins[1][1].device_id,first);f.resolve();await f.h.settle();
+ }finally{await f.dispose();}
+ const other=await joinFixture();try{assert.notEqual(other.joins[0][1].device_id,f.joins[0][1].device_id);other.resolve();await other.h.settle();}finally{await other.dispose();}
+ const owner=await sessionFixture({ownerView:true});try{const {browserAPI}=await apiTools(),joins=[];browserAPI.join=async(...args)=>{joins.push(args);return {...owner.status,viewer_id:'viewer',device_secret:'secret',owner_review_claim:{claim_id:'claim',expires_at:'2099-01-01T00:00:00Z'}};};owner.setStatus({...owner.status,task:{...owner.status.task,private:true,control:'person'}});await owner.poll();await owner.h.value.action('show_private');assert.match(joins[0][1].device_id,/^[0-9a-f-]{36}$/);assert.equal(joins[0][2].viewer_id,'viewer');}finally{await owner.dispose();}
+});
+test('R3 4 no Projects access renders plain No job without a chooser',async()=>{
+ const {BrowserJobField}=await import('../components/panel/BrowserJobField.tsx');
+ const html=render(BrowserJobField,{canChooseProject:false,onPick(){}});assert.match(html,/No job/);assert.doesNotMatch(html,/<button|▾|Couldn't load projects/);
+ const allowed=render(BrowserJobField,{canChooseProject:true,label:'Maple Ave kitchen',onPick(){}});assert.match(allowed,/aria-label="Choose job"/);assert.match(allowed,/Maple Ave kitchen/);
+});
+
+test('R3 12 recapture paths are reachable through real control and leave actions',async()=>{
+ const f=await sessionFixture();try{
+  const {browserAPI,BrowserAPIError}=await apiTools();f.setStatus({...f.status,available_controls:['take_over','pause','stop','done','fresh_browser']});await f.poll();
+  browserAPI.control=async(_id,_v,action)=>{if(action==='take_over'){f.setStatus({...f.status,revision:2,task:{...f.status.task,private:true,control:'person',control_epoch:8}});return {...f.status,control_token:'control',expires_at:'2099-01-01T00:00:00Z'};}throw new BrowserAPIError('BROWSER_SERVICE_UNAVAILABLE');};
+  await f.h.value.action('takeover');assert.match(view(f.h.value.model),/aria-label="Take over\? After you take over/);await f.h.value.action('confirm_takeover');assert.equal(f.h.value.model.state,'controlling');
+  const leave=f.h.value.beforeLeave('Chat');await f.h.settle();assert.match(view(f.h.value.model),/aria-label="Pause browser and return to Chat\?"/);await f.h.value.action('cancel');assert.equal(await leave,false);
+  const failed=f.h.value.beforeLeave('app');await f.h.settle();await f.h.value.action('confirm_leave');assert.equal(f.h.value.model.state,'pause_failed');assert.match(view(f.h.value.model),/Couldn't pause the browser. Keep this screen open, or stop the browser./);await f.h.value.action('cancel');assert.equal(await failed,false);
+  f.h.value.patch({state:'controlling',capture:true,compactCapture:true,answers});await f.h.settle();const html=view(f.h.value.model);assert.match(html,/data-browser-compact-capture="true"/);assert.match(html,/aria-label="Keyboard for website"/);assert.match(html,/aria-label="Your answers"/);
+ }finally{await f.dispose();}
+});
+test('R3 12 owner Pause confirm succeeds only after ACK; Show page reaches authorized private pixels',async()=>{
+ const f=await sessionFixture({ownerView:true});try{
+  const {browserAPI}=await apiTools();f.h.value.patch({personName:'Abigail'});f.setStatus({...f.status,available_controls:['pause','take_over']});await f.poll();await f.h.value.action('pause_owner');assert.match(view(f.h.value.model),/aria-label="Pause Abigail's agent\? Abigail will need to tap Continue\."/);
+  browserAPI.control=async()=>{f.setStatus({...f.status,revision:2,task:{...f.status.task,state:'paused',control:'none'},paused_by:'owner',paused_by_label:'Taylor'});return f.status;};await f.h.value.action('confirm_pause_owner');assert.match(view(f.h.value.model),/Agent paused. Abigail can tap Continue./);
+  f.setStatus({...f.status,revision:3,task:{...f.status.task,state:'active',private:true,control:'person'},paused_by:null});await f.poll();assert.match(view(f.h.value.model),/>Show the page</);
+  let authorize;browserAPI.join=()=>new Promise(r=>authorize=()=>{f.setStatus({...f.status,private_view_status:'authorized'});r({...f.status,viewer_id:'viewer',device_secret:'secret',owner_review_claim:{claim_id:'claim',expires_at:'2099-01-01T00:00:00Z'}});});const show=f.h.value.action('show_private');await f.h.settle();assert.match(view(f.h.value.model),/Waiting to show the private page…/);assert.doesNotMatch(view(f.h.value.model),/<img/);authorize();await show;await f.h.settle();
+  f.h.value.patch({frameUrl:'data:image/jpeg;base64,/9j/'});await f.h.settle();assert.match(view(f.h.value.model),/Private — only you and Abigail see this page./);assert.match(view(f.h.value.model),/You're watching. Abigail is in control./);assert.match(view(f.h.value.model),/<img/);await f.h.value.action('takeover');assert.match(view(f.h.value.model),/aria-label="Take over from Abigail\? Their control ends\."/);
+ }finally{await f.dispose();}
+});
+test('R3 12 Earlier view and reconnect recovery have stable visible names',async()=>{
+ assert.match(view({state:'loading',frameUrl:'frame'}),/>Earlier view</);
+ const f=await sessionFixture();try{f.setStatus({...f.status,revision:2,task:{...f.status.task,state:'paused',control:'none'}});f.h.value.patch({state:'disconnected'});await f.h.settle();assert.match(view(f.h.value.model),/>Reconnect</);await f.h.value.action('reconnect');await f.h.settle();assert.equal(f.h.value.model.state,'reconnected');assert.match(view(f.h.value.model),/>Resume</);
+ f.setStatus({...f.status,revision:2,task:{...f.status.task,private:true,control:'none'}});await f.poll();f.h.value.patch({state:'disconnected'});await f.h.settle();await f.h.value.action('reconnect');await f.h.settle();assert.match(view(f.h.value.model),/>Take over again</);assert.doesNotMatch(view(f.h.value.model),/>Resume</);
+ }finally{await f.dispose();}
+});
+
+test('R3 4 real JobPicker uses Browser projects search for permitted staff and resolves the picked ID',async()=>{
+ const {registerHooks}=await import('node:module'),{browserSessionHarness}=await import('./fixtures/ask-pane-host.mjs');
+ const stub=source=>'data:text/javascript,'+encodeURIComponent(source);
+ const seen=[];globalThis.__browserR3ProjectSearch=seen;
+ const hooks=registerHooks({resolve(s,c,n){
+  if(s==='@/lib/actions/browser-projects')return {url:stub(`export async function searchBrowserProjectsAction(q){globalThis.__browserR3ProjectSearch.push(q);return {ok:true,jobs:[{kind:'project',slug:'maple',name:'Maple Ave kitchen'}]};}`),shortCircuit:true};
+  if(s==='@/lib/actions/ai-chat')return {url:stub(`export async function searchJobsAction(){throw Error('owner-only search must not be called');}`),shortCircuit:true};
+  if(s==='./BrowserIdentity')return {url:stub(`export async function browserProject(slug){return {ok:true,project:{id:'project-id',label:'Maple Ave kitchen'}};}`),shortCircuit:true};
+  return n(s,c);
+ }});
+ let field,picker;try{
+  const {BrowserJobField}=await import('../components/panel/BrowserJobField.tsx');let selected;
+  field=await browserSessionHarness(()=>BrowserJobField({canChooseProject:true,onPick:job=>selected=job}));elements(field.value).find(e=>e.type==='button').props.onClick();await field.settle();
+  const pick=elements(field.value).find(e=>typeof e.type==='function');assert.ok(pick,'inline JobPicker is loaded');assert.equal(pick.props.placeholder,'Search projects…');assert.equal(pick.props.projectOnly,true);
+  picker=await browserSessionHarness(()=>pick.type(pick.props));await picker.settle();await new Promise(r=>setTimeout(r,5));await picker.settle();assert.deepEqual(seen,['']);
+  const html=render(()=>picker.value,{});assert.match(html,/Maple Ave kitchen/);assert.doesNotMatch(html,/Couldn't load projects|Leads|Vendors|Subs/);
+  const row=elements(picker.value).find(e=>e.type==='button'&&e.props.title==='Maple Ave kitchen');await row.props.onClick();await picker.settle();await field.settle();assert.deepEqual(selected,{id:'project-id',label:'Maple Ave kitchen'});
+ }finally{field?.dispose();picker?.dispose();hooks.deregister();delete globalThis.__browserR3ProjectSearch;}
+});
+
+test('R3 ENG1 a failed initial join retries the same device and in-flight request key',async()=>{
+ const f=await joinFixture();try{const {BrowserAPIError}=await apiTools();f.reject(new BrowserAPIError('BROWSER_SERVICE_UNAVAILABLE'));await f.h.settle();assert.match(view(f.h.value.model),/Couldn't connect to the browser./);await f.h.value.action('reconnect');await f.h.settle();assert.equal(f.joins.length,2);assert.equal(f.joins[0][1].device_id,f.joins[1][1].device_id);assert.equal(f.joins[0][4],f.joins[1][4]);assert.equal(f.joins[1][2],undefined);f.resolve();await f.h.settle();assert.equal(f.leaves.length,0);}finally{await f.dispose();}
+});
+test('R3 ENG1 owner attendance renews with its existing viewer and stable device ID',async()=>{
+ const f=await sessionFixture({ownerView:true,claimExpires:'2000-01-01T00:00:00Z'});try{const {browserAPI}=await apiTools(),calls=[];browserAPI.join=async(...args)=>{calls.push(args);return {...f.status,viewer_id:'viewer',device_secret:'secret',owner_review_claim:{claim_id:'claim',expires_at:'2000-01-01T00:00:00Z'}};};await f.poll();await f.poll();assert.equal(calls.length,2);assert.equal(calls[0][2].viewer_id,'viewer');assert.equal(calls[0][2].device_secret,'secret');assert.equal(calls[0][1].device_id,calls[1][1].device_id);assert.match(calls[0][1].device_id,/^[0-9a-f-]{36}$/);}finally{await f.dispose();}
+});
+
+test('R3 8 actual chat status row renders queue labels and Stopped without duplicate Browser',async()=>{
+ const {browserSessionHarness}=await import('./fixtures/ask-pane-host.mjs'),{BrowserStatusRow}=await import('../components/panel/BrowserPane.tsx'),registry=await import('../components/panel/askPaneRegistry.ts');
+ const scope={userId:'person',threadId:'thread',claimToken:'r3-row'};registry.setAskPaneScope(scope);
+ try{for(const [stateLabel,attention,status] of [['Browser is ready.','none','queued'],['You missed your turn.','needs_you','queued'],['You left the line.','needs_you','queued'],[undefined,'none','failed']]){
+  registry.publishAskPaneKind(scope,'browser',[{kind:'browser',id:'task',task_id:'task',user_id:'person',thread_id:'thread',run_id:null,label:'Browser',revision:'1',takeover:false,status,stateLabel,attention}]);
+  const h=await browserSessionHarness(()=>BrowserStatusRow());try{const html=render(()=>h.value,{});assert.match(html,new RegExp('Browser · '+(stateLabel??'Stopped')));assert.doesNotMatch(html,/Browser · Browser stopped\./);}finally{h.dispose();}
+ }}finally{registry.setAskPaneScope(null);}
+});
+
+test('R3 ENG1 actual join adapter sends the explicit device UUID and stable retry key',async()=>{
+ const {browserAPI}=await apiTools(),old=globalThis.fetch,calls=[],id='10000000-0000-4000-8000-000000000001',device='20000000-0000-4000-8000-000000000002',key='30000000-0000-4000-8000-000000000003';
+ const task={task_id:id,run_id:null,state:'active',control:'agent',private:false,privacy_mode:'public',allowed_sites:['https://city.example'],required_areas:['ai'],manifest_revision:1,read_manifest_revision:1,control_epoch:0,document_epoch:1,attention:'none'};
+ globalThis.fetch=async(url,options)=>{calls.push({url,options});return Response.json(url.endsWith('/csrf')?{ok:true,csrf_token:'csrf',expires_at:'2099-01-01T00:00:00Z'}:{ok:true,task,viewer_id:id,device_secret:'secret'});};
+ try{for(let n=0;n<2;n++)await browserAPI.join(id,{mode:'initiator',device_id:device},undefined,undefined,key);const requests=calls.filter(x=>x.url.endsWith('/join'));assert.equal(requests.length,2);for(const r of requests)assert.deepEqual(JSON.parse(r.options.body),{mode:'initiator',device_id:device,idempotency_key:key});}finally{globalThis.fetch=old;}
 });

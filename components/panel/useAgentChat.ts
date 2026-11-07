@@ -822,7 +822,19 @@ export function useAgentChat({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pending, queuedNext]);
 
+  // Explicit Browser Open may create an owned empty thread, never on preview.
+  const ensureBrowserConversation = async () => {
+    if (conversationIdRef.current) return conversationIdRef.current;
+    if (pending || failureRef.current) throw Error('ASK_THREAD_UNAVAILABLE');
+    const home=nextHomeRef.current;
+    const created=await askCall(newConversationAction('claude',home?{folderId:home.folderId,entity:home.entity}:undefined));
+    if(!liveRef.current.alive)throw Error('ASK_THREAD_UNAVAILABLE');
+    const id=typeof created==='string'?created:created.id;
+    conversationIdRef.current=id;setAgent('claude');setConversationId(id);setNextHome(null);setFolderName(home?.name??null);
+    writePanelState({conversationId:id,agent:'claude'});return id;
+  };
   return {
+    ensureBrowserConversation,
     canvasChanges,
     agent,
     selectAgent,

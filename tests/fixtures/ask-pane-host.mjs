@@ -15,3 +15,13 @@ export const deviceCases = [
 ];
 export const escapeLayers = {menu:600, sheet:500, review:400, leave:300, pane:200, operator:100};
 export const copy = {closeOperator:'Close Operator', back:'‹ Chat', dockBack:'Back to app', resize:'Resize Chat and pane'};
+
+// Browser Phase 1 uses exactly the shared center budget, including owner Watch.
+export const browserLandscapeRows = ['own-task','own-read-review','own-final-blocked','owner-watch-before','owner-watch-after'].map(name=>({name,width:800,height:360,safeArea:80,padding:8,title:48,meta:20,right:128,stage:204,strip:name.startsWith('owner')?0:64}));
+// Deterministic SSR of the real TSX; no browser, server or network.
+export async function browserRenderHarness() {
+ const {registerHooks}=await import('node:module');const {readFileSync,existsSync,statSync}=await import('node:fs');const ts=(await import('typescript')).default;
+ registerHooks({resolve(s,c,n){if(s.startsWith('@/')||s.startsWith('.')){const u=s.startsWith('@/')?new URL('../../'+s.slice(2),import.meta.url):new URL(s,c.parentURL);for(const ext of ['','.ts','.tsx'])if(existsSync(new URL(u.href+ext))&&statSync(new URL(u.href+ext)).isFile())return {url:u.href+ext,shortCircuit:true};}return n(s,c);},load(u,c,n){if(/\.(ts|tsx)$/.test(u))return {format:'module',shortCircuit:true,source:ts.transpileModule(readFileSync(new URL(u),'utf8'),{compilerOptions:{jsx:ts.JsxEmit.ReactJSX,module:ts.ModuleKind.ESNext,target:ts.ScriptTarget.ES2022}}).outputText};return n(u,c);}});
+ const React=await import('react');const {renderToStaticMarkup}=await import('react-dom/server');
+ return (C,p)=>renderToStaticMarkup(React.createElement(C,p)).replaceAll('&#x27;',"'").replaceAll('&gt;','>').replaceAll('&amp;','&').replaceAll('<!-- -->','');
+}

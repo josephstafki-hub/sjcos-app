@@ -193,3 +193,20 @@ test('short landscape popout uses the shared strip and 128px action column',()=>
  assert.equal(askPaneLayout({width:800,height:360,mode:'popout',selected:false}).landscape,false);
  assert.equal(askPaneLayout({width:800,height:600,mode:'popout',selected:true}).landscape,false);
 });
+
+test('C28 per-kind publication and Canvas revocation preserve Browser identity and signal',async()=>{
+ const {publishAskPaneKind,refreshAskPaneKindSignal}=await import('../components/panel/askPaneRegistry.ts');
+ const scope={userId:'joe',threadId:'local',claimToken:'new'};setAskPaneScope(scope);
+ const common={user_id:'joe',thread_id:'local',run_id:null,revision:'1',attention:'none',label:'Safe'};
+ const b={...common,kind:'browser',id:'b',task_id:'b',status:'active',takeover:false};
+ const c={...common,kind:'canvas',id:'c',selected_version:1,latest_version:1};
+ publishAskPaneKind(scope,'browser',[b]);const signal=getAskPaneFeed().signal;
+ publishAskPaneKind(scope,'canvas',[c],true);assert.deepEqual(getAskPaneFeed().snapshots.map(x=>x.kind),['browser','canvas']);
+ publishAskPaneKind(scope,'canvas',[]);assert.deepEqual(getAskPaneFeed().snapshots,[b]);assert.equal(getAskPaneFeed().signal,signal);assert.equal(signal.aborted,false);refreshAskPaneKindSignal(scope,'canvas');const canvasSignal=getAskPaneFeed().kindSignals.canvas;refreshAskPaneKindSignal(scope,'canvas');assert.equal(canvasSignal.aborted,true);assert.equal(signal.aborted,false);assert.deepEqual(getAskPaneFeed().snapshots,[b]);
+ assert.equal(publishAskPaneKind({...scope,claimToken:'old'},'browser',[]),false);assert.deepEqual(getAskPaneFeed().snapshots,[b]);setAskPaneScope(null);
+});
+test('C29 rendered shared Browser shell retains 48/20 center, 128 landscape actions and one region',async()=>{
+ const {browserRenderHarness,browserLandscapeRows}=await import('./fixtures/ask-pane-host.mjs');const render=await browserRenderHarness();
+ const {AskContentPane}=await import('../components/panel/AskContentPane.tsx');const React=await import('react');
+ for(const row of browserLandscapeRows.filter(x=>!x.name.startsWith('owner'))){const html=render(AskContentPane,{id:'browser',registration:{id:'browser',beforeLeave:async()=>true,render:()=>({content:React.createElement('p',null,'Browser page'),actions:React.createElement('button',null,'Close')})},snapshot:{kind:'browser',id:'b',task_id:'b',label:'city.example',thread_id:'t',user_id:'u',run_id:null},mode:'sheet',compact:true,landscape:true,split:false,paneWidth:736,viewportWidth:800,signal:new AbortController().signal,frameBoundary(){},onExit(){},entrySerial:1});assert.match(html,/grid-template-columns:minmax\(0,1fr\) 128px/);assert.match(html,/48px 20px minmax\(200px,1fr\)/);assert.equal((html.match(/role="region"/g)||[]).length,1);}
+});

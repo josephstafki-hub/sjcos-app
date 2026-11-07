@@ -12,6 +12,7 @@ import { askPaneOverlays, getAskPaneFeed, subscribeAskPanes } from "./askPaneReg
 import { topEscapeLayer } from "./askPaneLayout";
 import { trapAskFocus } from "./askPaneFocus";
 import { OPEN_MOBILE_OPERATOR } from "@/components/shell/MobileTabBar";
+import {BrowserOwnerLayer,useBrowserOwnerHost} from './BrowserOwnerLayer';
 import { Splitter } from "./Splitter";
 
 /**
@@ -24,6 +25,7 @@ export function PanelHost({ children }: { children: ReactNode }) {
   const { layout, setWidth, commitWidth, toggleCollapsed, setWhere, setFollow } = usePanel();
   const viewport = useAskViewport();
   const desktop = viewport.width >= 1024;
+  const {ownerReview,closeOwner,registerOwnerLeave}=useBrowserOwnerHost();
   const dockControls = useRef<AskPaneControls | null>(null);
 
   const [dockActivity, setDockActivity] = useState<AskPaneActivity>({selected:false,landscape:false});
@@ -59,7 +61,7 @@ export function PanelHost({ children }: { children: ReactNode }) {
     return () => window.removeEventListener(OPEN_MOBILE_OPERATOR, open);
   }, [setWhere]);
   useEffect(() => {
-    if (!sheetOpen || window.matchMedia("(min-width: 1024px)").matches) return;
+    if (ownerReview || !sheetOpen || window.matchMedia("(min-width: 1024px)").matches) return;
     const trigger = document.activeElement as HTMLElement | null;
     sheetRef.current?.querySelector<HTMLElement>("button")?.focus();
     const escape = (event: KeyboardEvent) => {
@@ -81,7 +83,7 @@ export function PanelHost({ children }: { children: ReactNode }) {
     document.addEventListener("focusin", containFocus);
     window.addEventListener("keydown", escape);
     return () => { window.removeEventListener("keydown", escape); document.removeEventListener("focusin", containFocus); trigger?.focus(); };
-  }, [sheetOpen, desktop, closeSheet]);
+  }, [sheetOpen, desktop, closeSheet,ownerReview]);
 
   // A hand-off raised while the dock is hidden below lg (mobile) needs the
   // sheet open so the chat can consume the stashed message.
@@ -103,7 +105,7 @@ export function PanelHost({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => {
-    if (!desktop || !dockActivity.selected) return;
+    if (ownerReview || !desktop || !dockActivity.selected) return;
     const click = (event: MouseEvent) => {
       if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       const anchor = (event.target as Element).closest?.('a[href]');
@@ -113,7 +115,7 @@ export function PanelHost({ children }: { children: ReactNode }) {
     };
     document.addEventListener("click", click, true);
     return () => document.removeEventListener("click", click, true);
-  }, [desktop, dockActivity.selected]);
+  }, [desktop, dockActivity.selected,ownerReview]);
 
   // App-window duties toward a detached panel: take its navigation requests,
   // and watch its liveness — when the popout dies (closed, crashed, or was
@@ -174,7 +176,7 @@ export function PanelHost({ children }: { children: ReactNode }) {
   };
 
   return (
-    <div className="flex h-dvh overflow-hidden bg-paper">
+    <><div className="flex h-dvh overflow-hidden bg-paper" inert={!!ownerReview} aria-hidden={ownerReview?true:undefined}>
       {showDock && <>
         {layout.collapsed && <div className="hidden w-11 flex-none flex-col items-center border-r border-rule bg-paper-2 pt-3 lg:flex">
           <button onClick={toggleCollapsed} aria-label="Expand operator panel" title="Expand operator panel" className="rounded-md p-1.5 text-ai hover:bg-paper"><Sparkles className="size-[18px]" strokeWidth={1.5}/></button>
@@ -188,8 +190,8 @@ export function PanelHost({ children }: { children: ReactNode }) {
           className={`min-h-0 flex-none flex-col overflow-hidden bg-paper-2 ${
             desktop ? layout.collapsed ? "hidden" : "flex" : !sheetOpen ? "hidden" : `fixed inset-x-0 bottom-0 z-50 flex bg-paper ${drawer ? "h-[66dvh] rounded-t-2xl border-t border-rule shadow-[0_-8px_24px_rgba(0,0,0,0.12)]" : "top-0 h-dvh"}`
           }`}>
-          {!desktop && !sheetActivity.landscape && <div className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-rule" aria-hidden="true"/>}
-          {(!sheetActivity.landscape || desktop) && <div className={`flex shrink-0 items-center gap-2 ${desktop ? "px-3 pt-2" : "border-b border-rule px-3 py-2"}`}>
+          {!desktop && !sheetActivity.landscape && <div data-operator-chrome className="mx-auto mt-2 h-1 w-10 shrink-0 rounded-full bg-rule" aria-hidden="true"/>}
+          {(!sheetActivity.landscape || desktop) && <div data-operator-chrome className={`flex shrink-0 items-center gap-2 ${desktop ? "px-3 pt-2" : "border-b border-rule px-3 py-2"}`}>
             <Sparkles className="size-3.5 text-ai" strokeWidth={1.5}/><span className="text-label text-ink-3">Operator</span><div className="flex-1"/>
             {desktop ? <>
               <button onClick={() => setFollow(!layout.follow)} aria-pressed={layout.follow} aria-label={layout.follow ? "Stop following agent actions" : "Follow agent actions"} title={layout.follow ? "Following: a run you start opens what it's working on in the app view. Click to stop." : "Not following: runs only offer a chip. Click to follow again."} className={`rounded-md p-1 hover:bg-paper ${layout.follow ? "text-ai" : "text-ink-4"}`}>
@@ -205,7 +207,7 @@ export function PanelHost({ children }: { children: ReactNode }) {
             </>}
           </div>}
           <div className="min-h-0 min-w-0 flex-1">
-            <PanelDock width={desktop ? layout.width : undefined} dockWidth={layout.width} mode={desktop ? "dock" : "sheet"} compact={!desktop && drawer} active={desktop ? !layout.collapsed : sheetOpen} onPaneActivity={dockActivityChanged} registerPaneControls={registerDock} closeOperator={() => void closeSheet()}/>
+            <PanelDock width={desktop ? layout.width : undefined} dockWidth={layout.width} mode={desktop ? "dock" : "sheet"} compact={!desktop && drawer} suspended={!!ownerReview} active={desktop ? !layout.collapsed : sheetOpen} onPaneActivity={dockActivityChanged} registerPaneControls={registerDock} closeOperator={() => void closeSheet()}/>
           </div>
         </aside>
         {!layout.collapsed && !dockActivity.selected && <Splitter width={layout.width} onResize={setWidth} onCommit={commitWidth}/>}
@@ -216,5 +218,7 @@ export function PanelHost({ children }: { children: ReactNode }) {
       {showDock && !sheetOpen && <button onClick={() => setSheetOpen(true)} aria-label="Open operator panel" className="fixed bottom-5 right-4 z-40 hidden items-center gap-2 rounded-full border border-ai bg-paper py-2 pl-3 pr-2 text-body font-medium text-ai-2 shadow-card sm:flex lg:hidden"><Sparkles className="size-4 text-ai" strokeWidth={1.5}/>Operator<span className="flex size-8 items-center justify-center rounded-full bg-ink text-paper"><Mic className="size-4" strokeWidth={1.75}/></span></button>}
       {showDock && sheetOpen && !desktop && <div className="fixed inset-0 z-40 bg-black/30" onClick={() => void closeSheet()} aria-hidden="true"/>}
     </div>
+    {ownerReview&&<BrowserOwnerLayer taskId={ownerReview.taskId} reviewId={ownerReview.reviewId} width={viewport.width} height={viewport.height} onClose={closeOwner} registerLeave={registerOwnerLeave}/>}
+    </>
   );
 }

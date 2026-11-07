@@ -1,5 +1,5 @@
 'use client';
-import {useEffect,useLayoutEffect,useState,type RefObject} from 'react';
+import {useEffect,useLayoutEffect,useState,useSyncExternalStore,type RefObject} from 'react';
 export function useAskViewport() {
   const [size,setSize]=useState({width:0,height:0});
   useEffect(()=>{
@@ -16,3 +16,23 @@ export function useAskContentWidth(ref:RefObject<HTMLElement|null>) {
     observer.observe(ref.current);return ()=>observer.disconnect();
   },[ref]);return width;
 }
+
+/** Sole lifetime for authenticated pane scope. Feature flags never own it. */
+export function useSharedPaneScope(threadId:string|null,blocked:boolean) {
+ const scope=useSyncExternalStore(subscribeAskPanes,getAskPaneFeed,getServerAskPaneFeed).scope;
+ useLayoutEffect(()=>{setAskPaneScope(null);},[threadId,blocked]);
+ useEffect(()=>{
+  if(blocked)return;let disposed=false;let busy=false;
+  const refresh=async()=>{if(disposed||busy||document.hidden)return;busy=true;try{
+   const identity=await browserPaneIdentity(threadId);if(disposed)return;
+   if(!identity.ok){setAskPaneScope(null);return;}
+   const current=getAskPaneFeed().scope;
+   if(!current||current.userId!==identity.userId||current.threadId!==(threadId??'new-chat'))setAskPaneScope({userId:identity.userId,threadId:threadId??'new-chat',claimToken:crypto.randomUUID()});
+  }catch{if(!disposed)setAskPaneScope(null);}finally{busy=false;}};
+  const visibility=()=>{if(document.hidden)setAskPaneScope(null);else void refresh();};
+  void refresh();const timer=setInterval(refresh,5000);document.addEventListener('visibilitychange',visibility);
+  return ()=>{disposed=true;clearInterval(timer);document.removeEventListener('visibilitychange',visibility);setAskPaneScope(null);};
+ },[threadId,blocked]);return scope;
+}
+import {browserPaneIdentity} from './BrowserIdentity';
+import {getAskPaneFeed,getServerAskPaneFeed,subscribeAskPanes,setAskPaneScope} from './askPaneRegistry';

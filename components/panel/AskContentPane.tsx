@@ -46,14 +46,23 @@ export function AskContentPane({id,registration,onExit,entrySerial,...context}:A
     data-ask-pane={snapshot.kind} data-compact={compact} data-landscape={landscape}
     className="grid h-full min-h-0 min-w-0 overflow-hidden bg-paper text-body"
     style={{gridTemplateColumns:landscape?'minmax(0,1fr) 128px':'minmax(0,1fr)',gridTemplateRows:landscape?'48px 20px minmax(200px,1fr)':'48px 20px minmax(0,1fr) 56px'}}>
-    <div className="col-start-1 row-start-1 flex h-12 min-w-0 items-center gap-1 border-b border-rule">
+    {snapshot.kind==='browser'&&<style>{`
+      [data-ask-pane="browser"]:has([data-browser-compact-capture="true"]) {grid-template-rows:44px 0px minmax(0,1fr) 44px !important}
+      [data-ask-pane="browser"][data-landscape="true"]:has([data-browser-compact-capture="true"]) {grid-template-rows:44px 0px minmax(0,1fr) !important}
+      [data-ask-pane="browser"]:has([data-browser-compact-capture="true"]) > [data-browser-shell-title] {height:44px}
+      [data-ask-pane="browser"]:has([data-browser-compact-capture="true"]) > [data-browser-shell-title] > button {display:none}
+      [data-ask-pane="browser"]:has([data-browser-compact-capture="true"]) > [data-browser-shell-meta] {visibility:hidden}
+      [data-ask-host]:has([data-browser-compact-capture="true"]) > [data-horizontal-selector],
+      #mobile-operator-sheet:has([data-browser-compact-capture="true"]) > [data-operator-chrome] {display:none}
+    `}</style>}
+    <div data-browser-shell-title className="col-start-1 row-start-1 flex h-12 min-w-0 items-center gap-1 border-b border-rule">
       {exit&&<button onClick={onExit} className="h-11 shrink-0 rounded px-2 text-body text-ai-2 focus-visible:outline-2 focus-visible:outline-focus">{exit}</button>}
       <div ref={title} className="min-w-0 flex-1 truncate text-subheading">
         {slots.title??<button className="h-11 max-w-full truncate px-2 font-serif text-heading" onClick={()=>root.current?.focus()}>{snapshot.label}</button>}
       </div>
       {!exit&&<button onClick={onExit} aria-label={closeLabel} className="flex size-11 shrink-0 items-center justify-center rounded hover:bg-paper-2 focus-visible:outline-2 focus-visible:outline-focus"><X className="size-4" /></button>}
     </div>
-    <div className="col-start-1 row-start-2 flex h-5 min-w-0 items-center overflow-hidden px-2 text-meta text-ink-3">{slots.meta}</div>
+    <div data-browser-shell-meta className="col-start-1 row-start-2 flex h-5 min-w-0 items-center overflow-hidden px-2 text-meta text-ink-3">{slots.meta}</div>
     <div className="relative col-start-1 row-start-3 min-h-0 min-w-0 overflow-hidden">
       <span tabIndex={0} data-ask-boundary className="sr-only" aria-label="Start of pane content" onFocus={e=>boundary(true,e.relatedTarget,e.currentTarget)} />
       <div ref={stage} className="h-full min-h-0 min-w-0">{slots.content}</div>

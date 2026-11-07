@@ -9,6 +9,8 @@ import {
   subscribePanelBus,
 } from "./panelBus";
 import { subscribePanelState, writePanelState } from "./panelStore";
+import {BrowserOwnerLayer,useBrowserOwnerHost} from './BrowserOwnerLayer';
+import {useAskViewport} from './askPaneHooks';
 import { LiveUpdates } from "@/components/shell/LiveUpdates";
 import { PanelQueueProvider } from "./PanelQueueProvider";
 import { PanelDock, type AskPaneActivity, type AskPaneControls } from "./PanelDock";
@@ -30,6 +32,8 @@ import { PanelDock, type AskPaneActivity, type AskPaneControls } from "./PanelDo
  * DB-backed and the dock resumes them via the panel store + pendingRunId.
  */
 export function PanelWindow() {
+  const {ownerReview,closeOwner,registerOwnerLeave}=useBrowserOwnerHost();
+  const viewport=useAskViewport();
   const paneControls = useRef<AskPaneControls|null>(null);
   const registerPaneControls = useCallback((controls:AskPaneControls|null) => {paneControls.current=controls;}, []);
   const [paneActivity,setPaneActivity]=useState<AskPaneActivity>({selected:false,landscape:false});
@@ -142,16 +146,18 @@ export function PanelWindow() {
       </div>
   );
   return (
-    <div className="flex h-dvh flex-col overflow-hidden bg-paper-2">
+    <><div inert={!!ownerReview} aria-hidden={ownerReview?true:undefined} className="flex h-dvh flex-col overflow-hidden bg-paper-2">
       {!paneActivity.landscape&&windowBar(false)}
       <div className="min-h-0 flex-1">
         <PanelQueueProvider>
-          <PanelDock width={width} navigate={requestAppNav} inWindow registerPaneControls={registerPaneControls} onPaneActivity={paneActivityChanged} landscapeWindowBar={windowBar(true)} />
+          <PanelDock suspended={!!ownerReview} width={width} navigate={requestAppNav} inWindow registerPaneControls={registerPaneControls} onPaneActivity={paneActivityChanged} landscapeWindowBar={windowBar(true)} />
         </PanelQueueProvider>
         {/* The popout has no (os) layout, so it polls the change log itself —
             that's what keeps its queue cards live while agents write. */}
         <LiveUpdates />
       </div>
     </div>
+    {ownerReview&&<BrowserOwnerLayer taskId={ownerReview.taskId} reviewId={ownerReview.reviewId} width={viewport.width} height={viewport.height} onClose={closeOwner} registerLeave={registerOwnerLeave}/>}
+    </>
   );
 }

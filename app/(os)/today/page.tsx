@@ -1,3 +1,5 @@
+import {Suspense} from 'react';
+import {BrowserRoute} from '@/components/panel/BrowserRoute';
 import { Shell } from "@/components/shell/Shell";
 import { TodayBody } from "@/components/today/TodayBody";
 import { getTodayData } from "@/lib/today";
@@ -13,6 +15,7 @@ export default async function TodayPage() {
 
   return (
     <Shell breadcrumb={data.dateLabel} aiContext={todayContext(data)}>
+      <Suspense fallback={null}><BrowserRoute/></Suspense>
       <TodayBody data={data} />
     </Shell>
   );

@@ -32,10 +32,11 @@ export type AskPaneFeed = {
   registrations: readonly AskPaneRegistration[]; signal: AbortSignal;
   request: {ref:PaneRef; scope:AskPaneScope; opener:HTMLElement|null; serial:number}|null;
   /** True only for a following current run with no older-version inspection or intervening human choice. */
-  canFollow: boolean; loaded:boolean;
+  canFollow: boolean; loaded:boolean; kindSignals?:Partial<Record<PaneRef['kind'],AbortSignal>>;
 };
 const listeners=new Set<()=>void>();
 let controller=new AbortController();
+const featureControllers=new Map<PaneRef['kind'],AbortController>();
 let feed:AskPaneFeed={scope:null,snapshots:[],registrations:[],signal:controller.signal,request:null,canFollow:false,loaded:false};
 const empty=feed;
 const emit=()=>listeners.forEach(fn=>fn());
@@ -55,12 +56,19 @@ export function registerAskPane(registration:AskPaneRegistration):()=>void {
 export function setAskPaneScope(scope:AskPaneScope|null) {
   if(sameAskScope(feed.scope,scope)) return;
   controller.abort(); controller=new AbortController();
-  feed={...feed,scope,snapshots:[],signal:controller.signal,request:null,canFollow:false,loaded:false};emit();
+  featureControllers.forEach(c=>c.abort());featureControllers.clear();
+  feed={...feed,scope,snapshots:[],kindSignals:{},signal:controller.signal,request:null,canFollow:false,loaded:false};emit();
 }
 /** Late responses from another claim are ignored, including same-thread old requests. */
 export function publishAskPaneSnapshots(scope:AskPaneScope,snapshots:readonly PaneSnapshot[],canFollow=false):boolean {
   if(!sameAskScope(scope,feed.scope)) return false;
   feed={...feed,loaded:true,snapshots:snapshots.filter(x=>x.user_id===scope.userId&&x.thread_id===scope.threadId),canFollow};emit();return true;
+}
+/** Atomic per-feature publication: one feature's refresh/revocation cannot erase another. */
+export function publishAskPaneKind(scope:AskPaneScope,kind:PaneRef['kind'],snapshots:readonly PaneSnapshot[],canFollow=false):boolean {
+  if(!sameAskScope(scope,feed.scope))return false;
+  const own=snapshots.filter(x=>x.kind===kind&&x.user_id===scope.userId&&x.thread_id===scope.threadId);
+  feed={...feed,loaded:true,snapshots:[...feed.snapshots.filter(x=>x.kind!==kind),...own],canFollow:kind==='canvas'?canFollow:feed.canFollow};emit();return true;
 }
 /** Only a person's Open canvas/Open browser/Inspect control calls this. Arrivals
  * publish snapshots instead; they cannot expand a resting dock or sheet. */
@@ -91,3 +99,10 @@ export function rememberAskPane(scope:AskPaneScope,ref:PaneRef|PaneSnapshot|null
 /** Feature onActivate adapters read version/followLatest here before publishing
  * fresh authorized snapshots. No label/source/frames/control material is kept. */
 export function recalledAskPane(scope:AskPaneScope) {return remembered.get(memoryKey(scope))??null;}
+
+/** Feature-only invalidation. Never abort the other pane's attendance/private view. */
+export function refreshAskPaneKindSignal(scope:AskPaneScope,kind:PaneRef['kind']) {
+ if(!sameAskScope(scope,feed.scope))return;
+ featureControllers.get(kind)?.abort();const next=new AbortController();featureControllers.set(kind,next);
+ feed={...feed,kindSignals:{...feed.kindSignals,[kind]:next.signal}};emit();
+}

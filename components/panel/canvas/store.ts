@@ -1,7 +1,7 @@
 'use client';
 import type {RenderDiagnostic} from './bridge';
 import type {Availability,CanvasCodeResponse,CanvasEvent,CanvasGetResponse,CanvasListResponse} from '@/lib/canvas-api-types';
-import {getAskPaneFeed,publishAskPaneSnapshots,recalledAskPane,selectAskPane,type AskPaneScope} from '../askPaneRegistry';
+import {publishAskPaneKind,recalledAskPane,selectAskPane,type AskPaneScope} from '../askPaneRegistry';
 import {canvasFetch,versionPath,changeCanvasPrompt} from './state';
 export type CanvasView={data?:CanvasGetResponse;code?:CanvasCodeResponse;error?:string;renderError?:'RENDER_FAILED'|'RENDER_TIMEOUT'|'LOAD_TIMEOUT';renderDiagnostic?:RenderDiagnostic;ready?:boolean;exportReady?:boolean;loading?:boolean;tab?:'preview'|'code';sheet?:'menu'|'code'|'about'|'versions'|'picker'|'delete'|'restore'|'save';notice?:string};
 export type CanvasState={scope:AskPaneScope|null;items:CanvasListResponse['canvases'];events:CanvasEvent[];availability?:Availability;views:Record<string,CanvasView>;selection:Record<string,{version:number;follow:boolean}>;openCanvas?:((id:string,version:number)=>void)|null;updating?:boolean;prefill:((text:string,id?:string,version?:number)=>void)|null};
@@ -12,16 +12,15 @@ export const canvasState=()=>state;
 export const canvasServerState=()=>empty;
 export const subscribeCanvas=(fn:()=>void)=>{listeners.add(fn);return ()=>{listeners.delete(fn);};};
 export function updateCanvas(next:Partial<CanvasState>){state={...state,...next};listeners.forEach(f=>f());}
-export function clearCanvas(){state={...empty};listeners.forEach(f=>f());}
+export function clearCanvas(){requests.forEach(c=>c.abort());requests.clear();inflight.clear();state={...empty};listeners.forEach(f=>f());}
 export function patchCanvas(id:string,patch:Partial<CanvasView>){updateCanvas({views:{...state.views,[id]:{...state.views[id],...patch}}});}
 export function publishCanvases(canFollow=false){
  const {scope,items,selection}=state;if(!scope)return;
- const existing=getAskPaneFeed().snapshots.filter(x=>x.kind!=='canvas');
  const snapshots=items.map(({canvas,latest})=>{const s=selection[canvas.id];return {kind:'canvas' as const,id:canvas.id,thread_id:canvas.thread_id,user_id:canvas.user_id,run_id:latest.run_id,label:latest.title,attention:'new' as const,revision:`${state.availability?.revision}:${canvas.latest_version}`,selected_version:s?.follow===false?s.version:canvas.latest_version,latest_version:canvas.latest_version,followLatest:s?.follow!==false};});
  // Empty is an authorized thread view, never a committed canvas or card.
  const last=recalledAskPane(scope);if(last?.kind==='canvas'){const index=snapshots.findIndex(x=>x.id===last.id);if(index>0)snapshots.unshift(...snapshots.splice(index,1));}
  if(!items.length&&state.availability?.master)snapshots.push({kind:'canvas',id:'empty',thread_id:scope.threadId,user_id:scope.userId,run_id:null,label:'Canvas',attention:'new',revision:'empty',selected_version:0,latest_version:0,followLatest:true});
- publishAskPaneSnapshots(scope,[...existing,...snapshots],canFollow&&items.length>0);
+ publishAskPaneKind(scope,'canvas',snapshots,canFollow&&items.length>0);
 }
 export function chooseCanvas(id:string,version:number,opener:HTMLElement|null=null){
  const {scope}=state;if(!scope)return;
@@ -41,6 +40,7 @@ export function applyCanvasList(list:CanvasListResponse){
  updateCanvas({items:list.availability.master?list.canvases:[],availability:list.availability,selection,views:list.availability.master?state.views:{}});
 }
 const inflight=new Map<string,Promise<void>>(),requests=new Map<string,AbortController>();
+export function invalidateCanvasViews(){requests.forEach(c=>c.abort());requests.clear();inflight.clear();updateCanvas({views:{}});}
 export async function loadCanvas(id:string,version:number,signal:AbortSignal,force=false){
  if(id==='empty'||signal.aborted)return;
  const scope=state.scope,key=`${scope?.claimToken}:${id}:${version}`;

@@ -1,5 +1,7 @@
 "use client";
 
+import {useSharedPaneScope} from './askPaneHooks';
+import {useBrowserFeed,BrowserStatusRow} from './BrowserPane';
 import {CanvasCard} from './CanvasCard';
 import {useCanvasFeed} from './canvas/useCanvasFeed';
 import {groupCanvasEvents,canvasTranscript} from './canvas/state';
@@ -99,7 +101,7 @@ export function PanelChat({
   showNarration = true,
   threadView,
   onThreadViewChange,
-  onCanvasChat, selectedCanvas,
+  onCanvasChat, selectedCanvas, paneActive=true, browserVisible=false,
 }: {
   registerHandOff: (fn: (p: TodayPriority, kind: "do" | "prep") => void) => void;
   onRunStart: (run: ActiveRun) => void;
@@ -113,6 +115,7 @@ export function PanelChat({
    *  overlay drawer instead. */
   threadsRail?: boolean;
   onCanvasChat?: () => void|Promise<unknown>;
+  paneActive?:boolean; browserVisible?:boolean;
   selectedCanvas?: {id:string;version:number}|null;
   threadView?: boolean;
   onThreadViewChange?: (open: boolean) => void;
@@ -182,6 +185,8 @@ export function PanelChat({
       if (spec.attachments?.length) setAttachments((cur) => [...spec.attachments!, ...cur]);
     },
   });
+  const paneScope=useSharedPaneScope(chat.conversationId,!!chat.failureCode||!paneActive);
+  useBrowserFeed(paneScope,chat.agent,paneActive,browserVisible,()=>chat.selectAgent("claude"),()=>void onCanvasChat?.(),chat.ensureBrowserConversation);
   const [canvasHint,setCanvasHint]=useState<{id:string;version:number}|null>(null);
   const canvases=useCanvasFeed({changes:chat.canvasChanges,threadId:chat.conversationId,pending:chat.pending,activeRunId:chat.activeRunId,blocked:!!chat.failureCode,prefill:(text,id,version)=>{
     setPrompt(text);setCanvasHint(id&&version?{id,version}:null);void Promise.resolve(onCanvasChat?.()).then(()=>requestAnimationFrame(()=>inputRef.current?.focus()));
@@ -542,6 +547,7 @@ export function PanelChat({
         <h2 className="break-words px-3 py-2 text-body font-semibold text-ink">{chat.failureCode ? "New chat" : chat.conversationTitle}</h2>
       </div>
 
+      <BrowserStatusRow/>
       <div className="relative flex min-h-0 flex-1 flex-col">
       {/* Thread drawer — overlays the transcript on narrow docks/mobile */}
       {!threadsRail && (threadView ?? threadsOpen) && (

@@ -17,8 +17,8 @@ import {useAskContentWidth,useAskViewport} from './askPaneHooks';
 
 export type AskPaneControls={closeOperator:()=>Promise<boolean>;exitForNavigation:(href:string)=>Promise<boolean>};
 export type AskPaneActivity={selected:boolean;landscape:boolean};
-export function PanelDock({width,navigate,compact=false,inWindow=false,mode=inWindow?'popout':'dock',active=true,dockWidth=width,onPaneActivity,registerPaneControls,closeOperator,landscapeWindowBar}: {
-  width?:number;navigate?:(href:string)=>void;compact?:boolean;inWindow?:boolean;mode?:PaneMode;active?:boolean;dockWidth?:number;
+export function PanelDock({width,navigate,compact=false,inWindow=false,mode=inWindow?'popout':'dock',active=true,suspended=false,dockWidth=width,onPaneActivity,registerPaneControls,closeOperator,landscapeWindowBar}: {
+  width?:number;navigate?:(href:string)=>void;compact?:boolean;inWindow?:boolean;mode?:PaneMode;active?:boolean;suspended?:boolean;dockWidth?:number;
   onPaneActivity?:(activity:AskPaneActivity)=>void;
   landscapeWindowBar?:import('react').ReactNode;
   registerPaneControls?:(controls:AskPaneControls|null)=>void;closeOperator?:()=>void;
@@ -96,7 +96,7 @@ export function PanelDock({width,navigate,compact=false,inWindow=false,mode=inWi
   },[]);
   const select=useCallback(async(ref:PaneRef,cause:'person'|'arrival'='person',opener:HTMLElement|null=null,direct=false)=>{
     const now=current.current;
-    if(!active||!now.feed.scope||transitionBusy.current)return;
+    if(!active||suspended||!now.feed.scope||transitionBusy.current)return;
     if(!now.feed.snapshots.some(x=>x.kind===ref.kind&&x.id===ref.id)||!now.feed.registrations.some(x=>x.id===ref.kind))return;
     transitionBusy.current=true;
     try {
@@ -109,7 +109,7 @@ export function PanelDock({width,navigate,compact=false,inWindow=false,mode=inWi
       rememberAskPane(now.feed.scope,now.feed.snapshots.find(x=>x.kind===ref.kind&&x.id===ref.id)??ref);
       if(mode!=='popout')history.current?.open(ref,direct);
     }finally{transitionBusy.current=false;}
-  },[active,mode,leave,dockWidth]);
+  },[active,suspended,mode,leave,dockWidth]);
   const exit=useCallback(async(reason:'exit'|'operator'|'navigation'|'back'='exit')=>{
     const now=current.current;
     if(transitionBusy.current)return false;
@@ -127,43 +127,44 @@ export function PanelDock({width,navigate,compact=false,inWindow=false,mode=inWi
     }finally{transitionBusy.current=false;}
   },[leave,mode]);
   useEffect(()=>{
-    if(!active)return;
+    if(!active||suspended)return;
     registerPaneControls?.({closeOperator:()=>exit('operator'),exitForNavigation:async(href)=>{
       if(!(await exit('navigation')))return false;
       if(navigate)navigate(href);else router.push(href);return true;
     }});
     return ()=>registerPaneControls?.(null);
-  },[active,exit,navigate,registerPaneControls,router]);
-  useLayoutEffect(()=>{onPaneActivity?.({selected:showing,landscape:policy.landscape});},[active,showing,policy.landscape,onPaneActivity]);
+  },[active,suspended,exit,navigate,registerPaneControls,router]);
+  useLayoutEffect(()=>{onPaneActivity?.({selected:showing,landscape:policy.landscape});},[active,suspended,showing,policy.landscape,onPaneActivity]);
   useEffect(()=>{
     if(active)for(const feature of feed.registrations)feature.onActivate?.();
-  },[active,feed.registrations]);
-  useEffect(()=>{if(!active)restoredScope.current=null;},[active]);
+  },[active,suspended,feed.registrations]);
+  useEffect(()=>{if(!active)restoredScope.current=null;},[active,suspended]);
   useEffect(()=>{
-    if(!active||!scope||!feed.loaded||restoredScope.current===scopeKey)return;
+    if(!active||suspended||!scope||!feed.loaded||restoredScope.current===scopeKey)return;
     restoredScope.current=scopeKey;
     const query=new URLSearchParams(window.location.search);
+    if(window.location.pathname==='/today'&&query.has('browser')&&!feed.snapshots.some(x=>x.kind==='browser'&&x.id===query.get('browser')))return;
     const direct=feed.snapshots.find(x=>query.get(x.kind==='workbench'?'record':x.kind)===x.id);
     const saved=direct??recalledAskPane(scope);
     if(saved&&feed.snapshots.some(x=>x.kind===saved.kind&&x.id===saved.id)&&!current.current.selected)void select(saved,'person',null,!!direct);
     else if(['canvas','browser','record'].some(key=>query.has(key)))history.current?.clean();
-  },[active,scope,scopeKey,feed.loaded,feed.snapshots,select]);
+  },[active,suspended,scope,scopeKey,feed.loaded,feed.snapshots,select]);
   useEffect(()=>{
-    if(!active||!feed.request||requestSeen.current===feed.request)return;
+    if(!active||suspended||!feed.request||requestSeen.current===feed.request)return;
     requestSeen.current=feed.request;
     if(sameAskScope(scope,feed.request.scope))void select(feed.request.ref,'person',feed.request.opener);
-  },[active,feed.request,scope,select]);
+  },[active,suspended,feed.request,scope,select]);
   // Arrivals can use an already expanded host or wide popout, never expand
   // a resting dock/sheet. Human choice and current-run eligibility still win.
   useEffect(()=>{
     const expanded=showing||(mode==='popout'&&measured>=840);
-    if(!active||!expanded||!scope)return;
+    if(!active||suspended||!expanded||!scope)return;
     const busyFocus=!!document.activeElement?.matches('input,textarea,[contenteditable="true"]')||!!document.querySelector('[role="dialog"]:not(#mobile-operator-sheet)')||askPaneOverlays(scope).length>0;
     const next=arrivalSelection({arrivals:feed.snapshots,selected,humanChoice:state.humanChoice,expanded,canFollow:feed.canFollow&&!busyFocus});
     if(next&&(next.id!==selected?.id||next.kind!==selected?.kind))void select(next,'arrival');
-  },[active,showing,scope,feed.snapshots,feed.canFollow,selected,state.humanChoice,select,mode,measured]);
+  },[active,suspended,showing,scope,feed.snapshots,feed.canFollow,selected,state.humanChoice,select,mode,measured]);
   useEffect(()=>{
-    if(!active)return;
+    if(!active||suspended)return;
     const pop=async()=>{
       if(history.current?.isOurEntry()){
         // Blocked Back was restored, or Forward reached a consumed entry.
@@ -174,9 +175,9 @@ export function PanelDock({width,navigate,compact=false,inWindow=false,mode=inWi
       history.current?.didPop();
     };
     window.addEventListener('popstate',pop);return ()=>window.removeEventListener('popstate',pop);
-  },[active,exit]);
+  },[active,suspended,exit]);
   useEffect(()=>{
-    if(!active||!showing)return;
+    if(!active||suspended||!showing)return;
     const key=(event:KeyboardEvent)=>{
       const layers=askPaneOverlays(current.current.feed.scope);
       const top=topEscapeLayer(layers);
@@ -188,11 +189,11 @@ export function PanelDock({width,navigate,compact=false,inWindow=false,mode=inWi
     };
     // Capture beats PanelHost's bubble listener and stops exactly ONE layer.
     window.addEventListener('keydown',key,true);return ()=>window.removeEventListener('keydown',key,true);
-  },[active,showing,exit]);
+  },[active,suspended,showing,exit]);
   // Missing/revoked metadata unmounts pixels immediately and clears stale URL.
   useEffect(()=>{
     if(active&&selected&&!showing){void history.current?.consume();dispatch({type:'pop'});setChatWidth(null);}
-  },[active,selected,showing]);
+  },[active,suspended,selected,showing]);
   const seen=useRef(new Map<string,string>());
   const [,refreshSeen]=useReducer((value:number)=>value+1,0);
   useEffect(()=>{
@@ -234,8 +235,8 @@ export function PanelDock({width,navigate,compact=false,inWindow=false,mode=inWi
   };
   const showSelector=!twoCol||showing||hasFeatures;
   const chatVisible=showing?policy.split:twoCol||narrowView!=='queue';
-  return <div ref={root} className={`flex h-full min-h-0 min-w-0 ${policy.landscape?'flex-row gap-0 pb-2':'flex-col gap-2 p-2'}`}>
-    {showSelector&&<div ref={strip} className={`shrink-0 ${policy.landscape?'flex min-w-16 flex-col border-r border-rule':'flex h-12 min-w-0 items-center'}`}>
+  return <div data-ask-host ref={root} className={`flex h-full min-h-0 min-w-0 ${policy.landscape?'flex-row gap-0 pb-2':'flex-col gap-2 p-2'}`}>
+    {showSelector&&<div data-horizontal-selector={!policy.landscape?true:undefined} ref={strip} className={`shrink-0 ${policy.landscape?'flex min-w-16 flex-col border-r border-rule':'flex h-12 min-w-0 items-center'}`}>
       {policy.landscape&&mode==='popout'&&landscapeWindowBar}
       {policy.landscape&&mode==='sheet'&&<button aria-label="Close Operator" onClick={closeOperator} className="h-12 w-full text-heading focus-visible:outline-2 focus-visible:outline-focus">×</button>}
       <div role="tablist" aria-label="Operator view" aria-orientation={policy.landscape?'vertical':'horizontal'} className={`min-w-0 rounded-md bg-paper-2 ${policy.landscape?'flex flex-col':tabs.length===2?'inline-flex h-12 max-w-full items-center gap-0.5 overflow-x-auto p-0.5':'flex h-12 flex-1 items-center gap-0.5 p-0.5'}`}>
@@ -258,10 +259,10 @@ export function PanelDock({width,navigate,compact=false,inWindow=false,mode=inWi
         {!showing&&(twoCol||narrowView==='queue')&&<div id={queueId} className="flex min-h-0" role="tabpanel" aria-label="Queue"><QueueRail className="flex min-h-0 flex-1" onHandOff={(p,k)=>{handOffRef.current?.(p,k);setNarrowView('chat');}} onInspect={inspect} focusedSubjectId={focusedSubjectId}/></div>}
         <div key="chat" id={chatId} role="tabpanel" aria-label="Chat" className={`min-h-0 min-w-0 ${chatVisible?'grid':'hidden'} grid-cols-[minmax(0,1fr)] grid-rows-[minmax(0,1fr)]`}>
           <h2 ref={chatRegion} tabIndex={-1} className="sr-only">Chat</h2>
-          <PanelChat onCanvasChat={()=>exit()} selectedCanvas={showing&&snapshot?.kind==='canvas'?{id:snapshot.id,version:snapshot.selected_version}:null} registerHandOff={fn=>{handOffRef.current=fn;}} onRunStart={setActiveRun} onRunEnd={()=>setActiveRun(null)} showQueueCards={false} showNarration={!inWindow} compact={compact} threadView={inWindow&&!twoCol?threadsOpen:undefined} onThreadViewChange={open=>{dispatch({type:'human'});setThreadsOpen(open);}} threadsRail={!compact&&!showing&&(width??measured)>=880}/>
+          <PanelChat paneActive={active} browserVisible={showing&&snapshot?.kind==='browser'} onCanvasChat={()=>exit()} selectedCanvas={showing&&snapshot?.kind==='canvas'?{id:snapshot.id,version:snapshot.selected_version}:null} registerHandOff={fn=>{handOffRef.current=fn;}} onRunStart={setActiveRun} onRunEnd={()=>setActiveRun(null)} showQueueCards={false} showNarration={!inWindow} compact={compact} threadView={inWindow&&!twoCol?threadsOpen:undefined} onThreadViewChange={open=>{dispatch({type:'human'});setThreadsOpen(open);}} threadsRail={!compact&&!showing&&(width??measured)>=880}/>
         </div>
         {showing&&policy.split&&<AskPaneSplitter width={policy.chat} min={policy.min} max={policy.max} reset={policy.reset} controls={`${chatId} ${paneId}`} onResize={setChatWidth} onCommit={commitWidth}/>}
-        {showing&&snapshot&&registration&&<AskContentPane key={`${scopeKey}:${snapshot.kind}:${snapshot.id}`} id={paneId} registration={registration} snapshot={snapshot} mode={mode} compact={policy.compact} landscape={policy.landscape} split={policy.split} paneWidth={policy.pane} viewportWidth={viewport.width} signal={feed.signal} frameBoundary={frameBoundary} onExit={()=>void exit()} entrySerial={entrySerial.current}/>}
+        {showing&&snapshot&&registration&&<AskContentPane key={`${scopeKey}:${snapshot.kind}:${snapshot.id}`} id={paneId} registration={registration} snapshot={snapshot} mode={mode} compact={policy.compact} landscape={policy.landscape} split={policy.split} paneWidth={policy.pane} viewportWidth={viewport.width} signal={feed.kindSignals?.[snapshot.kind]??feed.signal} frameBoundary={frameBoundary} onExit={()=>void exit()} entrySerial={entrySerial.current}/>}
       </div>
       {feedback&&<div role="alert" className="absolute inset-x-0 bottom-0 bg-paper p-2 text-body text-flag"><button className="min-h-11 text-left" onClick={()=>setFeedback('')}>{feedback}</button></div>}
     </div>

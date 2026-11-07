@@ -139,7 +139,8 @@ class Exporter:
   prefix='checkpoints/'+r['install_id']+'/';highest=prefix+'highest.json';hh,hb=self.s3.request('GET',highest)
   prior=json.loads(hb) if hh else None
   if hh:self.s3.locked(hh,self.clock())
-  if prior and (type(prior.get('seq'))!=int or prior['seq']>r['seq'] or prior['seq']==r['seq'] and prior.get('digest')!=r['digest']):raise ValueError('ROLLBACK')
+  if prior and (type(prior.get('seq'))!=int or prior['seq']>r['seq']):raise ValueError('ROLLBACK')
+  if prior and prior['seq']==r['seq'] and prior.get('digest')!=r['digest']:raise ValueError('CONFLICT')
   # seq is the audit head, not a consecutive checkpoint counter. Exported heads
   # may jump after 100 events/a minute; stored outbox records are drained in
   # order by the controller. Never permit rollback or a conflicting same head.
@@ -147,6 +148,9 @@ class Exporter:
   eh,eb=self.s3.request('GET',key)
   if eh:
    existing=json.loads(eb)
+   # A quiet audit head/retried SQL ACK replays its original signed evidence.
+   # Acknowledge the existing immutable version without a second PUT; equal
+   # seq/digest alone never permits replacing its time, boot or signature.
    if existing!=original:raise ValueError('CONFLICT')
    self.s3.locked(eh,self.clock());head=eh
   elif prior and prior['seq']==r['seq']:raise ValueError('SINK_DIVERGED')

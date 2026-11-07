@@ -198,3 +198,90 @@ test('wire control through controller/service/production factory sends one revie
   await assert.rejects(handlers.control(wire),/REVIEW_STALE/);assert.equal(f.calls.filter(([m])=>m==='Page.reload').length,1);assert.ok(!f.calls.some(([m])=>m.startsWith('Input.')));
  }finally{await (await factory.browser()).close();}
 });
+
+// R2 expectations first: exercise the public control entrypoint, not just the
+// run-end hook. Only committed task storage and CDP/root I/O are doubles.
+const deferred=()=>{let resolve;const promise=new Promise(r=>resolve=r);return {promise,resolve};};
+async function publicControlFixture(configure=()=>{}){
+ const f=fixture(),calls=[],bridges=[];
+ const gate=createProductionGate({call:async q=>{calls.push(q);return {ok:true,listenerCookie:'cookie-'+q.binding?.generation};},readBridgeFor:async(_r,options)=>{
+  const bridge={options,revoked:0,authority:{phase:1,authorizeFetch:async()=>true},handle:async()=>({ok:true})};
+  bridge.authority.unknownAll=async()=>{bridge.revoked++;};bridges.push(bridge);return bridge;
+ }});f.options.gate=gate;configure(f.options);
+ const factory=createProductionFactory(f.options),id='11111111-1111-4111-8111-111111111111';
+ let durable={id,person_id:'22222222-2222-4222-8222-222222222222',current_run_id:'33333333-3333-4333-8333-333333333333',controller_boot_id:'44444444-4444-4444-8444-444444444444',state:'active',private:false,privacy_mode:'public',control_epoch:1,document_epoch:1,context_generation:1,listener_generation:9,read_manifest_revision:3};
+ const io=createServiceIO({factory,db:{readTask:async()=>({...durable})},common:{authorize:async()=>true,audit:async()=>{},reconcile:async()=>{}}});
+ const service=new BrowserService({io,uid:997});await service.start();await service.open(durable);const r=service.contexts.get(id),b=await factory.browser();await factory.bind(r);
+ const p=[...r.context.pages][0],binding=await gate.policy.bindTarget({targetId:p._targetId,browserContextId:r.context.id,type:'page',waitingForDebugger:true});await gate.policy.registerFetch(p.session,binding,()=>true);
+ const handlers=createControllerHandlers({service,authorizeWeb:async()=>true,readMetadata:async()=>({}),readTask:async()=>({...durable}),key:new Uint8Array(32)});
+ const control=action=>handlers.control({task_id:id,payload:{proof_id:id,body:ControlMessage.parse({action,viewer_id:id,device_secret:'a'.repeat(43),idempotency_key:id,expected_epoch:r.task.control_epoch})}});
+ return {...f,cdpCalls:f.calls,b,r,p,gate,calls,bridges,service,factory,control,commitPause:()=>{durable={...durable,state:'paused',control_epoch:durable.control_epoch+1};},
+  continue:async()=>{durable={...durable,state:'active',current_run_id:durable.current_run_id==='55555555-5555-4555-8555-555555555555'?'66666666-6666-4666-8666-666666666666':'55555555-5555-4555-8555-555555555555',control_epoch:durable.control_epoch+1,listener_generation:durable.listener_generation+1};return bindAttachedContext(service,{...durable});}};
+}
+test('public control pause/resume/pause cycles drain without permanent fencing and replace old authority/output',async()=>{
+ const f=await publicControlFixture();try{
+  const context=f.r.context;
+  for(let turn=0;turn<2;turn++){
+   const ticket=f.service.modelTicket(f.r.task.id),old=f.gate.bindingForTarget(f.p._targetId),bridge=f.bridges.at(-1);
+   await f.b.startCapture(f.r);const ack=await f.control('pause');assert.equal(ack.proof_metadata.drained,true);
+   assert.equal(f.gate.bindingForTarget(f.p._targetId),null);assert.equal(bridge.revoked,1);
+   await assert.rejects(f.b.capturePublic(f.r),/REVOKED/);await assert.rejects(f.b.startCapture(f.r),/REVOKED/);
+   await assert.rejects(f.b.deliverInput(f.r,{event:{type:'ime_commit',text:'old'}}),/REVOKED/);
+   assert.throws(()=>f.service.publishModel(f.r.task.id,ticket,'old'),/PRIVATE_INPUT_REQUIRED/);
+   assert.equal(await f.factory.pausePublic(f.r),true);assert.equal(bridge.revoked,1);
+   f.commitPause();await f.continue();const next=f.gate.bindingForTarget(f.p._targetId);
+   assert.equal(f.r.context,context);assert.equal(next.generation,old.generation+1);assert.notEqual(next.listenerCookie,old.listenerCookie);assert.notEqual(next.guardId,old.guardId);
+   assert.throws(()=>bridge.options.bindingFor({targetId:f.p._targetId}),/GATE_AUTHORITY_REFUSED/);
+   assert.throws(()=>f.service.publishModel(f.r.task.id,ticket,'old'),/PRIVATE_INPUT_REQUIRED/);
+   assert.equal(f.service.publishModel(f.r.task.id,f.service.modelTicket(f.r.task.id),'fresh'),'fresh');
+   assert.deepEqual(await f.b.capturePublic(f.r),{text:'public'});
+  }
+  await f.control('pause');assert.equal(f.calls.filter(q=>q.op==='revoke').length,3);assert.equal(f.closed(),0);
+ }finally{await f.b.close();}
+});
+test('public control pause drains in-flight extraction/frame and aborts reads, old input and Fetch across resume',async()=>{
+ const extraction=deferred(),extractBegan=deferred(),frame=deferred(),frameBegan=deferred(),readBegan=deferred(),input=deferred(),inputBegan=deferred(),fetch=deferred(),fetchBegan=deferred();
+ const f=await publicControlFixture(options=>{
+  options.extract=async()=>{extractBegan.resolve();await extraction.promise;return {text:'old'};};
+  options.publishFrame=async()=>{frameBegan.resolve();await frame.promise;};
+  options.authorizeInput=async()=>{inputBegan.resolve();await input.promise;return true;};
+ });let signal;
+ try{
+  const capture=assert.rejects(f.b.capturePublic(f.r),/REVOKED/);await extractBegan.promise;
+  const read=assert.rejects(f.service.read(f.r.task.id,async s=>{signal=s;readBegan.resolve();await extraction.promise;return 'old';}),/TIMEOUT|REVOKED/);await readBegan.promise;
+  const typing=assert.rejects(f.b.deliverInput(f.r,{event:{type:'ime_commit',text:'old'}}),/REVOKED/);await inputBegan.promise;
+  await f.b.startCapture(f.r);const publishing=f.listeners.get('Page.screencastFrame')({sessionId:1,data:Buffer.from('jpeg').toString('base64')});await frameBegan.promise;
+  f.bridges[0].authority.authorizeFetch=async()=>{fetchBegan.resolve();await fetch.promise;return true;};
+  const fetching=f.listeners.get('Fetch.requestPaused')({requestId:'old-fetch',resourceType:'Document',request:{method:'GET',url:'https://public.example/'}});await fetchBegan.promise;
+  const ticket=f.service.modelTicket(f.r.task.id);let drained=false;const pause=f.control('pause').then(x=>{drained=true;return x;});
+  await new Promise(r=>setImmediate(r));assert.equal(drained,false);assert.equal(signal.aborted,true);await read;
+  extraction.resolve();await capture;await new Promise(r=>setImmediate(r));assert.equal(drained,false);
+  frame.resolve();await publishing;await pause;assert.equal(f.r.context.pending.size,0);assert.equal(f.r.context.observationPending.size,0);
+  f.commitPause();await f.continue();fetch.resolve();input.resolve();await fetching;await typing;
+  assert.ok(!f.cdpCalls.some(q=>q[0]==='Fetch.continueRequest'));assert.ok(!f.calls.some(q=>q.op==='revoke_all'));
+  assert.ok(!f.cdpCalls.some(q=>q[0]==='Input.insertText'));
+  await f.listeners.get('Fetch.requestPaused')({requestId:'fresh-fetch',resourceType:'Document',request:{method:'GET',url:'https://public.example/'}});
+  await f.b.deliverInput(f.r,{event:{type:'ime_commit',text:'fresh'},control:{control_epoch:f.r.task.control_epoch}});
+  assert.equal(f.cdpCalls.filter(q=>q[0]==='Fetch.continueRequest').length,1);assert.equal(f.cdpCalls.filter(q=>q[0]==='Input.insertText').length,1);
+  assert.throws(()=>f.service.publishModel(f.r.task.id,ticket,'old'),/PRIVATE_INPUT_REQUIRED/);
+ }finally{extraction.resolve();frame.resolve();input.resolve();fetch.resolve();await f.b.close();}
+});
+test('public pause waits for a starting screencast and prevents late or paused capture start',async()=>{
+ const f=await publicControlFixture(),started=deferred(),release=deferred();try{
+  const send=f.p.session.send;f.p.session.send=async(m,v)=>{const result=await send(m,v);if(m==='Page.startScreencast'){started.resolve();await release.promise;}return result;};
+  const starting=assert.rejects(f.b.startCapture(f.r),/REVOKED/);await started.promise;
+  let drained=false;const pause=f.control('pause').then(x=>{drained=true;return x;});await new Promise(r=>setImmediate(r));assert.equal(drained,false);
+  release.resolve();await starting;await pause;assert.equal(f.r.context.session,null);assert.equal(f.listeners.has('Page.screencastFrame'),false);
+  await assert.rejects(f.b.startCapture(f.r),/REVOKED/);
+ }finally{release.resolve();await f.b.close();}
+});
+for(const boundary of ['stop','private'])test(boundary+' still permanently fences the gate despite a fresh run/listener',async()=>{
+ const f=await publicControlFixture();try{
+  if(boundary==='stop')await f.control('stop');
+  else{Object.assign(f.r.task,{private:true,privacy_mode:'private'});await f.factory.stopInputAndCapture(f.r);}
+  Object.assign(f.r.task,{private:false,privacy_mode:'public',current_run_id:'new',listener_generation:10,control_epoch:3});
+  await assert.rejects(f.gate.pausePublic(f.r),/GATE_AUTHORITY_REFUSED/);await assert.rejects(f.gate.resumePublic(f.r,f.r.task),/REVOKED/);
+  assert.equal(f.gate.bindingForTarget(f.p._targetId),null);
+  if(boundary==='stop')assert.equal(f.service.contexts.has(f.r.task.id),false);
+ }finally{await f.b.close();}
+});

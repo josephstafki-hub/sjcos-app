@@ -27,6 +27,7 @@ def transport(req,timeout):
   if case=='missing-version':hh.pop('x-amz-version-id')
   objects[key]=(hh,req.data)
   if case=='replay-lost-sink-ack' and key.endswith('/10.json') and not lost:lost=True;raise ValueError('SINK')
+  if case=='unchanged-lost-highest-ack' and key.endswith('/highest.json') and not lost:lost=True;raise ValueError('SINK')
   return Response(hh)
  if key not in objects:raise urllib.error.HTTPError(req.full_url,404,'missing',{},io.BytesIO())
  hh,data=objects[key];return Response(hh,data if method=='GET' else b'')
@@ -43,7 +44,9 @@ else:
  sink=m.S3(c,{'access_key':'test','secret_key':'test'},transport=transport,clock=lambda:t);e=m.Exporter(c,pub,seed,sink,clock=lambda:t)
  if case=='wire':
   payload=json.load(sys.stdin);t=m.utc(payload['now']);e=m.Exporter(c,base64.b64decode(payload['public']),seed,sink,clock=lambda:t)
-  ack=e.accept(m.jcs(payload['wire'])+b'\n',777);print(json.dumps({'ack':ack,'stored':json.loads(objects[ack['object_key']][1])}))
+  # Carry the fake S3 state across JS-driven exporter process restarts.
+  objects.update({k:(v[0],base64.b64decode(v[1])) for k,v in payload.get('objects',{}).items()})
+  ack=e.accept(m.jcs(payload['wire'])+b'\n',777);print(json.dumps({'ack':ack,'stored':json.loads(objects[ack['object_key']][1]),'puts':sum(req.method=='PUT' for req in calls),'objects':{k:[v[0],base64.b64encode(v[1]).decode()] for k,v in objects.items()}}))
  elif case.startswith('replay-'):
   original=record(seq=1 if case=='replay-head-jump' else 10,when=t-datetime.timedelta(seconds=181));wire=replay(original)
   if case=='replay-stale':denied(lambda:e.accept(replay(original,t-datetime.timedelta(seconds=121)),777));assert not calls
@@ -64,6 +67,28 @@ else:
    else:
     assert e.accept(replay(original,t+datetime.timedelta(seconds=1)),777)==ack;assert objects[key][1]==stored
     assert sum(req.method=='PUT' and req.full_url.endswith('/10.json') for req in calls)==1
+ elif case.startswith('unchanged-'):
+  original=record();wire=replay(original)
+  if case=='unchanged-lost-highest-ack':denied(lambda:e.accept(wire,777))
+  ack=e.accept(wire,777);snapshot=dict(objects);puts=sum(req.method=='PUT' for req in calls)
+  for elapsed in (61,122,3600):
+   t+=datetime.timedelta(seconds=elapsed)
+   if case=='unchanged-restart':e=m.Exporter(c,pub,seed,sink,clock=lambda:t)
+   repeated=e.accept(replay(original,t),777)
+   assert repeated==ack and objects==snapshot
+   assert sum(req.method=='PUT' for req in calls)==puts
+   assert m.verify(pub,m.jcs({k:v for k,v in repeated.items() if k!='ack_sig'}),base64.b64decode(repeated['ack_sig']))
+  assert json.loads(objects[ack['object_key']][1])==json.loads(original)
+ elif case.startswith('same-seq-'):
+  original=record();e.accept(original,777);snapshot=dict(objects);puts=sum(req.method=='PUT' for req in calls)
+  changed=json.loads(record(digest='b'*64) if case=='same-seq-digest' else record(when=t+datetime.timedelta(seconds=1)))
+  if case=='same-seq-boot':
+   changed=json.loads(original);changed['boot_id']='22222222-2222-4222-8222-222222222222';changed.pop('sig');changed['sig']=base64.b64encode(m.sign(seed,m.jcs(changed))).decode()
+  e=m.Exporter(c,pub,seed,sink,clock=lambda:t)
+  try:e.accept(m.jcs(changed)+b'\n',777)
+  except ValueError as error:assert str(error)=='CONFLICT',str(error)
+  else:raise AssertionError('same-sequence evidence substitution accepted')
+  assert objects==snapshot and sum(req.method=='PUT' for req in calls)==puts
  elif case=='valid':
   ack=e.accept(record(),777);sig=base64.b64decode(ack.pop('ack_sig'));assert m.verify(pub,m.jcs(ack),sig);assert len(objects)==2;print(json.dumps({'ack':ack,'sig':base64.b64encode(sig).decode(),'public':base64.b64encode(pub).decode()}))
  elif case=='forged-signature':denied(lambda:e.accept(record().replace(b'"digest":"a',b'"digest":"b'),777));assert not calls

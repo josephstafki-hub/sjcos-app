@@ -92,7 +92,7 @@ class ControlServer:
             return dict(ok=True,closed=True,durable=True)
         if op=='case_begin':
             import re
-            if self.runtime.case is not None or self.runtime.handlers or not isinstance(x.get('name'),str) or not re.fullmatch('[a-z0-9-]{1,80}',x['name']):raise Refused('BROWSER_CASE')
+            if self.runtime.case is not None or self.runtime.handlers or not isinstance(x.get('name'),str) or not re.fullmatch('[A-Za-z0-9-]{1,80}',x['name']):raise Refused('BROWSER_CASE')
             self.runtime.case=x['name'];self.runtime.event_log.clear();self.runtime.dropped_events=0
             return dict(ok=True,startSequence=self.runtime.event_sequence)
         if op=='fault_arm':

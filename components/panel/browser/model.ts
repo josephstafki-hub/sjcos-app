@@ -6,14 +6,14 @@ export const browserCopy:Record<BrowserState,string>={
 export const blankBrowserStates=new Set<BrowserState>(['off','empty','unsupported','queued','queue_full','queue_expired','offer','offer_expired','starting','disconnected','idle_closed','crashed','latched','auth_expired','access_removed','closed','service_unavailable']);
 export function browserStatus(m:BrowserModel){
  if(m.error)return m.error;
- if(['final_blocked','write_blocked','read_review','resource_review','unknown','crashed','latched','auth_expired','access_removed','closed','idle_closed'].includes(m.state))return m.state==='write_blocked'&&m.phone?"This version reads public pages only. Sending information isn't available yet.":browserCopy[m.state];
+ if(['disconnected','pause_failed','final_blocked','write_blocked','read_review','resource_review','unknown','crashed','latched','auth_expired','access_removed','closed','idle_closed'].includes(m.state))return m.state==='write_blocked'&&m.phone?"This version reads public pages only. Sending information isn't available yet.":browserCopy[m.state];
  if(m.state==='owner_paused'&&m.ownerView)return `Agent paused. ${m.personName} can tap Continue.`;
  if(m.ownerPaused)return `Agent paused. ${m.personName} can tap Continue.`;
  if(m.state==='controlling')return browserCopy.controlling;
  if(m.ownerView&&m.privatePage&&privateWatchReady(m)&&m.state==='other_device')return `You're watching. ${m.personName} is in control.`;
  if(m.ownerView&&m.privatePage&&m.privateViewStatus==='pending_audit')return 'Waiting to show the private page…';
  if(m.ownerView&&m.privatePage)return privateWatchReady(m)?`Private — only you and ${m.personName} see this page.`:`${m.personName} took over. The agent can't see this page.`;
- if(m.state==='queued'&&m.isOwner)return m.busyWithLabel?`Browser is busy. ${m.busyWithLabel} is using it.`:'Browser is busy.';
+ if(m.state==='queued'&&m.isOwner&&m.busyWithLabel)return `Browser is busy. ${m.busyWithLabel} is using it.`;
  if(m.state==='queued')return m.queuePosition?`Browser is busy. You're number ${m.queuePosition} in line.`:'Browser is busy.';
  if(m.state==='other_device'&&m.controller==='owner')return `${m.ownerName} is in control.`;
  if(m.state==='owner_paused')return m.ownerView?`Agent paused. ${m.personName} can tap Continue.`:`${m.ownerName} paused the agent.`;

@@ -513,7 +513,7 @@ test('R4 same task with a changed host scope drains the previous binding before 
  }finally{await f.dispose();}
 });
 test('R4 queue polling starts SSE only when a joined task reaches a running session',async()=>{
- let subscriptions=0;const f=await sessionFixture({events:async(_id,_v,signal,onEvent)=>{subscriptions++;onEvent('state',{...f.status,stream_id:'stream',stream_generation:1});await new Promise(r=>signal.addEventListener('abort',r,{once:true}));}});try{
+ let subscriptions=0;const f=await sessionFixture({events:async(_id,_v,signal,onEvent)=>{subscriptions++;onEvent('state',{server_time:new Date().toISOString(),stream_id:'stream',stream_generation:1});await new Promise(r=>signal.addEventListener('abort',r,{once:true}));}});try{
   f.props.visible=false;f.h.render();await f.h.settle();subscriptions=0;f.setStatus({...f.status,revision:2,task:{...f.status.task,state:'queued'}});await f.poll();f.props.visible=true;f.h.render();await f.h.settle();assert.equal(subscriptions,0);assert.equal(f.h.value.model.state,'queued');
   f.setStatus({...f.status,revision:3,task:{...f.status.task,state:'active'}});await f.poll();assert.equal(subscriptions,1);assert.equal(f.h.value.model.state,'working');
  }finally{await f.dispose();}
@@ -582,4 +582,83 @@ test('R4 real website/SQL retirement orderings with a second attended device',as
    }
   }));
  },{fresh:true});}finally{stopCluster();delete globalThis.__phase0aDb;}
+});
+
+
+// R5 expectations first: metadata/presence success is not stream recovery.
+const r5Frame={stream_id:'10000000-0000-4000-8000-000000000001',stream_generation:1,frame_id:'10000000-0000-4000-8000-000000000002',seq:1,control_epoch:7,document_epoch:3,viewport:{width:1280,height:800},width:1280,height:800,jpeg_base64:'/9j/'};
+async function recoveryFixture({privatePage=false,loss='closed'}={}){
+ let emit,drop,opens=0;const f=await sessionFixture({events:async(_id,_v,signal,onEvent)=>{opens++;emit=onEvent;onEvent('frame',r5Frame);await new Promise((resolve,reject)=>{signal.addEventListener('abort',resolve,{once:true});drop=()=>loss==='closed'?(onEvent('closed',{code:'BROWSER_STREAM_STALE'}),resolve()):loss==='reject'?reject(Error('transport failed')):resolve();});}});
+ // Start the paused public/private case from the same attended viewer.
+ f.props.visible=false;f.h.render();await f.h.settle();f.setStatus({...f.status,task:{...f.status.task,state:'paused',control:'none',private:privatePage},available_controls:['pause','take_over','fresh_browser','resume','stop']});await f.poll();f.props.visible=true;f.h.render();await f.h.settle();
+ const now=Date.now,start=now();let elapsed=0;Date.now=()=>start+elapsed;
+ return {...f,get status(){return f.status;},emit:(...args)=>emit(...args),drop:()=>drop(),get opens(){return opens;},async pollLater(){elapsed+=6000;await f.poll();},async dispose(){Date.now=now;await f.dispose();}};
+}
+function assertRecovery(f,state){
+ assert.equal(f.h.value.model.state,state);assert.equal(f.h.value.model.frameUrl,undefined);assert.equal(f.h.value.model.capture,false);
+ const html=view(f.h.value.model);assert.match(html,state==='disconnected'?/Connection lost\. Browser paused\./:/Couldn't pause the browser\. Keep this screen open, or stop the browser\./);assert.match(html,state==='disconnected'?/>Reconnect</:/>Try again</);assert.doesNotMatch(html,/<img|on your other device|>Keyboard</);
+}
+for(const privatePage of [false,true])for(const loss of ['closed','eof','reject'])test(`R5 sticky loss ${privatePage?'private':'public'} ${loss}, delayed pre-loss detail and two polls`,async()=>{
+ const f=await recoveryFixture({privatePage,loss});try{
+  const {browserAPI}=await apiTools();let deliver;const old=browserAPI.detail;browserAPI.detail=()=>new Promise(r=>deliver=()=>r(f.status));const inFlight=f.poll();await f.h.settle();
+  f.emit('frame',r5Frame);assert.ok(f.h.value.model.frameUrl);f.drop();await f.h.settle();assertRecovery(f,'disconnected');deliver();await inFlight;browserAPI.detail=old;assertRecovery(f,'disconnected');
+  const opens=f.opens;for(let i=0;i<2;i++){await f.pollLater();assertRecovery(f,'disconnected');}assert.equal(f.opens,opens,'no automatic stream recovery');
+  await f.h.value.action('reconnect');await f.h.settle();assert.equal(f.h.value.model.state,'reconnected');const html=view(f.h.value.model);assert.match(html,/Connected\. Review the page before continuing\./);assert.equal(/>Resume</.test(html),!privatePage);if(privatePage){assert.match(html,/>Take over again</);assert.doesNotMatch(view({...f.h.value.model,phone:true}),/>Take over(?: again| here)?</);}assert.ok(f.opens>opens);
+ }finally{await f.dispose();}
+});
+for(const exit of ['retry_pause','stop','confirm_takeover','confirm_fresh','task change','closed','failed','review','auth'])test('R5 sticky pause failure preserves control and exits via '+exit,async()=>{
+ const f=await sessionFixture();try{
+  const {browserAPI,BrowserAPIError}=await apiTools();let failPause=false,inputs=0;browserAPI.input=async()=>{inputs++;};browserAPI.presence=async()=>({context_generation:2,control_epoch:f.status.task.control_epoch,control_expires_at:'2099-01-01T00:00:00Z',server_time:new Date().toISOString()});
+  browserAPI.control=async(_id,_v,action)=>{if(action==='pause'&&failPause)throw new BrowserAPIError('BROWSER_SERVICE_UNAVAILABLE');f.setStatus({...f.status,revision:f.status.revision+1,context_generation:f.status.context_generation+(action==='fresh_browser'?1:0),task:{...f.status.task,private:action!=='fresh_browser',state:action==='stop'?'closed':'paused',control:action==='take_over'?'person':'none',control_epoch:f.status.task.control_epoch+1}});return {...f.status,...(action==='take_over'?{control_token:'held-control',expires_at:'2099-01-01T00:00:00Z'}:{})};};
+  f.setStatus({...f.status,available_controls:['pause','take_over','fresh_browser','stop']});await f.poll();await f.h.value.action('confirm_takeover');await f.h.settle();assert.equal(f.h.value.model.state,'controlling');failPause=true;const leave=f.h.value.beforeLeave();await f.h.value.action('confirm_leave');await f.h.settle();assertRecovery(f,'pause_failed');assert.equal(f.h.value.hasControl(),true);
+  const now=Date.now,start=now();try{for(const elapsed of [6000,12000]){Date.now=()=>start+elapsed;await f.poll();assertRecovery(f,'pause_failed');}}finally{Date.now=now;}
+  await f.h.value.action('capture');assert.equal(f.h.value.model.capture,false,'capture stays disabled during recovery');
+  f.emit('frame',{...r5Frame,control_epoch:f.status.task.control_epoch});f.h.value.input({type:'key',phase:'down',key:'a',code:'KeyA',modifiers:[]});assert.equal(inputs,0);
+  if(exit==='auth'){browserAPI.detail=async()=>{throw new BrowserAPIError('BROWSER_AUTH_EXPIRED');};await f.poll();assert.equal(f.h.value.model.state,'auth_expired');}
+  else if(exit==='task change'){f.props.taskId='new-task';f.h.render();await f.h.settle();assert.equal(f.h.value.model.state,'other_device');}
+  else if(['closed','failed','review'].includes(exit)){f.setStatus({...f.status,revision:f.status.revision+1,...(exit==='review'?{pending_action:{state:'pending',kind:'public_read'}}:{task:{...f.status.task,state:exit}})});await f.poll();assert.equal(f.h.value.model.state,exit==='failed'?'crashed':exit==='review'?'read_review':'closed');}
+  else {failPause=false;await f.h.value.action(exit);await f.h.settle();assert.equal(f.h.value.model.state,exit==='retry_pause'?'paused_private':exit==='stop'?'closed':exit==='confirm_takeover'?'controlling':'paused');if(['retry_pause','stop'].includes(exit))assert.equal(await leave,true);await f.poll();assert.notEqual(f.h.value.model.state,'pause_failed');}
+ }finally{await f.dispose();}
+});
+test('R5 owner queued uses holder name or known queue position',()=>{
+ assert.match(view({state:'queued',isOwner:true,busyWithLabel:'Mark',queuePosition:3}),/Browser is busy\. Mark is using it\./);
+ assert.match(view({state:'queued',isOwner:true,busyWithLabel:null,queuePosition:3}),/Browser is busy\. You're number 3 in line\./);
+});
+test('R5 private audit transition waits for current consent viewer before opening the stream',async()=>{
+ const f=await sessionFixture({ownerView:true});try{
+  const {browserAPI}=await apiTools();f.setStatus({...f.status,revision:2,private_view_status:'required',task:{...f.status.task,private:true,state:'paused',control:'person'}});await f.poll();let joined,opens=[];
+  browserAPI.join=()=>new Promise(r=>joined=r);browserAPI.events=async(_id,v,signal,onEvent)=>{opens.push(v);onEvent('state',{...f.status,stream_id:r5Frame.stream_id,stream_generation:2});onEvent('frame',{...r5Frame,stream_generation:2});await new Promise(r=>signal.addEventListener('abort',r,{once:true}));};
+  const consent=f.h.value.action('show_private');await f.h.settle();assert.match(view(f.h.value.model),/Waiting to show the private page/);
+  f.setStatus({...f.status,revision:3,private_view_status:'pending_audit'});joined({...f.status,viewer_id:'consented-viewer',device_secret:'current-secret',stream_id:r5Frame.stream_id,stream_generation:2,owner_review_claim:{claim_id:'current-claim',expires_at:'2099-01-01T00:00:00Z'}});await consent;await f.h.settle();assert.equal(opens.length,0);assert.doesNotMatch(view(f.h.value.model),/<img/);
+  f.setStatus({...f.status,revision:4,private_view_status:'authorized'});await f.poll();assert.equal(opens.length,1);assert.equal(opens[0].viewer_id,'consented-viewer');assert.equal(opens[0].owner_review_claim.claim_id,'current-claim');assert.match(view(f.h.value.model),/<img/);assert.match(view(f.h.value.model),/Private — only you and Team member see this page\./);
+ }finally{await f.dispose();}
+});
+
+test('R5 consent join reply behind authorized poll still installs the current viewer and image',async()=>{
+ const f=await sessionFixture({ownerView:true});try{
+  const {browserAPI}=await apiTools();f.setStatus({...f.status,revision:2,private_view_status:'required',task:{...f.status.task,private:true,state:'paused',control:'person'}});await f.poll();let deliver,opens=[];
+  browserAPI.join=()=>new Promise(r=>deliver=r);browserAPI.events=async(_id,v,signal,onEvent)=>{opens.push(v);onEvent('frame',r5Frame);await new Promise(r=>signal.addEventListener('abort',r,{once:true}));};
+  const consent=f.h.value.action('show_private');await f.h.settle();const reply={...f.status,revision:3,private_view_status:'pending_audit',viewer_id:'latest-viewer',device_secret:'latest-secret',stream_id:r5Frame.stream_id,stream_generation:1,owner_review_claim:{claim_id:'latest-claim',expires_at:'2099-01-01T00:00:00Z'}};
+  f.setStatus({...f.status,revision:4,private_view_status:'authorized'});await f.poll();assert.equal(opens.length,0,'await the actual consent join credentials');deliver(reply);await consent;await f.h.settle();assert.equal(opens.length,1);assert.equal(opens[0].viewer_id,'latest-viewer');assert.equal(opens[0].owner_review_claim.claim_id,'latest-claim');assert.equal(f.h.value.model.taskRevision,4);assert.match(view(f.h.value.model),/<img/);
+ }finally{await f.dispose();}
+});
+
+for(const exit of ['stop','confirm_takeover','confirm_fresh','task change','closed','failed','review','auth','access'])test('R5 disconnected exits via '+exit,async()=>{
+ const f=await recoveryFixture();try{
+  const {browserAPI,BrowserAPIError}=await apiTools();f.drop();await f.h.settle();assertRecovery(f,'disconnected');
+  if(exit==='auth'||exit==='access'){browserAPI.detail=async()=>{throw new BrowserAPIError(exit==='auth'?'BROWSER_AUTH_EXPIRED':'BROWSER_FORBIDDEN');};await f.pollLater();assert.equal(f.h.value.model.state,exit==='auth'?'auth_expired':'access_removed');}
+  else if(exit==='task change'){f.props.taskId='replacement';f.h.render();await f.h.settle();assert.equal(f.h.value.model.state,'paused');}
+  else if(['closed','failed','review'].includes(exit)){f.setStatus({...f.status,revision:2,...(exit==='review'?{pending_action:{state:'pending',kind:'resource_read'}}:{task:{...f.status.task,state:exit}})});await f.pollLater();assert.equal(f.h.value.model.state,exit==='failed'?'crashed':exit==='review'?'resource_review':'closed');}
+  else {browserAPI.control=async(_id,_v,action)=>{f.setStatus({...f.status,revision:2,context_generation:f.status.context_generation+(action==='fresh_browser'?1:0),task:{...f.status.task,state:action==='stop'?'closed':'paused',private:action==='take_over',control:action==='take_over'?'person':'none',control_epoch:8}});return {...f.status,...(action==='take_over'?{control_token:'new-control',expires_at:'2099-01-01T00:00:00Z'}:{})};};await f.h.value.action(exit);await f.h.settle();assert.equal(f.h.value.model.state,exit==='stop'?'closed':exit==='confirm_takeover'?'controlling':'paused');await f.pollLater();assert.notEqual(f.h.value.model.state,'disconnected');}
+ }finally{await f.dispose();}
+});
+
+for(const code of ['BROWSER_FORBIDDEN','BROWSER_SERVICE_UNAVAILABLE','BROWSER_STREAM_STALE'])test('R5 private stream refused before audit authorization stays waiting then opens current viewer: '+code,async()=>{
+ const f=await sessionFixture({ownerView:true});try{
+  const {browserAPI,BrowserAPIError}=await apiTools();f.setStatus({...f.status,revision:2,private_view_status:'required',task:{...f.status.task,private:true,state:'paused',control:'person'}});await f.poll();let attempts=0;
+  browserAPI.join=async()=>({...f.status,private_view_status:'pending_audit',viewer_id:'private-viewer',device_secret:'private-secret',stream_id:r5Frame.stream_id,stream_generation:1,owner_review_claim:{claim_id:'private-claim',expires_at:'2099-01-01T00:00:00Z'}});
+  await f.h.value.action('show_private');await f.h.settle();browserAPI.events=async(_id,v,signal,onEvent)=>{assert.equal(v.viewer_id,'private-viewer');attempts++;if(attempts===1){f.setStatus({...f.status,private_view_status:'pending_audit'});throw new BrowserAPIError(code);}onEvent('frame',r5Frame);await new Promise(r=>signal.addEventListener('abort',r,{once:true}));};
+  f.setStatus({...f.status,revision:3,private_view_status:'authorized'});await f.poll();assert.equal(f.h.value.model.privateViewStatus,'pending_audit');assert.match(view(f.h.value.model),/Waiting to show the private page/);assert.doesNotMatch(view(f.h.value.model),/Couldn't connect|Your access changed|<img/);
+  f.setStatus({...f.status,revision:4,private_view_status:'authorized'});await f.poll();assert.equal(attempts,2);assert.match(view(f.h.value.model),/<img/);
+ }finally{await f.dispose();}
 });

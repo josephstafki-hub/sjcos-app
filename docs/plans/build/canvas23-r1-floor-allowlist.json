@@ -1,0 +1,47 @@
+{
+  "sources": {
+    "lib/canvas-floor.ts": "32adda07426e590141187c95c4dae89c8f506afdb12009f87707f6936c9c69bd"
+  },
+  "entries": [
+    {
+      "file": "lib/canvas-floor.ts",
+      "function": "attachFloorCanvas",
+      "reason": "fenced-by-helper",
+      "classification": "fenced",
+      "explanation": "Private reference insert is called only inside the authenticated Canvas transaction, after owned live thread, current-person/scope, admission (when a run is used), provenance and CAS checks. Same-design snapshot FK enforces identity; no narrow-role access is added.",
+      "queries": [
+        "63dc925beb73b5827b497e69139bc307d321f10eda10f443cc5a215f6638e858"
+      ]
+    },
+    {
+      "file": "lib/canvas-floor.ts",
+      "function": "floorVersionMeta",
+      "reason": "fenced-by-helper",
+      "classification": "fenced",
+      "explanation": "Private reference lookup is an internal Canvas metadata helper. Its caller loads the owned live canvas/thread and rechecks current-person/area access in the authenticated Canvas transaction before returning metadata; this helper is not a public action.",
+      "queries": [
+        "c989c33e4e45d97334c03bc1c538c1d022114b8b057e5ede2820610d1b92ba96"
+      ]
+    },
+    {
+      "file": "lib/canvas-floor.ts",
+      "function": "readFloorCanvas",
+      "reason": "fenced-by-helper",
+      "classification": "fenced",
+      "explanation": "Private snapshot read requires canvas owner_user_id to equal the current person, then asserts active owner/staff Projects plus scoped Leads and refuses templates, checks current design/canvas scope. Caller separately enforces live owned thread and canvas required areas. Successful reads share the full-designer edit gate and return canEdit=true; no denied target returns preview data.",
+      "queries": [
+        "a9a522be00ee7a6b5fea2017470c210e691e928fdf393c104bc90177d183ebc5"
+      ]
+    },
+    {
+      "file": "lib/canvas-floor.ts",
+      "function": "floorDeletionBlock",
+      "reason": "fenced-by-helper",
+      "classification": "fenced",
+      "explanation": "Owner-DB web deletion preflight now runs after lockPlanDesign and assertFloorAccess with explicit full-designer template policy, in the same transaction as DELETE. Links/titles are returned only when every reference is owned/live/unheld with owned live thread and current required area/scope access; foreign, retained, held or revoked references use the fixed generic refusal and no links. No narrow SELECT privilege is added.",
+      "queries": [
+        "92daf3abd02a1de45ed72c7263b0df65d5c8110ff394ac51eecf4a684e281df9"
+      ]
+    }
+  ]
+}

@@ -56,7 +56,7 @@ export function useCanvasFeed({changes,threadId,pending,activeRunId,blocked,pref
      const selected=await canvasFetch<CanvasGetResponse>(`/api/canvas/${encodeURIComponent(id)}?version=${version}`,c.signal);
      if(disposed||canvasState().scope!==scope)return;
      const url=new URL(window.location.href);url.searchParams.delete('canvas_action');url.searchParams.delete('canvas_v');url.searchParams.delete('canvas');window.history.replaceState(window.history.state,'',url);
-     args.current.prefill(action==='change'?`Change the "${selected.selected.title}" diagram (version ${version}): `:fixCanvasPrompt(selected.selected,action==='fix'?'RENDER_FAILED':'RENDER_TIMEOUT'),id,version);
+     args.current.prefill(action==='change'?`Change the "${selected.selected.title}" canvas (version ${version}): `:fixCanvasPrompt(selected.selected,action==='fix'?'RENDER_FAILED':'RENDER_TIMEOUT'),id,version);
     }
     publishCanvases(args.current.pending);
    }catch(e){if(!disposed){const code=(e as {code?:string}).code;if(code==='AUTH_REQUIRED'||code==='SIGN_IN_AGAIN'||code==='ASK_PAUSED'||code==='CANVAS_UNAVAILABLE'||code==='THREAD_UNAVAILABLE'){clearCanvas();setAskPaneScope(null);}else if(code==='CANVAS_DISABLED'){updateCanvas({items:[],views:{}});publishCanvases();}}}finally{busy=false;}

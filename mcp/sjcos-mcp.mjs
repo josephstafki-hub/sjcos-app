@@ -2954,7 +2954,7 @@ server.registerTool(
   // deletes, nothing client-facing), just kept separate to keep this file from
   // growing without bound. See mcp/mood-tools.mjs.
   registerMoodTools(server, { rows, json, uploadDir: path.join(__dirname, "..", "uploads") });
-  registerFloorTools(server, { rows, json });
+  registerFloorTools(server, { rows, json, pool, currentPrincipal, saveSnapshot: input => canvasCall('floor_save',input) });
 
   // Project financials (job costing): what a job is priced at, has cost, and
   // should make — the same queries, math and writes the app's Money › Overview

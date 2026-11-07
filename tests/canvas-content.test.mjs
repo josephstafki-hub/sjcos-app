@@ -29,7 +29,7 @@ test('UTF-8 input limit is inclusive and checked before normalization', () => {
 test('strict content shape, unsupported kinds and families', () => {
     for (const input of [null, {}, { kind: 'diagram' }, { kind: 'diagram', source: 1 }, { kind: 'diagram', source: 'x', csp: 'x' }])
         rejects(() => validateCanvasContent(input), 'INVALID_INPUT');
-    rejects(() => validateCanvasContent({ kind: 'page', source: '<svg><script/></svg>' }), 'UNSUPPORTED_KIND');
+    rejects(() => validateCanvasContent({ kind: 'page', source: '<svg><script/></svg>' }), 'UNSAFE_CONTENT');
     for (const source of ['pie\n"X":2', 'mindmap\nroot', 'stateDiagram\nA-->B'])
         rejects(() => validateDiagramSource(source), 'UNSUPPORTED_KIND');
     rejects(() => validateDiagramSource('<svg><path/></svg>'), 'UNSAFE_CONTENT');
@@ -158,4 +158,27 @@ test('state notes support bounded plain inline and multiline text in their state
 test('the QA 100-node, 99-edge chain passes the source budget exactly',()=>{
  const source='flowchart LR\n'+Array.from({length:99},(_,n)=>` N${n}[Step ${n+1}]-->N${n+1}[Step ${n+2}]`).join('\n');
  assert.equal(validateDiagramSource(source).counts.nodes,100);assert.equal(validateDiagramSource(source).counts.edges,99);
+});
+
+// Phase 2 expectations: realistic layouts accepted canonically; attacks fail closed.
+test('page layouts canonicalize idempotently at phone/tablet/desktop widths', async()=>{
+ const {layouts}=await import('./fixtures/canvas-page-layouts.mjs');
+ const {validatePageSource}=await import('../lib/canvas-content.mjs');
+ for(const source of layouts){const result=validatePageSource(source);assert.equal(result.kind,'page');assert.equal(validatePageSource(result.source).source,result.source);}
+});
+test('25 fresh page adversaries are rejected before persistence',async()=>{
+ const {adversarial}=await import('./fixtures/canvas-page-layouts.mjs');
+ const {validatePageSource}=await import('../lib/canvas-content.mjs');
+ assert.equal(adversarial.length,25);for(const source of adversarial)assert.throws(()=>validatePageSource(source),undefined,source);
+});
+
+test('page document envelopes keep body only; title cannot add a script',async()=>{
+ const {validatePageSource}=await import('../lib/canvas-content.mjs');
+ assert.equal(validatePageSource('<!doctype html><html lang="en"><head><title>Board &amp; notes</title></head><body style="padding:16px"><h1>Board</h1></body></html>').source,'<div style="padding:16px"><h1>Board</h1></div>');
+ for(const head of ['<script>alert(1)</script>','<meta http-equiv="refresh" content="0;url=/">','<base href="/">','<style>div{color:red}</style>'])assert.throws(()=>validatePageSource('<html><head>'+head+'</head><body><p>x</p></body></html>'));
+});
+test('page CSS is finite per property, with no variables, functions or overlay values',async()=>{
+ const {validatePageSource}=await import('../lib/canvas-content.mjs');
+ for(const style of ['display:garbage','margin:-1px','width:101%','padding:65rem','width:100vh','width:calc(100% - 1px)','color:env(x)','font-family:Arial,remote','position:absolute','grid-template-columns:repeat(24,repeat(24,1fr))'])assert.throws(()=>validatePageSource('<div style="'+style+'">x</div>'));
+ for(const style of ['color:#123456','position:relative','width:100%;max-width:64rem','display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr))'])assert.equal(validatePageSource('<div style="'+style+'">x</div>').kind,'page');
 });

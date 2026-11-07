@@ -4,6 +4,8 @@
 // publish / send-for-signature block (docs §10).
 
 import { useState, useTransition } from "react";
+import {PlanDeletionNotice} from "../PlanDeletionNotice";
+import type {FloorDeletionBlock} from "@/lib/canvas-floor";
 import { useRouter } from "next/navigation";
 import { Camera, Trash2 } from "lucide-react";
 import { Chip } from "@/components/ui";
@@ -16,6 +18,7 @@ import { SheetBuilder } from "./SheetBuilder";
 
 export function VersionsPanel({ ctx }: { ctx: DesignerContext }) {
   const router = useRouter();
+  const [deletionNotice,setDeletionNotice] = useState<FloorDeletionBlock|null>(null);
   const [pending, start] = useTransition();
   const [label, setLabel] = useState("");
   const ro = ctx.readOnly;
@@ -57,6 +60,7 @@ export function VersionsPanel({ ctx }: { ctx: DesignerContext }) {
 
   return (
     <div>
+      <PlanDeletionNotice notice={deletionNotice} onClose={()=>setDeletionNotice(null)}/>
       <SaveLine ctx={ctx} />
 
       {!ro && (
@@ -99,8 +103,9 @@ export function VersionsPanel({ ctx }: { ctx: DesignerContext }) {
                         onClick={() =>
                           start(async () => {
                             if (!window.confirm(`Delete v${v.number}?`)) return;
-                            const r = await runAction(() => deletePlanVersion(v.id));
+                            const r = await runAction(() => deletePlanVersion(v.id),{toast:false});
                             if (r.ok) router.refresh();
+                            else setDeletionNotice('block' in r && r.block ? r.block : {message:r.error,links:[]});
                           })
                         }
                       >

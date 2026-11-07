@@ -3186,6 +3186,9 @@
       "note": "Frozen approval evidence; worker reads for dispatch recovery but narrow logins may neither create nor alter a snapshot.",
       "sjcos_worker": ["SELECT"]
 
+    },
+    "ask_canvas_floor_refs": {
+      "note": "Private retained floor snapshot references. Owner website Canvas adapter only; no narrow reads or writes."
     }
   }
 }

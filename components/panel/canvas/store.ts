@@ -56,4 +56,4 @@ export async function loadCanvas(id:string,version:number,signal:AbortSignal,for
   patchCanvas(id,{data,code,loading:false});
  }catch(e){if(!controller.signal.aborted&&state.scope===scope)patchCanvas(id,{loading:false,error:(e as {code?:string}).code??'INTERNAL_ERROR',data:undefined,code:undefined});}finally{clearTimeout(deadline);signal.removeEventListener('abort',abort);if(requests.get(key)===controller){inflight.delete(key);requests.delete(key);}}})();inflight.set(key,work);return work;
 }
-export function askCanvasChange(id:string,text?:string){const v=state.views[id]?.data?.selected;if(!v)return;state.prefill?.(text??changeCanvasPrompt(v),id,v.version);}
+export function askCanvasChange(id:string,text?:string){const v=state.views[id]?.data?.selected;if(!v)return;state.prefill?.(text??(state.views[id]?.data?.canvas.kind==='page'?`Change the "${v.title}" page (version ${v.version}): `:changeCanvasPrompt(v)),id,v.version);}

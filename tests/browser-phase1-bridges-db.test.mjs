@@ -109,7 +109,7 @@ check('R1 private Watch refuses advance consent and clears all old consent on bo
   assert.equal(await access.authorizeFrame(frameBinding),false);
   await audit.checkpoints.boot();await assert.rejects(audit.anchorPrivateView({binding:{...binding,stream_id:id()}}));
   await assert.rejects(audit.anchorPrivateView({binding}));assert.equal((await c.query('SELECT browser_p1_private_view(t,v) allowed FROM browser_tasks t JOIN browser_viewers v ON v.task_id=t.id WHERE v.id=$1',[joined.viewer_id])).rows[0].allowed,false);
-  offline=false;await assert.rejects(audit.checkpoints.beforeEffect(),/lost SQL ACK/);assert.equal((await readdir(directory)).length,1);await audit.checkpoints.beforeEffect();assert.equal((await readdir(directory)).length,0);assert.equal((await c.query('SELECT count(*) n FROM browser_audit_checkpoints')).rows[0].n,'1');assert.equal((await c.query('SELECT browser_p1_private_view(t,v) allowed FROM browser_tasks t JOIN browser_viewers v ON v.task_id=t.id WHERE v.id=$1',[joined.viewer_id])).rows[0].allowed,true);
+  offline=false;await assert.rejects(audit.checkpoints.beforeEffect(),/lost SQL ACK/);assert.equal((await readdir(directory)).length,1);await audit.checkpoints.beforeEffect();assert.equal((await readdir(directory)).filter(x=>x!=='.committed.json').length,0);assert.equal((await c.query('SELECT count(*) n FROM browser_audit_checkpoints')).rows[0].n,'1');assert.equal((await c.query('SELECT browser_p1_private_view(t,v) allowed FROM browser_tasks t JOIN browser_viewers v ON v.task_id=t.id WHERE v.id=$1',[joined.viewer_id])).rows[0].allowed,true);
   assert.equal(await access.authorizeFrame(frameBinding),true);
   await browserWebJoin(c,{tid:task.id,session:ownerSid,device_hash:hash,role:'owner_review',private_view:true,i:await p(),d:hash});assert.equal(await access.authorizeFrame(frameBinding),false,'fresh consent serial needs its own ACK; old timestamp cannot authorize it');
   await c.query('UPDATE browser_viewers SET stream_generation=stream_generation+1 WHERE id=$1',[joined.viewer_id]);assert.equal((await c.query('SELECT browser_p1_private_view(t,v) allowed FROM browser_tasks t JOIN browser_viewers v ON v.task_id=t.id WHERE v.id=$1',[joined.viewer_id])).rows[0].allowed,false);
@@ -181,4 +181,41 @@ check('R1 private fresh browser gets new reviewed public turn through committed 
   await repo.browserWebReads(c,{tid:t.id,vid:viewer.id,expected_revision:1,proposal:m,decision:'approve',i:await proof('review'),d:hash});
   const result=await start({...request,idempotency_key:id()});assert.notEqual(result.run_id,run);assert.equal(opened,1);assert.equal(released,1);assert.equal(service.contexts.get(t.id).task.current_run_id,result.run_id);await repo.browserAuthorize(n,{tid:t.id,rid:result.run_id,k:Buffer.from(issued.capability_hash,'hex')});await assert.rejects(repo.browserAuthorize(n,{tid:t.id,rid:run,k:hash}));
  });
+});
+
+// R2 expectations first: retire absent attendance under the task lock; old
+// stream/control cannot return, and two visible devices still exclude a third.
+for(const stale of ['invisible','revoked_session','expired_session'])check('R2 join replaces '+stale+' viewers and refuses stale streams',async({c,url,task,viewer,proof,staffSid,people})=>{
+ const {browserWebJoin}=await import('../lib/browser/repository.mjs');
+ const join=async(device,sid=staffSid)=>browserWebJoin(c,{tid:task.id,session:sid,device_hash:device,role:'initiator',private_view:false,i:await proof('join',{sid,vid:null,safe_result:{device_secret_hash:device.toString('hex')}}),d:hash});
+ let attendanceSid=staffSid;
+ if(stale!=='invisible'){
+  attendanceSid=(await c.query("INSERT INTO web_sessions(user_id,auth_at,expires_at) VALUES($1,now()-interval '1 hour',now()+interval '1 hour') RETURNING id",[people.staff.id])).rows[0].id;
+  await c.query('UPDATE browser_viewers SET left_at=clock_timestamp() WHERE id=$1',[viewer.id]);
+  const first=await join(hash,attendanceSid);viewer=(await c.query('SELECT * FROM browser_viewers WHERE id=$1',[first.viewer_id])).rows[0];
+ }
+ await join(Buffer.alloc(32,2),attendanceSid);await assert.rejects(join(Buffer.alloc(32,3),attendanceSid),/BROWSER_RESOURCE_LIMIT/);
+ await c.query("UPDATE browser_tasks SET controller_user_id=$2,controller_device_hash=$3,control_token_hash=$3,control_expires_at=clock_timestamp()+interval '1 minute' WHERE id=$1",[task.id,people.staff.id,hash]);
+ if(stale==='invisible')await c.query("UPDATE browser_viewers SET visible_until=clock_timestamp()-interval '1 second' WHERE task_id=$1",[task.id]);
+ else await c.query(stale==='revoked_session'?"UPDATE web_sessions SET revoked_at=clock_timestamp() WHERE id=$1":"UPDATE web_sessions SET expires_at=clock_timestamp()-interval '1 second' WHERE id=$1",[attendanceSid]);
+ const freshSid=stale==='invisible'?staffSid:(await c.query("INSERT INTO web_sessions(user_id,auth_at,expires_at) VALUES($1,now(),now()+interval '1 hour') RETURNING id",[people.staff.id])).rows[0].id;
+ const joined=await join(hash,freshSid);assert.notEqual(joined.viewer_id,viewer.id);
+ const retired=(await c.query('SELECT * FROM browser_viewers WHERE id=$1',[viewer.id])).rows[0];assert.ok(retired.left_at);assert.ok(Number(retired.stream_generation)>Number(viewer.stream_generation));assert.equal(retired.last_frame_uuid,null);assert.equal(retired.owner_private_view_authorized_at,null);
+ const current=(await c.query('SELECT * FROM browser_tasks WHERE id=$1',[task.id])).rows[0];assert.equal(current.controller_user_id,null);assert.equal(current.control_token_hash,null);
+ await assert.rejects(browserWebPresence(c,{vid:viewer.id,visible:true,generation:Number(viewer.stream_generation),i:await proof('presence',{safe_result:{conversation_id:task.conversation_id}})}));
+ // Actual independent LOGINs contend on the same task. Exactly one remaining
+ // slot, so one transaction succeeds and the other hits the unchanged limit.
+ const attempts=await Promise.allSettled([4,5].map(async n=>{const d=Buffer.alloc(32,n),i=await proof('join',{sid:freshSid,vid:null,safe_result:{device_secret_hash:d.toString('hex')}});return withLogin(url,'sjcos_test_website',x=>browserWebJoin(x,{tid:task.id,session:freshSid,device_hash:d,role:'initiator',private_view:false,i,d:hash}));}));
+ assert.equal(attempts.filter(x=>x.status==='fulfilled').length,1);assert.match(attempts.find(x=>x.status==='rejected').reason.message,/BROWSER_RESOURCE_LIMIT/);
+});
+check('R2 candidate storage keeps all 21 resources for paged human review',async({c,task,viewer,proof})=>{
+ const candidates=[candidate(task),...Array.from({length:21},(_,n)=>({...candidate(task),url:'https://portal.example/assets/'+n+'.css',role:'resource'}))];
+ const result=await browserWebReadCandidates(c,{tid:task.id,vid:viewer.id,expected_revision:1,proposal:{v:1,candidates},i:await proof('review'),d:hash});assert.equal(result.candidates.length,22);
+});
+check('R2 paused actor persists with the task revision for human and agent transitions',async({c,url,task,viewer,proof,boot,run})=>{
+ const {browserWebControl,browserRunEnd}=await import('../lib/browser/repository.mjs');
+ await browserWebControl(c,{tid:task.id,vid:viewer.id,op:'pause',epoch:Number(task.control_epoch),i:await proof('pause',{safe_result:{fenced:true}}),d:hash});
+ let t=(await c.query('SELECT * FROM browser_tasks WHERE id=$1',[task.id])).rows[0];assert.equal(t.paused_by,'initiator');assert.equal(t.paused_by_user_id,viewer.user_id);
+ await withLogin(url,'sjcos_browser',n=>browserRunEnd(n,{tid:task.id,rid:run,disposition:'completed',boot}));
+ t=(await c.query('SELECT * FROM browser_tasks WHERE id=$1',[task.id])).rows[0];assert.equal(t.paused_by,'agent');assert.equal(t.paused_by_user_id,null);
 });

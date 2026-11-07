@@ -23,7 +23,7 @@ test('R1 replay after >120s keeps original signed evidence and waits for SQL com
  const {sign}=await import('node:crypto');
  const exchange=async cp=>{wire=cp;original??=cp;if(offline)throw Error('offline');const {replay_sig,...payload}=cp;assert.equal(cp.time,original.time);assert.equal(cp.sig,original.sig);assert.ok(verify(null,Buffer.from(canonical(payload)),keys.publicKey,Buffer.from(replay_sig,'base64')));const a={v:1,seq:cp.seq,digest:cp.digest,sink:'s3-object-lock',object_key:'fixed',version_id:'v1',retain_until:new Date(now+100000).toISOString()};return {...a,ack_sig:sign(null,Buffer.from(canonical(a)),sink.privateKey).toString('base64')};};
  const opts={directory:dir,install_id:id(),boot_id:id(),privateKey:keys.privateKey,exporterPublicKey:sink.publicKey,clock:()=>now,exchange,readHead:async()=>({seq:0}),commit:async()=>{if(sqlDown)throw Error('SQL ACK lost');}};
- try{let c=createAuditCheckpointClient(opts);await assert.rejects(c.checkpoint({seq:1,digest:'ab'.repeat(32)}));now+=181000;offline=false;sqlDown=true;c=createAuditCheckpointClient({...opts,boot_id:id()});await assert.rejects(c.boot());assert.equal((await readdir(dir)).length,1);sqlDown=false;await c.boot();assert.equal(wire.boot_id,original.boot_id);assert.equal((await readdir(dir)).length,0);}finally{await rm(dir,{recursive:true,force:true});}
+ try{let c=createAuditCheckpointClient(opts);await assert.rejects(c.checkpoint({seq:1,digest:'ab'.repeat(32)}));now+=181000;offline=false;sqlDown=true;c=createAuditCheckpointClient({...opts,boot_id:id()});await assert.rejects(c.boot());assert.equal((await readdir(dir)).length,1);sqlDown=false;await c.boot();assert.equal(wire.boot_id,original.boot_id);assert.equal((await readdir(dir)).filter(x=>x!=='.committed.json').length,0);}finally{await rm(dir,{recursive:true,force:true});}
 });
 for(const reason of ['concurrent','expired','disconnected','failed'])test('R1 frame nonce claim '+reason,async()=>{
  let now=100,closed=false,release,calls=0;const authorize=async()=>{calls++;await new Promise(r=>release=r);return reason!=='failed';};
@@ -45,3 +45,17 @@ test('R1 previous-turn public output tickets cannot cross resumed fence',async()
 });
 // Pending/forged private audit ACK cannot invoke the stream subscription adapter.
 test('R1 controller frame-open refuses before subscription without verified runtime access',async()=>{const {createControllerHandlers}=await import('../lib/browser/production-bridge.mjs');let subscriptions=0;const handlers=createControllerHandlers({service:{io:{authorizeFrame:async()=>false}},key:Buffer.alloc(32,1),authorizeWeb:async()=>true,readMetadata:async()=>({}),readTask:async()=>({context_generation:1}),streamOpen:async()=>subscriptions++});await assert.rejects(handlers.stream_open({task_id:id(),viewer_id:id(),boot_id:id(),payload:{body:{stream_id:id(),stream_generation:1}}}));assert.equal(subscriptions,0);});
+
+// R2 Watch origin display contains only the active host, never page path/query.
+test('R2 runtime projection uses the current active page host',()=>{
+ const s=new BrowserService({io:{},uid:1001}),task=id();const page=(target,url)=>({_targetId:target,url:()=>url});
+ s.contexts.set(task,{reason:null,lastProgress:Date.now(),tabs:new Set(['a','b']),activeTarget:'b',context:{pages:new Set([page('a','https://old.example/x'),page('b','https://city.example/private?secret=canary')])}});
+ assert.equal(s.projection(task).site_label,'city.example');
+ const r=s.contexts.get(task);r.activeTarget=null;r.context.pages=new Set([{mainFrame:()=>({url:()=> 'https://county.example/secret?value=canary'})}]);assert.equal(s.projection(task).site_label,'county.example');
+});
+test('R2 protected website projection preserves the authorized task snapshot at one revision',async()=>{
+ const {createWebsiteProjection}=await import('../lib/browser/production-bridge.mjs'),owner=id(),task={id:id(),state:'active',revision:7,controller_user_id:null,controller_boot_id:id(),context_generation:1};let taskReads=0;
+ const project=createWebsiteProjection({ownerId:owner,transaction:fn=>fn({query:async sql=>{if(sql.includes('SELECT * FROM browser_tasks')){taskReads++;return {rows:[{...task,state:'paused',revision:8}]};}return {rows:sql.includes('FROM users')?[{name:'Taylor'}]:[{present:false}]};}}),runtimeProjection:async()=>({state_reason:null,site_label:'city.example',window_count:1})});
+ const result=await project({task,viewer:null,session:{userId:owner}});assert.equal(taskReads,0);assert.equal(task.state,'active');assert.equal(task.revision,7);assert.equal(result.site_label,'city.example');
+ const staff=await project({task,viewer:null,session:{userId:id()}});assert.equal(staff.site_label,null);
+});

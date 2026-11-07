@@ -130,3 +130,41 @@ test('R2 production endpoint leaf cannot select QA trust by environment or datab
  });
 });
 const awaitFlags=await import('../lib/browser/phase-flags.mjs');
+
+// R2 design expectations first: named human task/job/people metadata, consistent
+// list/detail revision and state, bounded candidate pages, and caller exclusion.
+const taskRow=(patch={})=>({id,initiator_user_id:id,conversation_id:id,current_run_id:null,state:'paused',private:false,privacy_mode:'public',origins:{v:1,entries:[{origin:'https://portal.example',role:'document'}]},required_areas:['ai'],manifest_revision:1,read_manifest_revision:2,control_epoch:1,document_epoch:0,context_generation:1,revision:7,attention:'none',purpose:'Find public permit requirements',confirmed_answers:[],paused_by:'initiator',paused_by_user_id:id,job_label:'Larson bath',...patch});
+test('R2 status and list use one task state/revision source and carry pause/job metadata',async()=>{
+ const t=taskRow(),p=await productionAdapter(sql=>sql.includes('FROM browser_tasks')?[t]:sql.includes('FROM ai_conversations')?[{id}]:sql.includes('FROM users')?[{name:'Abigail'}]:[]);
+ const call={request:req('/tasks?conversation_id='+id),session:user,context:{user:{id,role:'owner'},task:t,viewer:null},body:null,flags:{}};
+ const list=await p.adapter.execute({...call,operation:'tasks'}),detail=await p.adapter.execute({...call,operation:'status'});
+ assert.equal(list.items[0].revision,detail.revision);assert.equal(list.items[0].task.state,detail.task.state);assert.equal(list.items[0].snapshot.revision,String(detail.revision));
+ assert.equal(detail.paused_by,'initiator');assert.equal(detail.paused_by_label,'Abigail');assert.equal(detail.job_label,'Larson bath');assert.equal(detail.site_label,null);
+});
+test('R2 in-use excludes caller and returns short purpose and job titles',async()=>{
+ let query,args;const p=await productionAdapter((sql,a)=>{query=sql;args=a;return [{task_id:id,person_label:'Abigail',purpose:'Search '.repeat(20),job_label:'Larson bath',state:'active',revision:9}];});
+ const r=await p.adapter.execute({operation:'in_use',request:req('/in-use'),session:user,context:{user:{id,role:'owner'}},flags:{}});
+ assert.match(query,/initiator_user_id\s*<>\s*\$1/);assert.equal(args[0],id);assert.equal(r.items[0].task_label.length,60);assert.equal(r.items[0].job_label,'Larson bath');assert.equal(r.items[0].person_label,'Abigail');
+});
+test('R2 resources use signed 20-item paging and show trusted suggestion attribution',async()=>{
+ const candidates=Array.from({length:21},(_,n)=>({id:randomUUID(),url:'https://portal.example/'+n,role:'resource',source:['agent','person','page'][n%3],code:'BROWSER_REVIEW_REQUIRED',server_deadline:new Date(Date.now()+60000).toISOString(),parent_document_epoch:1}));
+ const p=await productionAdapter(sql=>sql.includes('browser_read_manifests')?[{revision:2,public_entries:{v:1,candidates},authorization_state:'pending',expires_at:new Date(Date.now()+60000)}]:sql.includes('FROM users')?[{name:'Abigail'}]:[]),base={operation:'reads_get',session:user,context:{user:{id},task:taskRow()},flags:{}};
+ const a=await p.adapter.execute({...base,request:req(`/tasks/${id}/reads`)});assert.equal(a.items.length,20);assert.ok(a.next_cursor);assert.equal(a.candidates[0].suggested_by,'agent');assert.equal(a.candidates[1].suggested_by_label,'Abigail');assert.equal(a.candidates[2].suggested_by,'page_link');
+ const b=await p.adapter.execute({...base,request:req(`/tasks/${id}/reads?cursor=${encodeURIComponent(a.next_cursor)}`)});assert.equal(b.items.length,1);assert.equal(b.next_cursor,null);
+});
+test('R2 settings supplies eligible named active staff/owner roster and rejects ineligible pilot IDs',async()=>{
+ const people=[{id,name:'Taylor',role:'owner',active:true,permissions:[]},{id:randomUUID(),name:'Abigail',role:'staff',active:true,permissions:[]}];
+ const settings=[{key:'browser.enabled',value:'true',updated_at:new Date(1000)},{key:'browser.pilot_user_ids',value:'[]',updated_at:new Date(1000)}];
+ const p=await productionAdapter(sql=>sql.includes('FROM users')?people:sql.includes('FROM app_settings')?settings:[]),base={request:req('/settings'),session:user,context:{user:{id,role:'owner'}},flags:{}};
+ const s=await p.adapter.execute({...base,operation:'settings_get'});assert.equal(s.people[0].label,'Taylor');assert.equal(s.people[0].eligible,true);assert.equal(s.people[1].eligible,false);assert.equal(s.people[1].reason_code,'BROWSER_FORBIDDEN');
+ await assert.rejects(p.adapter.execute({...base,operation:'settings',body:{expected_revision:1000,pilot_user_ids:[people[1].id]}}),/BROWSER_FORBIDDEN/);
+});
+test('R2 owner availability includes current person label; staff gets no identity',async()=>{
+ const p=await productionAdapter(sql=>sql.includes('FROM browser_tasks')?[{person_label:'Abigail'}]:[]);
+ for(const role of ['owner','staff']){const r=await p.adapter.execute({operation:'availability',request:req('/availability'),session:user,context:{user:{id,role}},flags:{}});assert.equal(r.busy_with_label,role==='owner'?'Abigail':null);}
+});
+test('R2 task create accepts optional job and refuses project access before classifier',async()=>{
+ assert.ok(transport.RequestSchemas.create.safeParse({conversation_id:id,task_kind:'public_research',purpose:'Research permits',project_id:id,origins:[{origin:'https://portal.example',role:'document'}],initial_url:'https://portal.example/',read_proposal:{v:1,entries:[{url:'https://portal.example/',role:'document',source:'person'}]},idempotency_key:id}).success);
+ let classified=false;const p=await productionAdapter(()=>[{id}],{websiteHooks:{classifyTask:async()=>{classified=true;return {task_kind:'public_research',catalog_version:1};}}});
+ await assert.rejects(p.adapter.execute({operation:'create',request:req('/tasks'),session:user,context:{user:{id,role:'staff',permissions:['ai']}},body:{conversation_id:id,project_id:id},flags:{}}),/BROWSER_FORBIDDEN/);assert.equal(classified,false);
+});

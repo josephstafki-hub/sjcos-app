@@ -207,7 +207,7 @@
     "db/migrations/0062_portal_telegram.sql": "85878f8cf90c1ec4731c51ec5cd45ff1409ebc1ef3a5bf9e902394e90780155e",
     "db/migrations/0100_ask_launch_sessions_browser_core.sql": "dd0deca0d6bc5ec0ea573fe6214d62889d238027e5d91a69256d0b4aa2d99f04",
     "db/migrations/0105_ask_thread_ownership.sql": "3a105fc3041b26f3ef73d7796bf7cdf4aff6dae3bfa5df9d4d8e9bcf85311cf3",
-    "db/schema.sql": "af00a8e453c86959bb9a0fbcf6395ff65a428feccdf39a429e28a0312d9e0d0f",
+    "db/schema.sql": "f3ab2acd3e9878ae475bd1f12104752ebf69f5b828a2fd6f90472b32d9f6cbb4",
     "db/seed-workflow-runbooks.mjs": "8f1b9e05bbb08312b1e81fd90aa1b852ce33b53367880dad4b4f3883281c0a29",
     "db/seed.sql": "fe0fa36f0ade311fe5d64ae7d878e249977ab3f653e29d9b24178dba87745400",
     "db/apply-push-outbox.mjs": "3466c5e4f0dbaecf175fd55c31de18a7a989a8972e399b86bdf05771c5739627",
@@ -256,17 +256,18 @@
     "db/migrations/0103_browser_file_provenance.sql": "d11dc01762025309fa978b790ae3687f9837cda11ec666d0f141209fd81cc02c",
     "db/migrations/0104_browser_rollout_catalog.sql": "933d805150678178e9e37c0dcfca13b1c5df5ac7dcd603da9a013daba8ada691",
     "lib/browser/model-history.mjs": "aea1e1c897ca3dfa1ba17879c46a24f60d3169814e787230dc9cda9901849dd8",
-    "lib/browser/repository.mjs": "a63a056bee29897766dca68534b16a413096761ee26f71d872e6af87f1403bbf",
-    "lib/browser/root-fixture.mjs": "fff1835c62526e0d71c3a76ddcb6175aa171eb4bcfdba7223b4190998d3b1994",
-    "db/migrations/0115_browser_phase1_runtime.sql": "22c58e7d33105289de3367267766e6700b122688defcfb0f83ffead052de945d",
-    "lib/browser/web.ts": "b92dadd57b35b1e22bfbae2e7a83b7701abdaabb3ecee868533b80b39dd6ceaf",
-    "lib/browser/production-bridge.mjs": "1931966c2a014240ed3ffa75dfbb0aefc063e0442cbd94da6693ec0d5a20528c",
+    "lib/browser/repository.mjs": "c6f1149fddc88a0df338bc3efcedffb11a8f37eeb0ba5057a7b66301642b9940",
+    "lib/browser/root-fixture.mjs": "53d15b2d9570bcad768e34fed730e7b3dc1d09ec48759e276d66de2bdb7af8c8",
+    "db/migrations/0115_browser_phase1_runtime.sql": "9c32833548c67c87ea921bc3d87935c20e8ad10ed531e80d557fa5c134162281",
+    "lib/browser/web.ts": "d13363d40d5385180cd82059020262d106f6fb0f4dde638acccdfc951abefe3c",
+    "lib/browser/production-bridge.mjs": "9d105379d4fe2fda50b69fce6b74d0412fec8fc32cfc9a29458869465a6a4283",
     "lib/browser/retention.mjs": "f848a6f1a9ea55131de309ebc6fc80b12b91e4237003f706c17de13fb3acde61",
-    "lib/browser/web-transport.mjs": "02a674cb1d6584fc1a3f8c207a4e6dddf0586fedd90a2e2edc883d82265f6a76",
-    "lib/browser/production-browser.mjs": "ab09edf7dc0e8000771b081e3e9a6c59deeb003aba7e4ab98bc6c0f9241424de",
+    "lib/browser/web-transport.mjs": "694d5e3ece08d3c6eb8074c83c62355bd3d91a92afdc041b96f67efb00b5fc27",
+    "lib/browser/production-browser.mjs": "be8f7efb4d6714e2678cc0ed6429dbad62920cceecea50458d231a892d7e0afd",
     "lib/browser/record-projections.mjs": "6eaf8f982dd650e61dfbfb49f0b371462a7e2c1019b94b4be94bfa01eb87b5bd",
-    "scripts/qa-seed-browser.mjs": "ce747848a8865289be13c2963305be243e9a3fb62144c4810796f74ada6b1c5f",
-    "scripts/qa-browser-fake-controller.mjs": "a33759009303808ba4dbd64ef24817f84e8749edf8d3b5d290d74b4756182630"
+    "scripts/qa-seed-browser.mjs": "36e4d403362e6c04a64734b82f69fdb0ebef06d4e478ab755e0853bd54e7ac7c",
+    "scripts/qa-browser-fake-controller.mjs": "a127bc300e41d1231a147aa34a55d36c3451d5ed8a22ae58afdd2066e1e7f33f",
+    "lib/browser/audit-service.mjs": "1cf4401533af45920409f7fb67f36d77f27cdc0bdb581b0db3efc8a426cab4c1"
   },
   "entries": [
     {
@@ -7198,7 +7199,6 @@
       "reason": "fenced-by-helper",
       "explanation": "A2a trusted website launch/projection only: explicit owner transactions; fresh task + browser_p1_viewer session/role/record checks, fixed Browser/panel_web run, short purpose-HMAC proof, guarded catalog attach and capability. Compensating failure revokes task runs; owner label from configured active owner ID. No callback or DSN from route/model input. Runtime and public facts hooks are protected installation adapters; absent refuses.",
       "queries": [
-        "d02df7f0417a9581ba3343f1edafaf5b582de2d3ca06e62f785654600e8dd0ec",
         "db23e8056a70e3ed6355a3dfd1b06dca15587365e11c810c2880d922ad146975",
         "39891d92fd745d2dde900258b480eadb507b057af95d5a2de62dd2fa5111f500"
       ]
@@ -7266,7 +7266,7 @@
       "reason": "fenced-by-helper",
       "explanation": "B2 website cookie/uncached person+task/areas/record/claim checks before every route; strict body CSRF+proof; same-transaction SQL mutations; authenticated stream/frame/session/epoch checks. Task classification and public facts/start require trusted hooks (no default caller label). Pending candidates human-only; no executable action. Queue projection returns own position; fixed status and owner-only In use. Source review is snapshot-specific; integration callbacks still required.",
       "queries": [
-        "f817378366ae646840cbb7d81354763653f44607981005c831340010c3c8e316"
+        "77ae7ff5f1aac2c60a7673dae9a297c7a4762128a06af1bddf065815124329cd"
       ]
     },
     {
@@ -7351,8 +7351,8 @@
       "reason": "fenced-by-helper",
       "explanation": "R1 uncached cookie/session/person/area/record guards precede queries. Private Watch requires exact owner/sid/viewer/context/stream consent plus independently checkpointed audit in SQL at open/per-frame. Joins return bounded pending status without frame authority. Metadata review candidates are human-only; Sites exact paths never autoapprove/replay.",
       "queries": [
-        "0167ef9da2c8db7c4f0c9203b5a2e14ab0dd3f0f7046dfcd37d86df70eacd7ae",
-        "dddfdd2d8938bda475c9920b7c0fa98d006205995b5e7e0dc939fcd79c741a4a",
+        "6b83ec845d925d8608f422aacfa4f38cf8bbb5a06f5881ac16dbfd39ebea279d",
+        "44e5ffab7aa7a93ced0b6ba23572c9c7c468410fdde13039abcd42f03dfd72b1",
         "b666a504ac154f7f9afff7070687fe633987503b2908c9b935e25b94f0432208",
         "782d6912bbe0f56552b14894ba83a980c3502433b2a55ffcb0c6c7e52e5c35aa",
         "b6fb7327c56c793c16be80aaa15ecc0e72d15ebf71ae2da8e18ab90e7f8debc5",
@@ -7405,7 +7405,7 @@
       "reason": "fenced-by-helper",
       "explanation": "R1 sole unapplied migration: kernel boot from narrow service offer, initial generation=1, immutable run continuation/capability revocation, post-transition private consent and exact checkpointed viewer binding. Owner-only retention progress; lifecycle/runtime-access definer checks live person/session/rights independently of model capability; no narrow table or approval grants.",
       "queries": [
-        "22c58e7d33105289de3367267766e6700b122688defcfb0f83ffead052de945d"
+        "9c32833548c67c87ea921bc3d87935c20e8ad10ed531e80d557fa5c134162281"
       ]
     },
     {
@@ -7415,7 +7415,7 @@
       "reason": "fenced-by-helper",
       "explanation": "R1 schema adds owner-only retention progress to advance bounded scrub batches. Existing protected browser/Ask schemas retain RLS, trigger guards and immutable provenance; no narrow grant additions.",
       "queries": [
-        "af00a8e453c86959bb9a0fbcf6395ff65a428feccdf39a429e28a0312d9e0d0f"
+        "f3ab2acd3e9878ae475bd1f12104752ebf69f5b828a2fd6f90472b32d9f6cbb4"
       ]
     },
     {
@@ -7509,7 +7509,7 @@
       "function": "seedBrowser",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "QA-only screenshot seed: qaTarget requires an explicit positional sjcos_qa_* name and matching explicit URL before constructing pg; seedBrowser calls qaGuard before private queries or writes. qaGuard requires SJC_QA_SIDE_BUILD=1, canonical absolute SJC_QA_BROWSER_FAKE under /home/joe/qa-sjcos/, and actual SELECT current_database() matching sjcos_qa_*. Only fixed QA principals and owned seeded threads/tasks/runs are written; actual website/service session_user identities and 0115 repository functions remain enforced. No ambient DB/.env, real model, grant or send. Writes of synthetic source messages/confirmed answers and notice presentation are intentionally confined to this disposable fixture.",
+      "explanation": "R2 reviewed explicit QA bootstrap: actual QA DB/private directory/env guards plus pinned cluster/non-live port; dedicated non-superuser LOGIN URLs verified on real connections before env publication. Fixed synthetic principals and their threads/tasks/runs only, through website/service identities. Task archival and run status SQL stay scenario-scoped. Coordinator env values preserved; no send/grant/model or ambient DSN.",
       "queries": [
         "3e542302927c7c0d873e9cdfc28598b83674546d29575707ac3758710b42486d",
         "f62515345984737a62e59f4e2b3fc18bf178fef4907ca07332e963ec852210b6"
@@ -7520,18 +7520,22 @@
       "function": "make",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "QA-only screenshot seed: qaTarget requires an explicit positional sjcos_qa_* name and matching explicit URL before constructing pg; seedBrowser calls qaGuard before private queries or writes. qaGuard requires SJC_QA_SIDE_BUILD=1, canonical absolute SJC_QA_BROWSER_FAKE under /home/joe/qa-sjcos/, and actual SELECT current_database() matching sjcos_qa_*. Only fixed QA principals and owned seeded threads/tasks/runs are written; actual website/service session_user identities and 0115 repository functions remain enforced. No ambient DB/.env, real model, grant or send. Writes of synthetic source messages/confirmed answers and notice presentation are intentionally confined to this disposable fixture.",
+      "explanation": "R2 reviewed explicit QA bootstrap: actual QA DB/private directory/env guards plus pinned cluster/non-live port; dedicated non-superuser LOGIN URLs verified on real connections before env publication. Fixed synthetic principals and their threads/tasks/runs only, through website/service identities. Task archival and run status SQL stay scenario-scoped. Coordinator env values preserved; no send/grant/model or ambient DSN.",
       "queries": [
-        "1451d16a3208a00e756f866da0d0b66922b085799bb77c3c67dc53b367de4b1b",
-        "1b8939625dfff0fbafb7fa84b446ce00f514b07919b77d60453ad348bb29ad90",
         "1f107fabe685a282b0851c3eee355107df9e445165a5e7ba214e7fad3c7cf168",
+        "5a3da86d35e26d8493a4aa292bec2b201e3cb84e5b3eb2335619dd39bf8cb07b",
+        "0986c52e4d081eff532119ffe67843b2d9808cc7fd65530fddb19697853441e6",
+        "d02df7f0417a9581ba3343f1edafaf5b582de2d3ca06e62f785654600e8dd0ec",
+        "1451d16a3208a00e756f866da0d0b66922b085799bb77c3c67dc53b367de4b1b",
+        "cca7a6c333212107d23073bd3fd5dd6cfc2bf82edc3824abac159596f3c14bbd",
+        "65875802259a7d50d6f5e01b1433f85c85617965503b7ac4ed3bda832ebfb04e",
+        "17ebf084964be8b1d3684fa243b1035ca7bca7f6575b17937a5dab4f84ff3946",
+        "b67afebaf7ad62de8720959f4cb65c7dfa5f6ce5ee6422bb7c21f40d03c78d32",
+        "efdd937fe816c068e650f41840adab591463886fefdc9973bb3d57699ab66abd",
         "3a572d0565e2937c67f99bd17a2333bc4f230f938c45a5c3487f6d00d6de92c4",
         "557c4d7e0d41e28e7e924df0a5e3f70107a810d320b9774a692eb3f3645e4834",
-        "5a3da86d35e26d8493a4aa292bec2b201e3cb84e5b3eb2335619dd39bf8cb07b",
-        "65875802259a7d50d6f5e01b1433f85c85617965503b7ac4ed3bda832ebfb04e",
-        "a234c06e3f8972aedfbb89d87950cc7033d9442fae266788dcbdf315d3906a56",
-        "cca7a6c333212107d23073bd3fd5dd6cfc2bf82edc3824abac159596f3c14bbd",
-        "efdd937fe816c068e650f41840adab591463886fefdc9973bb3d57699ab66abd",
+        "1b8939625dfff0fbafb7fa84b446ce00f514b07919b77d60453ad348bb29ad90",
+        "7840452eef55fc3464f39e89ebf99bf9d6eba54cf0966f7ee6f2cc0cd21a1bf3",
         "f75827b22261d38a1efd01cb1af0ba4ce6815d610f5f47de731aaceb97e597d3"
       ]
     },
@@ -7540,19 +7544,9 @@
       "function": "get",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "QA-only screenshot seed: qaTarget requires an explicit positional sjcos_qa_* name and matching explicit URL before constructing pg; seedBrowser calls qaGuard before private queries or writes. qaGuard requires SJC_QA_SIDE_BUILD=1, canonical absolute SJC_QA_BROWSER_FAKE under /home/joe/qa-sjcos/, and actual SELECT current_database() matching sjcos_qa_*. Only fixed QA principals and owned seeded threads/tasks/runs are written; actual website/service session_user identities and 0115 repository functions remain enforced. No ambient DB/.env, real model, grant or send. Writes of synthetic source messages/confirmed answers and notice presentation are intentionally confined to this disposable fixture.",
+      "explanation": "R2 reviewed explicit QA bootstrap: actual QA DB/private directory/env guards plus pinned cluster/non-live port; dedicated non-superuser LOGIN URLs verified on real connections before env publication. Fixed synthetic principals and their threads/tasks/runs only, through website/service identities. Task archival and run status SQL stay scenario-scoped. Coordinator env values preserved; no send/grant/model or ambient DSN.",
       "queries": [
         "d02df7f0417a9581ba3343f1edafaf5b582de2d3ca06e62f785654600e8dd0ec"
-      ]
-    },
-    {
-      "file": "scripts/qa-seed-browser.mjs",
-      "function": "writeQaEnvironment",
-      "classification": "fenced",
-      "reason": "fenced-by-helper",
-      "explanation": "QA-only screenshot seed: qaTarget requires an explicit positional sjcos_qa_* name and matching explicit URL before constructing pg; seedBrowser calls qaGuard before private queries or writes. qaGuard requires SJC_QA_SIDE_BUILD=1, canonical absolute SJC_QA_BROWSER_FAKE under /home/joe/qa-sjcos/, and actual SELECT current_database() matching sjcos_qa_*. Only fixed QA principals and owned seeded threads/tasks/runs are written; actual website/service session_user identities and 0115 repository functions remain enforced. No ambient DB/.env, real model, grant or send. Writes of synthetic source messages/confirmed answers and notice presentation are intentionally confined to this disposable fixture.",
-      "queries": [
-        "7e213594f0d93c1055ccdc0c048c0c1ba63806a854727df239a0675f5a1df956"
       ]
     },
     {
@@ -7560,7 +7554,7 @@
       "function": "anchorQaPrivateView",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "QA-only screenshot bridge/controller: every externally reachable loader, RPC/frame handler and audit anchor checks qaGuard against the actual connected DB plus both required QA env values and canonical private directory. Runtime website imports this bridge only after the same triple guard. Queries remain scoped to scenario task IDs and current task/run/viewer/stream bindings, real SQL owner consent/checkpoint checks, and actual website/service login separation. Reply/frame cryptographic validators are unchanged. Local QA audit events/checkpoints use separately generated mode0600 keys and the real protected writer/verifier + repository functions, explicitly qa_local_not_independent, never production readiness proof. Generic helpers are invoked only by these guarded entry points and accept explicit clients; no ambient production DB.",
+      "explanation": "R2 reviewed QA-only overlay/tooling, unreachable from production entry graph. Actual QA database and non-production port + canonical private directory + explicit QA env required; pinned cluster and real website/service LOGIN identities remain checked. Scenario task/run/viewer/stream scopes precede fixed SQL. Local signed consent checkpoints are fixture evidence only, never independent production custody. Generic helpers take explicit clients; no ambient production connection.",
       "queries": [
         "e87bc67ea6aa9e69e28c137295f64f85b7c701f4ce16610d539237136c7f3d90",
         "eb154c7a9156fc5cd25a3b43c64fd0f72c4ce6376f7618b5c1b824ed030412fb"
@@ -7571,7 +7565,7 @@
       "function": "qaProof",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "QA-only screenshot bridge/controller: every externally reachable loader, RPC/frame handler and audit anchor checks qaGuard against the actual connected DB plus both required QA env values and canonical private directory. Runtime website imports this bridge only after the same triple guard. Queries remain scoped to scenario task IDs and current task/run/viewer/stream bindings, real SQL owner consent/checkpoint checks, and actual website/service login separation. Reply/frame cryptographic validators are unchanged. Local QA audit events/checkpoints use separately generated mode0600 keys and the real protected writer/verifier + repository functions, explicitly qa_local_not_independent, never production readiness proof. Generic helpers are invoked only by these guarded entry points and accept explicit clients; no ambient production DB.",
+      "explanation": "R2 reviewed QA-only overlay/tooling, unreachable from production entry graph. Actual QA database and non-production port + canonical private directory + explicit QA env required; pinned cluster and real website/service LOGIN identities remain checked. Scenario task/run/viewer/stream scopes precede fixed SQL. Local signed consent checkpoints are fixture evidence only, never independent production custody. Generic helpers take explicit clients; no ambient production connection.",
       "queries": [
         "bca59649b2aedc4f6f6b2eefd8aa1459488b315dba93ff292ee5e55b1a9475b2"
       ]
@@ -7581,7 +7575,7 @@
       "function": "qaAttachRun",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "QA-only screenshot bridge/controller: every externally reachable loader, RPC/frame handler and audit anchor checks qaGuard against the actual connected DB plus both required QA env values and canonical private directory. Runtime website imports this bridge only after the same triple guard. Queries remain scoped to scenario task IDs and current task/run/viewer/stream bindings, real SQL owner consent/checkpoint checks, and actual website/service login separation. Reply/frame cryptographic validators are unchanged. Local QA audit events/checkpoints use separately generated mode0600 keys and the real protected writer/verifier + repository functions, explicitly qa_local_not_independent, never production readiness proof. Generic helpers are invoked only by these guarded entry points and accept explicit clients; no ambient production DB.",
+      "explanation": "R2 reviewed QA-only overlay/tooling, unreachable from production entry graph. Actual QA database and non-production port + canonical private directory + explicit QA env required; pinned cluster and real website/service LOGIN identities remain checked. Scenario task/run/viewer/stream scopes precede fixed SQL. Local signed consent checkpoints are fixture evidence only, never independent production custody. Generic helpers take explicit clients; no ambient production connection.",
       "queries": [
         "e73ccd8da9791f82150e02d4194d59ea5e600b47e4b3527ee6b66b24497d64ae"
       ]
@@ -7591,12 +7585,13 @@
       "function": "createQaWebsiteHooks",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "QA-only screenshot bridge/controller: every externally reachable loader, RPC/frame handler and audit anchor checks qaGuard against the actual connected DB plus both required QA env values and canonical private directory. Runtime website imports this bridge only after the same triple guard. Queries remain scoped to scenario task IDs and current task/run/viewer/stream bindings, real SQL owner consent/checkpoint checks, and actual website/service login separation. Reply/frame cryptographic validators are unchanged. Local QA audit events/checkpoints use separately generated mode0600 keys and the real protected writer/verifier + repository functions, explicitly qa_local_not_independent, never production readiness proof. Generic helpers are invoked only by these guarded entry points and accept explicit clients; no ambient production DB.",
+      "explanation": "R2 reviewed QA-only overlay/tooling, unreachable from production entry graph. Actual QA database and non-production port + canonical private directory + explicit QA env required; pinned cluster and real website/service LOGIN identities remain checked. Scenario task/run/viewer/stream scopes precede fixed SQL. Local signed consent checkpoints are fixture evidence only, never independent production custody. Generic helpers take explicit clients; no ambient production connection.",
       "queries": [
+        "d02df7f0417a9581ba3343f1edafaf5b582de2d3ca06e62f785654600e8dd0ec",
         "0cfc2b6d3e692c4bfda54c317f32adc2ec3229d1096a2c97cb1e6bce4c611b6e",
         "a104852751a818c6c9c84a1377fc34a2af398a10a8dcf8d4c17960dd3997b8e5",
-        "d02df7f0417a9581ba3343f1edafaf5b582de2d3ca06e62f785654600e8dd0ec",
-        "e2f7cd682c0ac0e8e0c254a3b5f55756b79ba171fe830128f2bef20f400a79e5"
+        "e2f7cd682c0ac0e8e0c254a3b5f55756b79ba171fe830128f2bef20f400a79e5",
+        "31cb26e1f49868c10f297b9203d3aa8d752e72503f8591b029c5e1174bb1a0b5"
       ]
     },
     {
@@ -7604,7 +7599,7 @@
       "function": "taskFor",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "QA-only screenshot bridge/controller: every externally reachable loader, RPC/frame handler and audit anchor checks qaGuard against the actual connected DB plus both required QA env values and canonical private directory. Runtime website imports this bridge only after the same triple guard. Queries remain scoped to scenario task IDs and current task/run/viewer/stream bindings, real SQL owner consent/checkpoint checks, and actual website/service login separation. Reply/frame cryptographic validators are unchanged. Local QA audit events/checkpoints use separately generated mode0600 keys and the real protected writer/verifier + repository functions, explicitly qa_local_not_independent, never production readiness proof. Generic helpers are invoked only by these guarded entry points and accept explicit clients; no ambient production DB.",
+      "explanation": "R2 reviewed QA-only overlay/tooling, unreachable from production entry graph. Actual QA database and non-production port + canonical private directory + explicit QA env required; pinned cluster and real website/service LOGIN identities remain checked. Scenario task/run/viewer/stream scopes precede fixed SQL. Local signed consent checkpoints are fixture evidence only, never independent production custody. Generic helpers take explicit clients; no ambient production connection.",
       "queries": [
         "d02df7f0417a9581ba3343f1edafaf5b582de2d3ca06e62f785654600e8dd0ec"
       ]
@@ -7614,12 +7609,13 @@
       "function": "dispatch",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "QA-only screenshot bridge/controller: every externally reachable loader, RPC/frame handler and audit anchor checks qaGuard against the actual connected DB plus both required QA env values and canonical private directory. Runtime website imports this bridge only after the same triple guard. Queries remain scoped to scenario task IDs and current task/run/viewer/stream bindings, real SQL owner consent/checkpoint checks, and actual website/service login separation. Reply/frame cryptographic validators are unchanged. Local QA audit events/checkpoints use separately generated mode0600 keys and the real protected writer/verifier + repository functions, explicitly qa_local_not_independent, never production readiness proof. Generic helpers are invoked only by these guarded entry points and accept explicit clients; no ambient production DB.",
+      "explanation": "R2 reviewed QA-only overlay/tooling, unreachable from production entry graph. Actual QA database and non-production port + canonical private directory + explicit QA env required; pinned cluster and real website/service LOGIN identities remain checked. Scenario task/run/viewer/stream scopes precede fixed SQL. Local signed consent checkpoints are fixture evidence only, never independent production custody. Generic helpers take explicit clients; no ambient production connection.",
       "queries": [
-        "b66bbeb2750977982b247ec5ba9b926b10687305ea823aaa441aa520d1cd295f",
+        "117f9304e963499998c364a1c41a84c10708cb42c12f434155d1013ac301b8fc",
         "d02df7f0417a9581ba3343f1edafaf5b582de2d3ca06e62f785654600e8dd0ec",
+        "fed02131cfed93adc3671a22aed7800004f390ef2d34de0a96667d3a76708b23",
         "f9a059c64222cc7154ddb111c0beefd30a5bae78f5181c45955fb53fca714fbe",
-        "fed02131cfed93adc3671a22aed7800004f390ef2d34de0a96667d3a76708b23"
+        "b66bbeb2750977982b247ec5ba9b926b10687305ea823aaa441aa520d1cd295f"
       ]
     },
     {
@@ -7627,7 +7623,7 @@
       "function": "rpc",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "QA-only screenshot bridge/controller: every externally reachable loader, RPC/frame handler and audit anchor checks qaGuard against the actual connected DB plus both required QA env values and canonical private directory. Runtime website imports this bridge only after the same triple guard. Queries remain scoped to scenario task IDs and current task/run/viewer/stream bindings, real SQL owner consent/checkpoint checks, and actual website/service login separation. Reply/frame cryptographic validators are unchanged. Local QA audit events/checkpoints use separately generated mode0600 keys and the real protected writer/verifier + repository functions, explicitly qa_local_not_independent, never production readiness proof. Generic helpers are invoked only by these guarded entry points and accept explicit clients; no ambient production DB.",
+      "explanation": "R2 reviewed QA-only overlay/tooling, unreachable from production entry graph. Actual QA database and non-production port + canonical private directory + explicit QA env required; pinned cluster and real website/service LOGIN identities remain checked. Scenario task/run/viewer/stream scopes precede fixed SQL. Local signed consent checkpoints are fixture evidence only, never independent production custody. Generic helpers take explicit clients; no ambient production connection.",
       "queries": [
         "bf10d339054d0c05f910396deea09555318289030e76eaaac3d02fb6411dd601"
       ]
@@ -7637,10 +7633,10 @@
       "function": "frame",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "QA-only screenshot bridge/controller: every externally reachable loader, RPC/frame handler and audit anchor checks qaGuard against the actual connected DB plus both required QA env values and canonical private directory. Runtime website imports this bridge only after the same triple guard. Queries remain scoped to scenario task IDs and current task/run/viewer/stream bindings, real SQL owner consent/checkpoint checks, and actual website/service login separation. Reply/frame cryptographic validators are unchanged. Local QA audit events/checkpoints use separately generated mode0600 keys and the real protected writer/verifier + repository functions, explicitly qa_local_not_independent, never production readiness proof. Generic helpers are invoked only by these guarded entry points and accept explicit clients; no ambient production DB.",
+      "explanation": "R2 reviewed QA-only overlay/tooling, unreachable from production entry graph. Actual QA database and non-production port + canonical private directory + explicit QA env required; pinned cluster and real website/service LOGIN identities remain checked. Scenario task/run/viewer/stream scopes precede fixed SQL. Local signed consent checkpoints are fixture evidence only, never independent production custody. Generic helpers take explicit clients; no ambient production connection.",
       "queries": [
-        "ba8d613698b2a0af1c4d2d40b4aefa22c15f238be569c7f14f9385416bdc68d3",
-        "f724f8986c5f207c7cd75f7acee9089448f1cd95e92985cdb8fe39d5d4b7f909"
+        "f724f8986c5f207c7cd75f7acee9089448f1cd95e92985cdb8fe39d5d4b7f909",
+        "ba8d613698b2a0af1c4d2d40b4aefa22c15f238be569c7f14f9385416bdc68d3"
       ]
     },
     {
@@ -7648,9 +7644,29 @@
       "function": "main",
       "classification": "fenced",
       "reason": "fenced-by-helper",
-      "explanation": "QA-only screenshot bridge/controller: every externally reachable loader, RPC/frame handler and audit anchor checks qaGuard against the actual connected DB plus both required QA env values and canonical private directory. Runtime website imports this bridge only after the same triple guard. Queries remain scoped to scenario task IDs and current task/run/viewer/stream bindings, real SQL owner consent/checkpoint checks, and actual website/service login separation. Reply/frame cryptographic validators are unchanged. Local QA audit events/checkpoints use separately generated mode0600 keys and the real protected writer/verifier + repository functions, explicitly qa_local_not_independent, never production readiness proof. Generic helpers are invoked only by these guarded entry points and accept explicit clients; no ambient production DB.",
+      "explanation": "R2 reviewed QA-only overlay/tooling, unreachable from production entry graph. Actual QA database and non-production port + canonical private directory + explicit QA env required; pinned cluster and real website/service LOGIN identities remain checked. Scenario task/run/viewer/stream scopes precede fixed SQL. Local signed consent checkpoints are fixture evidence only, never independent production custody. Generic helpers take explicit clients; no ambient production connection.",
       "queries": [
         "fdd060d0115d47cf7490ae50815252508fbee60740b7cbb5ad5de6c32fbf1a19"
+      ]
+    },
+    {
+      "file": "lib/browser/audit-service.mjs",
+      "function": "write",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "R2 owner-only website projection, after cookie/session/person/area/record authorization. Busy identity restricted to owner; no page text or transcript is exposed.",
+      "queries": [
+        "31d984372a32e1d17ad96256b6d6e67c57d14acdd9b56feed4bf02c63fbaabdd"
+      ]
+    },
+    {
+      "file": "lib/browser/web.ts",
+      "function": "busyWith",
+      "classification": "fenced",
+      "reason": "fenced-by-helper",
+      "explanation": "R2 owner-only website projection, after cookie/session/person/area/record authorization. Busy identity restricted to owner; no page text or transcript is exposed.",
+      "queries": [
+        "965477a58a0e1d7856e889b90e2f15fc6d02e55a37d3663813c9e27863d7b083"
       ]
     }
   ]

@@ -54,7 +54,8 @@ check('resource entries bind the committed parent and serialize the last use',as
 check('origin revision and revoked manifest invalidate approved reads',async({c,task,anchor,consume})=>{await anchor();await c.query('UPDATE browser_tasks SET manifest_revision=manifest_revision+1 WHERE id=$1',[task.id]);await denied(consume());});
 test('manifest approval expiry and group size are bounded',()=>{
  const task=makeTask(),m=makeManifest(task);assert.throws(()=>verifyReadManifest(m,{key,now:Date.parse(m.entries[0].expires_at)}));
- const entries=[...proposal.entries,...Array.from({length:21},(_,i)=>({url:'https://portal.example/assets/'+i+'.css',role:'resource',source:'page'}))];assert.throws(()=>buildReadManifest({proposal:{v:1,entries},actorProof:actor(task,randomUUID(),{staff:{id:randomUUID()}}),expectedRevision:1}));
+ const entries=[...proposal.entries,...Array.from({length:21},(_,i)=>({url:'https://portal.example/assets/'+i+'.css',role:'resource',source:'page'}))];assert.equal(buildReadManifest({proposal:{v:1,entries},actorProof:actor(task,randomUUID(),{staff:{id:randomUUID()}}),expectedRevision:1}).entries.length,22);
+ const excessive=[proposal.entries[0],...Array.from({length:129},(_,i)=>({url:'https://portal.example/assets/'+i+'.css',role:'resource',source:'page'}))];assert.throws(()=>buildReadManifest({proposal:{v:1,entries:excessive},actorProof:actor(task,randomUUID(),{staff:{id:randomUUID()}}),expectedRevision:1}));
 });
 
 // R1 expectations first: asset discovery blocks original flow, persists a

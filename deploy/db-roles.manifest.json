@@ -3062,7 +3062,7 @@
       ]
     },
     "web_sessions": {
-      "note": "0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."
+      "note": "0100/0115: private cookie/session/browser data, including durable pause actor metadata; website and narrowly scoped SECURITY DEFINER browser functions only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."
     },
     "browser_tasks": {
       "note": "0100: private cookie/session/browser data; website only. No agent, worker, readonly or service table privileges. Backup reads via pg_read_all_data."

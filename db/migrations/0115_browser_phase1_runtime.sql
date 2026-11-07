@@ -1,4 +1,6 @@
 -- Browser Phase 1 A0. Additive seam; does not activate a runtime.
+ALTER TABLE browser_tasks ADD COLUMN IF NOT EXISTS paused_by text CHECK(paused_by IN ('agent','initiator','owner','system'));
+ALTER TABLE browser_tasks ADD COLUMN IF NOT EXISTS paused_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL;
 ALTER TABLE browser_tasks ADD COLUMN IF NOT EXISTS task_kind text NOT NULL DEFAULT 'public_research' CHECK(task_kind IN ('public_research','permit','invoice','purchase'));
 ALTER TABLE browser_tasks ADD COLUMN IF NOT EXISTS revision bigint NOT NULL DEFAULT 1 CHECK(revision>0);
 ALTER TABLE browser_tasks ADD COLUMN IF NOT EXISTS context_generation bigint NOT NULL DEFAULT 0 CHECK(context_generation>=0);
@@ -116,7 +118,7 @@ BEGIN
  PERFORM browser_p1_service();
  IF op='DELETE' THEN RAISE EXCEPTION 'BROWSER_FORBIDDEN' USING ERRCODE='42501'; END IF;
  allowed:=CASE tab
- WHEN 'browser_tasks' THEN ARRAY['controller_boot_id','queue_offer_expires_at','state','private','privacy_mode','revision','control_epoch','document_epoch','bridge_nonce_seq','control_expires_at','controller_user_id','controller_device_hash','control_token_hash','current_run_id','closed_at','failure_code','updated_at','attention']
+ WHEN 'browser_tasks' THEN ARRAY['paused_by','paused_by_user_id','controller_boot_id','queue_offer_expires_at','state','private','privacy_mode','revision','control_epoch','document_epoch','bridge_nonce_seq','control_expires_at','controller_user_id','controller_device_hash','control_token_hash','current_run_id','closed_at','failure_code','updated_at','attention']
  WHEN 'browser_task_runs' THEN ARRAY['capability_revoked_at','disposition','ended_at','updated_at']
  WHEN 'browser_commands' THEN ARRAY['state','safe_result','updated_at']
  WHEN 'browser_viewers' THEN ARRAY['left_at','visible_until','control_expires_at','control_epoch','stream_generation','last_frame_uuid','owner_private_view_authorized_at','owner_private_context_generation','owner_private_authorization_revision','updated_at']
@@ -198,6 +200,13 @@ SELECT * INTO t FROM browser_tasks WHERE id=tid FOR UPDATE; IF t.id IS NULL THEN
  IF p.session_id<>session OR NOT coalesce(p.safe_result->>'device_secret_hash' ~ '^[0-9a-f]{64}$',false) THEN RAISE EXCEPTION 'BROWSER_FORBIDDEN' USING ERRCODE='42501'; END IF;
  IF private_view AND (p.safe_result->>'private_context_generation' IS DISTINCT FROM t.context_generation::text OR p.safe_result->>'private_authorization_revision' IS DISTINCT FROM t.revision::text) THEN RAISE EXCEPTION 'BROWSER_REVIEW_STALE' USING ERRCODE='42501'; END IF;
  IF (role='initiator' AND uid<>t.initiator_user_id) OR (role='owner_review' AND (NOT EXISTS(SELECT 1 FROM users WHERE id=uid AND role='owner') OR NOT EXISTS(SELECT 1 FROM browser_owner_views WHERE task_id=tid AND web_session_id=session AND expires_at>clock_timestamp() AND revoked_at IS NULL))) THEN RAISE EXCEPTION 'BROWSER_NOT_FOUND' USING ERRCODE='42501'; END IF;
+ -- Serialize retirement and admission on the already locked task. Retired
+ -- devices cannot resurrect old attendance, consent, stream or control proofs.
+ IF t.controller_device_hash IS NOT NULL AND NOT EXISTS(SELECT 1 FROM browser_viewers b JOIN web_sessions ws ON ws.id=b.web_session_id WHERE b.task_id=tid AND b.device_hash=t.controller_device_hash AND b.left_at IS NULL AND b.visible_until>clock_timestamp() AND ws.revoked_at IS NULL AND ws.expires_at>clock_timestamp()) THEN
+  UPDATE browser_tasks SET paused_by='system',paused_by_user_id=NULL,state=CASE WHEN state IN ('starting','active') THEN 'paused' ELSE state END,controller_user_id=NULL,controller_device_hash=NULL,control_token_hash=NULL,control_expires_at=NULL,control_epoch=control_epoch+1,revision=revision+1 WHERE id=tid;
+ END IF;
+ UPDATE browser_viewers b SET left_at=clock_timestamp(),visible_until=clock_timestamp(),control_expires_at=NULL,last_frame_uuid=NULL,stream_id=gen_random_uuid(),stream_generation=stream_generation+1,owner_private_view_authorized_at=NULL,owner_private_context_generation=NULL,owner_private_authorization_revision=NULL
+ WHERE b.task_id=tid AND b.left_at IS NULL AND (b.visible_until<=clock_timestamp() OR NOT EXISTS(SELECT 1 FROM web_sessions ws WHERE ws.id=b.web_session_id AND ws.revoked_at IS NULL AND ws.expires_at>clock_timestamp()));
  SELECT * INTO existing FROM browser_viewers b WHERE b.task_id=tid AND b.web_session_id=session AND b.device_hash=browser_web_join.device_hash AND b.left_at IS NULL FOR UPDATE;
  IF existing.id IS NOT NULL THEN
   IF existing.joined_role<>role OR existing.device_secret_hash IS DISTINCT FROM decode(p.safe_result->>'device_secret_hash','hex') THEN RAISE EXCEPTION 'BROWSER_FORBIDDEN' USING ERRCODE='42501'; END IF;
@@ -229,7 +238,7 @@ BEGIN
  PERFORM browser_p1_proof(t.id,vid,'leave',i,p.body_digest);
  UPDATE browser_viewers SET left_at=clock_timestamp(),visible_until=clock_timestamp(),stream_generation=stream_generation+1,control_expires_at=clock_timestamp() WHERE id=vid;
  IF t.controller_device_hash=v.device_hash OR (v.joined_role='initiator' AND NOT EXISTS(SELECT 1 FROM browser_viewers WHERE task_id=t.id AND joined_role='initiator' AND left_at IS NULL AND visible_until>clock_timestamp())) THEN
-  UPDATE browser_tasks SET state='paused',control_epoch=control_epoch+1,controller_user_id=NULL,controller_device_hash=NULL,control_token_hash=NULL,control_expires_at=NULL,revision=revision+1 WHERE id=t.id AND state IN ('starting','active','paused');
+  UPDATE browser_tasks SET state='paused',paused_by='system',paused_by_user_id=NULL,control_epoch=control_epoch+1,controller_user_id=NULL,controller_device_hash=NULL,control_token_hash=NULL,control_expires_at=NULL,revision=revision+1 WHERE id=t.id AND state IN ('starting','active','paused');
  END IF;
  UPDATE browser_web_commands SET state='succeeded' WHERE id=p.id;
  PERFORM browser_p1_outbox(t.id,'viewer_left','BROWSER_OK');
@@ -362,7 +371,7 @@ SELECT * INTO t FROM browser_tasks WHERE id=tid FOR UPDATE; IF t.id IS NULL THEN
  IF op IN ('take_over','fresh_browser') AND (p.safe_result->>'drained' IS DISTINCT FROM 'true' OR p.safe_result->>'context_generation' IS DISTINCT FROM t.context_generation::text OR EXISTS(SELECT 1 FROM browser_commands WHERE task_id=tid AND state IN ('running','unknown')) OR EXISTS(SELECT 1 FROM browser_actions WHERE task_id=tid AND state IN ('executing','unknown'))) THEN RAISE EXCEPTION 'BROWSER_REVIEW_PENDING' USING ERRCODE='42501'; END IF;
  IF op='take_over' THEN
   IF NOT t.private OR t.vault_dependency<>'none' OR (v.joined_role='owner_review' AND NOT browser_p1_private_view(t,v)) OR NOT coalesce(p.safe_result->>'control_token_hash' ~ '^[0-9a-f]{64}$',false) THEN RAISE EXCEPTION 'BROWSER_PRIVATE_INPUT_REQUIRED' USING ERRCODE='42501'; END IF;
-  UPDATE browser_tasks SET state='paused',controller_user_id=v.user_id,controller_device_hash=v.device_hash,control_token_hash=decode(p.safe_result->>'control_token_hash','hex'),control_expires_at=least(v.visible_until,clock_timestamp()+interval '15 seconds'),control_epoch=control_epoch+1,revision=revision+1 WHERE id=tid;
+  UPDATE browser_tasks SET paused_by=CASE WHEN v.user_id=t.initiator_user_id THEN 'initiator' ELSE 'owner' END,paused_by_user_id=v.user_id,state='paused',controller_user_id=v.user_id,controller_device_hash=v.device_hash,control_token_hash=decode(p.safe_result->>'control_token_hash','hex'),control_expires_at=least(v.visible_until,clock_timestamp()+interval '15 seconds'),control_epoch=control_epoch+1,revision=revision+1 WHERE id=tid;
  UPDATE browser_viewers SET control_epoch=t.control_epoch+1,control_expires_at=least(v.visible_until,clock_timestamp()+interval '15 seconds') WHERE id=vid;
  ELSIF op='fresh_browser' THEN
   IF t.state<>'paused' OR p.safe_result->>'fenced' IS DISTINCT FROM 'true' OR p.safe_result->>'old_generation' IS DISTINCT FROM t.context_generation::text THEN RAISE EXCEPTION 'BROWSER_REVIEW_STALE' USING ERRCODE='42501'; END IF;
@@ -373,7 +382,7 @@ SELECT * INTO t FROM browser_tasks WHERE id=tid FOR UPDATE; IF t.id IS NULL THEN
   UPDATE browser_tasks SET private=false,privacy_mode='public',current_run_id=NULL,controller_boot_id=t.controller_boot_id,listener_generation=listener_generation+1,context_generation=context_generation+1,document_epoch=document_epoch+1,control_epoch=control_epoch+1,controller_user_id=NULL,controller_device_hash=NULL,control_token_hash=NULL,control_expires_at=NULL,revision=revision+1 WHERE id=tid;
  ELSE
   IF op='resume' THEN UPDATE browser_task_runs SET disposition='stopped',ended_at=clock_timestamp(),capability_revoked_at=coalesce(capability_revoked_at,clock_timestamp()) WHERE task_id=tid AND disposition='running'; END IF;
-  UPDATE browser_tasks SET state=CASE op WHEN 'stop' THEN 'closed' WHEN 'resume' THEN 'paused' ELSE 'paused' END,closed_at=CASE WHEN op='stop' THEN clock_timestamp() ELSE closed_at END,control_epoch=control_epoch+1,controller_user_id=NULL,controller_device_hash=NULL,control_token_hash=NULL,control_expires_at=NULL,revision=revision+1 WHERE id=tid;
+  UPDATE browser_tasks SET paused_by=CASE WHEN op='stop' THEN NULL WHEN v.user_id=t.initiator_user_id THEN 'initiator' ELSE 'owner' END,paused_by_user_id=CASE WHEN op='stop' THEN NULL ELSE v.user_id END,state=CASE op WHEN 'stop' THEN 'closed' WHEN 'resume' THEN 'paused' ELSE 'paused' END,closed_at=CASE WHEN op='stop' THEN clock_timestamp() ELSE closed_at END,control_epoch=control_epoch+1,controller_user_id=NULL,controller_device_hash=NULL,control_token_hash=NULL,control_expires_at=NULL,revision=revision+1 WHERE id=tid;
  END IF;
  UPDATE browser_task_runs SET capability_revoked_at=coalesce(capability_revoked_at,clock_timestamp()) WHERE task_id=tid;
  UPDATE browser_web_commands SET state='succeeded' WHERE id=p.id;
@@ -464,7 +473,7 @@ SELECT * INTO t FROM browser_tasks WHERE id=tid FOR UPDATE; IF t.id IS NULL THEN
  IF boot IS NULL OR t.controller_boot_id IS DISTINCT FROM boot OR expected_epoch<>t.control_epoch OR mode IS DISTINCT FROM 'private' OR t.state NOT IN ('active','paused') THEN RAISE EXCEPTION 'BROWSER_REVIEW_STALE' USING ERRCODE='42501'; END IF;
  UPDATE browser_task_runs SET capability_revoked_at=coalesce(capability_revoked_at,clock_timestamp()) WHERE task_id=tid;
  UPDATE browser_viewers SET stream_generation=stream_generation+1,last_frame_uuid=NULL,control_expires_at=NULL,owner_private_view_authorized_at=NULL,owner_private_context_generation=NULL,owner_private_authorization_revision=NULL WHERE task_id=tid AND left_at IS NULL;
- UPDATE browser_tasks SET private=true,privacy_mode='private',state='paused',control_epoch=control_epoch+1,revision=revision+1 WHERE id=tid;
+ UPDATE browser_tasks SET private=true,privacy_mode='private',state='paused',paused_by='system',paused_by_user_id=NULL,control_epoch=control_epoch+1,revision=revision+1 WHERE id=tid;
 SELECT * INTO t FROM browser_tasks WHERE id=tid; PERFORM browser_p1_outbox(tid,'task_transition','BROWSER_OK');
  RETURN browser_p1_safe(t);
 END $$;
@@ -479,7 +488,7 @@ SELECT * INTO t FROM browser_tasks WHERE id=tid FOR UPDATE; IF t.id IS NULL THEN
  UPDATE browser_task_runs SET capability_revoked_at=coalesce(capability_revoked_at,clock_timestamp()) WHERE task_id=tid;
  UPDATE browser_commands SET state=CASE WHEN state='running' THEN 'unknown' ELSE 'failed' END WHERE task_id=tid AND state IN ('accepted','running');
  UPDATE browser_viewers SET visible_until=clock_timestamp(),control_expires_at=clock_timestamp(),stream_generation=stream_generation+1,last_frame_uuid=NULL WHERE task_id=tid;
- UPDATE browser_tasks SET state=next,closed_at=CASE WHEN next IN ('closed','failed') THEN clock_timestamp() ELSE NULL END,failure_code=code,control_epoch=control_epoch+1,controller_user_id=NULL,controller_device_hash=NULL,control_token_hash=NULL,control_expires_at=NULL,revision=revision+1 WHERE id=tid;
+ UPDATE browser_tasks SET paused_by=CASE WHEN next='paused' THEN CASE WHEN EXISTS(SELECT 1 FROM browser_task_runs WHERE task_id=tid AND run_id=t.current_run_id AND ended_at IS NOT NULL) THEN 'agent' ELSE 'system' END END,paused_by_user_id=NULL,state=next,closed_at=CASE WHEN next IN ('closed','failed') THEN clock_timestamp() ELSE NULL END,failure_code=code,control_epoch=control_epoch+1,controller_user_id=NULL,controller_device_hash=NULL,control_token_hash=NULL,control_expires_at=NULL,revision=revision+1 WHERE id=tid;
 SELECT * INTO t FROM browser_tasks WHERE id=tid; PERFORM browser_p1_outbox(tid,'task_transition','BROWSER_REVOKED');
  RETURN browser_p1_safe(t);
 END $$;
@@ -851,7 +860,7 @@ BEGIN
  IF t.id IS NULL THEN RAISE EXCEPTION 'BROWSER_NOT_FOUND' USING ERRCODE='42501';END IF;
  v:=browser_p1_viewer(t,vid);p:=browser_p1_proof(tid,vid,'review',i,d);
  IF v.joined_role<>'initiator' OR v.user_id<>t.initiator_user_id OR p.session_id<>v.web_session_id OR t.private OR t.privacy_mode<>'public' OR t.state NOT IN ('active','paused') OR expected_revision<>coalesce((SELECT max(revision) FROM browser_read_manifests WHERE task_id=tid),0) THEN RAISE EXCEPTION 'BROWSER_REVIEW_STALE' USING ERRCODE='42501'; END IF;
- IF proposal IS NULL OR (proposal-ARRAY['v','candidates'])<>'{}' OR NOT proposal ?& ARRAY['v','candidates'] OR proposal->>'v'<>'1' OR jsonb_typeof(proposal->'candidates') IS DISTINCT FROM 'array' OR jsonb_array_length(proposal->'candidates') NOT BETWEEN 1 AND 20 OR octet_length(proposal::text)>65536 THEN RAISE EXCEPTION 'BROWSER_BAD_INPUT' USING ERRCODE='22023';END IF;
+ IF proposal IS NULL OR (proposal-ARRAY['v','candidates'])<>'{}' OR NOT proposal ?& ARRAY['v','candidates'] OR proposal->>'v'<>'1' OR jsonb_typeof(proposal->'candidates') IS DISTINCT FROM 'array' OR jsonb_array_length(proposal->'candidates') NOT BETWEEN 1 AND 192 OR octet_length(proposal::text)>65536 THEN RAISE EXCEPTION 'BROWSER_BAD_INPUT' USING ERRCODE='22023';END IF;
  exp:=clock_timestamp()+interval '60 seconds';
  FOR c IN SELECT value FROM jsonb_array_elements(proposal->'candidates') LOOP
   IF jsonb_typeof(c)<>'object' OR (c-ARRAY['id','url','role','source','code','server_deadline','parent_document_epoch'])<>'{}' OR NOT c ?& ARRAY['id','url','role','source','code','server_deadline','parent_document_epoch'] OR c->>'role' NOT IN ('document','resource') OR c->>'source' NOT IN ('person','agent','page') OR c->>'code' NOT IN ('BROWSER_REVIEW_REQUIRED','BROWSER_REVIEW_PENDING','BROWSER_READ_PROVENANCE_UNKNOWN') OR c->>'id' !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$' OR (c->>'parent_document_epoch')::bigint<>t.document_epoch+1 OR c->>'server_deadline' IS NULL OR (c->>'server_deadline')::timestamptz<=clock_timestamp() OR (c->>'server_deadline')::timestamptz>clock_timestamp()+interval '60 seconds' OR jsonb_typeof(c->'url')<>'string' OR octet_length(c->>'url')>2048 OR c->>'url' !~ '^https://[a-z0-9][a-z0-9.-]*/' OR c->>'url' ~ '[#@\\\x00-\x20]' OR NOT EXISTS(SELECT 1 FROM jsonb_array_elements(t.origins->'entries') a WHERE c->>'url' LIKE (a->>'origin')||'/%' AND (c->>'role'='resource' OR a->>'role'='document')) THEN RAISE EXCEPTION 'BROWSER_READ_PROVENANCE_UNKNOWN' USING ERRCODE='42501';END IF;

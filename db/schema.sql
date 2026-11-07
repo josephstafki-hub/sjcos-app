@@ -4557,6 +4557,8 @@ DO $$ DECLARE tab text; BEGIN
  EXECUTE format('CREATE TRIGGER guard_browser_truncate_schema BEFORE TRUNCATE ON %I FOR EACH STATEMENT EXECUTE FUNCTION browser_schema_no_truncate()',tab);
  END LOOP; END $$;
 
+ALTER TABLE browser_tasks ADD COLUMN IF NOT EXISTS paused_by text CHECK(paused_by IN ('agent','initiator','owner','system'));
+ALTER TABLE browser_tasks ADD COLUMN IF NOT EXISTS paused_by_user_id uuid REFERENCES users(id) ON DELETE SET NULL;
 -- 0115 additive snapshot; functions/guards/grants installed by ordered ledger.
 -- Browser Phase 1 A0. Additive seam; does not activate a runtime.
 ALTER TABLE browser_tasks ADD COLUMN IF NOT EXISTS task_kind text NOT NULL DEFAULT 'public_research' CHECK(task_kind IN ('public_research','permit','invoice','purchase'));

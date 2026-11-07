@@ -1,4 +1,4 @@
-# Browser Phase 1 — QA-only overlay fixture (round 4)
+# Browser Phase 1 — QA-only overlay fixture (round 5)
 
 This is a screenshot fixture, not production runtime/release acceptance. The
 production website imports only `lib/browser/runtime-endpoints.ts`, whose
@@ -138,7 +138,7 @@ thread in Operator to test sheet/dock. Owner Watch uses the **staff** entry's
 |---|---|
 | `off`, `unsupported`, `empty` | Off uses the actual DB flag; unsupported: select non-Claude; empty uses an owned thread with no task. Restore by seeding another state. |
 | `sites_empty`, `sites_added` | Open Sites; cancel/add a public address explicitly. Approved exact addresses come from the real initial manifest. |
-| `queued`, `queue_full`, `queue_expired`, `offer`, `offer_expired`, `starting` | Real queued admission and offer functions; staff is position2 when both are waiting. Offer has its original30s deadline, queue5min. Full is a synthetic safe error projection, not an eight-user queue. |
+| `queued`, `queue_full`, `queue_expired`, `offer`, `offer_expired`, `starting` | Real queued admission and offer functions. `queued` and `queue_full` now keep Abigail active/attended while the owner waits; use the owner URL and staff Watch URL. Expired/offer recipes retain both waiting people. Offer has its original30s deadline, queue5min. Full is a synthetic safe error projection, not an eight-user queue. |
 | `working`, `paused`, `paused_private`, `other_device` | Real attached public run / paused transition / private barrier. Another device has a distinct persisted device hash. |
 | `takeover_confirm`, `taking_over`, `controlling` | Start public; Take over → confirm. Taking-over ACK delays1s (below B's2s RPC timeout). Control token is minted by the real web route, in memory only. |
 | `done` | Take over → confirm → Done; first prompt then Keep paused. Leave/return; no private Continue. |
@@ -189,7 +189,7 @@ Run the fixture test file alone with its own unique tag; its after-hook stops
 that tagged harness cluster and removes its unique state/overlay directories:
 
 ```bash
-SJC_TEST_CLUSTER_TAG=browser-p1-r2q-UNIQUE_NONCE node --test tests/qa-browser-fixture.test.mjs
+SJC_TEST_CLUSTER_TAG=browser-p1-r5q-UNIQUE_NONCE node --test tests/qa-browser-fixture.test.mjs
 flock /tmp/sjcos-tsc.lock nice -n 19 npx tsc --noEmit -p .
 ```
 
@@ -227,13 +227,13 @@ backend failure needs a real concurrent edit/failure, not another fixture flag.
 
 Private-query and root source inventories must be reviewed/refreshed by their
 owners after all builders freeze, including these changed QA SQL/source hashes.
-This task owns no scanner allowlist or root source inventory and weakens no scan.
+Round 5 refreshes only the owned QA seed source hash in the private-query allowlist after verifying its SQL query inventory is unchanged; the root source inventory remains coordinator-owned. No scan is weakened.
 
 
 ## Round 4 recovery / missing-evidence recipes
 
 Use `--state NAME --refresh` and reload the new `urls.json` URL before each
-shoot. The scenario format is now revision 4; an older scenario gets one
+shoot. The scenario format is now revision 5; an older scenario gets one
 automatic refresh. Controls are files in the selected fixture directory, not
 query-string UI switches. A fresh selection/refresh removes old release files.
 The fake rereads these files without restarting. Scope UI locators to
@@ -247,18 +247,51 @@ The fake rereads these files without restarting. Scope UI locators to
 | `earlier_view` | Open own task → Browser; receive two signed frames, then after ~2s the fake retains the last frame and sends no replacement frames. Its signed `read_state` response reports `navigation.loading: true`; the QA navigation hook also reports loading. **Integration limit:** the current production `navigationProjection` discards loading and the UI's `browserModel` has no loading transition. The fixture alone therefore cannot yet render **Earlier view** through the current web contract. UI/server owners must wire a permitted loading signal without clearing the retained frame; then capture **Earlier view**, image name `Live view of city.example. Loading city.example….`. No forced UI state or product edit is included here. |
 | `resource_21_pending` (also corrected `resource_21`) | Open own task → Browser. 21 pending resource candidates are submitted through `browser_web_read_candidates`, with original 59s deadlines. First page has **20**, **Next files** gives **1**. Capture “Too many files to review at once.”, disabled **Allow these files once**, and **Next files** before paging. |
 | `resource_expiring` | Open own task → Browser immediately after refresh. Both real candidate and review notice deadlines are **20 seconds from seeding**; wait until 21 seconds after seed on the same page. Capture “These page addresses need a fresh review before they can be allowed.” and disabled **Allow these files once**. GET never extends the SQL manifest deadline. |
-| `audit_pending_hold` | Owner opens **staff** entry's `watch_url` → **Show the page**. Capture “Waiting to show the private page…” with no image at 360/820. Held indefinitely: do not refresh/reseed. Run `touch "$SJC_QA_BROWSER_FAKE/release-audit"`; within the next normal 5s detail poll the website sends a signed presence proof to the fake, which writes the real local QA audit checkpoint/ACK. Consent stays bound to that same task/viewer; private image can then appear. This is local QA custody, not an independent production sink. |
+| `audit_pending_hold` | Owner opens **staff** entry's `watch_url` → **Show the page**. Capture “Waiting to show the private page…” with no image at 360/820. Held indefinitely: do not refresh/reseed. Run `touch "$SJC_QA_BROWSER_FAKE/release-audit"`; the next normal 5s detail poll sends a signed presence proof to the fake, which writes the real local QA audit checkpoint/ACK through the protected writer and SQL verifier. Wait **at least 11 seconds after touching release-audit** (two detail polls), then capture the private image and “Private — only you and Abigail see this page.” Keep the panel visible; do not re-consent, refresh or reseed. The same consenting viewer/stream remains usable after authorization; subsequent polls do not rotate it. This is local QA custody, not an independent production sink. |
 
-`owner_queued` means the `owner_queued` URL-map entry selected by `--state queued`;
-`--state queue_expired` supplies `owner_queue_expired`. Neither has a controller
-boot or run before acceptance. The regression verifies successful joins and
-queue projections for both people, and verifies an attempted owner events GET
-fails **in the website before any fake socket call**, including after join.
-Thus events 503 is not emitted by the fake. Opening SSE merely after join is
-still too early for queued tasks; wait until active/paused. The parallel UI
-builder now guards SSE by task state, stream ID/generation and enabled status.
-Re-shoot the owner queue states using that UI update. No invented queue boot or
-SQL admission bypass was added to this fixture.
+### Round 5 owner busy / queued
+
+`--state owner_queued_busy --refresh` is the explicit named-holder recipe;
+`--state queued --refresh` and `--state queue_full --refresh` also seed that
+holder. For example:
+
+```bash
+node scripts/qa-seed-browser.mjs sjcos_qa_browser_p1 --state owner_queued_busy --refresh > "$SJC_QA_BROWSER_FAKE/urls.json"
+```
+
+Open `owner_owner_queued_busy.url` (or `owner_queued.url` for `queued`) as Taylor,
+then Browser. Expect “Browser is busy. Abigail is using it.” at 360/1280;
+In use / Watch points to Abigail's `staff_working.watch_url` (also exposed on
+`staff_owner_queued_busy`). For `queue_full`, use `owner_queue_full.url` to
+capture the safe queue-full error with Abigail still active in availability.
+
+The seed retires the owner's previous task first, admits Abigail through real
+queue offer/accept, joins her initiator viewer, attaches a real running QA agent
+run and mints its capability, then admits the owner. Abigail's seed viewer is
+retained, using the same QA-only eight-hour session-bounded attendance convention
+as `other_device`; no actual model/browser process runs. Refresh before a new
+capture session. Both the website detail and availability return
+`busy_with_label = "Abigail"`; In use names her, while staff detail hides the
+owner-only label. No product projection is overridden. Queue-expired/offer
+recipes keep their separate two-person queue evidence.
+
+The owner's queued task still has no controller boot/run. Regression coverage
+checks that its events GET is rejected by the website before fake socket IO;
+Abigail's active task does not turn a queued owner's task into a streamable one.
+
+### Round 5 audit release verification
+
+`audit_pending_hold` keeps private consent pending indefinitely until
+`touch "$SJC_QA_BROWSER_FAKE/release-audit"`. Capture **11 seconds or more**
+after that touch, on the same visible panel. The polling hook retries through
+signed presence RPC, the fake anchors the exact task/viewer consent through the
+protected audit writer, signed checkpoint and SQL ACK, and the website reports
+`authorized`. Tests exercise that website polling path with mocked Node socket
+IO, then another poll and repeated signed private JPEGs on the unchanged stream.
+No fake authorization/stream behavior change was needed. If the page still says
+“Couldn't connect”, check the UI's consent-rejoin viewer binding (Required 2 of
+the round 5 review); additional waiting cannot repair a stale viewer. Local QA
+custody remains distinct from independent production audit acceptance.
 
 Other Required 1 shots remain coordinator UI actions: at 820 on /today click
 the Operator pill by its accessible name matching `/Operator/` (exclude the mic),
@@ -278,3 +311,14 @@ rejection before fake IO. Locked `tsc --noEmit -p .`: **exit 0**. No browsers,
 Next commands, socket listeners, QA coordinator clusters, live services or
 product-code edits were used by this builder. The Earlier view integration
 limit above remains unresolved within fixture ownership.
+
+
+Round 5 fixture verification: **19/19 passed**, zero failed/skipped, using a
+unique `browser-p1-r5q-<nonce>` harness cluster with ambient database URLs unset.
+The after-hook stopped the cluster and removed fixture/overlay directories.
+Private-query scan: **11/11 passed** (seed SQL unchanged; enclosing source hash
+reviewed for the new real-path holder/attendance selection). Locked TypeScript
+check: **exit 0**. No product code, browser, Next command, coordinator cluster,
+live DB/service or dependency installation was used. Coordinator visual checks:
+owner queued at 360/1280 and private Watch at 360/820/1280 at least 11 seconds
+after audit release.

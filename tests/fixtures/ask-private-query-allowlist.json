@@ -265,7 +265,7 @@
     "lib/browser/web-transport.mjs": "e1a6031947cd0dde176a8282e785247b05e17219aed2835353a26e5005715d8b",
     "lib/browser/production-browser.mjs": "be8f7efb4d6714e2678cc0ed6429dbad62920cceecea50458d231a892d7e0afd",
     "lib/browser/record-projections.mjs": "6eaf8f982dd650e61dfbfb49f0b371462a7e2c1019b94b4be94bfa01eb87b5bd",
-    "scripts/qa-seed-browser.mjs": "0e9b86231f1b96fdbc9c5d491ca85e261cd245cf0d10680a42a296ff06eff385",
+    "scripts/qa-seed-browser.mjs": "b5a982e03eec43f1d607024c1235d91144774249eacce8337110c22ab7698aa5",
     "scripts/qa-browser-fake-controller.mjs": "adafb7739aeaaece93c52416d6f8a15844abdef631ca9ad9e657844b08e37fef",
     "lib/browser/audit-service.mjs": "1cf4401533af45920409f7fb67f36d77f27cdc0bdb581b0db3efc8a426cab4c1"
   },

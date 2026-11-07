@@ -10,6 +10,7 @@ import {buildReadManifest} from '../lib/browser/read-manifest.mjs';
 
 export const BASE_STATES=['empty','queue_full','queued','offer','offer_expired','queue_expired','starting','working','paused','paused_private','idle_warning','idle_closed','crashed','latched','absent','turn_ended','owner_paused','unknown','read_review','resource_review','write_blocked','final_blocked','auth_expired','access_removed','closed','service_unavailable','other_device'];
 export const RECIPES={
+ owner_queued_busy:['queued','Owner opens own Browser: Abigail is actively using the browser. Staff working entry supplies Watch.'],
  disconnected_public:['paused','Wait 3 seconds for stream drop; touch release-disconnect, then Reconnect → Resume.'],
  disconnected_private:['paused_private','Wait 3 seconds for stream drop; touch release-disconnect, then Reconnect → Take over again (tablet/computer).'],
  pause_fails_503:['working','Take over → confirm → Chat → Pause and return; signed pause refusal maps to HTTP 503.'],
@@ -55,7 +56,7 @@ const setting=async(c,k,v)=>c.query(`INSERT INTO app_settings(key,value) VALUES(
 export async function seedBrowser(c,{state='working',refresh=false,resourceCount=1}={}){
  const dir=await prepareQaLogins(c),database=(await c.query('SELECT current_database() name')).rows[0].name;
  if(!BASE_STATES.includes(state)&&!RECIPES[state])throw Error('Unknown QA Browser state');
- const requested=state,base=RECIPES[state]?.[0]??state;if(state==='resource_20')resourceCount=20;if(['resource_21','resource_21_pending'].includes(state))resourceCount=21;
+ const requested=state,base=RECIPES[state]?.[0]??state;const ownerBusy=['queued','queue_full','owner_queued_busy'].includes(requested);if(state==='resource_20')resourceCount=20;if(['resource_21','resource_21_pending'].includes(state))resourceCount=21;
  const deadlineMs=state==='resource_expiring'?20000:59000;
  await mkdir(dir,{recursive:true,mode:0o700});await qaPrivatePath(dir);
  await mkdir(dir+'/keys',{mode:0o700,recursive:true});await qaPrivatePath(dir+'/keys');
@@ -66,8 +67,8 @@ export async function seedBrowser(c,{state='working',refresh=false,resourceCount
  // Serialize all seed invocations; no disabling triggers/constraints or schema changes.
  await c.query('SELECT pg_advisory_lock(1150099)');
  try{
-  if(previous?.fixture_revision!==4)refresh=true;
-  const scenario=previous??{v:1,database,install_id:randomUUID(),tasks:{},states:{}};scenario.install_id??=randomUUID();scenario.fixture_revision=4;
+  if(previous?.fixture_revision!==5)refresh=true;
+  const scenario=previous??{v:1,database,install_id:randomUUID(),tasks:{},states:{}};scenario.install_id??=randomUUID();scenario.fixture_revision=5;
   const asWebsite=fn=>qaIdentity(c,website,fn),asService=fn=>qaIdentity(c,'sjcos_browser',fn);
   await asWebsite(async c=>{
    for(const [role,p] of Object.entries(QA_PEOPLE)){
@@ -163,7 +164,7 @@ export async function seedBrowser(c,{state='working',refresh=false,resourceCount
    }
    if(archive)await control('stop');
    // Seed attendance is not an extra device competing with screenshot viewers.
-   if(kind==='other_device'&&!archive)await asWebsite(c=>c.query("UPDATE browser_viewers SET visible_until=(SELECT expires_at FROM web_sessions WHERE id=browser_viewers.web_session_id) WHERE id=$1",[vid]));
+   if((kind==='other_device'||ownerBusy&&role==='staff'&&kind==='working')&&!archive)await asWebsite(c=>c.query("UPDATE browser_viewers SET visible_until=(SELECT expires_at FROM web_sessions WHERE id=browser_viewers.web_session_id) WHERE id=$1",[vid]));
    else await asWebsite(c=>c.query('UPDATE browser_viewers SET left_at=now(),visible_until=now() WHERE id=$1',[vid]));
    if(archive){task=await get();if(task.current_run_id)await asWebsite(c=>c.query("UPDATE dev_agent_runs SET status='done' WHERE id=$1",[task.current_run_id]));}
    scenario.states[key]={url:`/panel?c=${thread}`,as:role,thread_id:thread,task_id:task.id,watch_url:role==='staff'?`/today?browser=${task.id}`:null,notes:`Select with --state ${kind} before capturing; choose Operator > Browser. ${archive?'Historical terminal fixture; not currently selected.':'Selected.'}`};
@@ -173,13 +174,19 @@ export async function seedBrowser(c,{state='working',refresh=false,resourceCount
   if(!previous)for(const role of ['owner','staff'])for(const kind of BASE_STATES)await make(role,kind,{archive:true});
   if(!previous||previous.selected!==requested||refresh){
    for(const file of ['release-disconnect','release-audit'])await rm(dir+'/'+file,{force:true});
-   for(const role of ['owner','staff'])await make(role,base);
+   if(ownerBusy){
+    // Retire the owner's previous task before offering Abigail the real slot.
+    // Otherwise the queue offer could select that older owner task instead.
+    await make('owner','empty');await make('staff','working');await make('owner',base);
+   }else for(const role of ['owner','staff'])await make(role,base);
    // Expire only after both admissions/offers. Otherwise the second person's
    // real queue sweep closes the first person's task before QA can join it.
    if(['offer_expired','queue_expired'].includes(base))for(const role of ['owner','staff'])await asWebsite(c=>c.query(base==='offer_expired'?"UPDATE browser_tasks SET queue_offer_expires_at=clock_timestamp()-interval '1 second' WHERE id=$1":"UPDATE browser_tasks SET queue_expires_at=clock_timestamp()-interval '1 second' WHERE id=$1",[scenario.states[role+'_'+base].task_id]));
    scenario.selected=requested;scenario.selected_at=new Date().toISOString();
   }
+  if(ownerBusy)scenario.states['staff_'+base]={...scenario.states.staff_working};
   for(const role of ['owner','staff'])for(const [name,[kind,notes]] of Object.entries(RECIPES)){const original=scenario.states[role+'_'+kind];scenario.states[role+'_'+name]={...original,notes:`Select with --state ${name}. ${notes}`};}
+  if(ownerBusy)scenario.states['staff_'+requested]={...scenario.states.staff_working,notes:'Abigail is active with a real attached QA run; retained seed attendance lasts until the eight-hour QA session expires. Owner uses this Watch URL.'};
   if(requested==='off')await asWebsite(c=>setting(c,'browser.enabled','false'));
   if(requested==='taking_over')for(const role of ['owner','staff'])scenario.tasks[scenario.states[role+'_working'].task_id].control_delay_ms=1000;
   if(['pause_failed','pause_fails_503'].includes(requested))for(const role of ['owner','staff'])scenario.tasks[scenario.states[role+'_working'].task_id].pause_fails=true;

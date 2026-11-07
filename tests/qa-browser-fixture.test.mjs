@@ -1,4 +1,7 @@
-import test from 'node:test';
+import test,{mock} from 'node:test';
+import fsPromises from 'node:fs/promises';
+import net from 'node:net';
+import {syncBuiltinESMExports} from 'node:module';
 import assert from 'node:assert/strict';
 import {randomBytes,randomUUID,createHash,createHmac} from 'node:crypto';
 import {rm,readFile,mkdir,stat,symlink,writeFile,readdir,realpath,lstat} from 'node:fs/promises';
@@ -201,9 +204,19 @@ test('real harness seed idempotence, all recipes, signed fake RPC and frames',as
  await assert.rejects(protocol.frame(ownerHello(),0));
  assert.equal((await c.query('SELECT browser_p1_private_view(t,v) allowed FROM browser_tasks t JOIN browser_viewers v ON v.task_id=t.id WHERE v.id=$1',[ov.id])).rows[0].allowed,false);
  await writeFile(env.SJC_QA_BROWSER_FAKE+'/release-audit','',{mode:0o600});
- const recovery=await qaProof(c,privateTask,ownerSid,ov.id,'presence',{}, {qa_private_watch:true});
- await client.call('presence',{...binding,viewer_id:ov.id},{proof_id:recovery.id,body:{viewer_id:ov.id,visible:true,generation:Number(ov.stream_generation),idempotency_key:randomUUID()}});
- assert.ok(await protocol.frame(ownerHello(),0));await rm(env.SJC_QA_BROWSER_FAKE+'/release-audit');
+ const consentViewer=(await c.query('SELECT * FROM browser_viewers WHERE id=$1',[ov.id])).rows[0];
+ const poll=()=>adapter.execute({operation:'status',request:new Request('https://qa.example.test/api/agent-browser'),session:{...session,sid:ownerSid},context:{user:owner,task:privateTask,viewer:consentViewer,claim:null,objectId:null},flags:{}});
+ const realLstat=fsPromises.lstat;
+ const statMock=mock.method(fsPromises,'lstat',async path=>path===env.SJC_QA_BROWSER_FAKE+'/control.sock'?{uid:process.getuid(),mode:0o600,isSymbolicLink:()=>false,isSocket:()=>true}:realLstat(path));
+ const connectMock=mock.method(net,'connect',globalThis.__qaConnect);syncBuiltinESMExports();
+ try{assert.equal((await poll()).private_view_status,'authorized');}finally{statMock.mock.restore();connectMock.mock.restore();syncBuiltinESMExports();}
+ // A later poll must preserve the exact consent/stream and still deliver pixels.
+ assert.equal((await poll()).private_view_status,'authorized');
+ for(let seq=0;seq<3;seq++)assert.deepEqual(decodeBinaryFrame(await protocol.frame(ownerHello(),seq),keys.frame,{viewer_id:ov.id}).bytes,cannedFrame('property'));
+ const afterRelease=(await c.query('SELECT * FROM browser_viewers WHERE id=$1',[ov.id])).rows[0];
+ assert.equal(afterRelease.stream_id,consentViewer.stream_id);assert.equal(afterRelease.stream_generation,consentViewer.stream_generation);
+ assert.equal(afterRelease.owner_private_view_authorized_at.getTime(),consentViewer.owner_private_view_authorized_at.getTime());
+ await rm(env.SJC_QA_BROWSER_FAKE+'/release-audit');
  // R3 expectation: refresh works with both attended slots occupied, and
  // retires exact old stream/consent/control bindings without another slot.
  await c.query('UPDATE browser_viewers SET left_at=now() WHERE task_id=$1',[t.id]);
@@ -246,7 +259,7 @@ test('real harness seed idempotence, all recipes, signed fake RPC and frames',as
 
   // R3: both people get real own-task queue/expired projections. A seed of
   // the second person must not close the first person's expired offer.
-  if(['queued','offer_expired','queue_expired'].includes(state))for(const role of ['owner','staff']){
+  if(['queued','owner_queued_busy','offer_expired','queue_expired'].includes(state))for(const role of (['queued','owner_queued_busy'].includes(state)?['owner']:['owner','staff'])){
    const queueTask=await projectTask(selected.states[role+'_'+state].task_id);assert.equal(queueTask.state,'queued',role+' '+state);
    const person=role==='owner'?owner:staff,ws=(await c.query('SELECT *,extract(epoch FROM auth_at)::float auth_s,extract(epoch FROM expires_at)::float exp_s FROM web_sessions WHERE id=$1',[queueTask.initiating_web_session_id])).rows[0];
    const qs={sid:ws.id,userId:person.id,generation:Number(ws.generation),authAt:ws.auth_s,exp:ws.exp_s};
@@ -254,14 +267,25 @@ test('real harness seed idempotence, all recipes, signed fake RPC and frames',as
    const request=new Request('https://qa.example.test/api/agent-browser/tasks/'+queueTask.id+'/join');
    const ctx=await adapter.authorize({request,session:qs,path:'/tasks/'+queueTask.id+'/join'});
    const joined=await adapter.execute({operation:'join',request,session:qs,context:ctx,body:{mode:'initiator',device_id:randomUUID(),idempotency_key:randomUUID()},flags:{}});
-   assert.equal(joined.task.state,'queued');assert.equal(joined.offer_status,state==='queued'?'waiting':state==='offer_expired'?'expired':'queue_expired');
+   assert.equal(joined.task.state,'queued');assert.equal(joined.offer_status,['queued','owner_queued_busy'].includes(state)?'waiting':state==='offer_expired'?'expired':'queue_expired');
    // Queued tasks have no controller boot. An attempted events request fails
    // in the website before any fake RPC, even after successful attendance.
-   if(role==='owner'&&['queued','queue_expired'].includes(state)){
+   if(role==='owner'&&['queued','owner_queued_busy','queue_expired'].includes(state)){
     const v=(await c.query('SELECT * FROM browser_viewers WHERE id=$1',[joined.viewer_id])).rows[0],before=connected.length;
     await assert.rejects(adapter.execute({operation:'events',request,session:qs,context:{...ctx,viewer:v},body:{},flags:{}}),e=>{assert.equal(errorResponse(e).status,503);assert.match(e.message,/BROWSER_SERVICE_UNAVAILABLE/);return true;});
     assert.equal(connected.length,before,'queued events must not reach fake');
    }
+  }
+  if(['queued','queue_full','owner_queued_busy'].includes(state)){
+   const holder=await projectTask(selected.states.staff_working.task_id);
+   assert.equal(holder.state,'active');assert.ok(holder.current_run_id);
+   assert.equal((await c.query('SELECT status FROM dev_agent_runs WHERE id=$1',[holder.current_run_id])).rows[0].status,'running');
+   const attendance=(await c.query('SELECT visible_until,left_at FROM browser_viewers WHERE task_id=$1 AND left_at IS NULL',[holder.id])).rows;
+   assert.equal(attendance.length,1);assert.ok(attendance[0].visible_until>new Date());
+   const queued=await execute('status',await projectTask(selected.states['owner_'+state].task_id));
+   assert.equal(queued.busy_with_label,'Abigail');assert.equal((await execute('availability')).busy_with_label,'Abigail');
+   assert.equal((await execute('in_use')).items[0].person_label,'Abigail');
+   assert.equal((await execute('status',holder,staff)).busy_with_label,null);
   }
   if(['empty','unsupported','settings'].includes(state))assert.equal((await c.query("SELECT count(*)::int n FROM browser_tasks WHERE initiator_user_id IN ($1,$2) AND state IN ('queued','starting','active','paused')",[QA_PEOPLE.owner.id,QA_PEOPLE.staff.id])).rows[0].n,0);
   if(['guarded_menu','reload_confirm'].includes(state))assert.equal(entry.navigation,true);

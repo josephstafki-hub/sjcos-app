@@ -56,6 +56,11 @@ def origin(config):
                 block=b'<!doctype html><title>fixture</title><link rel="icon" href="data:,">'.ljust(65536,b' ')
                 while length:
                     n=min(65536,length);s.sendall(block[:n]);length-=n
+                # An EOF-delimited body must end with a TLS close_notify; a bare TCP close is truncation-ambiguous
+                # and the gate correctly refuses it. Python's SSLSocket.close() never sends close_notify, so unwrap().
+                if mode=='unknown-length':
+                    try:s.unwrap()
+                    except (OSError,ssl.SSLError):pass
         except (OSError,ValueError):pass
         finally:raw.close();slots.release()
     Path(config['ready']).write_text('ready')

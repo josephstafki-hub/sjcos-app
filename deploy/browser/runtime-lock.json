@@ -25,7 +25,7 @@
     "deploy/browser/containment.mjs": "2a7e6615ef604f6e17fcc1de0c391c95a5880857183c280f3b2c25c3268200fa",
     "deploy/browser/controller-adapter.mjs": "1ec4a0bcfbabdc7f500a5f4e52ed79f2a9dfa03f472b7187b8420f891924a02c",
     "deploy/browser/egress_gate.py": "f64518a5b1eb9db32c7a7a3ab9a9bde4fdcf686f43b2593501bfa87e82702f01",
-    "deploy/browser/fixtures/fixture-io.py": "9f58e1a5352caf208c55a12f0f5ddfb3703473ff78995ccd457b5a786b314302",
+    "deploy/browser/fixtures/fixture-io.py": "31c226449740debf2a160f79591db5884e162bfd728b3e7b809e8bec6e0a75aa",
     "deploy/browser/fixtures/network-driver.py": "5220c3bfd45b7924c7d87bc468b5e47a0d2f3c810d6a58c43c16d7bd7c9540f5",
     "deploy/browser/fixtures/root-fixture.mjs": "a091800f3260be824c3daa86ec5b22144ee5ed40f3f92e92f4e903b3614131ac",
     "deploy/browser/fixtures/rss-driver.py": "35bf2360f5e23ba77e66a116113d6d78c2954fd41bcde6dd101661172c1b58c8",

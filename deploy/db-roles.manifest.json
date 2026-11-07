@@ -217,7 +217,7 @@
       "sjcos_readonly": [
         "SELECT"
       ],
-      "note": "Protected immutable trust_profile/browser_task_id: website only; narrow writers cannot assign them even their defaults."
+      "note": "Protected immutable trust_profile/browser_task_id: website only; narrow writers cannot assign them even their defaults. A1 lib/browser/model-history.mjs appendBrowserMessage is a website bridge write path only; never grant it to sjcos_browser or sjcos_agent."
     },
     "app_change_log": {
       "sjcos_agent": [

@@ -747,6 +747,9 @@ DO $$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='sjcos_browser') THEN
 DO $$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='sjcos_browser') THEN GRANT EXECUTE ON FUNCTION browser_queue_offer(uuid) TO sjcos_browser; END IF; END $$;
 -- Actual generator output: node scripts/db-roles-sql.mjs ai_messages app_settings
 DO $$ BEGIN IF EXISTS(SELECT 1 FROM pg_roles WHERE rolname='sjcos_worker') THEN REVOKE INSERT,UPDATE ON ai_messages FROM sjcos_worker; END IF; END $$;
+-- A1 appendBrowserMessage (lib/browser/model-history.mjs) uses the website-only
+-- protected provenance path; it needs no narrow table write grant. Generator
+-- output below remains exact, including column-level worker restrictions.
 SELECT sjcos_grant('sjcos_agent', 'SELECT', 'ai_messages');
 SELECT sjcos_grant('sjcos_worker', 'SELECT, INSERT (id, conversation_id, role, body, page_context, cost_usd, created_at, run_id), UPDATE (id, conversation_id, role, body, page_context, cost_usd, created_at, run_id)', 'ai_messages');
 SELECT sjcos_grant('sjcos_readonly', 'SELECT', 'ai_messages');

@@ -258,7 +258,7 @@
     "lib/browser/model-history.mjs": "aea1e1c897ca3dfa1ba17879c46a24f60d3169814e787230dc9cda9901849dd8",
     "lib/browser/repository.mjs": "0332921da517b6ed374712d567cabd839dd6228d4e6e094abc521577d80e9fc0",
     "lib/browser/root-fixture.mjs": "fff1835c62526e0d71c3a76ddcb6175aa171eb4bcfdba7223b4190998d3b1994",
-    "db/migrations/0115_browser_phase1_runtime.sql": "2bd8bbd9d991f903ba743e41494f3d5d4117c18395b4964b2db773cc4ff3fe7f",
+    "db/migrations/0115_browser_phase1_runtime.sql": "df89cc47067a829cf383972dbce855e04c60a3dec5f7a71c8d731e4952ff6034",
     "lib/browser/web.ts": "871394feb60dc51212b046dbdfca7045ed0ba1b86fd753c5c42aec41c5b787a6"
   },
   "entries": [
@@ -7188,7 +7188,7 @@
       "reason": "fenced-by-helper",
       "explanation": "A0 single migration adds definer catalog, strict session_user website/service boundary, immutable task/run/message trust, one-use read consumption and separate verified checkpoint. No production keys/approval grants in SQL. Actual-login and upgrade/replay gates passed.",
       "queries": [
-        "2bd8bbd9d991f903ba743e41494f3d5d4117c18395b4964b2db773cc4ff3fe7f"
+        "df89cc47067a829cf383972dbce855e04c60a3dec5f7a71c8d731e4952ff6034"
       ]
     },
     {

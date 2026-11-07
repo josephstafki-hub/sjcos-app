@@ -27,7 +27,7 @@ async function productionAdapter(rowsFor,options={}){
   'server-only':{},'node:crypto':await import('node:crypto'),'@/lib/db':{},'@/lib/web-sessions':{validateWebSession:async()=>true},
   './phase-flags.mjs':await import('../lib/browser/phase-flags.mjs'),'./phase1-contracts.mjs':await import('../lib/browser/phase1-contracts.mjs'),
   './website-bridge.mjs':await import('../lib/browser/website-bridge.mjs'),'./repository.mjs':await import('../lib/browser/repository.mjs'),'./privacy.mjs':await import('../lib/browser/privacy.mjs'),'./read-manifest.mjs':await import('../lib/browser/read-manifest.mjs'),
-  './web-transport.mjs':await import('../lib/browser/web-transport.mjs'),'./live-view.mjs':await import('../lib/browser/live-view.mjs'),'./web-rpc':{},
+  './web-transport.mjs':await import('../lib/browser/web-transport.mjs'),'./live-view.mjs':await import('../lib/browser/live-view.mjs'),'./web-rpc':{},'./runtime-endpoints':{readinessSource:()=>({evaluateFlags:awaitFlags.evaluatePhase1Flags})},
  };const exports={};runInNewContext(ts.transpileModule(readFileSync(new URL('../lib/browser/web.ts',import.meta.url),'utf8'),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText,{exports,require:name=>deps[name]??{},Buffer,URL,Response,Date,process,setTimeout,clearTimeout,Uint8Array});let rpcCalls=0;const db={query:async(sql,args)=>({rows:rowsFor(sql,args)}),connect:async()=>{throw Error('unexpected mutation');}};return {adapter:exports.createWebsiteAdapter({db,key:Buffer.alloc(32,8),controller:{call:async()=>{rpcCalls++;},frames:async()=>{throw Error('no frame');}},...options}),calls:()=>rpcCalls,hash:s=>createHash('sha256').update(s).digest()};
 }
 test('production authorization rejects wrong staff, removed area, disabled user and copied device with wrong sid',async()=>{
@@ -111,3 +111,21 @@ test('R1 Sites stages exact new-site/path review without duplicate origin or nav
   assert.equal(manifests[0].entries.length,originUrl==='https://portal.example'?1:2);assert.deepEqual(JSON.parse(JSON.stringify(discoveries[0].proposal)),proposal);assert.equal(p.calls(),0);
  }
 });
+
+// R2 security expectations: production imports never reach QA trust replacements,
+// even with QA environment variables and a QA-named disposable database.
+test('R2 production endpoint leaf cannot select QA trust by environment or database name',async()=>{
+ const {readFileSync}=await import('node:fs'),{runInNewContext}=await import('node:vm'),ts=(await import('typescript')).default;
+ const source=readFileSync(new URL('../lib/browser/runtime-endpoints.ts',import.meta.url),'utf8');
+ for(const file of ['phase-flags.mjs','web.ts','web-rpc.ts','runtime-endpoints.ts'])assert.doesNotMatch(readFileSync(new URL('../lib/browser/'+file,import.meta.url),'utf8'),/qaBrowserDirectory|createQaWebsiteHooks|SJC_QA|qa-browser-fake/);
+ const {withTestDb}=await import('./_harness/testdb.mjs');
+ await withTestDb(async(_url,db)=>{
+  await db.query('CREATE DATABASE sjcos_qa_r2_production_boundary');
+  const exports={},seen=[];
+  runInNewContext(ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText,{exports,Buffer,process:{env:{SJC_QA_SIDE_BUILD:'1',SJC_QA_BROWSER_FAKE:'/tmp/fake',SJC_BROWSER_WEB_RPC_KEY:'11'.repeat(32),SJC_BROWSER_WEB_RESPONSE_KEY:'22'.repeat(32),SJC_BROWSER_FRAME_KEY:'33'.repeat(32)}},require:name=>name==='./website-bridge.mjs'?{loadWebsiteBridge:async input=>{seen.push(input);throw Error('protected trust refused');}}:name==='./phase-flags.mjs'?awaitFlags:{}});
+  assert.equal(exports.browserWebEndpoint().control,'/run/sjcos-browser/control.sock');
+  assert.equal(exports.browserWebEndpoint().frames,'/run/sjcos-browser/frames.sock');
+  await assert.rejects(exports.loadWebsiteTrust({db,key:Buffer.alloc(32),controller:{}}),/protected trust refused/);assert.equal(seen.length,1);
+ });
+});
+const awaitFlags=await import('../lib/browser/phase-flags.mjs');

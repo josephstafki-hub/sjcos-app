@@ -1,11 +1,10 @@
 import 'server-only';
 import {connect} from 'node:net';
-import {lstat} from 'node:fs/promises';
 import {randomUUID,createHash,createHmac} from 'node:crypto';
 import type {z} from 'zod';
 import {WebEnvelopeV1,RPCPayloads,UUID} from './phase1-contracts.mjs';
 import {canonical,digest,fail,metadataBytes,verifyRpcResponse,collectMetadataPages} from './web-transport.mjs';
-import {qaBrowserDirectory} from './phase-flags.mjs';
+import {browserWebEndpoint} from './runtime-endpoints';
 import {binaryReader} from './live-view.mjs';
 export type RpcMethod=keyof typeof RPCPayloads;
 export type RpcPayload<M extends RpcMethod>=z.infer<(typeof RPCPayloads)[M]>;
@@ -18,22 +17,11 @@ export interface WebController {
  pages?(method:PagedRpcMethod,binding:RpcBinding,nextPayload:PagePayload):Promise<{items:unknown[];next_cursor:null;revision:number}>;
  frames(binding:FrameBinding,onFrame:(frame:unknown)=>void,onError:()=>void):Promise<()=>void>;
 }
-/** Parent and sockets are installation-owned; never follow symlinks. */
-async function trustedSocket(path:string){
- if(!/^\/run\/sjcos-browser\/(?:control|frames)\.sock$/.test(path))fail('BROWSER_SERVICE_UNAVAILABLE');
- for(const part of ['/run','/run/sjcos-browser',path]){const s=await lstat(part);if(s.isSymbolicLink()||s.uid!==0||(s.mode&0o002)||(part===path?!s.isSocket():!s.isDirectory()))fail('BROWSER_SERVICE_UNAVAILABLE');}
-}
 export class UnixWebController implements WebController {
  private sequence=0;
- constructor(private requestKey:Buffer,private responseKey:Buffer,private frameKey:Buffer,private qaDb?:{query:Function}){if([requestKey,responseKey,frameKey].some(k=>k.length!==32))fail('BROWSER_DISABLED');if(requestKey.equals(responseKey)||requestKey.equals(frameKey)||responseKey.equals(frameKey))fail('BROWSER_DISABLED');}
+ constructor(private requestKey:Buffer,private responseKey:Buffer,private frameKey:Buffer){if([requestKey,responseKey,frameKey].some(k=>k.length!==32))fail('BROWSER_DISABLED');if(requestKey.equals(responseKey)||requestKey.equals(frameKey)||responseKey.equals(frameKey))fail('BROWSER_DISABLED');}
  private async socketPath(kind:'control'|'frames'){
-  const dir=this.qaDb?await qaBrowserDirectory(this.qaDb):null;
-  if(!dir){const path=`/run/sjcos-browser/${kind}.sock`;await trustedSocket(path);return path;}
-  const path=`${dir}/${kind}.sock`;
-  for(const part of ['/home','/home/joe','/home/joe/qa-sjcos',...dir.slice('/home/joe/qa-sjcos/'.length).split('/').map((_,i,a)=>'/home/joe/qa-sjcos/'+a.slice(0,i+1).join('/')),path]){
-   const s=await lstat(part);if(s.isSymbolicLink()||(s.mode&(part.startsWith('/home/joe/qa-sjcos/')?0o022:0o002))||(part===path?(!s.isSocket()||s.uid!==process.getuid?.()):!s.isDirectory()))fail('BROWSER_DISABLED');
-  }
-  return path;
+  return browserWebEndpoint().socketPath(kind);
  }
  async call<M extends RpcMethod>(method:M,binding:RpcBinding,payload:RpcPayload<M>):Promise<Record<string,unknown>>{
   const now=Date.now();RPCPayloads[method].parse(payload);UUID.parse(binding.boot_id);

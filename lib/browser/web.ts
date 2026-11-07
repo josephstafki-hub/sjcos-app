@@ -3,11 +3,10 @@ import {randomBytes,randomUUID,createHash,createHmac} from 'node:crypto';
 import type {Pool,PoolClient} from 'pg';
 import {pool} from '@/lib/db';
 import {readBrowserCookieSession,validateWebSession,browserSessionSecretReady,type WebSessionIdentity} from '@/lib/web-sessions';
-import {createQaWebsiteHooks} from '../../scripts/qa-browser-fake-controller.mjs';
-import {evaluatePhase1Flags,qaBrowserDirectory} from './phase-flags.mjs';
+import {browserWebEndpoint,loadWebsiteTrust,readinessSource} from './runtime-endpoints';
 import {TaskUI,ReviewNotice,OriginManifest,UUID,ConfirmedAnswer,ReadManifestV1,ReadCandidate,ControlMessage,ManualInput} from './phase1-contracts.mjs';
 import * as repo from './repository.mjs';
-import {loadWebsiteBridge,navigationControls,navigationProjection} from './website-bridge.mjs';
+import {navigationControls,navigationProjection} from './website-bridge.mjs';
 import {authorizeManualInput} from './privacy.mjs';
 import {buildReadManifest,validateReadProposal,publishReadManifest} from './read-manifest.mjs';
 import {createBrowserWebHandler,digest,equal,fail,InputDedupe,RateWindow,PRIVATE_HEADERS,PREPARED_ANSWER_SOURCE_SQL,availableControls,pageQuery,projectMetadataPage,StatusProjection,acknowledgePlannedClose} from './web-transport.mjs';
@@ -46,7 +45,7 @@ export function createWebsiteAdapter({db,controller,key,websiteHooks={}}:{db:Poo
  const one=async(sql:string,args:unknown[]=[])=>{const {rows}=await db.query(sql,args);return rows[0]??null;};
  const loadTask=async(id:string)=>{const row=await one(`SELECT t.*,coalesce((SELECT max(revision) FROM browser_read_manifests WHERE task_id=t.id),0) read_manifest_revision FROM browser_tasks t WHERE t.id=$1`,[id]);if(row)for(const k of ['control_epoch','document_epoch','context_generation','revision','read_manifest_revision']){row[k]=Number(row[k]);if(!Number.isSafeInteger(row[k]))fail('BROWSER_SERVICE_UNAVAILABLE');}return row;};
  async function settings(){const {rows}=await db.query(`SELECT key,value,updated_at FROM app_settings WHERE key LIKE 'browser.%'`);return {values:Object.fromEntries(rows.map(r=>[r.key,r.value])),revision:Math.max(1,...rows.map(r=>epoch(r.updated_at)))};}
- async function flags(session:Session){const user=await one('SELECT id,role,active,permissions FROM users WHERE id=$1',[session.userId]);return evaluatePhase1Flags({settings:(await settings()).values,env:process.env,user});}
+ async function flags(session:Session){const user=await one('SELECT id,role,active,permissions FROM users WHERE id=$1',[session.userId]);return readinessSource().evaluateFlags({settings:(await settings()).values,env:process.env,user});}
  async function ownThread(id:string,userId:string){if(!UUID.safeParse(id).success||!await one(`SELECT id FROM ai_conversations WHERE id=$1 AND owner_user_id=$2 AND deleted_at IS NULL`,[id,userId]))fail('BROWSER_NOT_FOUND');}
  async function records(task:Row){if(task.project_id&&!await one('SELECT id FROM projects WHERE id=$1',[task.project_id]))fail('BROWSER_REVOKED');if(task.lead_slug&&!await one('SELECT slug FROM leads WHERE slug=$1',[task.lead_slug]))fail('BROWSER_REVOKED');await ownThread(task.conversation_id,task.initiator_user_id);}
  async function authorize({request,session,path}:{request:Request;session:Session;path:string}):Promise<Context>{
@@ -209,7 +208,7 @@ export function createWebsiteAdapter({db,controller,key,websiteHooks={}}:{db:Poo
     if(ctx.user.role!=='owner')fail('BROWSER_FORBIDDEN');const current=await settings();if(operation==='settings'){
      if(current.revision!==b.expected_revision)fail('BROWSER_REVIEW_STALE');
      await transaction(async c=>{await c.query('SELECT pg_advisory_xact_lock(1150002)');const fresh=await settings();if(fresh.revision!==b.expected_revision)fail('BROWSER_REVIEW_STALE');for(const [key,value]of Object.entries({'browser.enabled':String(b.enabled),'browser.staff_enabled':String(b.staff_enabled),'browser.pilot_user_ids':JSON.stringify(b.pilot_user_ids),'browser.takeover_confirm_suppressed_user_ids':JSON.stringify(b.suppress_own_takeover_confirm?[session.userId]:[])}))await c.query('UPDATE app_settings SET value=$2,updated_at=clock_timestamp() WHERE key=$1',[key,value]);});
-    }const s=await settings();return {flags:evaluatePhase1Flags({settings:s.values,env:process.env,user:ctx.user as never}).flags,pilot_user_ids:JSON.parse(s.values['browser.pilot_user_ids']??'[]'),takeover_confirm_suppressed_user_ids:JSON.parse(s.values['browser.takeover_confirm_suppressed_user_ids']??'[]'),revision:s.revision};
+    }const s=await settings();return {flags:readinessSource().evaluateFlags({settings:s.values,env:process.env,user:ctx.user as never}).flags,pilot_user_ids:JSON.parse(s.values['browser.pilot_user_ids']??'[]'),takeover_confirm_suppressed_user_ids:JSON.parse(s.values['browser.takeover_confirm_suppressed_user_ids']??'[]'),revision:s.revision};
    }
    default:fail('BROWSER_PHASE1_READ_ONLY');
   }
@@ -218,16 +217,14 @@ export function createWebsiteAdapter({db,controller,key,websiteHooks={}}:{db:Poo
  return {session:async()=>readBrowserCookieSession(),authorize,flags,execute};
 }
 let handler:((request:Request)=>Promise<Response>)|null=null;
-let handlerQaDir:string|null=null;
 /** One route entry point: never DAL React cache, redirects, bearer or legacy JWT. */
 export async function requireBrowserWebRequest(request:Request):Promise<Response>{
  if(!browserSessionSecretReady())return new Response(JSON.stringify({ok:false,code:'BROWSER_DISABLED',message:'BROWSER_DISABLED',retryable:false}),{status:503,headers:{...PRIVATE_HEADERS,'Content-Type':'application/json'}});
- if(!handler){const key=Buffer.from(process.env.SJC_BROWSER_WEB_RPC_KEY??'','hex'),responseKey=Buffer.from(process.env.SJC_BROWSER_WEB_RESPONSE_KEY??'','hex'),frameKey=Buffer.from(process.env.SJC_BROWSER_FRAME_KEY??'','hex');
+ if(!handler){const {key,responseKey,frameKey}=browserWebEndpoint().keys();
   if([key,responseKey,frameKey].some(k=>k.length!==32))return new Response(JSON.stringify({ok:false,code:'BROWSER_DISABLED',message:'BROWSER_DISABLED',retryable:false}),{status:503,headers:{...PRIVATE_HEADERS,'Content-Type':'application/json'}});
   const origin=new URL(process.env.NEXT_PUBLIC_APP_URL??'https://os.sjcarpentryllc.com').origin;
-  try{const qaDir=await qaBrowserDirectory(pool);handlerQaDir=qaDir;const websiteHooks=qaDir?await createQaWebsiteHooks({db:pool,key,dir:qaDir}):await loadWebsiteBridge({db:pool,key,controller:new UnixWebController(key,responseKey,frameKey,pool)});handler=createBrowserWebHandler({origin,csrfKey:process.env.SESSION_SECRET,...createWebsiteAdapter({db:pool,controller:new UnixWebController(key,responseKey,frameKey,pool),key,websiteHooks})});}
+  try{const controller=new UnixWebController(key,responseKey,frameKey);const websiteHooks=await loadWebsiteTrust({db:pool,key,controller});handler=createBrowserWebHandler({origin,csrfKey:process.env.SESSION_SECRET,...createWebsiteAdapter({db:pool,controller,key,websiteHooks})});}
   catch{return new Response(JSON.stringify({ok:false,code:'BROWSER_DISABLED',message:'BROWSER_DISABLED',retryable:false}),{status:503,headers:{...PRIVATE_HEADERS,'Content-Type':'application/json'}});}
  }
- try{if(await qaBrowserDirectory(pool)!==handlerQaDir)fail('BROWSER_DISABLED');}catch{return new Response(null,{status:503,headers:PRIVATE_HEADERS});}
  return handler!(request);
 }

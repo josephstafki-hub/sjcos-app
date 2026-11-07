@@ -22,8 +22,8 @@ HOME = Path('/var/lib/sjcos-browser')
 STATE = HOME / 'acceptance-provision'
 JOURNAL = STATE / 'journal.json'
 UPSTREAM = '829521b67ed7be90c7d6d6098ff39f2241562d47e4ad7ccab13710924a56001d'
-PATCHED = '0207923460c82ee5d394ff12d180bfbd15a005ddd8baf2a1ac99032dc3642cca'
-PATCH = '3e38d67da1c5d3d60cf451d4d8f8f9328be3ecf238c6a099afcf91adab3abea1'
+PATCHED = 'ff2d54f56eaf11f020ee2c42c8ad37dffbf19f41e4d6dd0494aa0d706e4acea8'
+PATCH = '1b6e716f69d9e6d84de57edec30e42a278c8d8463668a8663121e02d54fc8b51'
 
 def fail(code):
     raise RuntimeError(code)

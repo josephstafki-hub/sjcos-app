@@ -1,0 +1,21 @@
+/** Client safe. Runtime validators remain in the frozen A0 contract module. */
+import type { z } from 'zod';
+import type * as Contract from './phase1-contracts.mjs';
+export type Task = z.infer<typeof Contract.Task>;
+export type TaskDraft = z.infer<typeof Contract.TaskDraft>;
+export type TaskUI = z.infer<typeof Contract.TaskUI>;
+export type TaskMetadata = z.infer<typeof Contract.TaskMetadata>;
+export type ReviewNotice = z.infer<typeof Contract.ReviewNotice>;
+export type OwnerBrowserReviewClaim = z.infer<typeof Contract.OwnerBrowserReviewClaim>;
+export type ManualInput = z.infer<typeof Contract.ManualInput>;
+export type ControlMessage = z.infer<typeof Contract.ControlMessage>;
+export type Frame = z.infer<typeof Contract.Frame>;
+export type BrowserError = z.infer<typeof Contract.WebError>;
+export type BrowserEventName = keyof typeof Contract.EventPayloads;
+export type BrowserEvents = { [K in BrowserEventName]: z.infer<(typeof Contract.EventPayloads)[K]> };
+export type BrowserStatus = TaskMetadata & {task:TaskUI;active_run_id:string|null;available_controls:string[];pending_action:ReviewNotice|null;downloads:never[];queue_position:number|null;server_time:string};
+export type BrowserJoin = TaskMetadata & {viewer_id:string;device_secret:string;expires_at:string;task:TaskUI;owner_review_claim?:OwnerBrowserReviewClaim};
+export type BrowserAvailability = {enabled:boolean;staff_enabled:boolean;can_start:boolean;reason_code:string|null;revision:number};
+export type BrowserResponse<T> = ({ok:true}&T)|BrowserError;
+export const BROWSER_API='/api/agent-browser';
+export const BROWSER_HEADERS={viewer:'X-SJC-Browser-Viewer',device:'X-SJC-Browser-Device',claim:'X-SJC-Browser-Claim',csrf:'X-SJC-CSRF'} as const;

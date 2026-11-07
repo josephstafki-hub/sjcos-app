@@ -51,7 +51,7 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
 
   const perms = user.role === "staff" ? normalizePermissions(user.permissions) : [];
   await createSession(user.id, user.role, perms);
-  redirect(formData.has("returnTo") ? validateAppReturnPath(formData.get("returnTo")) : homeForRole(user.role, perms)); // throws — must be outside try/catch
+  redirect(formData.has("returnTo") ? validateAppReturnPath(formData.getAll("returnTo").length === 1 ? formData.get("returnTo") : null) : homeForRole(user.role, perms)); // throws — must be outside try/catch
 }
 
 export async function logout(): Promise<void> {

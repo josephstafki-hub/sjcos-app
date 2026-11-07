@@ -7,6 +7,8 @@ import { login, type LoginState } from "@/lib/actions/auth";
 const FIELD =
   "min-h-11 rounded-md border border-rule bg-paper px-3 py-2 text-subheading text-ink outline-none focus:border-accent";
 
+/** returnTo is server-validated. The login action rechecks the submitted hidden
+ * value and rejects duplicates; rendering it grants no Browser authority. */
 export function LoginForm({ returnTo }: { returnTo?: string | null }) {
   const [state, action, pending] = useActionState<LoginState, FormData>(login, {});
 

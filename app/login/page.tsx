@@ -36,7 +36,7 @@ const INVITE_NOTICE: Record<string, string> = {
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ invite?: string; returnTo?: string }>;
+  searchParams: Promise<{ invite?: string; returnTo?: string | string[] }>;
 }) {
   const { invite, returnTo: rawReturn } = await searchParams;
   const returnTo = rawReturn === undefined ? null : validateAppReturnPath(rawReturn);

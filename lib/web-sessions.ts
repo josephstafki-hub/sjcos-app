@@ -25,10 +25,11 @@ export function validateBrowserReturnPath(input: unknown): string | null {
   if (keys.length < 1 || keys.length > 2 || new Set(keys).size !== keys.length || keys.some(k=>k!=='browser'&&k!=='review')) return null;
   const task = u.searchParams.get('browser'), review = u.searchParams.get('review');
   if (!task || !UUID.test(task) || (review !== null && !UUID.test(review))) return null;
-  return `/today?browser=${task.toLowerCase()}${review ? `&review=${review.toLowerCase()}` : ''}`;
+  const canonical = `/today?browser=${task.toLowerCase()}${review ? `&review=${review.toLowerCase()}` : ''}`;
+  return input === canonical ? canonical : null;
 }
 // Keep this list aligned with app/(os) pages; do not allow auth/API/portal routes.
-const APP_RETURN_ROUTE = /^(?:\/|\/(?:notifications|files|compliance|newsletter|cmdk|unsorted|ai|messages|catalog|money|today-preview|today|time|warranty|inbox|cost-book|workbench|site|marketing|schedule|calls|scan|chat)|\/(?:leads|subs|vendors|floor)(?:\/[^/]+)?|\/projects(?:\/[^/]+(?:\/scope)?)?|\/settings(?:\/(?:pricing|overhead|payments|accounting)|\/team\/[^/]+)?|\/engine(?:\/(?:permissions|decisions|capabilities|measure|ui|houzz-exit))?)$/;
+const APP_RETURN_ROUTE = /^(?:\/|\/(?:notifications|files|compliance|newsletter|cmdk|unsorted|ai|messages|catalog|money|today-preview|today|time|warranty|inbox|cost-book|workbench|site|marketing|schedule|calls|scan|chat)|\/(?:leads|subs|vendors|floor)(?:\/[^/]+)?|\/projects(?:\/[^/]+(?:\/scope)?)?|\/settings(?:\/(?:pricing|overhead|payments|accounting|browser)|\/team\/[^/]+)?|\/engine(?:\/(?:permissions|decisions|capabilities|measure|ui|houzz-exit))?)$/;
 
 /** Ordinary sign-in return. Browser review authority uses its separate, narrow
  * allowlist above. Return only app pages, with transient pane selectors removed. */
@@ -48,6 +49,8 @@ export function validateAppReturnPath(input: unknown): string {
     }
     const browser = validateBrowserReturnPath(input);
     if (browser) return browser;
+    // A malformed Browser return must never become a different app navigation.
+    if (/^\/today\?/.test(input) && /(?:^|[?&])(?:browser|review|returnTo)=/.test(input)) return '/today';
     const url = new URL(input, "https://app.invalid");
     // Validate the original pathname as well as its decoded versions.
     if (url.origin !== "https://app.invalid" || !APP_RETURN_ROUTE.test(decodeURIComponent(url.pathname))) return "/today";

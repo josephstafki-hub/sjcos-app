@@ -161,9 +161,11 @@ async function appProxy(req: NextRequest) {
   // only selects transport; it never grants permission to an action.
   if (req.method === "POST" && req.headers.has("Next-Action")) return next(req);
   const session = await readSession(req);
-  const rawReturn = path === "/login" ? req.nextUrl.searchParams.get("returnTo") : path + req.nextUrl.search;
+  const rawReturn = path === "/login" ? (req.nextUrl.searchParams.getAll("returnTo").length === 1 ? req.nextUrl.searchParams.get("returnTo") : null) : path + req.nextUrl.search;
   const browserReturn = validateBrowserReturnPath(rawReturn);
   const returnPath = rawReturn === null ? null : validateAppReturnPath(rawReturn);
+  // Browser return redirects use installation configuration, never Host / forwarded Host.
+  const browserOrigin = new URL(process.env.NEXT_PUBLIC_APP_URL ?? "https://os.sjcarpentryllc.com").origin;
   const needsSignin = !!browserReturn && !session?.sid;
   // One re-sign per request at most, reused across whichever exit path we take.
   // Never on /logout: that route answers with its own Set-Cookie clearing the
@@ -174,7 +176,7 @@ async function appProxy(req: NextRequest) {
   // Unauthenticated → only the public paths are reachable.
   if (!session || needsSignin) {
     if (PUBLIC_PATHS.includes(path)) return NextResponse.next();
-    const url = req.nextUrl.clone();
+    const url = browserReturn ? new URL("/login", browserOrigin) : req.nextUrl.clone();
     url.pathname = "/login";
     // Rebuild the login query from the validated app return and portal notice;
     // never copy raw page parameters into the login URL.
@@ -188,8 +190,8 @@ async function appProxy(req: NextRequest) {
 
   // Authenticated hitting /login → straight to their home.
   if (path === "/login") {
-    const url = req.nextUrl.clone();
-    const target = new URL(returnPath ?? homeFor(session), req.url);
+    const url = browserReturn ? new URL(browserOrigin) : req.nextUrl.clone();
+    const target = new URL(returnPath ?? homeFor(session), browserReturn ? browserOrigin : req.url);
     url.pathname = target.pathname;
     url.search = target.search;
     url.hash = target.hash;
